@@ -81,3 +81,17 @@ Autonomous bots can spam or grief if misconfigured. Start on a private test serv
 
 ---
 Happy hacking! PRs and ideas welcome.
+
+Development
+- Lint: `npm run lint` (ESLint)
+- Format: `npm run format` (Prettier)
+- Check: `npm run check` (ESLint + Prettier check)
+- Conventional commits enforced via commitlint (Husky `commit-msg` hook)
+- Pre-commit runs lint-staged to format and fix changed files
+
+Setup hooks
+Hooks are configured but require dependencies installed. Run:
+```bash
+npm install
+npm run prepare  # sets up Husky
+```
