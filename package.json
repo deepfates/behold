@@ -7,7 +7,11 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "lint": "eslint .",
+    "format": "prettier -w .",
+    "check": "eslint . && prettier -c .",
+    "prepare": "husky install"
   },
   "engines": {
     "node": ">=18"
@@ -15,5 +19,20 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "mineflayer": "^4.20.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.4.0",
+    "@commitlint/config-conventional": "^19.2.2",
+    "eslint": "^9.11.1",
+    "husky": "^9.1.6",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.3.3"
+  },
+  "lint-staged": {
+    "**/*.{js,ts,jsx,tsx,json,md}": [
+      "prettier -w",
+      "eslint --fix --max-warnings=0",
+      "git add"
+    ]
   }
 }
