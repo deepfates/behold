@@ -1,0 +1,19 @@
+{
+  "name": "behold",
+  "version": "0.1.0",
+  "description": "Minecraft agent template using Mineflayer and ax-llm",
+  "private": true,
+  "main": "src/index.js",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mineflayer": "^4.20.0"
+  }
+}
