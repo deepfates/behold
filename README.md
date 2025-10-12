@@ -49,19 +49,22 @@ Environment Variables
 - `MINECRAFT_PASSWORD` — Password (leave empty for offline)
 - `MINECRAFT_AUTH` — `offline` or `microsoft` (default `offline`)
 - `AGENT_TICK_MS` — Agent loop tick interval (default `4000`)
-- `LLM_PROVIDER` — e.g., `openai` (optional)
+- `LLM_PROVIDER` — `openai` or `ax` (optional)
 - `OPENAI_API_KEY` — Your API key if using OpenAI (optional)
 - `LLM_MODEL` — Model name (optional; example `gpt-4o-mini`)
 
-Wiring ax-llm
-This template is ready to host an ax-llm reasoner but doesn’t force it. In `src/agent/reasoner.js`, we `require('ax-llm')` dynamically if installed. You can:
-- Define your prompt, memory, and tools
-- Map tool names (e.g., `say`) to functions in `src/tools/index.js`
-- Return actions from the reasoner of the shape `{ tool: string, input: any }`
+LLM Integration
+Two options are supported out of the box:
 
-Until ax-llm is installed and configured, the fallback reasoner:
-- Responds to chat messages that include the bot’s name
-- Otherwise idles on each tick
+- OpenAI Tools (direct): set `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. The agent calls OpenAI chat/completions with a simple tool definition (`say(text)`), returning a tool call for the loop to execute.
+- ax-llm (hook): set `LLM_PROVIDER=ax` and install `ax-llm` (`npm install ax-llm`). The code attempts to detect common ax-llm planner APIs (e.g., `createToolAgent` or `toolPlanner`). If none are found, the agent logs a message and falls back.
+
+Tool mapping
+- Tools are defined in `src/tools/index.js` and registered in `src/agent/loop.js`.
+- The reasoner emits actions of the form `{ tool: string, input: any }` that the loop executes by name.
+
+Fallback behavior
+- If no LLM is configured, the bot uses a small rule: if someone mentions the bot’s username in chat, it replies with a greeting via `say`.
 
 Running Tips
 - Offline/LAN servers: set `MINECRAFT_AUTH=offline` and provide a `MINECRAFT_USERNAME`
