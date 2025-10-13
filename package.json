@@ -21,11 +21,13 @@
   },
   "dependencies": {
     "canvas": "^2.11.2",
+    "express": "^4.19.2",
     "dotenv": "^16.4.5",
     "minecraft-data": "^3.66.0",
     "mineflayer": "^4.20.0",
     "mineflayer-pathfinder": "^2.4.5",
     "prismarine-viewer": "^1.33.0",
+    "socket.io": "^4.7.5",
     "vec3": "^0.1.10"
   },
   "devDependencies": {

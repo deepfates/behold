@@ -2,6 +2,7 @@ import mineflayer, { type Bot } from 'mineflayer';
 import { pathfinder, Movements } from 'mineflayer-pathfinder';
 import mcDataLoader, { type IndexedData } from 'minecraft-data';
 import type { Config } from './config';
+import { startControlsServer } from './web/controls';
 
 let mineflayerViewer: ((bot: any, opts: { viewDistance?: number; firstPerson?: boolean; port?: number; prefix?: string }) => void) | null = null;
 let viewerLoadError: Error | null = null;
@@ -56,6 +57,8 @@ function bindCoreEvents(bot: Bot, config: Config) {
         const firstPerson = !!config?.viewer?.firstPerson;
         mineflayerViewer(bot, { port, firstPerson });
         console.log(`[viewer] Running at http://localhost:${port} (${firstPerson ? 'first-person' : 'third-person'})`);
+
+        // Keyboard-only viewer: no click-to-act bindings (intentional)
       } else if (enabled && !mineflayerViewer) {
         if (viewerLoadError && /Cannot find module 'canvas'/.test(String(viewerLoadError?.message))) {
           console.warn('[viewer] prismarine-viewer requires the optional dependency "canvas".');
@@ -67,6 +70,17 @@ function bindCoreEvents(bot: Bot, config: Config) {
       }
     } catch (e: any) {
       console.warn('[viewer] Failed to start viewer:', e?.message || e);
+    }
+
+    // Controls server (companion)
+    if (config?.viewer?.controlsEnabled) {
+      try {
+        const cport = Number(config?.viewer?.controlsPort || ((config?.viewer?.port || 3007) + 1));
+        const vport = Number(config?.viewer?.port || 3007);
+        startControlsServer(bot, cport, vport);
+      } catch (e: any) {
+        console.warn('[controls] Failed to start controls server:', e?.message || e);
+      }
     }
   });
 
