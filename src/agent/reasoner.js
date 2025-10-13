@@ -1,21 +1,8 @@
-// A pluggable reasoner that prefers ax-llm if LLM_PROVIDER=ax
-// Otherwise will use direct OpenAI tool-calling when LLM_PROVIDER=openai
-// and fall back to a tiny rule-based behavior.
+// Minimal reasoner: OpenRouter text-chat replies when addressed; otherwise idle.
 
-function getReasoner(bot, config, tools) {
-  const provider = (config.llm?.provider || '').toLowerCase();
+function getReasoner(bot, config, tools, _toolSpecs) {
   const hasKey = !!config.llm?.apiKey;
-
-  if (provider === 'ax' && hasKey) {
-    const maybeAx = tryAxReasoner(bot, config, tools);
-    if (maybeAx) return maybeAx;
-    console.warn('[agent] ax-llm not available or not recognized, falling back.');
-  }
-
-  if (provider === 'openai' && hasKey) {
-    return openaiReasoner(bot, config, tools);
-  }
-
+  if (hasKey) return openRouterTextResponder(bot, config, tools);
   return fallbackReasoner(bot);
 }
 
@@ -36,141 +23,56 @@ function fallbackReasoner(bot) {
   };
 }
 
-function tryAxReasoner(bot, config, tools) {
-  try {
-    // Dynamically require so the project runs without it installed.
-    // eslint-disable-next-line import/no-extraneous-dependencies, global-require
-    const ax = require('ax-llm');
-    // Because ax-llm’s API may vary, we provide a minimal shim.
-    // If your version exposes a different entry (e.g., createToolAgent), adjust here.
-    if (typeof ax.createToolAgent === 'function') {
-      const agent = ax.createToolAgent({
-        model: config.llm.model || 'gpt-4o-mini',
-        apiKey: config.llm.apiKey,
-        tools: [
-          {
-            name: 'say',
-            description: 'Send a chat message to the server',
-            parameters: {
-              type: 'object',
-              properties: { text: { type: 'string' } },
-              required: ['text']
-            }
-          }
-        ],
-        system: 'You are a helpful Minecraft agent. Use tools to act.'
-      });
+// Removed Ax integration for now.
 
-      return {
-        name: 'ax-llm',
-        async plan(observation) {
-          const context = renderContext(observation);
-          const res = await agent.plan({ input: context });
-          if (res && res.tool) return res; // Expecting { tool, input }
-          return null;
-        }
-      };
-    }
-
-    // Fallback: if ax exposes a generic planner function
-    if (typeof ax.toolPlanner === 'function') {
-      return {
-        name: 'ax-llm',
-        async plan(observation) {
-          const context = renderContext(observation);
-          const res = await ax.toolPlanner({
-            apiKey: config.llm.apiKey,
-            model: config.llm.model || 'gpt-4o-mini',
-            tools: [
-              {
-                name: 'say',
-                description: 'Send a chat message to the server',
-                parameters: {
-                  type: 'object',
-                  properties: { text: { type: 'string' } },
-                  required: ['text']
-                }
-              }
-            ],
-            input: context
-          });
-          if (res && res.tool) return res;
-          return null;
-        }
-      };
-    }
-
-    console.warn('[agent] ax-llm loaded but no known planner API found.');
-    return null;
-  } catch (_) {
-    return null;
-  }
-}
-
-function openaiReasoner(_bot, config, _tools) {
-  const model = config.llm.model || 'gpt-4o-mini';
+function openRouterTextResponder(_bot, config, _tools) {
+  const model = config.llm.model || 'openai/gpt-4o-mini';
   const apiKey = config.llm.apiKey;
-  const endpoint = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1/chat/completions';
+  const endpoint = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1/chat/completions';
+  const extraHeaders = {};
+  if (process.env.OPENROUTER_REFERER) {
+    extraHeaders['HTTP-Referer'] = process.env.OPENROUTER_REFERER;
+    extraHeaders['Referer'] = process.env.OPENROUTER_REFERER;
+  }
+  if (process.env.OPENROUTER_TITLE) extraHeaders['X-Title'] = process.env.OPENROUTER_TITLE;
 
   return {
-    name: 'openai-tools',
+    name: 'openrouter-chat',
     async plan(observation) {
-      const system = 'You are a helpful Minecraft agent. When appropriate, choose exactly one tool to act.';
-      const user = renderContext(observation);
-      const toolsSpec = [
-        {
-          type: 'function',
-          function: {
-            name: 'say',
-            description: 'Send a chat message to the server',
-            parameters: {
-              type: 'object',
-              properties: { text: { type: 'string', description: 'What to say in chat' } },
-              required: ['text']
-            }
-          }
-        }
-      ];
+      const mention = mentionsBot(observation);
+      if (!mention) return null;
 
+      const system = 'You are a friendly Minecraft bot. Reply briefly and helpfully in plain chat.';
+      const user = lastChatLine(observation);
       const body = {
         model,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user }
         ],
-        tools: toolsSpec,
-        tool_choice: 'auto',
-        temperature: 0.2
+        temperature: 0.3
+      };
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        ...extraHeaders
       };
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (!res.ok) {
-        const t = await safeText(res);
-        console.warn('[agent] OpenAI call failed:', res.status, t);
+      try {
+        const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body) });
+        if (!res.ok) {
+          const t = await safeText(res);
+          console.warn('[agent] openrouter chat failed:', res.status, t);
+          return null;
+        }
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content?.trim();
+        if (!text) return null;
+        return { tool: 'say', input: { text: truncate(text, 200) } };
+      } catch (e) {
+        console.warn('[agent] openrouter chat error:', e?.message || e);
         return null;
       }
-      const data = await res.json();
-      const choice = data.choices?.[0]?.message;
-      if (!choice) return null;
-
-      // Newer API: tool_calls; older: function_call
-      const tc = choice.tool_calls?.[0];
-      if (tc?.function?.name) {
-        return { tool: tc.function.name, input: parseArgs(tc.function.arguments) };
-      }
-      const fc = choice.function_call;
-      if (fc?.name) {
-        return { tool: fc.name, input: parseArgs(fc.arguments) };
-      }
-      return null;
     }
   };
 }
@@ -186,16 +88,26 @@ function renderContext(obs) {
   ].join('\n');
 }
 
-function parseArgs(s) {
-  try {
-    return JSON.parse(s || '{}');
-  } catch {
-    return { text: String(s || '') };
-  }
-}
-
 async function safeText(res) {
   try { return await res.text(); } catch { return ''; }
+}
+
+function mentionsBot(obs) {
+  const last = obs.lastChat;
+  if (!last || typeof last.message !== 'string') return false;
+  const me = String(obs.username || '').toLowerCase();
+  const msg = last.message.toLowerCase();
+  return me && (msg.includes(me) || msg.startsWith('bot ') || msg.startsWith('@' + me));
+}
+
+function lastChatLine(obs) {
+  const last = obs.lastChat;
+  if (!last) return 'Someone might be talking to you.';
+  return `<${last.username}> ${last.message}`;
+}
+
+function truncate(s, n) {
+  return s.length > n ? s.slice(0, n) : s;
 }
 
 module.exports = { getReasoner };

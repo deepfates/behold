@@ -2,8 +2,8 @@ const { getReasoner } = require('./reasoner');
 const { buildTools } = require('../tools');
 
 function startAgentLoop(bot, config) {
-  const tools = buildTools(bot);
-  const reasoner = getReasoner(bot, config, tools);
+  const { fns: tools, specs: toolSpecs } = buildTools(bot);
+  const reasoner = getReasoner(bot, config, tools, toolSpecs);
   console.log(`[agent] Using reasoner: ${reasoner.name}`);
 
   let lastChat = null;
@@ -48,4 +48,3 @@ function collectObservation(bot, lastChat) {
 }
 
 module.exports = { startAgentLoop };
-
