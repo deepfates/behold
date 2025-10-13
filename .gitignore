@@ -8,5 +8,8 @@ yarn.lock
 # Env
 .env
 
+# Build
+dist/
+
 # OS
 .DS_Store

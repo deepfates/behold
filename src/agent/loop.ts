@@ -1,13 +1,15 @@
-const { getReasoner } = require('./reasoner');
-const { buildTools } = require('../tools');
+import { getReasoner } from './reasoner';
+import { buildTools } from '../tools';
+import type { Bot } from 'mineflayer';
+import type { Config } from '../config';
 
-function startAgentLoop(bot, config) {
+export function startAgentLoop(bot: Bot, config: Config) {
   const { fns: tools, specs: toolSpecs } = buildTools(bot);
   const reasoner = getReasoner(bot, config, tools, toolSpecs);
   console.log(`[agent] Using reasoner: ${reasoner.name}`);
 
-  let lastChat = null;
-  bot.on('chat', (username, message) => {
+  let lastChat: { username: string; message: string; at: number } | null = null;
+  bot.on('chat', (username: string, message: string) => {
     lastChat = { username, message, at: Date.now() };
   });
 
@@ -18,7 +20,7 @@ function startAgentLoop(bot, config) {
       const observation = collectObservation(bot, lastChat);
       const action = await reasoner.plan(observation);
       if (action && action.tool) {
-        const fn = tools[action.tool];
+        const fn = (tools as any)[action.tool];
         if (typeof fn === 'function') {
           await fn(action.input);
         } else {
@@ -34,7 +36,7 @@ function startAgentLoop(bot, config) {
   bot.once('end', () => clearInterval(interval));
 }
 
-function collectObservation(bot, lastChat) {
+function collectObservation(bot: Bot, lastChat: any) {
   const pos = bot.entity?.position;
   const position = pos ? { x: pos.x, y: pos.y, z: pos.z } : null;
   return {
@@ -43,8 +45,6 @@ function collectObservation(bot, lastChat) {
     position,
     health: bot.health,
     food: bot.food,
-    lastChat
+    lastChat,
   };
 }
-
-module.exports = { startAgentLoop };

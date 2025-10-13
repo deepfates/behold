@@ -1,8 +1,8 @@
-require('dotenv').config();
-const { getConfig } = require('./config');
-const { createBot } = require('./bot');
-const { startAgentLoop } = require('./agent/loop');
-const { attachKeyboard } = require('./input/keyboard');
+import 'dotenv/config';
+import { getConfig } from './config';
+import { createBot } from './bot';
+import { startAgentLoop } from './agent/loop';
+import { attachKeyboard } from './input/keyboard';
 
 async function main() {
   const config = getConfig();
@@ -10,11 +10,11 @@ async function main() {
 
   const bot = createBot(config);
   bot.once('spawn', () => {
-    startAgentLoop(bot, config);
+    startAgentLoop(bot as any, config as any);
     const wantKb = String(process.env.KEYBOARD || '1').toLowerCase();
     const enableKb = !(wantKb === '0' || wantKb === 'false' || wantKb === 'off');
     if (enableKb && process.stdin.isTTY) {
-      attachKeyboard(bot);
+      attachKeyboard(bot as any);
     }
   });
 }
@@ -23,3 +23,4 @@ main().catch((err) => {
   console.error('[fatal] Unhandled error:', err);
   process.exit(1);
 });
+

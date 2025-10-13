@@ -1,39 +1,38 @@
-const mineflayer = require('mineflayer');
-const { pathfinder, Movements } = require('mineflayer-pathfinder');
-const mcDataLoader = require('minecraft-data');
-let mineflayerViewer;
-let viewerLoadError = null;
+import mineflayer, { type Bot } from 'mineflayer';
+import { pathfinder, Movements } from 'mineflayer-pathfinder';
+import mcDataLoader, { type IndexedData } from 'minecraft-data';
+import type { Config } from './config';
+
+let mineflayerViewer: ((bot: any, opts: { viewDistance?: number; firstPerson?: boolean; port?: number; prefix?: string }) => void) | null = null;
+let viewerLoadError: Error | null = null;
 try {
-  // Optional dependency: prismarine-viewer
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   ({ mineflayer: mineflayerViewer } = require('prismarine-viewer'));
-} catch (e) {
+} catch (e: any) {
   viewerLoadError = e;
   mineflayerViewer = null;
 }
 
-function createBot(config) {
+export function createBot(config: Config): Bot {
   const { server, auth } = config;
 
   const bot = mineflayer.createBot({
     host: server.host,
     port: server.port,
     username: auth.username,
-    // For microsoft auth, allow device-code flow if password is empty
     password: auth.mode !== 'offline' && auth.password ? auth.password : undefined,
-    auth: auth.mode // 'offline' | 'microsoft'
+    auth: auth.mode,
   });
 
-  // Load pathfinding plugin
-  bot.loadPlugin(pathfinder);
+  bot.loadPlugin(pathfinder as any);
 
-  // Preserve config for later access
   Object.defineProperty(bot, '__beholdConfig', { value: config, enumerable: false });
 
   bindCoreEvents(bot, config);
   return bot;
 }
 
-function bindCoreEvents(bot, config) {
+function bindCoreEvents(bot: Bot, config: Config) {
   bot.once('login', () => {
     console.log(`[bot] Logged in as ${bot.username}`);
   });
@@ -41,17 +40,15 @@ function bindCoreEvents(bot, config) {
   bot.once('spawn', () => {
     console.log('[bot] Spawned in the world.');
     try {
-      // Use documented minecraft-data for pathfinder movements
-      const mcData = mcDataLoader(bot.version);
-      if (bot.pathfinder && mcData) {
+      const mcData: IndexedData = (mcDataLoader as any)(bot.version);
+      if ((bot as any).pathfinder && mcData) {
         const movements = new Movements(bot, mcData);
-        bot.pathfinder.setMovements(movements);
+        (bot as any).pathfinder.setMovements(movements);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('[bot] Could not initialize default movements:', e?.message || e);
     }
 
-    // Start web viewer if enabled
     try {
       const enabled = config?.viewer?.enabled !== false;
       if (enabled && mineflayerViewer) {
@@ -60,7 +57,7 @@ function bindCoreEvents(bot, config) {
         mineflayerViewer(bot, { port, firstPerson });
         console.log(`[viewer] Running at http://localhost:${port} (${firstPerson ? 'first-person' : 'third-person'})`);
       } else if (enabled && !mineflayerViewer) {
-        if (viewerLoadError?.message?.includes("Cannot find module 'canvas'")) {
+        if (viewerLoadError && /Cannot find module 'canvas'/.test(String(viewerLoadError?.message))) {
           console.warn('[viewer] prismarine-viewer requires the optional dependency "canvas".');
           console.warn('[viewer] Install prerequisites (may require native libs) then run: npm i canvas');
           console.warn('[viewer] macOS example: brew install pkg-config cairo pango libpng jpeg giflib librsvg');
@@ -68,12 +65,12 @@ function bindCoreEvents(bot, config) {
           console.warn('[viewer] prismarine-viewer not available. Ensure dependencies installed.');
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('[viewer] Failed to start viewer:', e?.message || e);
     }
   });
 
-  bot.on('kicked', (reason) => {
+  bot.on('kicked', (reason: any) => {
     console.warn('[bot] Kicked:', reason);
   });
 
@@ -81,15 +78,12 @@ function bindCoreEvents(bot, config) {
     console.warn('[bot] Disconnected from server.');
   });
 
-  bot.on('error', (err) => {
+  bot.on('error', (err: any) => {
     console.error('[bot] Error:', err);
   });
 
-  bot.on('chat', (username, message) => {
+  bot.on('chat', (username: string, message: string) => {
     if (username === bot.username) return;
-    // Basic visibility during early dev
     console.log(`[chat] <${username}> ${message}`);
   });
 }
-
-module.exports = { createBot };

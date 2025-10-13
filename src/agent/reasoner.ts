@@ -1,16 +1,18 @@
 // Minimal reasoner: OpenRouter text-chat replies when addressed; otherwise idle.
+import type { Bot } from 'mineflayer';
+import type { Config } from '../config';
 
-function getReasoner(bot, config, tools, _toolSpecs) {
+export function getReasoner(bot: Bot, config: Config, _tools: any, _toolSpecs: any) {
   const hasKey = !!config.llm?.apiKey;
-  if (hasKey) return openRouterTextResponder(bot, config, tools);
+  if (hasKey) return openRouterTextResponder(bot, config);
   return fallbackReasoner(bot);
 }
 
-function fallbackReasoner(bot) {
+function fallbackReasoner(bot: Bot) {
   const botName = () => (bot.username || 'bot');
   return {
     name: 'fallback',
-    async plan(observation) {
+    async plan(observation: any) {
       const lastChat = observation.lastChat;
       if (lastChat && typeof lastChat.message === 'string') {
         const mention = botName().toLowerCase();
@@ -19,17 +21,15 @@ function fallbackReasoner(bot) {
         }
       }
       return null; // idle
-    }
+    },
   };
 }
 
-// Removed Ax integration for now.
-
-function openRouterTextResponder(_bot, config, _tools) {
+function openRouterTextResponder(_bot: Bot, config: Config) {
   const model = config.llm.model || 'openai/gpt-4o-mini';
-  const apiKey = config.llm.apiKey;
+  const apiKey = config.llm.apiKey as string;
   const endpoint = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1/chat/completions';
-  const extraHeaders = {};
+  const extraHeaders: Record<string, string> = {};
   if (process.env.OPENROUTER_REFERER) {
     extraHeaders['HTTP-Referer'] = process.env.OPENROUTER_REFERER;
     extraHeaders['Referer'] = process.env.OPENROUTER_REFERER;
@@ -38,7 +38,7 @@ function openRouterTextResponder(_bot, config, _tools) {
 
   return {
     name: 'openrouter-chat',
-    async plan(observation) {
+    async plan(observation: any) {
       const mention = mentionsBot(observation);
       if (!mention) return null;
 
@@ -48,51 +48,36 @@ function openRouterTextResponder(_bot, config, _tools) {
         model,
         messages: [
           { role: 'system', content: system },
-          { role: 'user', content: user }
+          { role: 'user', content: user },
         ],
-        temperature: 0.3
+        temperature: 0.3,
       };
       const headers = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        ...extraHeaders
-      };
+        ...extraHeaders,
+      } as any;
 
       try {
         const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body) });
         if (!res.ok) {
-          const t = await safeText(res);
+          const t = await res.text();
           console.warn('[agent] openrouter chat failed:', res.status, t);
           return null;
         }
-        const data = await res.json();
+        const data: any = await res.json();
         const text = data.choices?.[0]?.message?.content?.trim();
         if (!text) return null;
-        return { tool: 'say', input: { text: truncate(text, 200) } };
-      } catch (e) {
+        return { tool: 'say', input: { text: text.length > 200 ? text.slice(0, 200) : text } };
+      } catch (e: any) {
         console.warn('[agent] openrouter chat error:', e?.message || e);
         return null;
       }
-    }
+    },
   };
 }
 
-function renderContext(obs) {
-  const loc = obs.position ? `(${obs.position.x.toFixed?.(1) ?? obs.position.x}, ${obs.position.y.toFixed?.(1) ?? obs.position.y}, ${obs.position.z.toFixed?.(1) ?? obs.position.z})` : 'unknown';
-  const chat = obs.lastChat ? `<${obs.lastChat.username}> ${obs.lastChat.message}` : 'none';
-  return [
-    `You are ${obs.username}.`,
-    `Pos: ${loc}. Health: ${obs.health}. Food: ${obs.food}.`,
-    `Last chat: ${chat}.`,
-    'If someone addresses you or asks for help, call the say tool to respond succinctly.'
-  ].join('\n');
-}
-
-async function safeText(res) {
-  try { return await res.text(); } catch { return ''; }
-}
-
-function mentionsBot(obs) {
+function mentionsBot(obs: any) {
   const last = obs.lastChat;
   if (!last || typeof last.message !== 'string') return false;
   const me = String(obs.username || '').toLowerCase();
@@ -100,14 +85,8 @@ function mentionsBot(obs) {
   return me && (msg.includes(me) || msg.startsWith('bot ') || msg.startsWith('@' + me));
 }
 
-function lastChatLine(obs) {
+function lastChatLine(obs: any) {
   const last = obs.lastChat;
   if (!last) return 'Someone might be talking to you.';
   return `<${last.username}> ${last.message}`;
 }
-
-function truncate(s, n) {
-  return s.length > n ? s.slice(0, n) : s;
-}
-
-module.exports = { getReasoner };

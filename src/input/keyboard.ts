@@ -1,30 +1,32 @@
-const readline = require('readline');
+import readline from 'readline';
+import type { Bot, ControlState } from 'mineflayer';
 
-function attachKeyboard(bot) {
+export function attachKeyboard(bot: Bot) {
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
-  const state = {
+  const state: Record<string, boolean> = {
     forward: false,
     back: false,
     left: false,
     right: false,
     jump: false,
     sneak: false,
-    sprint: false
+    sprint: false,
   };
 
-  const toggle = (name, val) => {
+  const controlNames: ControlState[] = ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint'];
+
+  const toggle = (name: string, val?: boolean) => {
     const next = typeof val === 'boolean' ? val : !state[name];
     state[name] = next;
     try {
-      if (['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint'].includes(name)) {
-        // Stop pathfinder when manually steering
+      if (controlNames.includes(name as ControlState)) {
         if (next && bot.pathfinder) bot.pathfinder.stop();
-        bot.setControlState(name, next);
+        bot.setControlState(name as ControlState, next);
       }
       logStatus();
-    } catch (e) {
+    } catch (e: any) {
       console.warn('[keys] control error:', e?.message || e);
     }
   };
@@ -35,26 +37,25 @@ function attachKeyboard(bot) {
       bot.stopDigging?.();
     } catch {}
     if (bot.pathfinder) bot.pathfinder.stop();
-    for (const k of ['forward', 'back', 'left', 'right', 'jump', 'sneak', 'sprint']) {
+    for (const k of controlNames) {
       try { bot.setControlState(k, false); } catch {}
     }
     logStatus('[keys] STOP');
   };
 
   const lookStep = { yaw: 0.15, pitch: 0.12 };
-  const look = async (dyaw, dpitch) => {
+  const look = async (dyaw: number, dpitch: number) => {
     try {
       const yaw = bot.entity?.yaw ?? 0;
       const pitch = bot.entity?.pitch ?? 0;
       await bot.look(yaw + dyaw, Math.max(Math.min(pitch + dpitch, Math.PI / 2), -Math.PI / 2), true);
-    } catch (e) {
+    } catch (e: any) {
       console.warn('[keys] look error:', e?.message || e);
     }
   };
 
-  const onKey = async (str, key) => {
+  const onKey = async (_str: string, key: any) => {
     if (!key) return;
-    // Exit
     if (key.ctrl && key.name === 'c') {
       cleanup();
       process.exit(0);
@@ -70,22 +71,17 @@ function attachKeyboard(bot) {
       case 'a': toggle('left'); break;
       case 'd': toggle('right'); break;
       case 'space': toggle('jump'); break;
-      // Typical MC uses shift to sneak; terminal can’t sense shift alone reliably.
-      // Use 'z' to toggle sneak and 'f' to toggle sprint.
       case 'z': toggle('sneak'); break;
       case 'f': toggle('sprint'); break;
-      case 'x': stopAll(); break; // All stop
-
+      case 'x': stopAll(); break;
       case 'left': await look(-lookStep.yaw, 0); break;
       case 'right': await look(lookStep.yaw, 0); break;
       case 'up': await look(0, -lookStep.pitch); break;
       case 'down': await look(0, lookStep.pitch); break;
-
       case 't':
         await promptChat(bot);
         break;
       default:
-        // ignore
         break;
     }
   };
@@ -126,11 +122,11 @@ function attachKeyboard(bot) {
   printHelp();
 }
 
-async function promptChat(bot) {
-  const wasRaw = !!process.stdin.isRaw;
+async function promptChat(bot: any) {
+  const wasRaw = !!(process.stdin as any).isRaw;
   if (wasRaw) try { process.stdin.setRawMode(false); } catch {}
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const q = (p) => new Promise((res) => rl.question(p, res));
+  const q = (p: string) => new Promise<string>((res) => rl.question(p, res));
   try {
     const msg = await q('chat> ');
     if (msg && msg.trim()) bot.chat(msg.trim());
@@ -139,6 +135,3 @@ async function promptChat(bot) {
     if (wasRaw) try { process.stdin.setRawMode(true); } catch {}
   }
 }
-
-module.exports = { attachKeyboard };
-
