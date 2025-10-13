@@ -16,6 +16,7 @@ Project Layout
 - `src/agent/reasoner.js` — Minimal reasoner; uses OpenRouter chat (no tools) or a tiny fallback
 - `src/input/keyboard.js` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
 - `src/tools/index.js` — Registry of callable tools the reasoner can invoke
+- `scripts/swarm.js` — Multi-bot launcher for local/offline testing
 - `.env.example` — Example environment variables to copy into `.env`
 
 Prerequisites
@@ -69,6 +70,11 @@ Running Tips
 - Offline/LAN servers: set `MINECRAFT_AUTH=offline` and provide a `MINECRAFT_USERNAME`
 - Online servers (Microsoft): set `MINECRAFT_AUTH=microsoft` and provide username/email + password as required by your setup
 - You can tune `AGENT_TICK_MS` to slow down or speed up the agent loop
+
+Swarm (multi-bot)
+- Copy `bots.example.json` to `bots.json` and edit usernames (use offline mode).
+- Run `npm run swarm` to launch all bots as child processes.
+- Each child disables terminal keyboard by default (`KEYBOARD=0`).
 
 Keyboard controls (terminal)
 - `w/a/s/d` — toggle movement
