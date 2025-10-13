@@ -28,7 +28,7 @@ function loadBotsConfig() {
   return cfg;
 }
 
-function spawnBot(botCfg, idx) {
+function spawnBot(botCfg, idx, onEvent) {
   const env = { ...process.env };
   if (botCfg.username) env.MINECRAFT_USERNAME = botCfg.username;
   if (botCfg.password != null) env.MINECRAFT_PASSWORD = botCfg.password;
@@ -45,10 +45,16 @@ function spawnBot(botCfg, idx) {
   });
 
   const prefix = `[bot:${idx}${botCfg.username ? ':' + botCfg.username : ''}]`;
-  child.stdout.on('data', (d) => process.stdout.write(`${prefix} ${d}`));
-  child.stderr.on('data', (d) => process.stderr.write(`${prefix} ${d}`));
+  let sawThrottle = false;
+  const mark = (buf) => {
+    const s = String(buf || '');
+    if (s.includes('Connection throttled')) sawThrottle = true;
+  };
+  child.stdout.on('data', (d) => { mark(d); process.stdout.write(`${prefix} ${d}`); });
+  child.stderr.on('data', (d) => { mark(d); process.stderr.write(`${prefix} ${d}`); });
   child.on('exit', (code) => {
     console.log(`${prefix} exited with code ${code}`);
+    onEvent?.({ type: 'exit', code, sawThrottle });
   });
   return child;
 }
@@ -62,12 +68,27 @@ function main() {
   const delay = Number.isFinite(cfg.spawnDelayMs) ? Math.max(0, cfg.spawnDelayMs) : 1500;
   console.log(`[swarm] launching ${cfg.bots.length} bot(s) with ${delay}ms delay`);
   const children = [];
-  cfg.bots.forEach((b, i) => {
+  const maxRetries = Number.isFinite(cfg.maxRetries) ? cfg.maxRetries : 5;
+  const baseRetryMs = Number.isFinite(cfg.retryBaseMs) ? cfg.retryBaseMs : 3000;
+
+  function schedule(b, i, attempt = 0) {
     setTimeout(() => {
-      const child = spawnBot(b, i + 1);
+      const startedAt = Date.now();
+      const child = spawnBot(b, i + 1, ({ type, code, sawThrottle }) => {
+        if (type !== 'exit') return;
+        const lifetime = Date.now() - startedAt;
+        const shouldRetry = attempt < maxRetries && (sawThrottle || lifetime < 5000);
+        if (shouldRetry) {
+          const backoff = Math.round(baseRetryMs * Math.pow(1.6, attempt) + Math.random() * 500);
+          console.log(`[swarm] retrying bot ${i + 1} in ${backoff}ms (attempt ${attempt + 1}/${maxRetries})`);
+          schedule(b, i, attempt + 1);
+        }
+      });
       children.push(child);
-    }, i * delay);
-  });
+    }, i * delay + (attempt === 0 ? 0 : Math.round(baseRetryMs * Math.pow(1.4, attempt))));
+  }
+
+  cfg.bots.forEach((b, i) => schedule(b, i, 0));
 
   const shutdown = () => {
     console.log('\n[swarm] stopping bots...');
