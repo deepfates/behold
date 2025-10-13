@@ -75,6 +75,11 @@ Swarm (multi-bot)
 - Copy `bots.example.json` to `bots.json` and edit usernames (use offline mode).
 - Run `npm run swarm` to launch all bots as child processes.
 - Each child disables terminal keyboard by default (`KEYBOARD=0`).
+- Optional: set `spawnDelayMs` in `bots.json` (default 1500ms), or pass `--delay 2000` to CLI.
+
+If you see "Connection throttled! Please wait before reconnecting."
+- Many Paper/Spigot servers throttle rapid connects from the same IP.
+- Fix by staggering launches (use `spawnDelayMs`/`--delay`), or raise/disable the server’s connection throttle (in `bukkit.yml`, set `settings.connection-throttle: -1`).
 
 Keyboard controls (terminal)
 - `w/a/s/d` — toggle movement

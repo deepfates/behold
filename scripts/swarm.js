@@ -21,7 +21,11 @@ function loadBotsConfig() {
     console.error('[swarm] copy bots.example.json to bots.json and edit names');
     process.exit(1);
   }
-  return JSON.parse(fs.readFileSync(full, 'utf8'));
+  const cfg = JSON.parse(fs.readFileSync(full, 'utf8'));
+  // Allow CLI override: --delay 2000
+  const delayFlag = args.indexOf('--delay');
+  if (delayFlag >= 0 && args[delayFlag + 1]) cfg.spawnDelayMs = Number(args[delayFlag + 1]);
+  return cfg;
 }
 
 function spawnBot(botCfg, idx) {
@@ -55,8 +59,15 @@ function main() {
     console.error('[swarm] No bots found in config. Expected { bots: [...] }');
     process.exit(1);
   }
-  console.log(`[swarm] launching ${cfg.bots.length} bot(s)`);
-  const children = cfg.bots.map((b, i) => spawnBot(b, i + 1));
+  const delay = Number.isFinite(cfg.spawnDelayMs) ? Math.max(0, cfg.spawnDelayMs) : 1500;
+  console.log(`[swarm] launching ${cfg.bots.length} bot(s) with ${delay}ms delay`);
+  const children = [];
+  cfg.bots.forEach((b, i) => {
+    setTimeout(() => {
+      const child = spawnBot(b, i + 1);
+      children.push(child);
+    }, i * delay);
+  });
 
   const shutdown = () => {
     console.log('\n[swarm] stopping bots...');
@@ -70,4 +81,3 @@ function main() {
 }
 
 main();
-
