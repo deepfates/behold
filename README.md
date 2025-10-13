@@ -9,15 +9,15 @@ Features
 - Environment-based configuration and sensible defaults
 
 Project Layout
-- `src/index.js` — Entry point; loads config and starts the bot + agent loop
-- `src/config.js` — Reads env vars and validates runtime config
-- `src/bot.js` — Creates the Mineflayer bot and binds core events
+- `src/index.ts` — Entry point; loads config and starts the bot + agent loop
+- `src/config.ts` — Reads env vars and validates runtime config
+- `src/bot.ts` — Creates the Mineflayer bot and binds core events
 - Viewer: when enabled, starts a local web viewer (prismarine-viewer) on spawn
-- `src/agent/loop.js` — Agent loop runner (tick-based)
-- `src/agent/reasoner.js` — Minimal reasoner; uses OpenRouter chat (no tools) or a tiny fallback
-- `src/input/keyboard.js` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
-- `src/tools/index.js` — Registry of callable tools the reasoner can invoke
-- `scripts/swarm.js` — Multi-bot launcher for local/offline testing
+- `src/agent/loop.ts` — Agent loop runner (tick-based)
+- `src/agent/reasoner.ts` — Minimal reasoner; uses OpenRouter chat (no tools) or a tiny fallback
+- `src/input/keyboard.ts` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
+- `src/tools/index.ts` — Registry of callable tools the reasoner can invoke
+- `scripts/swarm.ts` — Multi-bot launcher for local/offline testing
 - `.env.example` — Example environment variables to copy into `.env`
 
 Prerequisites
@@ -60,6 +60,7 @@ Environment Variables
 - `MINECRAFT_PASSWORD` — Password (leave empty for offline)
 - `MINECRAFT_AUTH` — `offline` or `microsoft` (default `offline`)
 - `AGENT_TICK_MS` — Agent loop tick interval (default `4000`)
+- `KEY_MODE` — `hold` (default) for MC-like holding keys, or `toggle`
 - `VIEWER_ENABLED` — `1` to enable the web viewer (default `1`)
 - `VIEWER_PORT` — viewer port (default `3007`)
 - `VIEWER_FIRST_PERSON` — `1` for first-person camera, `0` for third-person (default `1`)
@@ -97,12 +98,13 @@ If you see "Connection throttled! Please wait before reconnecting."
 - Fix by staggering launches (use `spawnDelayMs`/`--delay` set to ≥ 4500–5000ms), or raise/disable the server’s connection throttle (in `bukkit.yml`, set `settings.connection-throttle: -1`).
 
 Keyboard controls (terminal)
-- `w/a/s/d` — toggle movement
-- `space` — toggle jump
+- `w/a/s/d` — move (hold)
+- `space` — jump (hold)
 - `z` — toggle sneak (crouch)
-- `f` — toggle sprint
+- `f` — sprint (hold)
 - Arrow keys — look around
 - `t` — prompt for a chat line to send
+- `q` — drop held item stack
 - `x` — stop all movement
 - `h` — help
 - `Ctrl+C` — exit
