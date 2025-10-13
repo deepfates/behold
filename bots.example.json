@@ -1,0 +1,15 @@
+{
+  "bots": [
+    {
+      "username": "BeholdBotA",
+      "auth": "offline",
+      "server": { "host": "localhost", "port": 25565 }
+    },
+    {
+      "username": "BeholdBotB",
+      "auth": "offline",
+      "server": { "host": "localhost", "port": 25565 }
+    }
+  ]
+}
+

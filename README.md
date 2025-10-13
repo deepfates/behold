@@ -1,6 +1,6 @@
-Behold — Mineflayer + LLM Agent Template
+Behold — Mineflayer + OpenRouter Chat Bot
 
-A starter template for running a Minecraft bot that logs into a server with Mineflayer and executes an agent loop powered by LLM reasoning and tool use. The goal is to provide a clean, minimal structure you can extend with ax-llm (or your preferred LLM framework) to build autonomous behaviors.
+A minimal Minecraft bot that logs into a server with Mineflayer and replies in chat via OpenRouter. The bot stands in place and only responds when addressed.
 
 Features
 - Mineflayer login + basic lifecycle hooks (spawn, chat, errors)
@@ -13,7 +13,8 @@ Project Layout
 - `src/config.js` — Reads env vars and validates runtime config
 - `src/bot.js` — Creates the Mineflayer bot and binds core events
 - `src/agent/loop.js` — Agent loop runner (tick-based)
-- `src/agent/reasoner.js` — Reasoner provider; uses `ax-llm` if present, otherwise a simple fallback
+- `src/agent/reasoner.js` — Minimal reasoner; uses OpenRouter chat (no tools) or a tiny fallback
+- `src/input/keyboard.js` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
 - `src/tools/index.js` — Registry of callable tools the reasoner can invoke
 - `.env.example` — Example environment variables to copy into `.env`
 
@@ -21,7 +22,7 @@ Prerequisites
 - Node.js 18+ recommended
 - A reachable Minecraft server (local or remote)
 - For online mode: a valid account and correct `MINECRAFT_AUTH`
-- LLM provider credentials if you plan to use ax-llm (e.g. OpenAI key)
+- OpenRouter API key if you want LLM chat replies
 
 Setup
 1. Copy the env template and edit values as needed:
@@ -32,15 +33,13 @@ Setup
 2. Install dependencies:
    ```bash
    npm install
-   # Optional: install ax-llm once you’re ready to wire the LLM
-   # npm install ax-llm
    ```
 3. Start the bot:
    ```bash
    npm start
    ```
 
-If you don’t have `ax-llm` installed yet, the agent uses a tiny rule-based fallback so the bot is still runnable.
+If you don’t provide an OpenRouter key, the agent uses a tiny rule-based fallback so the bot is still runnable.
 
 Environment Variables
 - `SERVER_HOST` — Server hostname or IP (default `localhost`)
@@ -49,19 +48,19 @@ Environment Variables
 - `MINECRAFT_PASSWORD` — Password (leave empty for offline)
 - `MINECRAFT_AUTH` — `offline` or `microsoft` (default `offline`)
 - `AGENT_TICK_MS` — Agent loop tick interval (default `4000`)
-- `LLM_PROVIDER` — `openai` or `ax` (optional)
-- `OPENAI_API_KEY` — Your API key if using OpenAI (optional)
-- `LLM_MODEL` — Model name (optional; example `gpt-4o-mini`)
+- `OPENROUTER_API_KEY` — API key for OpenRouter (optional)
+- `OPENROUTER_BASE_URL` — Override OpenRouter base (default `https://openrouter.ai/api/v1/chat/completions`)
+- `OPENROUTER_REFERER` — Optional Referer header for OpenRouter
+- `OPENROUTER_TITLE` — Optional X-Title header for OpenRouter
+- `LLM_MODEL` — OpenRouter model slug (e.g., `openai/gpt-4o-mini`)
 
-LLM Integration
-Two options are supported out of the box:
-
-- OpenAI Tools (direct): set `LLM_PROVIDER=openai` and `OPENAI_API_KEY`. The agent calls OpenAI chat/completions with a simple tool definition (`say(text)`), returning a tool call for the loop to execute.
-- ax-llm (hook): set `LLM_PROVIDER=ax` and install `ax-llm` (`npm install ax-llm`). The code attempts to detect common ax-llm planner APIs (e.g., `createToolAgent` or `toolPlanner`). If none are found, the agent logs a message and falls back.
+LLM Integration (OpenRouter only)
+- Set `OPENROUTER_API_KEY` and choose a model via `LLM_MODEL` (defaults to `openai/gpt-4o-mini`).
+- The agent sends a simple chat prompt and replies with the returned text.
 
 Tool mapping
 - Tools are defined in `src/tools/index.js` and registered in `src/agent/loop.js`.
-- The reasoner emits actions of the form `{ tool: string, input: any }` that the loop executes by name.
+- The reasoner emits actions of the form `{ tool: string, input: any }` that the loop executes by name (currently used for `say`).
 
 Fallback behavior
 - If no LLM is configured, the bot uses a small rule: if someone mentions the bot’s username in chat, it replies with a greeting via `say`.
@@ -71,9 +70,21 @@ Running Tips
 - Online servers (Microsoft): set `MINECRAFT_AUTH=microsoft` and provide username/email + password as required by your setup
 - You can tune `AGENT_TICK_MS` to slow down or speed up the agent loop
 
+Keyboard controls (terminal)
+- `w/a/s/d` — toggle movement
+- `space` — toggle jump
+- `z` — toggle sneak (crouch)
+- `f` — toggle sprint
+- Arrow keys — look around
+- `t` — prompt for a chat line to send
+- `x` — stop all movement
+- `h` — help
+- `Ctrl+C` — exit
+
+
 Roadmap
 - Add richer tools (navigation, block inspection, inventory)
-- Integrate memory and task planning with ax-llm
+- Progressive agent design inspired by Anthropic’s “Building Effective Agents” (function signatures, controlled tool use)
 - Add examples and tests
 
 Safety

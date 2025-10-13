@@ -22,9 +22,9 @@ function getConfig() {
       tickMs: envInt("AGENT_TICK_MS", 4000)
     },
     llm: {
-      provider: process.env.LLM_PROVIDER || undefined,
-      apiKey: process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || undefined,
-      model: process.env.LLM_MODEL || undefined
+      // OpenRouter-only minimal setup
+      apiKey: process.env.OPENROUTER_API_KEY || undefined,
+      model: process.env.LLM_MODEL || 'openai/gpt-4o-mini'
     }
   };
 
@@ -39,4 +39,3 @@ function getConfig() {
 }
 
 module.exports = { getConfig };
-
