@@ -76,6 +76,7 @@ Swarm (multi-bot)
 - Run `npm run swarm` to launch all bots as child processes.
 - Each child disables terminal keyboard by default (`KEYBOARD=0`).
 - Optional: set `spawnDelayMs` in `bots.json` (default 1500ms), or pass `--delay 2000` to CLI.
+ - Auto-retry: if a bot exits quickly or is throttled, the launcher retries with backoff (defaults: `maxRetries=5`, `retryBaseMs=3000`). You may add these to `bots.json`.
 
 If you see "Connection throttled! Please wait before reconnecting."
 - Many Paper/Spigot servers throttle rapid connects from the same IP.
