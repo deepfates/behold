@@ -41,7 +41,7 @@ Setup
    ```bash
    npm install
    ```
-3. Start the bot:
+3. Start the bot (builds TypeScript into `dist/` first):
    ```bash
    npm start
    ```
@@ -125,6 +125,12 @@ Autonomous bots can spam or grief if misconfigured. Start on a private test serv
 Happy hacking! PRs and ideas welcome.
 
 Development
+- Language: TypeScript (compiled to `dist/`)
+- Build: `npm run build` (tsc)
+- Run: `npm start` (builds then runs `node dist/src/index.js`)
+- Dev (ts-node): `npm run dev` (runs `src/index.ts` directly)
+- CLI chat: `npm run cli` (ts-node)
+- Swarm: `npm run swarm` (builds then runs `dist/scripts/swarm.js`)
 - Lint: `npm run lint` (ESLint)
 - Format: `npm run format` (Prettier)
 - Check: `npm run check` (ESLint + Prettier check)
