@@ -65,27 +65,33 @@ function main() {
     console.error('[swarm] No bots found in config. Expected { bots: [...] }');
     process.exit(1);
   }
-  const delay = Number.isFinite(cfg.spawnDelayMs) ? Math.max(0, cfg.spawnDelayMs) : 1500;
+  // Default delay chosen to avoid common Paper/Spigot connection throttle (~4000ms)
+  const delay = Number.isFinite(cfg.spawnDelayMs) ? Math.max(0, cfg.spawnDelayMs) : 5000;
   console.log(`[swarm] launching ${cfg.bots.length} bot(s) with ${delay}ms delay`);
   const children = [];
   const maxRetries = Number.isFinite(cfg.maxRetries) ? cfg.maxRetries : 5;
   const baseRetryMs = Number.isFinite(cfg.retryBaseMs) ? cfg.retryBaseMs : 3000;
 
   function schedule(b, i, attempt = 0) {
+    // For initial launch, space bots by index-based delay.
+    // For retries, use an exponential backoff independent of index spacing.
+    const waitMs = (() => {
+      if (attempt === 0) return i * delay;
+      const backoff = Math.round(baseRetryMs * Math.pow(1.6, attempt) + Math.random() * 500);
+      console.log(`[swarm] retrying bot ${i + 1} in ${backoff}ms (attempt ${attempt}/${maxRetries})`);
+      return backoff;
+    })();
+
     setTimeout(() => {
       const startedAt = Date.now();
       const child = spawnBot(b, i + 1, ({ type, code, sawThrottle }) => {
         if (type !== 'exit') return;
         const lifetime = Date.now() - startedAt;
         const shouldRetry = attempt < maxRetries && (sawThrottle || lifetime < 5000);
-        if (shouldRetry) {
-          const backoff = Math.round(baseRetryMs * Math.pow(1.6, attempt) + Math.random() * 500);
-          console.log(`[swarm] retrying bot ${i + 1} in ${backoff}ms (attempt ${attempt + 1}/${maxRetries})`);
-          schedule(b, i, attempt + 1);
-        }
+        if (shouldRetry) schedule(b, i, attempt + 1);
       });
       children.push(child);
-    }, i * delay + (attempt === 0 ? 0 : Math.round(baseRetryMs * Math.pow(1.4, attempt))));
+    }, waitMs);
   }
 
   cfg.bots.forEach((b, i) => schedule(b, i, 0));

@@ -7,6 +7,15 @@ function envInt(name, def) {
   return Number.isFinite(n) ? n : def;
 }
 
+function envBool(name, def) {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return def;
+  const s = String(raw).toLowerCase();
+  if (["1", "true", "yes", "on"].includes(s)) return true;
+  if (["0", "false", "no", "off"].includes(s)) return false;
+  return def;
+}
+
 function getConfig() {
   const cfg = {
     server: {
@@ -20,6 +29,11 @@ function getConfig() {
     },
     agent: {
       tickMs: envInt("AGENT_TICK_MS", 4000)
+    },
+    viewer: {
+      enabled: envBool("VIEWER_ENABLED", true),
+      port: envInt("VIEWER_PORT", 3007),
+      firstPerson: envBool("VIEWER_FIRST_PERSON", true)
     },
     llm: {
       // OpenRouter-only minimal setup

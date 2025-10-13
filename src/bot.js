@@ -1,6 +1,15 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements } = require('mineflayer-pathfinder');
 const mcDataLoader = require('minecraft-data');
+let mineflayerViewer;
+let viewerLoadError = null;
+try {
+  // Optional dependency: prismarine-viewer
+  ({ mineflayer: mineflayerViewer } = require('prismarine-viewer'));
+} catch (e) {
+  viewerLoadError = e;
+  mineflayerViewer = null;
+}
 
 function createBot(config) {
   const { server, auth } = config;
@@ -17,11 +26,14 @@ function createBot(config) {
   // Load pathfinding plugin
   bot.loadPlugin(pathfinder);
 
-  bindCoreEvents(bot);
+  // Preserve config for later access
+  Object.defineProperty(bot, '__beholdConfig', { value: config, enumerable: false });
+
+  bindCoreEvents(bot, config);
   return bot;
 }
 
-function bindCoreEvents(bot) {
+function bindCoreEvents(bot, config) {
   bot.once('login', () => {
     console.log(`[bot] Logged in as ${bot.username}`);
   });
@@ -37,6 +49,27 @@ function bindCoreEvents(bot) {
       }
     } catch (e) {
       console.warn('[bot] Could not initialize default movements:', e?.message || e);
+    }
+
+    // Start web viewer if enabled
+    try {
+      const enabled = config?.viewer?.enabled !== false;
+      if (enabled && mineflayerViewer) {
+        const port = Number(config?.viewer?.port || 3007);
+        const firstPerson = !!config?.viewer?.firstPerson;
+        mineflayerViewer(bot, { port, firstPerson });
+        console.log(`[viewer] Running at http://localhost:${port} (${firstPerson ? 'first-person' : 'third-person'})`);
+      } else if (enabled && !mineflayerViewer) {
+        if (viewerLoadError?.message?.includes("Cannot find module 'canvas'")) {
+          console.warn('[viewer] prismarine-viewer requires the optional dependency "canvas".');
+          console.warn('[viewer] Install prerequisites (may require native libs) then run: npm i canvas');
+          console.warn('[viewer] macOS example: brew install pkg-config cairo pango libpng jpeg giflib librsvg');
+        } else {
+          console.warn('[viewer] prismarine-viewer not available. Ensure dependencies installed.');
+        }
+      }
+    } catch (e) {
+      console.warn('[viewer] Failed to start viewer:', e?.message || e);
     }
   });
 
