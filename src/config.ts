@@ -4,7 +4,7 @@ export interface Config {
   server: { host: string; port: number };
   auth: { username: string; password?: string; mode: 'offline' | 'microsoft' };
   agent: { tickMs: number };
-  viewer: { enabled: boolean; port: number; firstPerson: boolean; controlsPort: number; controlsEnabled: boolean };
+  viewer: { enabled: boolean; port: number; firstPerson: boolean };
   input: { mode: 'hold' | 'toggle' };
   llm: { apiKey?: string; model: string };
 }
@@ -43,8 +43,6 @@ export function getConfig(): Config {
       enabled: envBool('VIEWER_ENABLED', true),
       port: envInt('VIEWER_PORT', 3007),
       firstPerson: envBool('VIEWER_FIRST_PERSON', true),
-      controlsPort: envInt('CONTROLS_PORT', (envInt('VIEWER_PORT', 3007) + 1)),
-      controlsEnabled: envBool('CONTROLS_ENABLED', false),
     },
     input: { mode: ((process.env.KEY_MODE || 'hold').toLowerCase() === 'toggle') ? 'toggle' : 'hold' },
     llm: {

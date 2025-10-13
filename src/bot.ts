@@ -2,7 +2,6 @@ import mineflayer, { type Bot } from 'mineflayer';
 import { pathfinder, Movements } from 'mineflayer-pathfinder';
 import mcDataLoader, { type IndexedData } from 'minecraft-data';
 import type { Config } from './config';
-import { startControlsServer } from './web/controls';
 
 let mineflayerViewer: ((bot: any, opts: { viewDistance?: number; firstPerson?: boolean; port?: number; prefix?: string }) => void) | null = null;
 let viewerLoadError: Error | null = null;
@@ -73,15 +72,7 @@ function bindCoreEvents(bot: Bot, config: Config) {
     }
 
     // Controls server (companion)
-    if (config?.viewer?.controlsEnabled) {
-      try {
-        const cport = Number(config?.viewer?.controlsPort || ((config?.viewer?.port || 3007) + 1));
-        const vport = Number(config?.viewer?.port || 3007);
-        startControlsServer(bot, cport, vport);
-      } catch (e: any) {
-        console.warn('[controls] Failed to start controls server:', e?.message || e);
-      }
-    }
+    // No web controls overlay (CLI controls only)
   });
 
   bot.on('kicked', (reason: any) => {

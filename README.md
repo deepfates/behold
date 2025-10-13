@@ -113,11 +113,6 @@ Viewer
 - Toggle via `VIEWER_ENABLED=0` or change port with `VIEWER_PORT`.
 - First-person view can be switched with `VIEWER_FIRST_PERSON=0`.
 
-Web Controls
-- (Optional, disabled by default) A keyboard overlay can be served if `CONTROLS_ENABLED=1`.
-- It will be available at `http://localhost:<CONTROLS_PORT or VIEWER_PORT+1>/controls`.
-- By default, use CLI keyboard controls and the viewer at `http://localhost:3007`.
-
 
 Roadmap
 - Add richer tools (navigation, block inspection, inventory)
