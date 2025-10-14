@@ -12,6 +12,7 @@
     "dev": "ts-node --transpile-only src/index.ts",
     "behold": "ts-node --transpile-only src/cli/main.ts",
     "agent:stdio": "ts-node --transpile-only src/cli/main.ts agent --stdio",
+    "console": "ts-node --transpile-only src/tui/repl.ts",
     "lint": "eslint .",
     "format": "prettier -w .",
     "check": "eslint . && prettier -c .",
