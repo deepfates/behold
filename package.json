@@ -1,6 +1,6 @@
 {
   "name": "behold",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.0",
   "description": "Minecraft bot using Mineflayer with OpenRouter chat replies",
   "private": true,
   "main": "src/index.js",

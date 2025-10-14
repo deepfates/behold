@@ -1,5 +1,7 @@
 Behold — Plug‑and‑Play Minecraft Agents (local/offline)
 
+Status: 0.1.0‑alpha.0
+
 Behold is a minimal framework to plug interactive agents into your (local/offline) Minecraft server. It runs a Mineflayer bot, exposes a small, spec‑first command registry over the Mineflayer API, and lets either a human or an LLM “drive” the same commands.
 
 Features
