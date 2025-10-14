@@ -1,30 +1,74 @@
-# User Stories
+# User Stories (Updated for Plug‑and‑Play Agents)
 
-Primary personas:
-- Developer: builds, runs, and extends the bot locally.
-- Server Admin: runs the bot on a private server and observes behavior.
-- Observer/Player: interacts with the bot in-game via chat mentions.
+This doc captures the current direction: a unified CLI `behold <AgentName> [--model ...]` that starts an autonomous agent immediately, logs human‑readable observations/actions in the same terminal, and lets a human insert actions into the same stream. It also covers the JSONL stdio harness for automation.
 
-Stories
-- As a Developer, I can run `npm start` and see the bot connect and a web viewer at `http://localhost:3007` so I can observe state without logging into Minecraft.
-  - Acceptance: process logs show "Prismarine viewer web server running" and I can load the page successfully.
+Primary personas
+- Operator: launches agents locally, watches logs, and intervenes via terminal.
+- Agent Author: integrates models/tool‑calling against the command registry.
+- Server Admin: configures and supervises a private (offline) server.
+- Player: interacts in‑game (chat mentions, proximity).
 
-- As a Developer, I can control the bot with MC-like keyboard holds (WASD/Space/F) in my terminal so movement feels natural.
-  - Acceptance: holding `w` moves forward; releasing stops; `z` toggles sneak; `x` stops all.
+Assumptions
+- Local/offline server environment.
+- One action stream; human and LLM both propose intents; an arbiter executes one at a time with safe preemption (human > llm for exclusives; `stop` always preempts).
 
-- As a Developer, I can run a multi-bot swarm with staggered spawns and backoff retries so I don’t trigger server throttles.
-  - Acceptance: `npm run swarm` launches multiple bots; logs show staggered connects and retry messages on throttles.
+Launch & Observe
+- As an Operator, I can run `behold Leelu --model anthropic/claude-4.5-sonnet` and see Leelu connect within 3 seconds and begin acting autonomously.
+  - Acceptance:
+    - Terminal shows concise status lines (pos|hp/food|dim|day/night|held), focus (cursor), nearby top‑K, and last action result.
+    - First autonomous decision appears within the configured tick (default 3000ms).
 
-- As a Server Admin, I can configure host/port/auth via `.env` and run in offline or Microsoft auth modes.
-  - Acceptance: editing `.env` changes connection parameters; offline works without a password.
+Inline Controls (Human Insertions)
+- As an Operator, I can pause/resume autonomous decisions without stopping the bot.
+  - Acceptance: a single key or command toggles pause; logs reflect “paused/resumed”.
+- As an Operator, I can insert a manual command at any time and optionally preempt the current exclusive action.
+  - Acceptance:
+    - `:say "hi"` sends chat; summary line shows ok.
+    - `! dig @cursor` preempts a running move and digs; logs show “preempt(human)”.
+    - `stop` cancels the current lease (path/dig) reliably.
+- As an Operator, I can step exactly one LLM decision on demand and see its chosen action before it executes.
+  - Acceptance: `step` triggers a single propose→selected→act sequence with clear logs.
 
-- As a Player, when I mention the bot username in chat, it replies succinctly.
-  - Acceptance: chat shows a short response; if no API key is configured, a fallback greeting appears instead.
+Human Commands (Mapped to Registry)
+- As an Operator, I can run common verbs with ergonomic tokens.
+  - Acceptance examples:
+    - `status`, `nearby [radius=12]`, `cursor [max=6]` re‑render status without spamming.
+    - `move to #1 near=2` pathfinds to the first nearby target; `stop` cancels.
+    - `look @cursor`, `dig @cursor`, `place @cursor face=top` succeed when applicable; errors are short and prescriptive.
+    - `equip pickaxe`, `eat [bread]` operate inventory; clear errors if not found.
+    - Tab‑completion suggests command names, param keys, enums, and tokens (`@cursor`, `#1..#5`, `@nearest <name>`, `@here`).
 
-- As a Developer, I can enable/disable the viewer and first-person mode via env vars to suit my environment.
-  - Acceptance: `VIEWER_ENABLED=0` disables viewer startup; `VIEWER_FIRST_PERSON=0` switches camera.
+LLM Autonomy
+- As an Operator, I can tune the LLM decision cadence and safety.
+  - Acceptance: `tick 1500ms` lowers latency; allowlist and global rate‑limits are enforced; long chat is truncated.
+- As an Operator, I can mute LLM proposals temporarily.
+  - Acceptance: `llm off` prevents new LLM intents from being selected; human inserts still work.
 
-Non-goals (current release)
-- Clicking in the viewer to trigger actions (dig/place) — disabled by design.
-- Web-based control overlay — removed; CLI controls are canonical.
+Tooling & Introspection
+- As an Agent Author, I can list/describe the command registry and run a command programmatically.
+  - Acceptance:
+    - `behold tools --json` returns a stable list of `{ name, description, parameters }`.
+    - `run_command { name, args }` executes and returns `{ ok, ... }` over the tool surface.
 
+JSONL Stdio Automation
+- As a Developer, I can drive the agent via JSONL without the interactive console.
+  - Acceptance:
+    - `npm run agent:stdio` prints `hello` with tool specs, then periodic `observation` events.
+    - Writing one line `{"action":"call","tool":"say","input":{"text":"hi"}}` yields a `tool_result`.
+    - `{"action":"final"}` exits cleanly.
+
+Safety & Limits
+- As an Operator, I can constrain actions safely.
+  - Acceptance: `--allow-tools say,move_to` blocks others; chat is rate‑limited (e.g., 1/s); exclusives obey lease with human preempt.
+
+Config & Auth
+- As a Server Admin, I can set host/port/auth via `.env` or flags and run in offline mode easily.
+  - Acceptance: `SERVER_HOST`, `SERVER_PORT`, `MINECRAFT_AUTH=offline`, `MINECRAFT_USERNAME` connect reliably; helpful warnings if missing.
+
+Optional (Scale & Logs)
+- As an Operator, I can run multiple agents with prefixed logs.
+  - Acceptance: each line is prefixed `[AgentName]`; non‑TTY runs avoid prompts; optional `--log-file` writes JSONL.
+
+Non‑Goals (for now)
+- Viewer‑driven click‑to‑act.
+- Long‑horizon planning or tasks; we focus on single‑step, safe actions.

@@ -1,6 +1,6 @@
-Behold — Mineflayer + OpenRouter Chat Bot
+Behold — Plug‑and‑Play Minecraft Agents (local/offline)
 
-A minimal Minecraft bot that logs into a server with Mineflayer and replies in chat via OpenRouter. The bot stands in place and only responds when addressed.
+Behold is a minimal framework to plug interactive agents into your (local/offline) Minecraft server. It runs a Mineflayer bot, exposes a small, spec‑first command registry over the Mineflayer API, and lets either a human or an LLM “drive” the same commands.
 
 Features
 - Mineflayer login + basic lifecycle hooks (spawn, chat, errors)
@@ -15,6 +15,9 @@ Project Layout
 - Viewer: when enabled, starts a local web viewer (prismarine-viewer) on spawn
 - `src/agent/loop.ts` — Agent loop runner (tick-based)
 - `src/agent/reasoner.ts` — Minimal reasoner; uses OpenRouter chat (no tools) or a tiny fallback
+- `src/agent/observation.ts` — Shared observation builder for bot state
+- `src/agent/harness_stdio.ts` — JSONL stdio harness for external LLM control
+- `src/cli/main.ts` — Minimal CLI with `agent --stdio` and `tools`
 - `src/input/keyboard.ts` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
 - `src/tools/index.ts` — Registry of callable tools the reasoner can invoke
 - `scripts/swarm.ts` — Multi-bot launcher for local/offline testing
@@ -70,13 +73,15 @@ Environment Variables
 - `OPENROUTER_TITLE` — Optional X-Title header for OpenRouter
 - `LLM_MODEL` — OpenRouter model slug (e.g., `openai/gpt-4o-mini`)
 
-LLM Integration (OpenRouter only)
+LLM Integration (today)
 - Set `OPENROUTER_API_KEY` and choose a model via `LLM_MODEL` (defaults to `openai/gpt-4o-mini`).
-- The agent sends a simple chat prompt and replies with the returned text.
+- The included minimal reasoner replies to chat mentions (text only). For structured tool‑calling, use the JSONL stdio harness described below.
 
-Tool mapping
-- Tools are defined in `src/tools/index.js` and registered in `src/agent/loop.js`.
-- The reasoner emits actions of the form `{ tool: string, input: any }` that the loop executes by name (currently used for `say`).
+Command registry and tools
+- Interpreter commands live in `src/agent/interpreter.ts` (chat/look/move/dig/place/inventory/sense) and call the Mineflayer API.
+- The same commands are exposed as tools via `src/tools/index.ts`:
+  - `list_commands`, `describe_command`, `run_command` — discovery and execution
+  - Backwards‑compatible simple tools (e.g., `say`, `move_to`, `get_status`) remain available
 
 Fallback behavior
 - If no LLM is configured, the bot uses a small rule: if someone mentions the bot’s username in chat, it replies with a greeting via `say`.
@@ -116,9 +121,34 @@ Viewer
 - First-person view can be switched with `VIEWER_FIRST_PERSON=0`.
 
 
+JSONL Stdio Harness
+- Purpose: let an external LLM (or controller) run the observe–think–act loop via JSONL over stdio.
+- Start:
+  ```bash
+  npm run agent:stdio -- --maxSteps 50 --allowTools say,move_to
+  ```
+- Protocol (stdout):
+  - `{ "event": "hello", "username": "...", "specs": [...] }`
+  - `{ "event": "observation", "data": { ... } }`
+  - `{ "event": "status", "phase": "observing|thinking|acting|waiting", "step": 1 }`
+  - `{ "event": "tool_result", "id": "call-123", "ok": true, "result": { ... } }`
+- Actions (stdin, one JSON per line):
+  - `{"action":"call","id":"call-123","tool":"say","input":{"text":"hi"}}`
+  - `{"action":"wait"}`
+  - `{"action":"final","text":"see ya"}`
+- Options (`npm run behold -- agent --stdio`): `--tickMs`, `--thinkTimeoutMs`, `--maxSteps`, `--rateMax`, `--rateWindowMs`, `--allowTools <csv>`.
+
+What you can do today
+- Drive the bot by piping JSON actions (see above examples).
+- Use `npm run behold -- tools --json` to list the command registry for tool‑calling.
+- Use `npm run cli` for a basic chat REPL (human chat only).
+
+What’s next (readme‑driven plan)
+- `behold <AgentName> [--model ...]` boots an autonomous agent that logs observations/actions in human‑readable lines in the same terminal, with inline interactive controls (pause/step/manual commands) sharing one action stream with the LLM. See `docs/PRD.md`.
+
 Roadmap
 - Add richer tools (navigation, block inspection, inventory)
-- Progressive agent design inspired by Anthropic’s “Building Effective Agents” (function signatures, controlled tool use)
+- Unified CLI (`behold <AgentName>`) with shared human+LLM action stream
 - Add examples and tests
 
 Safety
