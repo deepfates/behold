@@ -7,6 +7,7 @@ import { buildInterpreter } from '../agent/interpreter';
 import { buildFrame, renderFrame } from './render';
 import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
+import { startLLMPolicy } from '../policy/llm';
 
 async function main() {
   const cfg = getConfig();
@@ -51,6 +52,25 @@ async function main() {
 
   const engine = createEngine(bot as any, registry, { tickMs: 3000, log: (s) => console.error(s) });
   engine.start();
+
+  // If OPENROUTER_API_KEY is present, start a simple LLM proposer (autonomous single agent)
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const model = process.env.LLM_MODEL || 'openai/gpt-4o-mini';
+  let policy: { start(): void; stop(): void } | null = null;
+  if (apiKey) {
+    const { specs } = buildInterpreter(bot as any); // reuse interpreter specs for tool schema
+    policy = startLLMPolicy(bot as any, specs as any, (i) => engine.arbiter.enqueue(i), {
+      apiKey,
+      model,
+      tickMs: Number(process.env.AGENT_TICK_MS || 3000),
+      allowTools: null,
+      log: (s) => console.error(s),
+    });
+    policy.start();
+    console.error(`[console] LLM policy enabled (model ${model})`);
+  } else {
+    console.error('[console] No OPENROUTER_API_KEY; LLM autopilot disabled.');
+  }
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const prompt = () => rl.setPrompt('» '), show = () => { try {
@@ -105,10 +125,10 @@ async function main() {
 
   rl.on('close', () => {
     try { engine.stop(); } catch {}
+    try { policy?.stop(); } catch {}
     try { (bot as any).end(); } catch {}
     process.exit(0);
   });
 }
 
 main().catch((e) => { console.error('[console] fatal:', e); process.exit(1); });
-

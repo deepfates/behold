@@ -142,7 +142,8 @@ What you can do today
 - Drive the bot by piping JSON actions (see above examples).
 - Use `npm run behold -- tools --json` to list the command registry for tool‑calling.
 - Use `npm run cli` for a basic chat REPL (human chat only).
- - Try the preview console REPL (human + engine): `npm run console`.
+- Try the preview console REPL (human + engine): `npm run console`.
+  - If `OPENROUTER_API_KEY` is set, the console starts a simple LLM autopilot (single agent) that proposes one tool call per tick (default 3000ms) using the same command registry. You can still type commands any time to override.
 
 What’s next (readme‑driven plan)
 - `behold <AgentName> [--model ...]` boots an autonomous agent that logs observations/actions in human‑readable lines in the same terminal, with inline interactive controls (pause/step/manual commands) sharing one action stream with the LLM. See `docs/PRD.md`.

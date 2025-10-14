@@ -159,7 +159,8 @@ Arbiter:
    - [x] Engine tick wiring (preview)
    - [ ] Integrate arbiter logs with console (propose/selected/lease)
 3) LLM Driver (function‑calling)
-   - Tool schema mapping; prompt; arg validation; text→`chat`.
+   - [x] Tool schema mapping; basic prompt; text→`chat` fallback
+   - [ ] Arg validation and richer frame context (nearby/cursor)
 4) Unified CLI
    - `behold <AgentName> [--model ...]` default autonomous with inline controls.
 5) Polish
