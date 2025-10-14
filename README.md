@@ -2,15 +2,27 @@ Behold — Plug‑and‑Play Minecraft Agents (local/offline)
 
 Status: 0.1.0‑alpha.0
 
-Behold makes it easy to plug interactive agents into your local/offline Minecraft server. It runs a Mineflayer bot, exposes a small spec‑first command registry over the Mineflayer API, and lets either a human or an LLM act through the same commands. One action stream; a simple arbiter executes one thing at a time with safe preemption.
+Build and run Minecraft agents on your own server in minutes. Behold gives you:
+- A tiny command API over Mineflayer (chat/look/move/dig/place/etc.).
+- One action stream shared by humans and LLMs (safe preemption, rate limits).
+- A console to see state and type small commands.
+- An optional LLM “autopilot” that uses the same commands.
 
-Vision
-- One surface: the command registry is the API for both humans and LLMs.
-- Terminal‑first: a concise console shows state and accepts small commands.
-- Safe by default: exclusives (move/dig/place) hold a lease; `stop` preempts.
-- Portable: machine‑friendly JSONL harness for automation.
+Quickstart
+- Install + configure:
+  - `npm install`
+  - `cp .env.example .env` (edit host/username/auth; set `OPENROUTER_API_KEY` to enable autopilot)
+- Run the console (starts the bot; autopilot if API key present):
+  - `npm run console`
+- Try a few commands:
+  - `say "hi"` · `status` · `nearby` · `cursor`
+  - `look @cursor` · `move to 130 64 -40 near=2` · `stop`
+  - `dig @cursor` · `equip pickaxe` · `eat`
 
-Project Layout (key files)
+What is it?
+Behold runs a Mineflayer bot and exposes a spec‑first command registry you can call from a console, an LLM, or a script. A small arbiter executes one action at a time (movement/dig/place hold a lease; `stop` preempts). There’s also a JSONL harness for automation.
+
+Key files
 - `src/index.ts` — Entry point; loads config and starts the bot + agent loop
 - `src/config.ts` — Reads env vars and validates runtime config
 - `src/bot.ts` — Creates the Mineflayer bot and binds core events
@@ -77,9 +89,9 @@ Environment Variables
 - `OPENROUTER_TITLE` — Optional X-Title header for OpenRouter
 - `LLM_MODEL` — OpenRouter model slug (e.g., `openai/gpt-4o-mini`)
 
-LLM Integration (today)
+LLM Autopilot (optional)
 - Set `OPENROUTER_API_KEY` and choose a model via `LLM_MODEL` (defaults to `openai/gpt-4o-mini`).
-- Console REPL starts an LLM policy (function‑calling) that proposes one tool per tick using the same command registry; you can still type commands any time.
+- The console starts a function‑calling “policy” that proposes one tool per tick using the same command registry you use as a human.
 
 Command registry and tools
 - Interpreter commands live in `src/agent/interpreter.ts` (chat/look/move/dig/place/inventory/sense).
@@ -143,9 +155,9 @@ JSONL Stdio Harness
 - Options (`npm run behold -- agent --stdio`): `--tickMs`, `--thinkTimeoutMs`, `--maxSteps`, `--rateMax`, `--rateWindowMs`, `--allowTools <csv>`.
 
 What you can do today
-- Console (preview): `npm run console` — basic human commands; LLM autopilot if `OPENROUTER_API_KEY` is set.
-- Tools manifest for LLMs: `npm run behold -- tools --json`.
-- JSONL harness: `npm run agent:stdio` then write actions line‑by‑line.
+- Console (preview): `npm run console` — human commands; LLM autopilot if `OPENROUTER_API_KEY` is set.
+- Tools manifest (for LLMs): `npm run behold -- tools --json`.
+- Automation (JSONL): `npm run agent:stdio` then send one line per action.
 
 What’s next
 - Unified CLI: `behold <AgentName> [--model ...]` (autonomous by default) with inline controls.
@@ -153,9 +165,9 @@ What’s next
 - Policy: better heuristics, arg validation, richer context.
 
 Roadmap
-- Add richer tools (navigation, block inspection, inventory)
-- Unified CLI (`behold <AgentName>`) with shared human+LLM action stream
-- Add examples and tests
+- Unified CLI: `behold <AgentName> [--model ...]` (autonomous by default) with inline controls.
+- Console polish: tab completion, tokens (@nearest/#idx), confirmations, watch, propose/selected logs.
+- Policy: better heuristics, arg validation, richer context.
 
 Safety
 Autonomous bots can spam or grief if misconfigured. Start on a private test server, audit tool capabilities, and add guardrails or rate limits before deploying anywhere public.
