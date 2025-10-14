@@ -2,10 +2,7 @@
 
 ## the agents yearn for the mines
 
-<video width="600" controls>
-  <source src="screenshot.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+[![Watch the demo (MP4)](docs/thumbnail.png)](screenshot.mp4)
 
 Status: 0.1.0‑alpha.0
 
