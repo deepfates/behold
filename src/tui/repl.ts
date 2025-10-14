@@ -58,8 +58,16 @@ async function main() {
   const model = process.env.LLM_MODEL || 'openai/gpt-4o-mini';
   let policy: { start(): void; stop(): void } | null = null;
   if (apiKey) {
-    const { specs } = buildInterpreter(bot as any); // reuse interpreter specs for tool schema
-    policy = startLLMPolicy(bot as any, specs as any, (i) => engine.arbiter.enqueue(i), {
+    const interpForTools = buildInterpreter(bot as any);
+    const toolSpecs = interpForTools.list().map((s: any) => ({
+      type: 'function',
+      function: {
+        name: s.name,
+        description: s.description || '',
+        parameters: s.parameters || { type: 'object', properties: {} },
+      },
+    }));
+    policy = startLLMPolicy(bot as any, toolSpecs as any, (i) => engine.arbiter.enqueue(i), {
       apiKey,
       model,
       tickMs: Number(process.env.AGENT_TICK_MS || 3000),
@@ -83,7 +91,7 @@ async function main() {
 
   bot.once('spawn', () => {
     show();
-    setInterval(show, 1000);
+    setInterval(() => { if (!rl.line) show(); }, 1500);
   });
 
   rl.on('line', async (line) => {
