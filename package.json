@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "format": "prettier -w .",
     "check": "eslint . && prettier -c .",
-    "prepare": "husky install",
+    "prepare": "husky",
     "cli": "ts-node --transpile-only src/tools/readline.ts"
   },
   "engines": {
@@ -43,10 +43,11 @@
     "@types/node": "^22.7.7"
   },
   "lint-staged": {
+    "**/*.{js,jsx}": [
+      "eslint --fix --max-warnings=0"
+    ],
     "**/*.{js,ts,jsx,tsx,json,md}": [
-      "prettier -w",
-      "eslint --fix --max-warnings=0",
-      "git add"
+      "prettier -w"
     ]
   }
 }
