@@ -1,10 +1,30 @@
 import { Vec3 } from 'vec3';
 import { goals } from 'mineflayer-pathfinder';
 import type { Bot } from 'mineflayer';
+import { buildInterpreter } from '../agent/interpreter';
 
 export function buildTools(bot: Bot) {
   const fns: Record<string, (input: any) => Promise<any>> = {};
   const specs: any[] = [];
+
+  // Interpreter: list/describe/run + observe
+  const interp = buildInterpreter(bot);
+
+  fns.list_commands = async () => ({ ok: true, commands: interp.list() });
+  specs.push({ type: 'function', function: { name: 'list_commands', description: 'List available commands in the interpreter', parameters: { type: 'object', properties: {} } } });
+
+  fns.describe_command = async ({ name }: any) => {
+    if (!name) return { ok: false, error: 'name required' };
+    const d = interp.describe(String(name));
+    return d ? { ok: true, command: d } : { ok: false, error: 'unknown_command' };
+  };
+  specs.push({ type: 'function', function: { name: 'describe_command', description: 'Describe a command and its parameters', parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } } });
+
+  fns.run_command = async ({ name, args = {} }: any) => {
+    if (!name) return { ok: false, error: 'name required' };
+    return await interp.run(String(name), args);
+  };
+  specs.push({ type: 'function', function: { name: 'run_command', description: 'Run a command by name with args', parameters: { type: 'object', properties: { name: { type: 'string' }, args: { type: 'object' } }, required: ['name'] } } });
 
   fns.say = async (input: any) => {
     const text = typeof input === 'string' ? input : input?.text ?? String(input);

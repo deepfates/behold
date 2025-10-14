@@ -10,6 +10,8 @@
     "start": "npm run build && node dist/src/index.js",
     "swarm": "npm run build && node dist/scripts/swarm.js",
     "dev": "ts-node --transpile-only src/index.ts",
+    "behold": "ts-node --transpile-only src/cli/main.ts",
+    "agent:stdio": "ts-node --transpile-only src/cli/main.ts agent --stdio",
     "lint": "eslint .",
     "format": "prettier -w .",
     "check": "eslint . && prettier -c .",

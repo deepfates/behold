@@ -2,13 +2,14 @@ import { getReasoner } from './reasoner';
 import { buildTools } from '../tools';
 import type { Bot } from 'mineflayer';
 import type { Config } from '../config';
+import { collectObservation, type ChatLine } from './observation';
 
 export function startAgentLoop(bot: Bot, config: Config) {
   const { fns: tools, specs: toolSpecs } = buildTools(bot);
   const reasoner = getReasoner(bot, config, tools, toolSpecs);
   console.log(`[agent] Using reasoner: ${reasoner.name}`);
 
-  let lastChat: { username: string; message: string; at: number } | null = null;
+  let lastChat: ChatLine = null;
   bot.on('chat', (username: string, message: string) => {
     lastChat = { username, message, at: Date.now() };
   });
@@ -36,15 +37,4 @@ export function startAgentLoop(bot: Bot, config: Config) {
   bot.once('end', () => clearInterval(interval));
 }
 
-function collectObservation(bot: Bot, lastChat: any) {
-  const pos = bot.entity?.position;
-  const position = pos ? { x: pos.x, y: pos.y, z: pos.z } : null;
-  return {
-    time: Date.now(),
-    username: bot.username,
-    position,
-    health: bot.health,
-    food: bot.food,
-    lastChat,
-  };
-}
+// observation moved to src/agent/observation.ts
