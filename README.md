@@ -2,7 +2,10 @@
 
 ## the agents yearn for the mines
 
-![screen recording of an agent digging wood](screenshot.mp4)
+<video width="600" controls>
+  <source src="screenshot.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 Status: 0.1.0‑alpha.0
 
