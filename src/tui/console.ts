@@ -128,6 +128,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         }
       }
     }
+    try {
+      const shown = (() => { try { const s = JSON.stringify(intent.input); return s && s.length > 120 ? s.slice(0,117)+'...' : s; } catch { return ''; } })();
+      console.error(`[human] propose: ${intent.tool} ${shown || ''}`);
+    } catch {}
     engine.enqueueHumanIntent({ tool: intent.tool, input: intent.input, preempt: intent.preempt, kind: intent.kind });
     cache.last = `${intent.tool}`;
     show();
@@ -140,4 +144,3 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     process.exit(0);
   });
 }
-

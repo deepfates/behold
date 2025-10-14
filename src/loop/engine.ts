@@ -35,6 +35,7 @@ export function createEngine(bot: Bot, registry: Registry, opts: EngineOptions =
       return;
     }
     try {
+      log(`[arbiter] selected: ${intent.source} ${intent.tool}`);
       log(`[engine] act: ${intent.tool}`);
       const res = await registry.run(intent.tool, intent.input);
       // If exclusive finished, release lease
@@ -76,4 +77,3 @@ export function createEngine(bot: Bot, registry: Registry, opts: EngineOptions =
     requestStep,
   };
 }
-

@@ -30,6 +30,7 @@ export function startLLMPolicy(bot: Bot, specs: ToolSpec[], enqueue: (i: Intent)
       const intent = await callLLM(specs, frame, opts, lastTool);
       if (!intent) return;
       if (allow && !allow.has(intent.tool)) return;
+      log(`[policy] propose: ${intent.tool} ${fmtArgs(intent.input)}`);
       enqueue(intent);
       lastTool = intent.tool;
     } catch (e: any) {
@@ -128,3 +129,4 @@ function toIntent(name: string, args: any): Intent {
 
 function fmt(n: any) { const x = Number(n); return Number.isFinite(x) ? x : '?'; }
 function rid(prefix: string) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
+function fmtArgs(a: any) { try { const s = JSON.stringify(a); return s.length > 120 ? s.slice(0, 117) + '...' : s; } catch { return ''; } }
