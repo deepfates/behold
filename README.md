@@ -2,15 +2,15 @@ Behold — Plug‑and‑Play Minecraft Agents (local/offline)
 
 Status: 0.1.0‑alpha.0
 
-Behold is a minimal framework to plug interactive agents into your (local/offline) Minecraft server. It runs a Mineflayer bot, exposes a small, spec‑first command registry over the Mineflayer API, and lets either a human or an LLM “drive” the same commands.
+Behold makes it easy to plug interactive agents into your local/offline Minecraft server. It runs a Mineflayer bot, exposes a small spec‑first command registry over the Mineflayer API, and lets either a human or an LLM act through the same commands. One action stream; a simple arbiter executes one thing at a time with safe preemption.
 
-Features
-- Mineflayer login + basic lifecycle hooks (spawn, chat, errors)
-- Simple agent loop scaffold with pluggable "reasoner" (LLM or fallback)
-- Minimal tool system (e.g., `say`) for the agent to call
-- Environment-based configuration and sensible defaults
+Vision
+- One surface: the command registry is the API for both humans and LLMs.
+- Terminal‑first: a concise console shows state and accepts small commands.
+- Safe by default: exclusives (move/dig/place) hold a lease; `stop` preempts.
+- Portable: machine‑friendly JSONL harness for automation.
 
-Project Layout
+Project Layout (key files)
 - `src/index.ts` — Entry point; loads config and starts the bot + agent loop
 - `src/config.ts` — Reads env vars and validates runtime config
 - `src/bot.ts` — Creates the Mineflayer bot and binds core events
@@ -18,8 +18,10 @@ Project Layout
 - `src/agent/loop.ts` — Agent loop runner (tick-based)
 - `src/agent/reasoner.ts` — Minimal reasoner; uses OpenRouter chat (no tools) or a tiny fallback
 - `src/agent/observation.ts` — Shared observation builder for bot state
-- `src/agent/harness_stdio.ts` — JSONL stdio harness for external LLM control
-- `src/cli/main.ts` — Minimal CLI with `agent --stdio` and `tools`
+- `src/agent/harness_stdio.ts` — JSONL stdio harness for external control
+- `src/cli/main.ts` — Transitional CLI (`tools`, `agent --stdio`)
+ - `src/loop/*` — Arbiter + engine skeleton
+ - `src/tui/*` — Console REPL (preview)
 - `src/input/keyboard.ts` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
 - `src/tools/index.ts` — Registry of callable tools the reasoner can invoke
 - `scripts/swarm.ts` — Multi-bot launcher for local/offline testing
@@ -77,11 +79,11 @@ Environment Variables
 
 LLM Integration (today)
 - Set `OPENROUTER_API_KEY` and choose a model via `LLM_MODEL` (defaults to `openai/gpt-4o-mini`).
-- The included minimal reasoner replies to chat mentions (text only). For structured tool‑calling, use the JSONL stdio harness described below.
+- Console REPL starts an LLM policy (function‑calling) that proposes one tool per tick using the same command registry; you can still type commands any time.
 
 Command registry and tools
-- Interpreter commands live in `src/agent/interpreter.ts` (chat/look/move/dig/place/inventory/sense) and call the Mineflayer API.
-- The same commands are exposed as tools via `src/tools/index.ts`:
+- Interpreter commands live in `src/agent/interpreter.ts` (chat/look/move/dig/place/inventory/sense).
+- Tools in `src/tools/index.ts` expose the same surface:
   - `list_commands`, `describe_command`, `run_command` — discovery and execution
   - Backwards‑compatible simple tools (e.g., `say`, `move_to`, `get_status`) remain available
 
@@ -141,14 +143,14 @@ JSONL Stdio Harness
 - Options (`npm run behold -- agent --stdio`): `--tickMs`, `--thinkTimeoutMs`, `--maxSteps`, `--rateMax`, `--rateWindowMs`, `--allowTools <csv>`.
 
 What you can do today
-- Drive the bot by piping JSON actions (see above examples).
-- Use `npm run behold -- tools --json` to list the command registry for tool‑calling.
-- Use `npm run cli` for a basic chat REPL (human chat only).
-- Try the preview console REPL (human + engine): `npm run console`.
-  - If `OPENROUTER_API_KEY` is set, the console starts a simple LLM autopilot (single agent) that proposes one tool call per tick (default 3000ms) using the same command registry. You can still type commands any time to override.
+- Console (preview): `npm run console` — basic human commands; LLM autopilot if `OPENROUTER_API_KEY` is set.
+- Tools manifest for LLMs: `npm run behold -- tools --json`.
+- JSONL harness: `npm run agent:stdio` then write actions line‑by‑line.
 
-What’s next (readme‑driven plan)
-- `behold <AgentName> [--model ...]` boots an autonomous agent that logs observations/actions in human‑readable lines in the same terminal, with inline interactive controls (pause/step/manual commands) sharing one action stream with the LLM. See `docs/PRD.md`.
+What’s next
+- Unified CLI: `behold <AgentName> [--model ...]` (autonomous by default) with inline controls.
+- Console polish: tab completion, tokens (@nearest/#idx), confirmations, watch, propose/selected logs.
+- Policy: better heuristics, arg validation, richer context.
 
 Roadmap
 - Add richer tools (navigation, block inspection, inventory)
