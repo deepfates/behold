@@ -151,9 +151,13 @@ Arbiter:
 
 ## 17) Phased Milestones
 1) TUI MVP (Human REPL)
-   - Frame renderer, parser, tokens, completions, confirmations, watch, json mode.
+   - [x] Frame renderer (preview)
+   - [x] Minimal parser (say/status/nearby/cursor/look/move/stop/dig/equip/eat)
+   - [ ] Tokens (#idx, @nearest), completions, confirmations, watch, json mode
 2) Unified Engine + Arbiter
-   - Action stream with lease/preempt; shared rate limits; LLM cadence control.
+   - [x] Arbiter skeleton with lease/preempt and rate limits
+   - [x] Engine tick wiring (preview)
+   - [ ] Integrate arbiter logs with console (propose/selected/lease)
 3) LLM Driver (function‑calling)
    - Tool schema mapping; prompt; arg validation; text→`chat`.
 4) Unified CLI
