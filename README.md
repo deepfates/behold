@@ -4,7 +4,7 @@
 
 [![Watch the demo (MP4)](docs/thumbnail.png)](screenshot.mp4)
 
-Status: 0.1.0‑alpha.0
+Status: 0.1.0‑alpha.0 — See [ROADMAP](docs/ROADMAP.md) for current status and priorities
 
 Build and run Minecraft agents on your own server in minutes. Behold gives you:
 
