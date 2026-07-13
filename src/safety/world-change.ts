@@ -48,11 +48,6 @@ export type WorldChangeSettlement = {
 
 export interface WorldChangeGuard {
   authorize(request: WorldChangeRequest): Authorization;
-  reserve(request: WorldChangeRequest): Reservation;
-  settle(reservationId: string, result: WorldChangeSettlement): WorldChange;
-  commit(
-    change: WorldChangeRequest & Omit<WorldChangeSettlement, 'verified'> & { verified?: boolean },
-  ): WorldChange;
   snapshot(): {
     budget: number;
     used: number;
@@ -63,6 +58,17 @@ export interface WorldChangeGuard {
   };
 }
 
+/** Capability held only by the world adapter that can actually attempt changes. */
+export interface WorldChangeExecutor {
+  reserve(request: WorldChangeRequest): Reservation;
+  settle(reservationId: string, result: WorldChangeSettlement): WorldChange;
+}
+
+export type WorldChangeAuthority = {
+  guard: WorldChangeGuard;
+  executor: WorldChangeExecutor;
+};
+
 export type BudgetGuardOptions = {
   budget: number;
   radius?: number | null;
@@ -71,7 +77,7 @@ export type BudgetGuardOptions = {
 };
 
 /** Enforces a small, inspectable block-change capability for live-world tasks. */
-export function createWorldChangeGuard(opts: BudgetGuardOptions): WorldChangeGuard {
+export function createWorldChangeAuthority(opts: BudgetGuardOptions): WorldChangeAuthority {
   const budget = Math.max(0, Math.floor(Number(opts.budget) || 0));
   const radius = opts.radius == null ? null : Math.max(0, Number(opts.radius));
   const now = opts.now ?? (() => Date.now());
@@ -79,7 +85,8 @@ export function createWorldChangeGuard(opts: BudgetGuardOptions): WorldChangeGua
   let nextReservation = 0;
 
   function currentAnchor() {
-    return opts.anchor?.() ?? null;
+    const anchor = opts.anchor?.() ?? null;
+    return anchor ? clonePosition(anchor) : null;
   }
 
   function authorize(request: WorldChangeRequest): Authorization {
@@ -116,7 +123,9 @@ export function createWorldChangeGuard(opts: BudgetGuardOptions): WorldChangeGua
     if (authorization.ok === false) return authorization;
     const reservationId = `world-change-${++nextReservation}`;
     changes.push({
-      ...request,
+      verb: request.verb,
+      position: clonePosition(request.position),
+      before: request.before,
       id: reservationId,
       status: 'pending',
       verified: false,
@@ -137,39 +146,52 @@ export function createWorldChangeGuard(opts: BudgetGuardOptions): WorldChangeGua
     }
     const settled: WorldChange = {
       ...pending,
-      ...result,
+      after: result.after,
       status: result.verified ? 'verified' : 'uncertain',
       verified: result.verified,
       settledAt: now(),
+      ...(result.evidence ? { evidence: cloneEvidence(result.evidence) } : {}),
+      ...(result.error ? { error: result.error } : {}),
     };
     changes[index] = settled;
-    return { ...settled };
+    return cloneChange(settled);
   }
 
+  const snapshot = () => {
+    return {
+      budget,
+      used: changes.length,
+      remaining: Math.max(0, budget - changes.length),
+      radius,
+      anchor: currentAnchor(),
+      changes: changes.map(cloneChange),
+    };
+  };
   return {
-    authorize,
-    reserve,
-    settle,
-    commit(change) {
-      const reservation = reserve(change);
-      if (reservation.ok === false) throw new Error(reservation.error);
-      return settle(reservation.reservationId, {
-        after: change.after,
-        verified: change.verified ?? change.evidence != null,
-        evidence: change.evidence,
-        error: change.error,
-      });
+    guard: {
+      authorize,
+      snapshot,
     },
-    snapshot() {
-      return {
-        budget,
-        used: changes.length,
-        remaining: Math.max(0, budget - changes.length),
-        radius,
-        anchor: currentAnchor(),
-        changes: changes.map((change) => ({ ...change })),
-      };
+    executor: {
+      reserve,
+      settle,
     },
+  };
+}
+
+function clonePosition(position: BlockPosition): BlockPosition {
+  return { x: position.x, y: position.y, z: position.z };
+}
+
+function cloneEvidence(evidence: WorldChangeEvidence): WorldChangeEvidence {
+  return { ...evidence };
+}
+
+function cloneChange(change: WorldChange): WorldChange {
+  return {
+    ...change,
+    position: clonePosition(change.position),
+    ...(change.evidence ? { evidence: cloneEvidence(change.evidence) } : {}),
   };
 }
 

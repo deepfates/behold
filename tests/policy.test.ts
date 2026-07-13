@@ -74,6 +74,7 @@ test('controller receives real action results and continues the same bounded tur
     {
       apiKey: 'test-key',
       model: 'test/model',
+      acceptEngineEvent: () => true,
       onEntityTurn: (turn) => entityTurns.push(turn),
     },
   );
@@ -188,6 +189,7 @@ test('controller breaks a communication-only loop until the body acts or a human
     {
       apiKey: 'test-key',
       model: 'test/model',
+      acceptEngineEvent: () => true,
       onEntityTurn: (turn) => turns.push(turn),
     },
   );
@@ -261,6 +263,7 @@ test('a safe untasked life may act directly without wrapping one step in a proje
     {
       apiKey: 'test-key',
       model: 'test/model',
+      acceptEngineEvent: () => true,
     },
   );
 
@@ -338,7 +341,7 @@ test('a remembered-place conflict must be resolved before more embodied construc
         events: [{ sequence: 1, type: 'spawned', isNew: true, data: {} }],
       }),
     },
-    { apiKey: 'test-key', model: 'test/model' },
+    { apiKey: 'test-key', model: 'test/model', acceptEngineEvent: () => true },
   );
 
   try {
@@ -410,7 +413,7 @@ test('a safe dropped stack outranks new project selection while empty-server cha
         events: [{ sequence: 1, type: 'spawned', isNew: true, data: {} }],
       }),
     },
-    { apiKey: 'test-key', model: 'test/model' },
+    { apiKey: 'test-key', model: 'test/model', acceptEngineEvent: () => true },
   );
 
   try {
@@ -478,6 +481,7 @@ test('a falling body yields for a new embodied event instead of starting another
     {
       apiKey: 'test-key',
       model: 'test/model',
+      acceptEngineEvent: () => true,
       onEntityTurn: (turn) => turns.push(turn),
     },
   );
@@ -536,6 +540,7 @@ test('a restarted controller blocks a fourth consecutive failed embodied strateg
     {
       apiKey: 'test-key',
       model: 'test/model',
+      acceptEngineEvent: () => true,
       history,
       maxTurnSteps: 1,
       onEntityTurn: (turn) => turns.push(turn),
@@ -613,6 +618,7 @@ test('a restarted controller continues the same entity trajectory from loom turn
     {
       apiKey: 'test-key',
       model: 'test/model',
+      acceptEngineEvent: () => true,
       history: [prior],
       onEntityTurn: (turn) => turns.push(turn),
     },
@@ -675,6 +681,7 @@ test('controller context remains bounded across a continuing life', async () => 
       apiKey: 'test-key',
       model: 'test/model',
       maxTurnSteps: 16,
+      acceptEngineEvent: () => true,
       summarizeLoom: async ({ previousSummary, fromSequence, toSequence }) =>
         `${previousSummary || ''} [t${fromSequence}-t${toSequence}]`.trim(),
     },
@@ -696,6 +703,78 @@ test('controller context remains bounded across a continuing life', async () => 
       Math.max(...requests.map((request) => request.messages.length)) <= 36,
       'working context should contain only the bounded recent trajectory',
     );
+  } finally {
+    policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('bounded event projection drains oldest unread batches without skipping the remainder', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: any[] = [];
+  const responses = [
+    assistantTool('wait-first-batch', 'wait_for_event', { reason: 'batch one read' }),
+    assistantTool('wait-second-batch', 'wait_for_event', { reason: 'batch two read' }),
+  ];
+  globalThis.fetch = (async (_url: any, init: any) => {
+    requests.push(JSON.parse(String(init?.body || '{}')));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: responses.shift() }] }),
+      text: async () => '',
+    } as any;
+  }) as typeof fetch;
+
+  const observedAfter: number[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe: (sinceSequence) => {
+        observedAfter.push(sinceSequence);
+        return {
+          protocol: 'behold.inhabitant.v1',
+          sequence: 20,
+          eventWindow: {
+            requestedAfterSequence: sinceSequence,
+            oldestAvailableSequence: 1,
+            newestAvailableSequence: 20,
+            missingBeforeOldest: 0,
+            complete: true,
+          },
+          self: { currentAction: null },
+          scene: { entities: [] },
+          events: Array.from({ length: 20 }, (_, index) => ({
+            sequence: index + 1,
+            type: 'world_event',
+            data: { index: index + 1 },
+            isNew: index + 1 > sinceSequence,
+          })),
+        };
+      },
+    },
+    {
+      apiKey: 'test-key',
+      model: 'test/model',
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(policy.state().lastSequence, 12);
+    await policy.tick();
+    assert.equal(policy.state().lastSequence, 20);
+    assert.ok(observedAfter.includes(12));
+    const firstUpdate = String(requests[0].messages.at(-1)?.content || '');
+    const secondUpdate = String(requests[1].messages.at(-1)?.content || '');
+    assert.ok(firstUpdate.includes('"sequence":1'));
+    assert.ok(firstUpdate.includes('"sequence":12'));
+    assert.equal(firstUpdate.includes('"sequence":13'), false);
+    assert.ok(secondUpdate.includes('"sequence":13'));
+    assert.ok(secondUpdate.includes('"sequence":20'));
   } finally {
     policy.stop();
     globalThis.fetch = originalFetch;
@@ -800,6 +879,7 @@ test('controller resumes from a generic folded view of its own older loom', asyn
     {
       apiKey: 'test-key',
       model: 'test/model',
+      acceptEngineEvent: () => true,
       history: turns,
       foldRecentTurns: 8,
       foldBatchTurns: 16,

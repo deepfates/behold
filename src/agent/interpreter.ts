@@ -10,7 +10,11 @@ import {
   type ProjectMemory,
 } from '../entity/projects';
 import type { InhabitantPlace } from '../entity/places';
-import type { BlockPosition, WorldChangeEvidence, WorldChangeGuard } from '../safety/world-change';
+import type {
+  BlockPosition,
+  WorldChangeEvidence,
+  WorldChangeExecutor,
+} from '../safety/world-change';
 
 const CARDINAL_DIRECTIONS: Record<string, { x: number; z: number }> = {
   north: { x: 0, z: -1 },
@@ -29,7 +33,7 @@ export type CommandSpec = {
 };
 
 type InterpreterOptions = {
-  worldChangeGuard?: WorldChangeGuard | null;
+  worldChangeExecutor?: WorldChangeExecutor | null;
   changeConfirmationTimeoutMs?: number;
   changeStabilityWindowMs?: number;
   worldCommandTimeoutMs?: number;
@@ -638,7 +642,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       }
       const result = await executeConfirmedWorldChange({
         bot,
-        guard: opts.worldChangeGuard,
+        guard: opts.worldChangeExecutor,
         verb: 'dig',
         position,
         beforeBlock: b,
@@ -770,7 +774,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         }
         const result = await executeConfirmedWorldChange({
           bot,
-          guard: opts.worldChangeGuard,
+          guard: opts.worldChangeExecutor,
           verb: 'dig',
           position,
           beforeBlock: block,
@@ -992,7 +996,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       if (protectedConflict) return protectedConflict;
       return executeConfirmedWorldChange({
         bot,
-        guard: opts.worldChangeGuard,
+        guard: opts.worldChangeExecutor,
         verb: 'place',
         position,
         beforeBlock,
@@ -1117,7 +1121,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       }
       const result = await executeConfirmedWorldChange({
         bot,
-        guard: opts.worldChangeGuard,
+        guard: opts.worldChangeExecutor,
         verb: 'place',
         position,
         beforeBlock: destination,
@@ -2245,7 +2249,7 @@ type ObservedBlockTransition = {
 
 async function executeConfirmedWorldChange(options: {
   bot: Bot;
-  guard?: WorldChangeGuard | null;
+  guard?: WorldChangeExecutor | null;
   verb: 'dig' | 'place';
   position: BlockPosition;
   beforeBlock: any;
@@ -2295,14 +2299,23 @@ async function executeConfirmedWorldChange(options: {
       : transition != null && sameBlockState(current, transition.after);
   observer.close();
   const after = current;
-  const verified = transition != null && latestStateMatches && expectedChangePersists;
-  const error = verified
-    ? (commandError ?? undefined)
-    : transition && !expectedChangePersists
-      ? 'world_change_reversed_before_confirmation'
-      : commandError
-        ? `world_change_unconfirmed: ${commandError}`
-        : 'world_change_unconfirmed';
+  const transitionVerified = transition != null && latestStateMatches && expectedChangePersists;
+  // A matching world transition proves that the cell changed during the
+  // observation window. If the command itself errored, Minecraft gives us no
+  // actor/command correlation strong enough to attribute that change to this
+  // action rather than another inhabitant. Consume the reservation, preserve
+  // the observation, and fail with explicit uncertainty.
+  const verified = transitionVerified && commandError == null;
+  const error =
+    transitionVerified && commandError
+      ? 'world_change_attribution_uncertain'
+      : verified
+        ? undefined
+        : transition && !expectedChangePersists
+          ? 'world_change_reversed_before_confirmation'
+          : commandError
+            ? `world_change_unconfirmed: ${commandError}`
+            : 'world_change_unconfirmed';
 
   if (reservation?.ok) {
     options.guard!.settle(reservation.reservationId, {
@@ -2319,6 +2332,7 @@ async function executeConfirmedWorldChange(options: {
     before: before.name,
     after: after.name,
     verified,
+    observed: transitionVerified,
     confirmation: transition?.evidence ?? null,
     ...(options.context ? { context: options.context } : {}),
   };
@@ -2326,20 +2340,18 @@ async function executeConfirmedWorldChange(options: {
   if (!verified) {
     return {
       ok: false,
-      error: 'world_change_unconfirmed',
+      error: transitionVerified ? 'world_change_attribution_uncertain' : 'world_change_unconfirmed',
       commandError,
       attemptedChanges: [change],
-      reason:
-        'The command may have reached the server, but no matching blockUpdate confirmed the transition.',
+      reason: transitionVerified
+        ? 'The block changed during the action window, but the command errored and Minecraft supplied no actor/command correlation. The change is observed but cannot be credited to this action.'
+        : 'The command may have reached the server, but no matching blockUpdate confirmed the transition.',
     };
   }
 
   return {
     ok: true,
     changes: [change],
-    ...(commandError
-      ? { warning: 'command_reported_error_after_confirmed_change', commandError }
-      : {}),
   };
 }
 
@@ -2495,19 +2507,28 @@ async function activateToggleBlock(
   const current = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
   const afterState = blockState(current);
   const afterProperties = blockProperties(current);
-  const verified =
+  const observed =
     transition != null &&
     observer.matchesLatest(afterState) &&
     beforeProperties[property] !== afterProperties[property];
+  // A blockUpdate proves a transition happened during this window. If the
+  // activation command failed, Minecraft has not correlated that transition
+  // to this action, so another inhabitant may have caused it.
+  const verified = observed && commandError == null;
   observer.close();
 
   return {
     ok: verified,
+    verified,
+    observed,
     ...(verified
-      ? commandError
-        ? { warning: 'command_reported_error_after_confirmed_activation', commandError }
-        : {}
-      : { error: 'block_activation_unconfirmed', commandError }),
+      ? {}
+      : {
+          error: observed
+            ? 'block_activation_attribution_uncertain'
+            : 'block_activation_unconfirmed',
+          commandError,
+        }),
     block: {
       name: String(current?.name || block.name || 'block'),
       position,

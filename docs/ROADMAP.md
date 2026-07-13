@@ -16,7 +16,7 @@ test, not the organizing purpose of the system.
 - Multi-bot deployment and shared action arbitration
 - Unified `behold <AgentName>` CLI plus console and stdio control modes
 - Observations with position, health, inventory, nearby entities, nearby blocks, chat, action lifecycle, and recent events
-- Human stop/preemption and bounded world-change safety
+- Human stop latches new model work, queued intents cancel, and active actions serialize
 - Come–See–Do–Report task activation and evidence-based verification
 - Structured JSONL experience logs
 - Per-entity append-only autobiographies that survive controller restarts
@@ -24,7 +24,14 @@ test, not the organizing purpose of the system.
 - Ordinary life affordances for finding, collecting, crafting, sleeping, and defense
 - Native Minecraft 1.21.4 client and isolated local server launch flow
 - World-lab status, topology, digest, lock-owner, port-owner, dry-run reset planning, and fixture-only atomic reset tests
-- TypeScript build, lint, and 56 passing tests as of this update
+- TypeScript build and lint, with adversarial regression coverage for lifecycle authenticity, single terminals, deferred preemption, consequence attribution, and observation gaps
+
+### Still red
+
+- Immediate in-flight cancellation with an acknowledgement from each long-running Mineflayer action family
+- Production reset/recovery with an exclusive operation fence, durable journal, managed server lifecycle, and two real resets
+- A repeatable production-path Come–See–Do–Report runner; passing unit and fixture tests do not establish the live story
+- A real one-decision step control; the previous hook was dead and has been removed
 
 ### First Life proved so far
 

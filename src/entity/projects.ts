@@ -161,17 +161,21 @@ function completionEvidence(
   const successful = afterStart.filter((turn) => turn.outcome.ok);
 
   if (expected === 'world_change') {
-    const event = events.find((candidate) => candidate.type === 'block_changed_nearby');
-    const action = successful.find((turn) => WORLD_MUTATION_TOOLS.has(String(turn.action.name)));
-    if (event || action) {
+    const action = successful.find(
+      (turn) => WORLD_MUTATION_TOOLS.has(String(turn.action.name)) && hasWorldMutationWitness(turn),
+    );
+    if (action) {
       return {
         satisfied: true,
         expected,
-        observed: event ? 'nearby block changed' : `successful ${action!.action.name}`,
-        witness: event ?? actionWitness(action!),
+        observed: `verified ${action.action.name}`,
+        witness: actionWitness(action),
       };
     }
-    return missing(expected, 'no observed block/container change or successful world mutation');
+    return missing(
+      expected,
+      'no successful own action with an independently witnessed block or container consequence',
+    );
   }
 
   if (expected === 'space_enclosed') {
@@ -292,6 +296,36 @@ const WORLD_MUTATION_TOOLS = new Set([
   'deposit_in_container',
   'withdraw_from_container',
 ]);
+
+function hasWorldMutationWitness(turn: EntityTurn) {
+  const result: any = turn.outcome.result;
+  if (['dig_block', 'place_against', 'place_block'].includes(turn.action.name)) {
+    return Boolean(
+      Array.isArray(result?.changes) &&
+        result.changes.some(
+          (change: any) =>
+            change?.verified === true && change?.confirmation?.source === 'mineflayer:blockUpdate',
+        ),
+    );
+  }
+  if (turn.action.name === 'toggle_block') {
+    return result?.verified === true && result?.confirmation?.source === 'mineflayer:blockUpdate';
+  }
+  if (['deposit_in_container', 'withdraw_from_container'].includes(turn.action.name)) {
+    const requested = Number(result?.requested);
+    if (
+      result?.confirmation !== 'mineflayer:container_inventory_delta' ||
+      !Number.isFinite(requested) ||
+      requested <= 0
+    ) {
+      return false;
+    }
+    return turn.action.name === 'deposit_in_container'
+      ? result?.bodyRemoved === requested && result?.containerAdded === requested
+      : result?.bodyAdded === requested && result?.containerRemoved === requested;
+  }
+  return false;
+}
 
 const BODY_EVENT_TYPES = new Set([
   'condition_changed',

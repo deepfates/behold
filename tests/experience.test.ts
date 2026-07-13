@@ -169,7 +169,6 @@ test('engine lifecycle becomes part of the inhabitant body state', () => {
   const intent = {
     id: 'a1',
     source: 'llm',
-    kind: 'exclusive',
     tool: 'move_to',
     input: { x: 4, y: 64, z: 0 },
   };
@@ -195,6 +194,29 @@ test('engine lifecycle becomes part of the inhabitant body state', () => {
   const completed = experience.observe().self.currentAction;
   assert.equal(completed?.status, 'completed');
   assert.deepEqual(completed?.result, { ok: true, status: 'arrived' });
+  experience.destroy();
+});
+
+test('a slow controller is told when bounded event history has a gap', () => {
+  const bot = fakeBot();
+  const experience = new InhabitantExperience(bot, { eventHistory: 8 });
+  for (let index = 1; index <= 12; index += 1) {
+    experience.record('fixture_event', { index });
+  }
+
+  const stale = experience.observe(0);
+  assert.equal(stale.events[0]?.sequence, 5);
+  assert.deepEqual(stale.eventWindow, {
+    requestedAfterSequence: 0,
+    oldestAvailableSequence: 5,
+    newestAvailableSequence: 12,
+    missingBeforeOldest: 4,
+    complete: false,
+  });
+
+  const current = experience.observe(8);
+  assert.equal(current.eventWindow.missingBeforeOldest, 0);
+  assert.equal(current.eventWindow.complete, true);
   experience.destroy();
 });
 

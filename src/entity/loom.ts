@@ -23,7 +23,8 @@ export type EntityTurn = {
     name: string;
     input: any;
     source: 'llm';
-    kind: Intent['kind'] | 'yield';
+    /** Historical turn field; all new embodied actions are serialized. */
+    kind: 'exclusive' | 'parallel' | 'yield';
     toolCallId: string | null;
   };
   outcome: {
@@ -36,15 +37,15 @@ export type EntityTurn = {
 };
 
 export type EntityLoom = {
-  backend: 'legacy-jsonl' | 'lync';
+  backend: 'lync';
   circleId: string | null;
   file: string;
   foldFile: string;
   warnings: string[];
   turns: () => EntityTurn[];
   tail: (limit?: number) => EntityTurn[];
-  append: (turn: EntityTurn) => void | Promise<void>;
-  close: () => void | Promise<void>;
+  append: (turn: EntityTurn) => Promise<void>;
+  close: () => Promise<void>;
 };
 
 type EntityRuntimeLeaseRecord = {
@@ -108,51 +109,6 @@ type LyncEntityLoom = {
   threadTo: (turnId: string) => Promise<LyncStoredTurn[]>;
   leaves: () => Promise<LyncStoredTurn[]>;
 };
-
-/**
- * The entity's append-only autobiography. Unlike a run journal, this path is
- * stable across process restarts, so a new body can continue the trajectory.
- */
-export function createEntityLoom(
-  entityId: string,
-  root = process.env.BEHOLD_ENTITY_DIR || path.resolve(process.cwd(), '.behold-entities'),
-): EntityLoom {
-  const directory = path.join(root, sanitizeName(entityId));
-  const file = path.join(directory, 'loom.jsonl');
-  fs.mkdirSync(directory, { recursive: true });
-  const loaded = readEntityLoom(file);
-  const stored = loaded.turns;
-
-  function append(turn: EntityTurn) {
-    const previous = stored.at(-1);
-    const expectedSequence = previous ? previous.sequence + 1 : 1;
-    if (turn.entityId !== entityId) {
-      throw new Error(`entity loom expected ${entityId}, received ${turn.entityId}`);
-    }
-    if (turn.sequence !== expectedSequence) {
-      throw new Error(
-        `entity turn sequence ${turn.sequence} does not follow ${expectedSequence - 1}`,
-      );
-    }
-    if (turn.parentId !== (previous?.id ?? null)) {
-      throw new Error('entity turn parent does not match the current loom tip');
-    }
-    fs.appendFileSync(file, `${JSON.stringify(turn)}\n`, 'utf8');
-    stored.push(turn);
-  }
-
-  return {
-    backend: 'legacy-jsonl',
-    circleId: null,
-    file,
-    foldFile: path.join(directory, 'fold.json'),
-    warnings: loaded.warnings,
-    turns: () => [...stored],
-    tail: (limit = 12) => stored.slice(-Math.max(0, Math.floor(limit))),
-    append,
-    close: () => {},
-  };
-}
 
 /**
  * Open the durable runtime loom for an inhabitant.

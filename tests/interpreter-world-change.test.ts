@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Vec3 } from 'vec3';
 import { buildInterpreter } from '../src/agent/interpreter';
-import { createWorldChangeGuard } from '../src/safety/world-change';
+import { createWorldChangeAuthority } from '../src/safety/world-change';
 
 type FakeBlock = {
   name: string;
@@ -36,9 +36,9 @@ test('dig succeeds only after a matching Minecraft blockUpdate', async () => {
     bot.setBlock(air);
     setImmediate(() => bot.emit('blockUpdate', stone, air));
   };
-  const guard = createWorldChangeGuard({ budget: 1 });
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
   const interpreter = buildInterpreter(bot, {
-    worldChangeGuard: guard,
+    worldChangeExecutor: executor,
     changeConfirmationTimeoutMs: 25,
     changeStabilityWindowMs: 1,
   });
@@ -68,9 +68,9 @@ test('dig remains verified when Minecraft legitimately fills the removed block w
     bot.setBlock(water);
     bot.emit('blockUpdate', air, water);
   };
-  const guard = createWorldChangeGuard({ budget: 1 });
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
   const interpreter = buildInterpreter(bot, {
-    worldChangeGuard: guard,
+    worldChangeExecutor: executor,
     changeConfirmationTimeoutMs: 5,
     changeStabilityWindowMs: 1,
   });
@@ -92,9 +92,9 @@ test('a cache change without blockUpdate fails and conservatively exhausts the b
   bot.dig = async () => {
     bot.setBlock(block('air', 0, position));
   };
-  const guard = createWorldChangeGuard({ budget: 1 });
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
   const interpreter = buildInterpreter(bot, {
-    worldChangeGuard: guard,
+    worldChangeExecutor: executor,
     changeConfirmationTimeoutMs: 5,
     changeStabilityWindowMs: 1,
   });
@@ -125,9 +125,9 @@ test('a blockUpdate at the wrong position cannot confirm the attempted change', 
     const other = new Vec3(6, 64, 6);
     bot.emit('blockUpdate', block('stone', 1, other), block('air', 0, other));
   };
-  const guard = createWorldChangeGuard({ budget: 1 });
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
   const interpreter = buildInterpreter(bot, {
-    worldChangeGuard: guard,
+    worldChangeExecutor: executor,
     changeConfirmationTimeoutMs: 5,
     changeStabilityWindowMs: 1,
   });
@@ -149,9 +149,9 @@ test('a matching update followed by rollback cannot verify the transient state',
     bot.setBlock(stone);
     bot.emit('blockUpdate', air, stone);
   };
-  const guard = createWorldChangeGuard({ budget: 1 });
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
   const interpreter = buildInterpreter(bot, {
-    worldChangeGuard: guard,
+    worldChangeExecutor: executor,
     changeConfirmationTimeoutMs: 5,
     changeStabilityWindowMs: 1,
   });
@@ -180,9 +180,9 @@ test('a rollback during the stability window cannot remain verified', async () =
       bot.emit('blockUpdate', air, stone);
     }, 10);
   };
-  const guard = createWorldChangeGuard({ budget: 1 });
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
   const interpreter = buildInterpreter(bot, {
-    worldChangeGuard: guard,
+    worldChangeExecutor: executor,
     changeConfirmationTimeoutMs: 5,
     changeStabilityWindowMs: 25,
   });
@@ -194,7 +194,7 @@ test('a rollback during the stability window cannot remain verified', async () =
   assert.equal(guard.snapshot().changes[0].status, 'uncertain');
 });
 
-test('a confirmed world change wins over a late command error but keeps the warning', async () => {
+test('a matching world change cannot be attributed to a command that errored', async () => {
   const bot = fakeBot();
   const position = new Vec3(7, 64, 8);
   const stone = block('stone', 1, position);
@@ -205,18 +205,20 @@ test('a confirmed world change wins over a late command error but keeps the warn
     bot.emit('blockUpdate', stone, air);
     throw new Error('late acknowledgement failure');
   };
-  const guard = createWorldChangeGuard({ budget: 1 });
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
   const interpreter = buildInterpreter(bot, {
-    worldChangeGuard: guard,
+    worldChangeExecutor: executor,
     changeConfirmationTimeoutMs: 5,
     changeStabilityWindowMs: 1,
   });
 
   const result = await interpreter.run('dig_block', { x: 7, y: 64, z: 8 });
-  assert.equal(result.ok, true);
-  assert.equal(result.warning, 'command_reported_error_after_confirmed_change');
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'world_change_attribution_uncertain');
   assert.match(result.commandError, /late acknowledgement failure/);
-  assert.equal(guard.snapshot().changes[0].status, 'verified');
+  assert.equal(result.attemptedChanges[0].observed, true);
+  assert.equal(result.attemptedChanges[0].verified, false);
+  assert.equal(guard.snapshot().changes[0].status, 'uncertain');
 });
 
 test('placement records the supporting block needed to match the human request', async () => {
@@ -232,9 +234,9 @@ test('placement records the supporting block needed to match the human request',
     bot.setBlock(lantern);
     bot.emit('blockUpdate', air, lantern);
   };
-  const guard = createWorldChangeGuard({ budget: 1 });
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
   const interpreter = buildInterpreter(bot, {
-    worldChangeGuard: guard,
+    worldChangeExecutor: executor,
     changeConfirmationTimeoutMs: 5,
     changeStabilityWindowMs: 1,
   });

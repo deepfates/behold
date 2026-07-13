@@ -6,7 +6,6 @@ test('parseLine exposes terrain survey options', () => {
   assert.deepEqual(parseLine('survey radius=24 step=3 verticalRange=64'), {
     tool: 'survey_area',
     args: { radius: 24, step: 3, verticalRange: 64 },
-    kind: 'parallel',
     preempt: false,
   });
 });

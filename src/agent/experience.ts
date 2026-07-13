@@ -68,6 +68,13 @@ export type InhabitantObservation = {
   };
   sequence: number;
   observedAt: number;
+  eventWindow: {
+    requestedAfterSequence: number;
+    oldestAvailableSequence: number | null;
+    newestAvailableSequence: number | null;
+    missingBeforeOldest: number;
+    complete: boolean;
+  };
   task: TaskBrief | null;
   self: {
     identity: string;
@@ -303,6 +310,12 @@ export class InhabitantExperience {
       ...event,
       isNew: event.sequence > sinceSequence,
     }));
+    const oldestAvailableSequence = events[0]?.sequence ?? null;
+    const newestAvailableSequence = events.at(-1)?.sequence ?? null;
+    const missingBeforeOldest =
+      oldestAvailableSequence == null
+        ? 0
+        : Math.max(0, oldestAvailableSequence - (Math.max(0, sinceSequence) + 1));
     const projects = this.options.projects?.() ?? [];
     const places = situatePlaces(
       this.options.places?.() ?? [],
@@ -318,6 +331,13 @@ export class InhabitantExperience {
       },
       sequence: this.sequence,
       observedAt: this.now(),
+      eventWindow: {
+        requestedAfterSequence: Math.max(0, sinceSequence),
+        oldestAvailableSequence,
+        newestAvailableSequence,
+        missingBeforeOldest,
+        complete: missingBeforeOldest === 0,
+      },
       task: this.task,
       self: {
         identity: String((this.bot as any).username || 'agent'),

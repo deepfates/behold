@@ -2,7 +2,7 @@ import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import type { EngineOptions } from '../loop/engine';
 import type { InhabitantObservation, TaskBrief } from '../agent/experience';
-import { createWorldChangeGuard, type WorldChangeGuard } from '../safety/world-change';
+import { createWorldChangeAuthority, type WorldChangeGuard } from '../safety/world-change';
 
 type EngineEvent = Parameters<NonNullable<EngineOptions['onEvent']>>[0];
 
@@ -100,7 +100,7 @@ export function createComeSeeDoReportRuntime(bot: Bot, target = 'importdf') {
     const block = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
     return block?.name == null ? null : String(block.name);
   };
-  const guard = createWorldChangeGuard({
+  const worldChanges = createWorldChangeAuthority({
     budget: 1,
     radius: 8,
     anchor: () => targetPosition(bot, target),
@@ -109,8 +109,14 @@ export function createComeSeeDoReportRuntime(bot: Bot, target = 'importdf') {
     const held = (bot as any).heldItem;
     return held?.name == null ? null : String(held.name);
   });
-  const verifier = new ComeSeeDoReportVerifier(target, guard, inspectBlock);
-  return { task: createComeSeeDoReportTask(target), guard, permissions, verifier };
+  const verifier = new ComeSeeDoReportVerifier(target, worldChanges.guard, inspectBlock);
+  return {
+    task: createComeSeeDoReportTask(target),
+    guard: worldChanges.guard,
+    worldChangeExecutor: worldChanges.executor,
+    permissions,
+    verifier,
+  };
 }
 
 /**
@@ -241,6 +247,8 @@ export class ComeSeeDoReportVerifier {
   private verifiedChanges: ComeSeeDoReportProgress['verifiedChanges'] = [];
   private outcomeReport: ComeSeeDoReportProgress['outcomeReport'] = null;
   private readonly recordedWorldOutcomes = new Set<string>();
+  private eventSourceBound: boolean;
+  private acceptEngineEvent: (event: EngineEvent) => boolean;
 
   constructor(
     private readonly target: string,
@@ -248,7 +256,17 @@ export class ComeSeeDoReportVerifier {
     private readonly inspectBlock:
       | ((position: { x: number; y: number; z: number }) => string | null)
       | null = null,
-  ) {}
+    acceptEngineEvent?: (event: EngineEvent) => boolean,
+  ) {
+    this.acceptEngineEvent = acceptEngineEvent ?? (() => false);
+    this.eventSourceBound = acceptEngineEvent != null;
+  }
+
+  bindEngineEventSource(accept: (event: EngineEvent) => boolean) {
+    if (this.eventSourceBound) throw new Error('Come–See–Do–Report event source already bound');
+    this.acceptEngineEvent = accept;
+    this.eventSourceBound = true;
+  }
 
   recordIncomingChat(from: string, text: string, at = Date.now()) {
     if (from.toLowerCase() !== this.target.toLowerCase()) return;
@@ -266,6 +284,7 @@ export class ComeSeeDoReportVerifier {
   }
 
   recordEngineEvent(event: EngineEvent, observation: InhabitantObservation) {
+    if (!this.acceptEngineEvent(event)) return;
     if (event.type !== 'action_completed') return;
     const intent = event.data?.intent;
     const result = event.data?.result;

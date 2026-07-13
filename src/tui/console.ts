@@ -136,7 +136,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   };
 
   const interp = buildInterpreter(bot as any, {
-    worldChangeGuard: taskRuntime?.guard,
+    worldChangeExecutor: taskRuntime?.worldChangeExecutor,
     projects,
     places: () => places.snapshot(),
     observe: () => experience.observe(),
@@ -156,15 +156,38 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     tickMs: Number(process.env.AGENT_TICK_MS || 3000),
     log: (s) => console.error(s),
     onEvent: (event) => {
-      experience.recordEngineEvent(event);
-      journal.append(event.type, event.data);
+      const deliver = (consumer: string, fn: () => void) => {
+        try {
+          fn();
+        } catch (error: any) {
+          console.error(
+            `[console] ${consumer} failed for ${event.type}: ${error?.message || String(error)}`,
+          );
+        }
+      };
+      deliver('experience event consumer', () => experience.recordEngineEvent(event));
+      deliver('run journal', () => journal.append(event.type, event.data));
+      if (event.type === 'preemption_deferred') {
+        const requested = String(event.data?.intent?.tool || 'human action');
+        const active = String(event.data?.activeIntent?.tool || 'active action');
+        cache.last = `${requested} queued; waiting for ${active}`;
+        console.error(`[human] ${requested} queued until ${active} reaches a terminal result`);
+      }
       if (taskRuntime) {
-        taskRuntime.verifier.recordEngineEvent(event, experience.observe());
+        deliver('task verifier', () =>
+          taskRuntime.verifier.recordEngineEvent(event, experience.observe()),
+        );
         if (event.type === 'action_completed' || event.type === 'action_failed') {
-          recordTaskProgress();
+          deliver('task progress journal', recordTaskProgress);
         }
       }
-      void policy?.onEngineEvent(event);
+      void policy
+        ?.onEngineEvent(event)
+        .catch((error: any) =>
+          console.error(
+            `[console] policy event consumer failed for ${event.type}: ${error?.message || String(error)}`,
+          ),
+        );
       const tool = String(event.data?.intent?.tool || '');
       const source = String(event.data?.intent?.source || '');
       if (
@@ -177,6 +200,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       }
     },
   });
+  taskRuntime?.verifier.bindEngineEventSource(engine.acceptsEvent);
   engine.start();
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -241,6 +265,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         history: entityLoom.turns(),
         foldCacheFile: entityLoom.foldFile,
         log: (s) => console.error(s),
+        acceptEngineEvent: engine.acceptsEvent,
         onModelTurn: (turn) => journal.append('model_turn', turn),
         onEntityTurn: async (turn) => {
           projects.validate(turn);
@@ -284,7 +309,6 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       tool: (p as any).tool,
       input: (p as any).args,
       preempt: (p as any).preempt,
-      kind: (p as any).kind,
     } as any;
     // Resolve @cursor
     if (intent.input) {
@@ -318,7 +342,6 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       tool: intent.tool,
       input: intent.input,
       preempt: intent.preempt,
-      kind: intent.kind,
     });
     cache.last = `${intent.tool}`;
     show();

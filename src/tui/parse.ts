@@ -1,5 +1,5 @@
 export type Parsed =
-  | { tool: string; args?: any; preempt?: boolean; kind?: 'exclusive' | 'parallel' }
+  | { tool: string; args?: any; preempt?: boolean }
   | { meta: 'help' | 'json' | 'unknown'; args?: any };
 
 export function parseLine(line: string): Parsed {
@@ -17,15 +17,15 @@ export function parseLine(line: string): Parsed {
   switch (cmd) {
     case 'say':
     case 'chat':
-      return { tool: 'chat', args: { text: stripQuotes(tail) }, kind: 'parallel', preempt };
+      return { tool: 'chat', args: { text: stripQuotes(tail) }, preempt };
     case 'status':
-      return { tool: 'status', kind: 'parallel', preempt } as any;
+      return { tool: 'status', preempt } as any;
     case 'cursor':
-      return { tool: 'block_at_cursor', args: {}, kind: 'parallel', preempt } as any;
+      return { tool: 'block_at_cursor', args: {}, preempt } as any;
     case 'nearby':
-      return { tool: 'get_nearby', args: parseKV(rest), kind: 'parallel', preempt } as any;
+      return { tool: 'get_nearby', args: parseKV(rest), preempt } as any;
     case 'survey':
-      return { tool: 'survey_area', args: parseKV(rest), kind: 'parallel', preempt } as any;
+      return { tool: 'survey_area', args: parseKV(rest), preempt } as any;
     case 'look': {
       const tok = rest;
       if (tok.length >= 3 && isNum(tok[0]) && isNum(tok[1]) && isNum(tok[2])) {
@@ -55,7 +55,7 @@ export function parseLine(line: string): Parsed {
       return { meta: 'unknown' } as any;
     }
     case 'stop':
-      return { tool: 'stop', kind: 'exclusive', preempt: true } as any;
+      return { tool: 'stop', preempt: true } as any;
     case 'dig': {
       const tok = rest;
       if (tok[0] === '@cursor')

@@ -6,7 +6,11 @@ export interface LLMClient {
     messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
     tools: Array<{ name: string; description: string; parameters: any }>;
     maxTokens?: number;
-  }): Promise<{ type: 'text'; content: string } | { type: 'tool_call'; name: string; arguments: any } | { type: 'wait' }>;
+  }): Promise<
+    | { type: 'text'; content: string }
+    | { type: 'tool_call'; name: string; arguments: any }
+    | { type: 'wait' }
+  >;
 }
 
 export function mapOutputToIntent(out: any): Intent | null {
@@ -18,7 +22,6 @@ export function mapOutputToIntent(out: any): Intent | null {
       source: 'llm',
       tool: 'chat',
       input: { text: String(out.content).slice(0, 200) },
-      kind: 'parallel',
     };
   }
   if (out.type === 'tool_call' && typeof out.name === 'string') {
@@ -27,11 +30,7 @@ export function mapOutputToIntent(out: any): Intent | null {
       source: 'llm',
       tool: out.name,
       input: out.arguments,
-      kind: exclusiveTools.has(out.name) ? 'exclusive' : 'parallel',
     };
   }
   return null;
 }
-
-const exclusiveTools = new Set<string>(['move_to', 'dig_block', 'place_against']);
-

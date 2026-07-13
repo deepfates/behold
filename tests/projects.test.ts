@@ -375,7 +375,7 @@ test('project completion requires a real witness after project start', () => {
   assert.match(dawn.evidence.observed, /dawn/);
 });
 
-test('inspecting an already-true state is not world-change evidence', () => {
+test('an ambient nearby block change cannot complete an inhabitant project', () => {
   const start = projectTurn(
     'Scout',
     1,
@@ -413,8 +413,75 @@ test('inspecting an already-true state is not world-change evidence', () => {
       ],
     }),
   );
-  assert.equal(changed.ok, true);
-  assert.equal(changed.evidence.observed, 'nearby block changed');
+  assert.equal(changed.ok, false);
+  assert.equal(changed.error, 'project_completion_unproven');
+  assert.match(changed.observed, /own action/);
+});
+
+test('world-change projects require the exact consequence contract for each mutation tool', () => {
+  const start = projectTurn(
+    'Scout',
+    1,
+    null,
+    {
+      operation: 'start',
+      id: 'stock-chest',
+      title: 'Stock the chest',
+      nextStep: 'Put one sign in the chest',
+      doneWhen: 'The chest contains one spruce sign',
+      evidence: 'world_change',
+    },
+    true,
+    observation({ observedAt: 10 }),
+  );
+  const unprovedTransfer: EntityTurn = {
+    ...projectTurn('Scout', 2, start.id, { operation: 'complete', id: 'unused' }),
+    action: {
+      id: 'deposit-2',
+      name: 'deposit_in_container',
+      input: { name: 'spruce_sign', count: 1 },
+      source: 'llm',
+      kind: 'exclusive',
+      toolCallId: null,
+    },
+    outcome: {
+      ok: true,
+      eventType: 'action_completed',
+      result: { ok: true, requested: 1 },
+    },
+  };
+  const memory = createProjectMemory('Scout', [start, unprovedTransfer]);
+
+  assert.equal(
+    memory.propose({ operation: 'complete', id: 'stock-chest' }, observation()).error,
+    'project_completion_unproven',
+  );
+
+  memory.record({
+    ...unprovedTransfer,
+    id: 'Scout:turn:3',
+    sequence: 3,
+    parentId: unprovedTransfer.id,
+    action: { ...unprovedTransfer.action, id: 'deposit-3' },
+    outcome: {
+      ok: true,
+      eventType: 'action_completed',
+      result: {
+        ok: true,
+        requested: 1,
+        bodyRemoved: 1,
+        containerAdded: 1,
+        confirmation: 'mineflayer:container_inventory_delta',
+      },
+    },
+  });
+
+  const complete = memory.propose(
+    { operation: 'complete', id: 'stock-chest' },
+    observation({ observedAt: 50 }),
+  );
+  assert.equal(complete.ok, true);
+  assert.match(complete.evidence.observed, /deposit_in_container/);
 });
 
 test('shelter completion requires a post-start sealed covered shared-space witness', () => {

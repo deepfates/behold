@@ -67,9 +67,10 @@ good.
    into a versioned observation. Each inhabitant owns its own event state.
 3. **Affordances** are a discoverable command registry. A human, a model, or a
    script can attempt the same ordinary Minecraft actions.
-4. **The engine** admits and serializes intents. It prevents overlapping physical
-   actions, deduplicates equivalent pending actions, and lets a human stop the
-   model.
+4. **The engine** admits and serializes intents. It prevents overlapping actions,
+   deduplicates equivalent pending actions, and lets a human suspend the model.
+   The active adapter command still runs to a terminal result; acknowledged
+   in-flight cancellation is not yet proved.
 5. **The controller** chooses one action, sees the verified result, and chooses
    again. A controller episode is bounded even though the life continues.
 6. **The entity loom** is the append-only autobiography that survives process and

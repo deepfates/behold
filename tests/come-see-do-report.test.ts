@@ -4,7 +4,7 @@ import {
   ComeSeeDoReportPermissions,
   ComeSeeDoReportVerifier,
 } from '../src/tasks/come-see-do-report';
-import { createWorldChangeGuard } from '../src/safety/world-change';
+import { createWorldChangeAuthority, type WorldChangeExecutor } from '../src/safety/world-change';
 import type { InhabitantObservation } from '../src/agent/experience';
 
 function observation(): InhabitantObservation {
@@ -13,6 +13,13 @@ function observation(): InhabitantObservation {
     circle: { id: 'test-world', substrate: 'minecraft' },
     sequence: 4,
     observedAt: 100,
+    eventWindow: {
+      requestedAfterSequence: 0,
+      oldestAvailableSequence: null,
+      newestAvailableSequence: null,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
     task: null,
     self: {
       identity: 'Scout',
@@ -69,10 +76,25 @@ function completed(tool: string, input: any, result: any, at: number) {
     type: 'action_completed',
     at,
     data: {
-      intent: { id: `${tool}-1`, source: 'llm', kind: 'exclusive', tool, input },
+      intent: { id: `${tool}-1`, source: 'llm', tool, input },
       result,
     },
   } as any;
+}
+
+function recordWorldChange(executor: WorldChangeExecutor, change: any) {
+  const reservation = executor.reserve({
+    verb: change.verb,
+    position: change.position,
+    before: change.before,
+  });
+  assert.equal(reservation.ok, true);
+  return executor.settle(reservation.reservationId, {
+    after: change.after,
+    verified: change.verified ?? change.evidence != null,
+    evidence: change.evidence,
+    error: change.error,
+  });
 }
 
 test("task permissions enforce human activation without choosing the resident's next action", () => {
@@ -149,8 +171,8 @@ test("task permissions enforce human activation without choosing the resident's 
 });
 
 test('Come–See–Do–Report verifier requires an ordered, evidenced trajectory', () => {
-  const guard = createWorldChangeGuard({ budget: 1 });
-  const verifier = new ComeSeeDoReportVerifier('importdf', guard);
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
+  const verifier = new ComeSeeDoReportVerifier('importdf', guard, null, () => true);
   const obs = observation();
 
   // Mere server proximity is not proof that the resident performed the approach.
@@ -181,7 +203,7 @@ test('Come–See–Do–Report verifier requires an ordered, evidenced trajector
     beforeStateId: 0,
     afterStateId: 12,
   };
-  guard.commit({
+  recordWorldChange(executor, {
     verb: 'place',
     position: { x: 1, y: 64, z: 0 },
     before: 'air',
@@ -232,8 +254,8 @@ test('Come–See–Do–Report verifier requires an ordered, evidenced trajector
 });
 
 test('verifier rejects negated scene and outcome claims', () => {
-  const guard = createWorldChangeGuard({ budget: 1 });
-  const verifier = new ComeSeeDoReportVerifier('importdf', guard);
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
+  const verifier = new ComeSeeDoReportVerifier('importdf', guard, null, () => true);
   const obs = observation();
   verifier.recordIncomingChat('importdf', 'Come here first', 10);
   verifier.recordEngineEvent(
@@ -263,7 +285,7 @@ test('verifier rejects negated scene and outcome claims', () => {
     beforeStateId: 0,
     afterStateId: 12,
   };
-  guard.commit({
+  recordWorldChange(executor, {
     verb: 'place',
     position: { x: 1, y: 64, z: 0 },
     before: 'air',
@@ -310,8 +332,8 @@ test('verifier rejects negated scene and outcome claims', () => {
 });
 
 test('verifier requires approach after contact and agreement with embodied distance', () => {
-  const guard = createWorldChangeGuard({ budget: 1 });
-  const verifier = new ComeSeeDoReportVerifier('importdf', guard);
+  const { guard } = createWorldChangeAuthority({ budget: 1 });
+  const verifier = new ComeSeeDoReportVerifier('importdf', guard, null, () => true);
   const far = observation();
   far.scene.entities[0].distance = 100;
   far.scene.entities[0].position = { x: 100, y: 64, z: 0 };
@@ -339,8 +361,8 @@ test('verifier requires approach after contact and agreement with embodied dista
 });
 
 test('verifier uses event timestamps rather than processing order', () => {
-  const guard = createWorldChangeGuard({ budget: 1 });
-  const verifier = new ComeSeeDoReportVerifier('importdf', guard);
+  const { guard } = createWorldChangeAuthority({ budget: 1 });
+  const verifier = new ComeSeeDoReportVerifier('importdf', guard, null, () => true);
   const obs = observation();
   verifier.recordIncomingChat('importdf', 'Come here', 10);
   verifier.recordEngineEvent(
@@ -359,9 +381,29 @@ test('verifier uses event timestamps rather than processing order', () => {
   assert.equal(verifier.snapshot(obs).groundedReport, null);
 });
 
-test('verifier rejects a claimed change without matching Minecraft and safety evidence', () => {
-  const guard = createWorldChangeGuard({ budget: 1 });
+test('verifier ignores lifecycle objects that were not minted by its bound engine', () => {
+  const { guard } = createWorldChangeAuthority({ budget: 1 });
   const verifier = new ComeSeeDoReportVerifier('importdf', guard);
+  const obs = observation();
+  verifier.recordIncomingChat('importdf', 'Come here', 10);
+  verifier.recordEngineEvent(
+    completed(
+      'approach_entity',
+      { name: 'importdf' },
+      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      20,
+    ),
+    obs,
+  );
+
+  assert.equal(verifier.snapshot(obs).approachedTarget, false);
+  verifier.bindEngineEventSource(() => true);
+  assert.throws(() => verifier.bindEngineEventSource(() => true), /already bound/);
+});
+
+test('verifier rejects a claimed change without matching Minecraft and safety evidence', () => {
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
+  const verifier = new ComeSeeDoReportVerifier('importdf', guard, null, () => true);
   const obs = observation();
   verifier.recordIncomingChat('importdf', 'Place the lantern on this block', 10);
 
@@ -393,7 +435,7 @@ test('verifier rejects a claimed change without matching Minecraft and safety ev
   );
   assert.equal(verifier.snapshot(obs).verifiedChanges.length, 0);
 
-  guard.commit({
+  recordWorldChange(executor, {
     verb: 'place',
     position: { x: 1, y: 64, z: 0 },
     before: 'air',

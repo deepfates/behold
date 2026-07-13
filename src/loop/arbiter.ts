@@ -5,7 +5,6 @@ export type Intent = {
   source: IntentSource;
   tool: string;
   input?: any;
-  kind: 'exclusive' | 'parallel';
   preempt?: boolean;
   deadlineMs?: number;
   enqueuedAt?: number;
@@ -18,8 +17,6 @@ export type Lease = {
 
 export type RateWindow = { max: number; windowMs: number };
 
-const DEFAULT_EXCLUSIVE = new Set<string>(['move_to', 'dig_block', 'place_against']);
-
 export class ActionArbiter {
   private qHuman: Intent[] = [];
   private qSystem: Intent[] = [];
@@ -27,31 +24,31 @@ export class ActionArbiter {
   private lastActions: number[] = [];
   private lease: Lease | null = null;
   private readonly rate: RateWindow;
-  private readonly exclusive: Set<string>;
 
-  constructor(
-    rate: RateWindow = { max: 20, windowMs: 60_000 },
-    exclusive: Set<string> = DEFAULT_EXCLUSIVE,
-  ) {
+  constructor(rate: RateWindow = { max: 20, windowMs: 60_000 }) {
     this.rate = rate;
-    this.exclusive = exclusive;
   }
 
   enqueue(intent: Intent) {
     const now = Date.now();
-    intent.enqueuedAt = intent.enqueuedAt ?? now;
-    switch (intent.source) {
+    const queued = freezeIntent({
+      ...intent,
+      input: cloneInput(intent.input),
+      enqueuedAt: intent.enqueuedAt ?? now,
+    });
+    switch (queued.source) {
       case 'human':
-        this.qHuman.push(intent);
+        this.qHuman.push(queued);
         break;
       case 'system':
-        this.qSystem.push(intent);
+        this.qSystem.push(queued);
         break;
       case 'llm':
       default:
-        this.qLLM.push(intent);
+        this.qLLM.push(queued);
         break;
     }
+    return queued;
   }
 
   hasEquivalent(intent: Intent) {
@@ -66,10 +63,6 @@ export class ActionArbiter {
       this.qSystem.some(same) ||
       this.qLLM.some(same)
     );
-  }
-
-  preempt() {
-    this.lease = null;
   }
 
   cancelQueued(predicate: (intent: Intent) => boolean) {
@@ -104,34 +97,18 @@ export class ActionArbiter {
     this.lastActions.push(now);
   }
 
-  private isExclusive(tool: string) {
-    return this.exclusive.has(tool);
-  }
-
   selectNext(now = Date.now()): Intent | null {
     if (!this.withinRate(now)) return null;
 
-    // If there is an active lease, allow only parallel intents, or human preemptions/stop
-    if (this.lease) {
-      const next = this.peekHuman() || this.peekSystem() || this.peekLLM();
-      if (!next) return null;
-
-      if (next.source === 'human' && (next.preempt || next.tool === 'stop')) {
-        this.lease = null;
-        return this.shift(next.source);
-      }
-      if (next && next.kind === 'parallel') {
-        return this.shift(next.source);
-      }
-      return null; // wait for lease to finish
-    }
+    // A lease is released only by the execution engine after the selected
+    // action reaches a terminal result. "Preempt" is a request for priority,
+    // not permission to overlap a second physical action with the first.
+    if (this.lease) return null;
 
     // No lease: priority Human > System > LLM
     const ready = this.shift('human') || this.shift('system') || this.shift('llm');
     if (!ready) return null;
-    if (this.isExclusive(ready.tool) || ready.kind === 'exclusive') {
-      this.lease = { intent: ready, startedAt: now };
-    }
+    this.lease = { intent: ready, startedAt: now };
     this.markAction(now);
     return ready;
   }
@@ -139,16 +116,6 @@ export class ActionArbiter {
   releaseLease(intentId?: string) {
     if (intentId && this.lease?.intent.id !== intentId) return;
     this.lease = null;
-  }
-
-  private peekHuman() {
-    return this.qHuman[0] || null;
-  }
-  private peekSystem() {
-    return this.qSystem[0] || null;
-  }
-  private peekLLM() {
-    return this.qLLM[0] || null;
   }
 
   private shift(source: IntentSource): Intent | null {
@@ -180,4 +147,27 @@ function sortObject(value: any): any {
       .sort()
       .map((key) => [key, sortObject(value[key])]),
   );
+}
+
+function cloneInput(value: any) {
+  if (value == null) return value;
+  try {
+    return structuredClone(value);
+  } catch (error: any) {
+    throw new Error(
+      `intent input must be structured-cloneable: ${error?.message || String(error)}`,
+    );
+  }
+}
+
+function freezeIntent(intent: Intent) {
+  deepFreeze(intent.input);
+  return Object.freeze(intent);
+}
+
+function deepFreeze(value: any, seen = new WeakSet<object>()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value)) deepFreeze(child, seen);
+  return Object.freeze(value);
 }

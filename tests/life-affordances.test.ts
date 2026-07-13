@@ -372,7 +372,7 @@ test('digging treats every block under the body footprint as support', async () 
   assert.equal(digCalls, 0);
 });
 
-test('a confirmed dig returns even when Mineflayer never settles its command promise', async () => {
+test('a block change during a hung command remains attribution-uncertain', async () => {
   const bot = baseBot();
   const position = new Vec3(1, 64, 0);
   let block: any = {
@@ -407,8 +407,10 @@ test('a confirmed dig returns even when Mineflayer never settles its command pro
     changeStabilityWindowMs: 1,
   }).run('dig_block', { x: 1, y: 64, z: 0 });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.warning, 'command_reported_error_after_confirmed_change');
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'world_change_attribution_uncertain');
+  assert.equal(result.attemptedChanges[0].observed, true);
+  assert.equal(result.attemptedChanges[0].verified, false);
   assert.match(result.commandError, /world_change_command_timeout/);
   assert.equal(stopped, 1);
 });
@@ -630,6 +632,40 @@ test('toggle_block confirms a persistent Minecraft door-state transition', async
     beforeStateId: 70,
     afterStateId: 71,
   });
+  assert.equal(result.confirmation.source, 'mineflayer:blockUpdate');
+});
+
+test('toggle_block does not credit an observed transition to a failed activation', async () => {
+  const bot = baseBot();
+  let door: any = {
+    name: 'oak_door',
+    type: 7,
+    stateId: 70,
+    position: new Vec3(1, 64, 0),
+    getProperties: () => ({ open: false, half: 'lower' }),
+  };
+  bot.blockAt = () => door;
+  bot.activateBlock = async () => {
+    const previous = door;
+    door = {
+      ...door,
+      stateId: 71,
+      getProperties: () => ({ open: true, half: 'lower' }),
+    };
+    bot.emit('blockUpdate', previous, door);
+    throw new Error('activation rejected');
+  };
+
+  const result = await buildInterpreter(bot, { changeStabilityWindowMs: 1 }).run('toggle_block', {
+    x: 1,
+    y: 64,
+    z: 0,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.verified, false);
+  assert.equal(result.observed, true);
+  assert.equal(result.error, 'block_activation_attribution_uncertain');
   assert.equal(result.confirmation.source, 'mineflayer:blockUpdate');
 });
 

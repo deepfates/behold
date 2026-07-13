@@ -1,4 +1,5 @@
 import type { Intent } from '../loop/arbiter';
+import type { EngineEvent } from '../loop/engine';
 import { historyMessages, type EntityTurn } from '../entity/loom';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
@@ -10,8 +11,6 @@ import {
 } from '../entity/folding';
 
 type ToolSpec = InhabitantActionSpec;
-
-type EngineEvent = { type: string; at: number; data: any };
 
 type Options = {
   apiKey: string;
@@ -29,6 +28,8 @@ type Options = {
   summarizeLoom?: LoomFoldSummarizer;
   now?: () => number;
   log?: (s: string) => void;
+  /** Accept only lifecycle objects minted by the engine that owns attempt(). */
+  acceptEngineEvent: (event: EngineEvent) => boolean;
   onModelTurn?: (turn: {
     at: number;
     model: string;
@@ -82,7 +83,7 @@ const WAIT_TOOL_SPEC: ToolSpec = {
     },
   },
 };
-const EXCLUSIVE_TOOLS = new Set<string>([
+const EMBODIED_ACTION_TOOLS = new Set<string>([
   'move_to',
   'enter_place',
   'leave_place',
@@ -103,12 +104,7 @@ const EXCLUSIVE_TOOLS = new Set<string>([
   'sleep_in_bed',
   'wake_up',
 ]);
-const TERMINAL_ACTION_EVENTS = new Set([
-  'action_completed',
-  'action_failed',
-  'tool_error',
-  'intent_blocked',
-]);
+const TERMINAL_ACTION_EVENTS = new Set(['action_completed', 'action_failed', 'intent_blocked']);
 
 /**
  * A persistent controller coroutine over the shared action stream.
@@ -349,7 +345,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       if (
-        EXCLUSIVE_TOOLS.has(intent.tool) &&
+        EMBODIED_ACTION_TOOLS.has(intent.tool) &&
         intent.tool === failedEmbodiedTool &&
         failedEmbodiedCount >= 3
       ) {
@@ -451,9 +447,26 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   async function onEngineEvent(event: EngineEvent) {
+    if (!opts.acceptEngineEvent(event)) {
+      log(`[policy] refused unauthenticated engine event: ${String(event?.type || 'unknown')}`);
+      return;
+    }
+    if (event.type === 'controller_suspended') {
+      suspend(String(event.data?.reason || 'controller_suspended'));
+      return;
+    }
     if (!TERMINAL_ACTION_EVENTS.has(event.type) || !pending) return;
     const eventIntent = event.data?.intent;
-    if (String(eventIntent?.id || '') !== pending.intent.id) return;
+    if (
+      String(eventIntent?.id || '') !== pending.intent.id ||
+      String(eventIntent?.source || '') !== pending.intent.source ||
+      String(eventIntent?.tool || '') !== pending.intent.tool ||
+      stableJson(eventIntent?.input ?? {}) !== stableJson(pending.intent.input ?? {}) ||
+      (event.type === 'action_completed' && event.data?.result?.ok === false)
+    ) {
+      log(`[policy] refused mismatched terminal event for ${pending.intent.id}`);
+      return;
+    }
 
     const finished = pending;
     pending = null;
@@ -526,10 +539,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function appendWorldUpdate(frame: any, label: string) {
     currentObservation = frame;
-    if (Number.isFinite(Number(frame?.sequence))) lastSequence = Number(frame.sequence);
+    const projected = modelObservation(frame);
+    const deliveredSequence = projected?.eventWindow?.deliveredNewestSequence;
+    if (Number.isFinite(Number(deliveredSequence))) {
+      lastSequence = Math.max(lastSequence, Number(deliveredSequence));
+    } else if (!Array.isArray(frame?.events) && Number.isFinite(Number(frame?.sequence))) {
+      lastSequence = Math.max(lastSequence, Number(frame.sequence));
+    }
     messages.push({
       role: 'user',
-      content: `${label}:\n${JSON.stringify(modelObservation(frame))}\nPrevious action: ${lastTool ?? 'none'}`,
+      content: `${label}:\n${JSON.stringify(projected)}\nPrevious action: ${lastTool ?? 'none'}`,
     });
   }
 
@@ -566,7 +585,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function recordEmbodiedOutcome(tool: string, ok: boolean) {
-    if (!EXCLUSIVE_TOOLS.has(tool) || ok) {
+    if (!EMBODIED_ACTION_TOOLS.has(tool) || ok) {
       failedEmbodiedTool = null;
       failedEmbodiedCount = 0;
       return;
@@ -688,7 +707,7 @@ function trailingCommunicationActions(turns: EntityTurn[]) {
 
 function trailingFailedEmbodiedActions(turns: EntityTurn[]) {
   const last = turns.at(-1);
-  if (!last || last.outcome.ok || !EXCLUSIVE_TOOLS.has(last.action.name)) {
+  if (!last || last.outcome.ok || !EMBODIED_ACTION_TOOLS.has(last.action.name)) {
     return { tool: null as string | null, count: 0 };
   }
   let count = 0;
@@ -940,7 +959,6 @@ async function callLLM(
         source: 'llm',
         tool: 'chat',
         input: { text: text.slice(0, 200) },
-        kind: 'parallel',
       },
       toolCallId: null,
       wait: false,
@@ -983,7 +1001,7 @@ function actionFromIntent(
     id: intent.id,
     name: intent.tool,
     input: intent.input,
-    kind: intent.kind,
+    kind: 'exclusive',
     toolCallId,
   };
 }
@@ -998,16 +1016,28 @@ function toIntent(name: string, args: any): Intent {
     source: 'llm',
     tool: name,
     input: args,
-    kind: EXCLUSIVE_TOOLS.has(name) ? 'exclusive' : 'parallel',
   };
 }
 
 function modelObservation(frame: any) {
   if (!frame || typeof frame !== 'object') return frame;
-  const events = Array.isArray(frame.events)
-    ? frame.events.filter((event: any) => event?.isNew === true).slice(-12)
-    : frame.events;
-  return { ...frame, ...(Array.isArray(frame.events) ? { events } : {}) };
+  if (!Array.isArray(frame.events)) return frame;
+  const newEvents = frame.events.filter((event: any) => event?.isNew === true);
+  // Deliver the oldest unread batch first. Advancing the controller cursor to
+  // the end of the full frame here would permanently skip any omitted events.
+  const events = newEvents.slice(0, 12);
+  const omittedNewEvents = Math.max(0, newEvents.length - events.length);
+  return {
+    ...frame,
+    events,
+    eventWindow: {
+      ...(frame.eventWindow || {}),
+      deliveredOldestSequence: events[0]?.sequence ?? null,
+      deliveredNewestSequence: events.at(-1)?.sequence ?? null,
+      omittedNewEvents,
+      complete: frame.eventWindow?.complete !== false && omittedNewEvents === 0,
+    },
+  };
 }
 
 function actionSignature(intent: Intent) {

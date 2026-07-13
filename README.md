@@ -12,7 +12,7 @@ possible when they do. The current vertical slice is [First Life](docs/FIRST_LIF
 Build and run Minecraft agents on your own server in minutes. Behold gives you:
 
 - A tiny command API over Mineflayer (chat/look/move/dig/place/etc.).
-- One action stream shared by humans and LLMs (safe preemption, rate limits).
+- One serialized action stream shared by humans and LLMs, with human priority, visible deferral, and rate limits.
 - A console to see state and type small commands.
 - An optional LLM “autopilot” that uses the same commands.
 
@@ -37,7 +37,7 @@ Quickstart
   - `dig @cursor` · `equip pickaxe` · `eat`
 
 What is it?
-Behold runs a Mineflayer bot and exposes a spec‑first command registry you can call from a console, an LLM, or a script. A small arbiter executes one action at a time (movement/dig/place hold a lease; `stop` preempts). There’s also a JSONL harness for automation.
+Behold runs a Mineflayer bot and exposes a spec‑first command registry you can call from a console, an LLM, or a script. A small arbiter executes one action at a time. `stop` suspends new model work and cancels queued model intents, but the active Mineflayer command must reach a terminal result before another action starts. Immediate, acknowledged in-flight cancellation is still red. A legacy JSONL harness also exists, but it has not yet been canonicalized against the embodied/Lync path.
 
 Key files
 
@@ -59,7 +59,7 @@ Key files
 
 Prerequisites
 
-- Node.js 18+ recommended
+- Node.js 22 or newer (the package engine floor)
 - A reachable Minecraft server (local or remote)
 - For online mode: a valid account and correct `MINECRAFT_AUTH`
 - OpenRouter API key if you want LLM chat replies

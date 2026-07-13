@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createEntityLoom, type EntityTurn } from '../src/entity/loom';
+import { openEntityLoom, type EntityLoom, type EntityTurn } from '../src/entity/loom';
 import { startLLMPolicy } from '../src/policy/llm';
 
 test('two inhabitants restart from their own looms and folded views without leakage', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-inhabitants-'));
-  const scout = createEntityLoom('Scout', root);
-  const builder = createEntityLoom('Builder', root);
+  const scout = await openEntityLoom('Scout', root, 'minecraft://shared-world');
+  const builder = await openEntityLoom('Builder', root, 'minecraft://shared-world');
   for (let sequence = 1; sequence <= 12; sequence += 1) {
-    scout.append(priorTurn('Scout', sequence, `SCOUT_ONLY_${sequence}`));
-    builder.append(priorTurn('Builder', sequence, `BUILDER_ONLY_${sequence}`));
+    await scout.append(priorTurn('Scout', sequence, `SCOUT_ONLY_${sequence}`));
+    await builder.append(priorTurn('Builder', sequence, `BUILDER_ONLY_${sequence}`));
   }
 
   const originalFetch = globalThis.fetch;
@@ -49,8 +49,10 @@ test('two inhabitants restart from their own looms and folded views without leak
     // Reopen both autobiographies as fresh controller instances, modeling a
     // process restart. Each restart must reuse only its adjacent validated
     // projection and append to its own linked trajectory.
-    const reopenedScout = createEntityLoom('Scout', root);
-    const reopenedBuilder = createEntityLoom('Builder', root);
+    await scout.close();
+    await builder.close();
+    const reopenedScout = await openEntityLoom('Scout', root, 'minecraft://shared-world');
+    const reopenedBuilder = await openEntityLoom('Builder', root, 'minecraft://shared-world');
     await runOneLife(reopenedScout, 'summarizer must not run on this restart', true);
     await runOneLife(reopenedBuilder, 'summarizer must not run on this restart', true);
 
@@ -69,17 +71,15 @@ test('two inhabitants restart from their own looms and folded views without leak
     assert.doesNotMatch(scoutContext, /BUILDER_ONLY|BUILDER_FOLDED_CONTINUITY/);
     assert.match(builderContext, /BUILDER_FOLDED_CONTINUITY/);
     assert.doesNotMatch(builderContext, /SCOUT_ONLY|SCOUT_FOLDED_CONTINUITY/);
+    await reopenedScout.close();
+    await reopenedBuilder.close();
   } finally {
     globalThis.fetch = originalFetch;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-async function runOneLife(
-  loom: ReturnType<typeof createEntityLoom>,
-  foldedContinuity: string,
-  rejectSummarizer = false,
-) {
+async function runOneLife(loom: EntityLoom, foldedContinuity: string, rejectSummarizer = false) {
   const entityId = loom.turns()[0]?.entityId;
   assert.ok(entityId);
   let summaryCalls = 0;
@@ -95,6 +95,7 @@ async function runOneLife(
     {
       apiKey: 'test-key',
       model: 'test/model',
+      acceptEngineEvent: () => true,
       history: loom.turns(),
       foldCacheFile: path.join(path.dirname(loom.file), 'fold.json'),
       foldRecentTurns: 4,

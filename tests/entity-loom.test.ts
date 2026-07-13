@@ -3,12 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  createEntityLoom,
-  historyMessages,
-  openEntityLoom,
-  type EntityTurn,
-} from '../src/entity/loom';
+import { historyMessages, openEntityLoom, type EntityTurn } from '../src/entity/loom';
 
 function turn(sequence: number, parentId: string | null, entityId = 'Scout'): EntityTurn {
   return {
@@ -47,18 +42,6 @@ function turn(sequence: number, parentId: string | null, entityId = 'Scout'): En
   };
 }
 
-test('entity loom survives reopening and enforces a linked append-only trajectory', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-loom-'));
-  const first = createEntityLoom('Scout', root);
-  first.append(turn(1, null));
-  first.append(turn(2, 'Scout:turn:1'));
-
-  const reopened = createEntityLoom('Scout', root);
-  assert.equal(reopened.turns().length, 2);
-  assert.equal(reopened.turns()[1]?.parentId, 'Scout:turn:1');
-  assert.throws(() => reopened.append(turn(4, 'Scout:turn:2')), /does not follow/);
-});
-
 test('entity history projects prior actions and their observations back into model context', () => {
   const messages = historyMessages([turn(1, null)]);
   assert.equal(messages[0]?.role, 'user');
@@ -70,27 +53,29 @@ test('entity history projects prior actions and their observations back into mod
 
 test('Lync becomes authoritative without rewriting the legacy autobiography', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-migration-'));
-  const legacy = createEntityLoom('Scout', root);
-  legacy.append(turn(1, null));
-  legacy.append(turn(2, 'Scout:turn:1'));
-  const legacyBytes = fs.readFileSync(legacy.file, 'utf8');
+  const legacyFile = path.join(root, 'Scout', 'loom.jsonl');
+  fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+  const legacyBytes = `${[turn(1, null), turn(2, 'Scout:turn:1')]
+    .map((item) => JSON.stringify(item))
+    .join('\n')}\n`;
+  fs.writeFileSync(legacyFile, legacyBytes, 'utf8');
 
   const migrated = await openEntityLoom('Scout', root);
   assert.equal(migrated.backend, 'lync');
   assert.equal(migrated.turns().length, 2);
   assert.match(migrated.file, /\.lync$/);
   assert.ok(fs.existsSync(migrated.file));
-  assert.equal(fs.readFileSync(legacy.file, 'utf8'), legacyBytes);
+  assert.equal(fs.readFileSync(legacyFile, 'utf8'), legacyBytes);
 
   await migrated.append(turn(3, 'Scout:turn:2'));
   assert.equal(migrated.turns().length, 3);
-  assert.equal(fs.readFileSync(legacy.file, 'utf8'), legacyBytes);
+  assert.equal(fs.readFileSync(legacyFile, 'utf8'), legacyBytes);
   await migrated.close();
 
   const reopened = await openEntityLoom('Scout', root);
   assert.equal(reopened.turns().length, 3);
   assert.equal(reopened.turns()[2]?.id, 'Scout:turn:3');
-  assert.equal(fs.readFileSync(legacy.file, 'utf8'), legacyBytes);
+  assert.equal(fs.readFileSync(legacyFile, 'utf8'), legacyBytes);
   await reopened.close();
 });
 
