@@ -53,6 +53,41 @@ export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'status',
 ]);
 
+export type ManagedControllerProfile = Readonly<{
+  task?: string;
+  target?: string;
+  allowTools?: readonly string[];
+}>;
+
+/**
+ * The normal managed experience is an untasked resident. Evaluations must opt
+ * into their task contract and narrower action surface explicitly.
+ */
+export function managedControllerProfile(
+  taskValue?: unknown,
+  targetValue?: unknown,
+): ManagedControllerProfile {
+  const task = optionalText(taskValue);
+  const target = optionalText(targetValue);
+  if (!task) {
+    if (target) {
+      throw new WorldRunnerError(
+        '--target is meaningful only with an explicit --task',
+        'controller_target_without_task',
+      );
+    }
+    return {};
+  }
+  if (task === 'come-see-do-report') {
+    return {
+      task,
+      target: target || 'importdf',
+      allowTools: COME_SEE_DO_REPORT_ALLOW_TOOLS,
+    };
+  }
+  return { task, ...(target ? { target } : {}) };
+}
+
 type RuntimeInspection = RuntimeEvidence & {
   world?: string;
   baselineConfigured?: boolean;
@@ -1022,6 +1057,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   const serverDirectory = path.dirname(world.runtime.worldPath);
   const serverJar = path.resolve(String(toolLock.tools.minecraftServer.path));
   const controllerEntityId = String(parsed.values.controller || 'ScoutLife');
+  const controllerProfile = managedControllerProfile(parsed.values.task, parsed.values.target);
   const run = await startManagedWorld({
     worldId,
     world,
@@ -1034,9 +1070,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     controllerEntityId,
     controllerLeasePath: path.resolve('.behold-entities', controllerEntityId, 'runtime.lock'),
     model: String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL),
-    task: String(parsed.values.task || 'come-see-do-report'),
-    target: String(parsed.values.target || 'importdf'),
-    allowTools: COME_SEE_DO_REPORT_ALLOW_TOOLS,
+    ...controllerProfile,
   });
   process.stdout.write(
     `[world-runner] ready: ${worldId}, server ${run.serverPid}, controller ${run.controllerPid}\n`,
@@ -1067,10 +1101,17 @@ function usage() {
   return [
     'Usage:',
     '  world-runner status --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--model <slug>]',
+    '  world-runner start --config <file> --world <id> [--model <slug>] [--task <name>] [--target <player>]',
     '',
+    'Without --task, the foreground runner starts an untasked resident with the full safe inhabitant action surface.',
+    'Come-See-Do-Report remains available explicitly with --task come-see-do-report.',
     'The foreground runner refuses foreign-owned ports, session locks, and owner records.',
   ].join('\n');
+}
+
+function optionalText(value: unknown) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || undefined;
 }
 
 if (require.main === module) {

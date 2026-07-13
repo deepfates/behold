@@ -6,9 +6,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  COME_SEE_DO_REPORT_ALLOW_TOOLS,
   isControllerReadyLine,
   isMinecraftReadyLine,
   isMinecraftSaveAcknowledgement,
+  managedControllerProfile,
   resetHeldManagedWorldFixture,
   startManagedWorld,
   WorldRunnerError,
@@ -37,6 +39,30 @@ test('lifecycle markers require exact positive protocol lines', () => {
     true,
   );
   assert.equal(isMinecraftSaveAcknowledgement('Saved the game failed'), false);
+});
+
+test('the normal managed controller is an untasked resident with no benchmark allowlist', () => {
+  assert.deepEqual(managedControllerProfile(), {});
+  assert.deepEqual(managedControllerProfile('  ordinary-life  ', '  '), {
+    task: 'ordinary-life',
+  });
+  assert.throws(
+    () => managedControllerProfile(undefined, 'importdf'),
+    (error: any) => error?.code === 'controller_target_without_task',
+  );
+});
+
+test('Come-See-Do-Report is an explicit managed evaluation profile', () => {
+  assert.deepEqual(managedControllerProfile('come-see-do-report'), {
+    task: 'come-see-do-report',
+    target: 'importdf',
+    allowTools: COME_SEE_DO_REPORT_ALLOW_TOOLS,
+  });
+  assert.deepEqual(managedControllerProfile('come-see-do-report', 'Builder'), {
+    task: 'come-see-do-report',
+    target: 'Builder',
+    allowTools: COME_SEE_DO_REPORT_ALLOW_TOOLS,
+  });
 });
 
 test('managed world runner owns readiness, controller lease, save, stop, and durable evidence', async (t) => {

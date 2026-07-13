@@ -5,15 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { sanitizeName } from '../src/observability/journal';
 import { DEFAULT_LLM_MODEL } from '../src/config';
+import { loadWorldLabConfig } from './world-lab';
 
-const host = process.env.NATIVE_MC_HOST || '127.0.0.1';
-const port = Number(process.env.NATIVE_MC_PORT || 25565);
 const dryRun = process.argv.includes('--dry-run');
 const companionName = process.env.BEHOLD_COMPANION_NAME || 'ScoutLife';
 const companionModel =
   process.env.BEHOLD_COMPANION_MODEL || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 const configPath = process.env.BEHOLD_WORLD_CONFIG || '.behold-worlds.example.json';
 const worldId = process.env.BEHOLD_MANAGED_WORLD || 'sf-csdr';
+const endpoint = resolvePlayEndpoint(configPath, worldId);
+const { host, port } = endpoint;
 
 async function main() {
   const running = await canConnect(host, port);
@@ -32,7 +33,11 @@ async function main() {
   try {
     const nativeArgs = ['run', 'native'];
     if (dryRun) nativeArgs.push('--', '--dry-run');
-    const client = spawnSync('npm', nativeArgs, { cwd: process.cwd(), stdio: 'inherit' });
+    const client = spawnSync('npm', nativeArgs, {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+      env: { ...process.env, NATIVE_MC_SERVER: endpoint.server },
+    });
     if (client.error) throw client.error;
     process.exitCode = client.status ?? 1;
   } finally {
@@ -166,7 +171,45 @@ function canConnect(address: string, targetPort: number) {
   });
 }
 
-void main().catch((error) => {
-  console.error('[play]', error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+export function resolvePlayEndpoint(
+  selectedConfigPath: string,
+  selectedWorldId: string,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const explicitServer = optionalText(env.NATIVE_MC_SERVER);
+  const configured = (() => {
+    try {
+      return loadWorldLabConfig(path.resolve(selectedConfigPath)).worlds[selectedWorldId]?.server;
+    } catch {
+      return undefined;
+    }
+  })();
+  const parsedExplicit = explicitServer ? parseServer(explicitServer) : null;
+  const host =
+    optionalText(env.NATIVE_MC_HOST) || parsedExplicit?.host || configured?.host || '127.0.0.1';
+  const port = Number(
+    optionalText(env.NATIVE_MC_PORT) || parsedExplicit?.port || configured?.port || 25565,
+  );
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`Invalid native Minecraft port: ${String(env.NATIVE_MC_PORT || port)}`);
+  }
+  return Object.freeze({ host, port, server: `${host}:${port}` });
+}
+
+function parseServer(value: string) {
+  const separator = value.lastIndexOf(':');
+  if (separator <= 0) return { host: value, port: 25565 };
+  return { host: value.slice(0, separator), port: Number(value.slice(separator + 1)) };
+}
+
+function optionalText(value: unknown) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || undefined;
+}
+
+if (require.main === module) {
+  void main().catch((error) => {
+    console.error('[play]', error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}
