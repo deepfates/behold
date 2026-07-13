@@ -74,7 +74,14 @@ function copyTree(source, destination, accept = () => true) {
   utimesSync(destination, epoch, epoch);
 }
 
+function normalizeTimes(root) {
+  if (statSync(root).isDirectory())
+    for (const name of readdirSync(root).sort()) normalizeTimes(path.join(root, name));
+  utimesSync(root, epoch, epoch);
+}
+
 async function archive(stage, destination) {
+  normalizeTimes(stage);
   const result = spawnSync(
     'tar',
     [
