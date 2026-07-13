@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "status": "planned",
+  "runId": null,
+  "createdAt": null,
+  "startedAt": null,
+  "finishedAt": null,
+  "generator": {
+    "name": "Arnis",
+    "version": null,
+    "releaseUrl": null,
+    "binaryPath": null,
+    "binarySha256": null,
+    "architecture": null,
+    "helpCapturePath": null,
+    "streamToDiskOverride": null
+  },
+  "world": {
+    "edition": "java",
+    "minecraftVersion": "1.21.4",
+    "outputParent": null,
+    "generatedWorldPath": null,
+    "worldName": null,
+    "immutableSourcePath": null,
+    "worldSizeBytes": null,
+    "regionCount": null,
+    "worldTreeSha256": null,
+    "regionChecksumManifestPath": null
+  },
+  "geography": {
+    "bounds": {
+      "minLat": 37.707,
+      "minLng": -122.516,
+      "maxLat": 37.834,
+      "maxLng": -122.349
+    },
+    "scaleBlocksPerMeter": 1,
+    "projection": "local",
+    "rotationDegrees": 0,
+    "spawn": {
+      "lat": 37.7793,
+      "lng": -122.4193,
+      "minecraftX": null,
+      "minecraftY": null,
+      "minecraftZ": null
+    },
+    "metadataPath": null,
+    "coordinateRounding": null,
+    "roundTripToleranceBlocks": null,
+    "dataSfReference": "https://data.sfgov.org/Geographic-Locations-and-Boundaries/SF-Shoreline-and-Islands/txuc-3kzm"
+  },
+  "settings": {
+    "terrain": true,
+    "landCover": "automatic",
+    "interior": true,
+    "roofGeneration": "automatic",
+    "overture": true,
+    "external3dModels": true,
+    "bundledProps": true,
+    "fillGround": true,
+    "extendedHeight": true,
+    "bakeLighting": true,
+    "mapPreview": true,
+    "mapItem": true,
+    "gameMode": "creative",
+    "worldTimeTicks": 6000
+  },
+  "command": [],
+  "inputs": {
+    "osm": {
+      "savedJsonPath": null,
+      "sha256": null,
+      "requestEvidencePath": null
+    },
+    "overture": {
+      "resolvedRelease": null,
+      "partitionUrlsEvidencePath": null,
+      "additionCapReached": null
+    },
+    "elevation": {
+      "providerChain": [],
+      "fallbacks": [],
+      "cacheEvidencePath": null
+    },
+    "landCover": {
+      "provider": "ESA WorldCover",
+      "cacheEvidencePath": null
+    },
+    "modelsAndProps": {
+      "sources": [],
+      "cacheEvidencePath": null
+    }
+  },
+  "measurements": {
+    "downloadDurationSeconds": null,
+    "generationDurationSeconds": null,
+    "wallDurationSeconds": null,
+    "peakResidentBytes": null,
+    "streamToDiskActivated": null,
+    "bytesPerSquareKilometer": null,
+    "warnings": [],
+    "errors": []
+  },
+  "artifacts": {
+    "stdoutLogPath": null,
+    "stderrLogPath": null,
+    "mapPreviewPath": null,
+    "tallWorldDatapackPath": null,
+    "validationReportPath": null,
+    "blueMapManifestPath": null
+  },
+  "deviations": [],
+  "decision": {
+    "acceptedAsSource": false,
+    "acceptedAt": null,
+    "reason": null
+  }
+}

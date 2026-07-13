@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-07-13T11:10:00Z",
+  "tools": {
+    "arnisOfficial": {
+      "version": "3.0.0",
+      "releaseUrl": "https://github.com/louis-e/arnis/releases/tag/v3.0.0",
+      "sourceArchiveUrl": "https://github.com/louis-e/arnis/archive/refs/tags/v3.0.0.tar.gz",
+      "sourceArchiveSizeBytes": 8706241,
+      "sourceArchiveSha256": "260deb29ba75fbce68e39190a7d35bce56f77433963f148b64592b873447cab0",
+      "archiveName": "arnis-mac-universal.tar.gz",
+      "archiveUrl": "https://github.com/louis-e/arnis/releases/download/v3.0.0/arnis-mac-universal.tar.gz",
+      "archiveSha256": "6ef82e075f022e20119a96dc52d2605f607807558b43dba1ca22c67a328bd951",
+      "binarySha256": "48c4d2abe8b0b6be16c77e3d2d839277ef9ea1d2a3bca36a75bf6e21ffd71319",
+      "architecture": "universal arm64/x86_64"
+    },
+    "arnisPatched": {
+      "baseVersion": "3.0.0",
+      "path": ".behold-artifacts/sf/tools/arnis-v3.0.0-heightmap-fix/arnis-mac-arm64",
+      "sha256": "ce00bf95d025b12f0b7d466e3b79c7fd0df28c4a6df1f17c41eaace9ce93eb24",
+      "architecture": "arm64",
+      "patchPath": "docs/sf-world/tooling/arnis-v3.0.0-tall-heightmap.patch",
+      "buildCommand": "cargo build --release --no-default-features",
+      "testCommand": "cargo test world_editor::java::tests --release --no-default-features",
+      "rustc": "1.97.0 (2d8144b78 2026-07-07)"
+    },
+    "blueMap": {
+      "version": "5.22",
+      "releaseUrl": "https://github.com/BlueMap-Minecraft/BlueMap/releases/tag/v5.22",
+      "downloadUrl": "https://github.com/BlueMap-Minecraft/BlueMap/releases/download/v5.22/bluemap-5.22-cli.jar",
+      "path": ".behold-artifacts/sf/tools/bluemap-v5.22/bluemap-5.22-cli.jar",
+      "sha256": "a2289d649f6a83e04cf222abcd3d4f2df4e32e61147015f921c05066f63eefb7",
+      "javaMajor": 25,
+      "resourceExtensionsPath": ".behold-artifacts/sf/runs/full-city/sf-full-v3-snapshot-20260713T095831Z/atlas/data/resourceExtensions.zip",
+      "resourceExtensionsSizeBytes": 139557,
+      "resourceExtensionsSha256": "cd0f467ef8ec6bd7622fad444aa2d3f2813f5cd2d531c78aeb6d8a6672d382f1"
+    },
+    "minecraftClient": {
+      "version": "1.21.4",
+      "downloadUrl": "https://piston-data.mojang.com/v1/objects/a7e5a6024bfd3cd614625aa05629adf760020304/client.jar",
+      "path": ".behold-artifacts/sf/runs/full-city/sf-full-v3-snapshot-20260713T095831Z/atlas/data/minecraft-client-1.21.4.jar",
+      "sizeBytes": 28335587,
+      "sha1": "a7e5a6024bfd3cd614625aa05629adf760020304",
+      "sha256": "c17c450c6e72cc51297daa57ce38f800aa01cf022b743daa21a0512d326d894e"
+    },
+    "minecraftServer": {
+      "version": "1.21.4",
+      "releaseTime": "2024-12-03T10:12:57+00:00",
+      "downloadUrl": "https://piston-data.mojang.com/v1/objects/4707d00eb834b446575d89a61a11b5d548d8c001/server.jar",
+      "path": ".behold-runtime/server/server.jar",
+      "sizeBytes": 56880250,
+      "sha1": "4707d00eb834b446575d89a61a11b5d548d8c001",
+      "sha256": "1066970b09e9c671844572291c4a871cc1ac2b85838bf7004fa0e778e10f1358"
+    }
+  }
+}
