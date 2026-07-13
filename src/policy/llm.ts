@@ -176,9 +176,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const tickMs = Math.max(500, Number(opts.tickMs ?? 3000));
   const maxTurnSteps = Math.max(1, Math.min(32, Number(opts.maxTurnSteps ?? 8)));
   const allow = Array.isArray(opts.allowTools) ? new Set(opts.allowTools) : null;
-  const modelTools = environment.actions.some((spec) => spec.function.name === WAIT_TOOL)
-    ? [...environment.actions]
-    : [...environment.actions, WAIT_TOOL_SPEC];
+  const executableTools = allow
+    ? environment.actions.filter((spec) => allow.has(spec.function.name))
+    : [...environment.actions];
+  const modelTools = executableTools.some((spec) => spec.function.name === WAIT_TOOL)
+    ? executableTools
+    : [...executableTools, WAIT_TOOL_SPEC];
   const loomContext = createLoomContextView(history, {
     entityId,
     model: opts.model,

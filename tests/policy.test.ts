@@ -237,6 +237,61 @@ test('model turns preserve reproducible call, usage, latency, and opt-in IO evid
   }
 });
 
+test('model action space contains only executable gates plus explicit yield', async () => {
+  const originalFetch = globalThis.fetch;
+  let request: any = null;
+  globalThis.fetch = (async (_url, init) => {
+    request = JSON.parse(String(init?.body));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 'allowlist-proof',
+        choices: [
+          {
+            message: assistantTool('allowlist-wait', 'wait_for_event', {
+              reason: 'action-space inspected',
+            }),
+          },
+        ],
+        usage: { total_tokens: 10 },
+      }),
+      text: async () => '',
+    } as any;
+  }) as typeof fetch;
+
+  const turns: EntityTurn[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('inspect_volume'), tool('collect_nearby_item')],
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'test-key',
+      model: 'test/model',
+      allowTools: ['inspect_volume'],
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => turns.length === 1);
+    assert.deepEqual(
+      request.tools.map((spec: any) => spec.function.name),
+      ['inspect_volume', 'wait_for_event'],
+    );
+    assert.equal(request.tool_choice, 'auto');
+    assert.equal(turns[0].action.name, 'wait_for_event');
+  } finally {
+    policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('a failed model call is visible once with request provenance and no credential', async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
