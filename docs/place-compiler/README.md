@@ -66,6 +66,19 @@ The benchmark refuses recipe, source-input, world-tree, file-count, byte-size, p
 - `docs/place-compiler/benchmarks/living-places-v1.json`
 - `docs/place-compiler/benchmark-v1.schema.json`
 
+Run the real inspection, native-ecology, and performance lanes under new immutable run IDs, then assemble and independently verify a small checksummed evidence release:
+
+```bash
+node scripts/place-compiler/inspect-places.mjs --run-id NEW_INSPECTION_ID
+node scripts/place-compiler/soak-ecology.mjs --run-id NEW_ECOLOGY_ID
+node scripts/place-compiler/sweep-performance.mjs --run-id NEW_PERFORMANCE_ID
+node scripts/place-compiler/package-benchmark.mjs --release-id NEW_RELEASE_ID
+node scripts/place-compiler/verify-benchmark-release.mjs \
+  .behold-artifacts/place-benchmarks/living-places-v1/releases/NEW_RELEASE_ID
+```
+
+The package contains the contract and reproduction code plus visual, structural, ecological, and performance evidence. It deliberately excludes disposable runtime clones and does not repackage either multi-gigabyte world.
+
 ## Compare and package
 
 `compare-previews.mjs` creates a checksummed, labeled two-place proof from the map previews of any two recorded runs. Legacy runs require an explicit recipe so their older manifests can be interpreted without silently guessing a place.
