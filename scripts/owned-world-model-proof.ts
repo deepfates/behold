@@ -3,17 +3,13 @@ import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { createBot } from '../src/bot';
-import { DEFAULT_LLM_MODEL, type Config } from '../src/config';
-import { openEntityLoom } from '../src/entity/loom';
-import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
+import { DEFAULT_LLM_MODEL } from '../src/config';
 import {
   assessOwnedWorldModelEvidence,
   hasCollectionFollowedByYield,
   hasFirstRestartTurn,
   parseRunJournal,
   type IndependentWorldWitness,
-  type RunJournalEvent,
 } from './owned-world-model-evidence';
 import {
   OWNED_LEVEL_SEED,
@@ -23,12 +19,14 @@ import {
   listFiles,
   prepareOwnedWorld,
   readJson,
-  restoreEnvironment,
   sha256File,
-  waitFor,
 } from './owned-world-fixture';
+import {
+  observeFromFreshMinecraftBody,
+  observedDroppedItems,
+  runManagedModelPhase,
+} from './owned-world-model-harness';
 import { digestTree } from './world-lab';
-import { startManagedWorld, type ManagedWorldRun } from './world-runner';
 
 const PROTOCOL = 'behold.owned-world-model-proof.v1' as const;
 const ENTITY_ID = 'ModelResident';
@@ -79,115 +77,36 @@ async function main() {
   const fixture = await prepareOwnedWorld(requestedRunId, port, 'owned-world-model');
   const transcript: string[] = [];
 
-  const runPhase = async (phase: 'act' | 'resume') => {
-    const journalDirectory = path.join(fixture.evidenceRoot, `${phase}-run`);
-    fs.mkdirSync(journalDirectory, { recursive: true });
-    const priorEnvironment = {
-      runDirectory: process.env.BEHOLD_RUN_DIR,
-      recordModelIo: process.env.BEHOLD_RECORD_MODEL_IO,
-      tick: process.env.AGENT_TICK_MS,
-    };
-    process.env.BEHOLD_RUN_DIR = journalDirectory;
-    process.env.BEHOLD_RECORD_MODEL_IO = '1';
-    process.env.AGENT_TICK_MS = '1000';
-    let run: ManagedWorldRun | null = null;
-    try {
-      run = await startManagedWorld(
-        {
-          worldId: OWNED_WORLD_ID,
-          world: fixture.world,
-          controlRoot: fixture.controlRoot,
-          serverDirectory: fixture.serverDirectory,
-          serverJar: fixture.serverJar,
-          expectedServerJarSha256: fixture.expectedServerJarSha256,
-          java: fixture.java,
-          controllerEntry: path.resolve('dist/src/cli/behold.js'),
-          controllerEntityId: ENTITY_ID,
-          controllerLeasePath: path.join(fixture.entityRoot, ENTITY_ID, 'runtime.lock'),
-          model,
-          task: TASK,
-          allowTools: ALLOW_TOOLS,
-          startupTimeoutMs: 90_000,
-          shutdownTimeoutMs: 90_000,
-        },
-        {
-          stdout: (text) => {
-            transcript.push(text);
-            process.stdout.write(text);
-          },
-          stderr: (text) => {
-            transcript.push(text);
-            process.stderr.write(text);
-          },
-        },
-      );
-      const journalFile = await waitForJournal(journalDirectory, 30_000);
-      const wait = new AbortController();
-      let events: RunJournalEvent[] = [];
-      try {
-        await Promise.race([
-          waitFor(
-            () => {
-              events = readRunJournal(journalFile);
-              const failure = events.find((event) => event.type === 'model_call_failed');
-              if (failure) {
-                throw new Error(
-                  `${phase} model call failed: ${String(failure.data?.error || 'unknown error')}`,
-                );
-              }
-              return phase === 'act'
-                ? hasCollectionFollowedByYield(events)
-                : hasFirstRestartTurn(events);
-            },
-            timeoutMs,
-            `${phase} model inhabitant milestone`,
-            wait.signal,
-          ),
-          run.finished.then(() => {
-            throw new Error(`${phase} managed world ended before the model milestone`);
-          }),
-        ]);
-      } finally {
-        wait.abort();
-      }
-
-      const independentWitness =
+  const runPhase = (phase: 'act' | 'resume') =>
+    runManagedModelPhase({
+      phase,
+      fixture,
+      entityId: ENTITY_ID,
+      model,
+      task: TASK,
+      allowTools: ALLOW_TOOLS,
+      timeoutMs,
+      transcript,
+      milestone: (events) =>
+        phase === 'act' ? hasCollectionFollowedByYield(events) : hasFirstRestartTurn(events),
+      witness:
         phase === 'act'
-          ? await observeFromFreshMinecraftBody({
-              run,
-              entityRoot: fixture.entityRoot,
-              controlRoot: fixture.controlRoot,
-              port,
-              model,
-            })
-          : null;
-      await run.stop(`owned_world_model_${phase}_complete`);
-      await run.finished;
-      events = readRunJournal(journalFile);
-      const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
-      return {
-        managedRunId: run.runId,
-        journalFile,
-        journalSha256: sha256File(journalFile),
-        events,
-        independentWitness,
-        lifecycleFile: run.control.journalFile,
-        lifecycleTipDigest: lifecycle.tipDigest,
-        lifecycleEvents: lifecycle.events.length,
-      };
-    } catch (error) {
-      if (run) await run.stop(`owned_world_model_${phase}_failed`).catch(() => {});
-      throw error;
-    } finally {
-      restoreEnvironment('BEHOLD_RUN_DIR', priorEnvironment.runDirectory);
-      restoreEnvironment('BEHOLD_RECORD_MODEL_IO', priorEnvironment.recordModelIo);
-      restoreEnvironment('AGENT_TICK_MS', priorEnvironment.tick);
-    }
-  };
+          ? ({ run }) =>
+              observeFromFreshMinecraftBody({
+                run,
+                entityRoot: fixture.entityRoot,
+                controlRoot: fixture.controlRoot,
+                port,
+                model,
+                witnessId: WITNESS_ID,
+                observe: (bot) => ({ droppedItems: observedDroppedItems(bot) }),
+              })
+          : undefined,
+    });
 
   process.stdout.write(`[owned-world-model] first life with ${model}\n`);
   const act = await runPhase('act');
-  if (!act.independentWitness) throw new Error('act phase did not produce an independent witness');
+  if (!act.witness) throw new Error('act phase did not produce an independent witness');
   const afterActTree = digestTree(fixture.runtime);
   process.stdout.write('[owned-world-model] restarting the same model inhabitant\n');
   const resume = await runPhase('resume');
@@ -196,7 +115,7 @@ async function main() {
   const assessment = assessOwnedWorldModelEvidence(
     act.events,
     resume.events,
-    act.independentWitness,
+    act.witness as IndependentWorldWitness,
     {
       worldId: OWNED_WORLD_ID,
       entityId: ENTITY_ID,
@@ -241,7 +160,7 @@ async function main() {
       initialRuntimeTree: fixture.initialRuntimeTree,
       afterActTree,
       afterResumeTree,
-      independentWitness: act.independentWitness,
+      independentWitness: act.witness,
       loomFile: loomFiles[0],
       loomSha256: sha256File(loomFiles[0]),
       act: {
@@ -331,161 +250,6 @@ function reassessExistingProof(inputFile: string) {
     );
   }
   process.stdout.write(`[owned-world-model] REASSESSED PASS ${outputFile}\n`);
-}
-
-async function waitForJournal(directory: string, timeoutMs: number) {
-  let journal = '';
-  await waitFor(
-    () => {
-      const files = listFiles(directory).filter((file) => file.endsWith('.jsonl'));
-      if (files.length > 1) throw new Error(`expected one run journal, found ${files.length}`);
-      journal = files[0] || '';
-      return !!journal;
-    },
-    timeoutMs,
-    `run journal in ${directory}`,
-  );
-  return journal;
-}
-
-function readRunJournal(file: string) {
-  const text = fs.readFileSync(file, 'utf8');
-  if (text && !text.endsWith('\n')) return [];
-  return parseRunJournal(text);
-}
-
-async function observeFromFreshMinecraftBody(input: {
-  run: ManagedWorldRun;
-  entityRoot: string;
-  controlRoot: string;
-  port: number;
-  model: string;
-}): Promise<IndependentWorldWitness> {
-  return withEnvironment(
-    {
-      SERVER_HOST: '127.0.0.1',
-      SERVER_PORT: String(input.port),
-      MINECRAFT_USERNAME: WITNESS_ID,
-      MINECRAFT_AUTH: 'offline',
-      VIEWER_ENABLED: '0',
-      BEHOLD_RUN_ID: input.run.runId,
-      BEHOLD_WORLD_ID: OWNED_WORLD_ID,
-      BEHOLD_WORLD_CONTROL_FILE: input.run.control.file,
-      BEHOLD_WORLD_CONTROL_ROOT: input.controlRoot,
-      BEHOLD_ENTITY_DIR: input.entityRoot,
-    },
-    async () => {
-      const config: Config = {
-        server: { host: '127.0.0.1', port: input.port },
-        circle: { id: OWNED_WORLD_ID, source: 'explicit' },
-        auth: { username: WITNESS_ID, mode: 'offline' },
-        agent: { tickMs: 1000 },
-        viewer: { enabled: false, port: 3007, firstPerson: true, viewDistance: 4 },
-        input: { mode: 'hold' },
-        llm: { model: input.model },
-      };
-      const loom = await openEntityLoom(WITNESS_ID, input.entityRoot, OWNED_WORLD_ID);
-      let bot: ReturnType<typeof createBot> | null = null;
-      try {
-        bot = createBot(config, loom.connectionCapability);
-        await waitForLocalWorld(bot, 45_000);
-        await delay(500);
-        return {
-          entityId: WITNESS_ID,
-          worldId: OWNED_WORLD_ID,
-          managedRunId: input.run.runId,
-          source: 'fresh_minecraft_connection' as const,
-          observedAt: Date.now(),
-          droppedItems: observedDroppedItems(bot),
-        };
-      } finally {
-        if (bot) await disconnect(bot).catch(() => {});
-        await loom.close().catch(() => {});
-      }
-    },
-  );
-}
-
-async function withEnvironment<T>(
-  values: Readonly<Record<string, string>>,
-  action: () => Promise<T>,
-) {
-  const previous = Object.fromEntries(
-    Object.keys(values).map((name) => [name, process.env[name]]),
-  ) as Record<string, string | undefined>;
-  for (const [name, value] of Object.entries(values)) process.env[name] = value;
-  try {
-    return await action();
-  } finally {
-    for (const [name, value] of Object.entries(previous)) restoreEnvironment(name, value);
-  }
-}
-
-async function waitForLocalWorld(bot: ReturnType<typeof createBot>, timeoutMs: number) {
-  const localWorld = (async () => {
-    if (!(bot as any).entity) {
-      await new Promise<void>((resolve, reject) => {
-        bot.once('spawn', () => resolve());
-        bot.once('error', reject);
-      });
-    }
-    await bot.waitForChunksToLoad();
-  })();
-  let timer: NodeJS.Timeout | null = null;
-  try {
-    await Promise.race([
-      localWorld,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('fresh Minecraft witness readiness timed out')),
-          timeoutMs,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-function observedDroppedItems(bot: ReturnType<typeof createBot>) {
-  const me = (bot as any).entity?.position;
-  return (Object.values((bot as any).entities || {}) as any[])
-    .filter((entity) => entity?.name === 'item' && entity?.position)
-    .map((entity) => {
-      const item = entity?.getDroppedItem?.();
-      return {
-        name: String(item?.name || item?.displayName || 'unknown'),
-        count: Math.max(0, Number(item?.count) || 0),
-        position: {
-          x: Number(entity.position.x),
-          y: Number(entity.position.y),
-          z: Number(entity.position.z),
-        },
-        distance: me?.distanceTo?.(entity.position) ?? null,
-      };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function disconnect(bot: ReturnType<typeof createBot>) {
-  if (!(bot as any)._client) return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, 5_000);
-    bot.once('end', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    try {
-      (bot as any).end();
-    } catch {
-      clearTimeout(timer);
-      resolve();
-    }
-  });
-}
-
-function delay(milliseconds: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 void main().catch((error) => {
