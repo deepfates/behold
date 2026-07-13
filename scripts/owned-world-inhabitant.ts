@@ -3,14 +3,12 @@ import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { Vec3 } from 'vec3';
 import { getConfig } from '../src/config';
 import { createBot } from '../src/bot';
 import { openEntityLoom, type EntityTurn } from '../src/entity/loom';
 import { InhabitantExperience } from '../src/agent/experience';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine, type EngineEvent } from '../src/loop/engine';
-import { findClientObservedWorldChange } from './owned-world-proof-support';
 
 const PROTOCOL = 'behold.owned-world-inhabitant-proof.v1' as const;
 const WITNESS_ID = 'ProofWitness';
@@ -69,7 +67,7 @@ async function main() {
         list: () => interpreter.list('inhabitant'),
       },
       {
-        allowTools: ['find_blocks', 'dig_block'],
+        allowTools: ['collect_nearby_item', 'inspect_volume'],
         onEvent: (event) => {
           events.push(event);
           experience!.recordEngineEvent(event);
@@ -79,74 +77,70 @@ async function main() {
 
     await waitForLocalWorld(bot, 45_000);
     const initialObservation = experience.observe();
-    const search = await executeTurn({
-      entityId,
-      loom,
-      experience,
-      engine,
-      events,
-      name: 'find_blocks',
-      input: { name: 'gold_block', maxDistance: 8, count: 4 },
-    });
-    const blocks = Array.isArray(search.result?.blocks) ? search.result.blocks : [];
-    let mutation: Awaited<ReturnType<typeof executeTurn>> | null = null;
-    let independentWitness: Awaited<ReturnType<typeof observeTargetFromFreshBody>> | null = null;
+    const initialDroppedItems = observedDroppedItems(bot);
+    let collection: Awaited<ReturnType<typeof executeTurn>> | null = null;
+    let resumeInspection: Awaited<ReturnType<typeof executeTurn>> | null = null;
+    let independentWitness: Awaited<ReturnType<typeof observeDroppedItemsFromFreshBody>> | null =
+      null;
 
     if (phase === 'act') {
       if (priorTurns !== 0)
         throw new Error(`act phase expected no prior turns, found ${priorTurns}`);
-      if (blocks.length !== 1) {
-        throw new Error(`act phase expected one local gold affordance, found ${blocks.length}`);
+      if (initialDroppedItems.filter((item) => item.name === 'apple').length !== 1) {
+        throw new Error(
+          `act phase expected one local apple affordance: ${JSON.stringify(initialDroppedItems)}`,
+        );
       }
-      const target = blocks[0]?.position;
-      if (!samePosition(target, { x: 2, y: -60, z: 0 })) {
-        throw new Error(`unexpected gold affordance: ${JSON.stringify(target)}`);
-      }
-      mutation = await executeTurn({
+      collection = await executeTurn({
         entityId,
         loom,
         experience,
         engine,
         events,
-        name: 'dig_block',
-        input: target,
+        name: 'collect_nearby_item',
+        input: { name: 'apple', maxDistance: 8, timeoutMs: 30_000 },
       });
       if (
-        !findClientObservedWorldChange(mutation.result, {
-          verb: 'dig',
-          position: { x: 2, y: -60, z: 0 },
-          before: 'gold_block',
-          after: 'air',
-          confirmationSource: 'mineflayer:blockUpdate',
-        })
+        !collection.result?.ok ||
+        collection.result?.item !== 'apple' ||
+        collection.result?.confirmation !== 'mineflayer:playerCollect'
       ) {
-        throw new Error(`client transition was not observed: ${JSON.stringify(mutation)}`);
+        throw new Error(`Minecraft did not confirm collection: ${JSON.stringify(collection)}`);
       }
-      independentWitness = await observeTargetFromFreshBody(cfg, {
-        x: 2,
-        y: -60,
-        z: 0,
-      });
-      if (!String(independentWitness.block.name || '').endsWith('air')) {
+      independentWitness = await observeDroppedItemsFromFreshBody(cfg);
+      if (independentWitness.droppedItems.some((item) => item.name === 'apple')) {
         throw new Error(
-          `fresh Minecraft connection did not observe the consequence: ${JSON.stringify(independentWitness)}`,
+          `fresh Minecraft connection still observed the collected item: ${JSON.stringify(independentWitness)}`,
         );
       }
     } else {
-      if (priorTurns < 2)
+      if (priorTurns < 1)
         throw new Error(`resume phase expected prior life, found ${priorTurns} turns`);
-      if (blocks.length !== 0) {
+      if (inventoryCount(initialObservation, 'apple') !== 1) {
         throw new Error(
-          `resume phase found the already-consumed affordance again: ${blocks.length}`,
+          `resume phase did not load the persisted apple inventory: ${JSON.stringify(initialObservation.self?.inventory)}`,
         );
       }
+      if (initialDroppedItems.some((item) => item.name === 'apple')) {
+        throw new Error(`resume phase found the already-collected item again`);
+      }
+      resumeInspection = await executeTurn({
+        entityId,
+        loom,
+        experience,
+        engine,
+        events,
+        name: 'inspect_volume',
+        input: { radius: 2, verticalRadius: 2 },
+      });
       if (
         events.some(
           (event) =>
-            event.type === 'action_started' && String(event.data?.intent?.tool) === 'dig_block',
+            event.type === 'action_started' &&
+            String(event.data?.intent?.tool) === 'collect_nearby_item',
         )
       ) {
-        throw new Error('resume phase duplicated the physical action');
+        throw new Error('resume phase repeated the collection action');
       }
     }
 
@@ -160,14 +154,16 @@ async function main() {
       priorTurns,
       resultingTurns: loom.turns().length,
       initialObservation,
-      search,
-      mutation,
+      initialDroppedItems,
+      collection,
+      resumeInspection,
       independentWitness,
       finalObservation,
       engineEvents: events,
-      physicalMutationAttempts: events.filter(
+      collectionAttempts: events.filter(
         (event) =>
-          event.type === 'action_started' && String(event.data?.intent?.tool) === 'dig_block',
+          event.type === 'action_started' &&
+          String(event.data?.intent?.tool) === 'collect_nearby_item',
       ).length,
       completedAt: new Date().toISOString(),
     });
@@ -192,10 +188,7 @@ async function main() {
   }
 }
 
-async function observeTargetFromFreshBody(
-  config: ReturnType<typeof getConfig>,
-  position: { x: number; y: number; z: number },
-) {
+async function observeDroppedItemsFromFreshBody(config: ReturnType<typeof getConfig>) {
   const witnessLoom = await openEntityLoom(WITNESS_ID, undefined, config.circle.id);
   let witness: ReturnType<typeof createBot> | null = null;
   try {
@@ -208,23 +201,45 @@ async function observeTargetFromFreshBody(
       witnessLoom.connectionCapability,
     );
     await waitForLocalWorld(witness, 45_000);
-    const block = (witness as any).blockAt?.(new Vec3(position.x, position.y, position.z));
     return {
       entityId: WITNESS_ID,
       worldId: config.circle.id,
       managedRunId: process.env.BEHOLD_RUN_ID || null,
       source: 'fresh_minecraft_connection',
       observedAt: Date.now(),
-      position,
-      block: {
-        name: block?.name == null ? null : String(block.name),
-        stateId: block?.stateId == null ? null : Number(block.stateId),
-      },
+      droppedItems: observedDroppedItems(witness),
     };
   } finally {
     if (witness) await disconnect(witness).catch(() => {});
     await witnessLoom.close().catch(() => {});
   }
+}
+
+function observedDroppedItems(bot: ReturnType<typeof createBot>) {
+  const me = (bot as any).entity?.position;
+  return (Object.values((bot as any).entities || {}) as any[])
+    .filter((entity) => entity?.name === 'item' && entity?.position)
+    .map((entity) => {
+      const item = entity?.getDroppedItem?.();
+      return {
+        id: Number(entity.id),
+        name: String(item?.name || item?.displayName || 'unknown'),
+        count: Math.max(0, Number(item?.count) || 0),
+        position: {
+          x: Number(entity.position.x),
+          y: Number(entity.position.y),
+          z: Number(entity.position.z),
+        },
+        distance: me?.distanceTo?.(entity.position) ?? null,
+      };
+    })
+    .sort((a, b) => a.id - b.id);
+}
+
+function inventoryCount(observation: any, name: string) {
+  return (Array.isArray(observation?.self?.inventory) ? observation.self.inventory : [])
+    .filter((item: any) => String(item?.name) === name)
+    .reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.count) || 0), 0);
 }
 
 async function executeTurn(input: {
@@ -345,14 +360,6 @@ function disconnect(bot: ReturnType<typeof createBot>) {
       resolve();
     }
   });
-}
-
-function samePosition(value: any, expected: { x: number; y: number; z: number }) {
-  return (
-    Number(value?.x) === expected.x &&
-    Number(value?.y) === expected.y &&
-    Number(value?.z) === expected.z
-  );
 }
 
 function requiredEnvironment(name: string) {
