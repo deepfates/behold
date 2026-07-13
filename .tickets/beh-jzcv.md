@@ -1,6 +1,6 @@
 ---
 id: beh-jzcv
-status: open
+status: in_progress
 deps: [beh-p6ti]
 links: []
 created: 2026-07-13T22:02:30Z
@@ -17,3 +17,9 @@ Run bounded disposable living-profile clones with native time, weather, random t
 ## Acceptance
 
 Both places complete a bounded soak with recorded starting artifact, server and profile version, duration or ticks, observed ecological changes, failures, and clean shutdown. Minecraft remains authoritative.
+
+## Notes
+
+**2026-07-13T22:29:51Z**
+
+Starting bounded one-Minecraft-day native ecology soak on APFS-cloned living-profile runtimes; immutable accepted artifacts remain untouched.

@@ -2,12 +2,17 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadPlaceRecipe, loadRuntimeProfiles, sha256 } from './core.mjs';
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function parse(argv) {
-  const out = { runRoot: null, profile: null, destination: null, port: 25565 };
+  const out = { runRoot: null, profile: null, recipe: null, destination: null, port: 25565 };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--run-root') out.runRoot = path.resolve(argv[++i]);
     else if (argv[i] === '--profile') out.profile = argv[++i];
+    else if (argv[i] === '--recipe') out.recipe = path.resolve(argv[++i]);
     else if (argv[i] === '--destination') out.destination = path.resolve(argv[++i]);
     else if (argv[i] === '--port') out.port = Number(argv[++i]);
     else throw new Error(`Unknown or incomplete argument: ${argv[i]}`);
@@ -34,8 +39,21 @@ if (existsSync(options.destination)) throw new Error(`destination exists: ${opti
 const manifest = JSON.parse(
   readFileSync(path.join(options.runRoot, 'generation-manifest.json'), 'utf8'),
 );
-const profile = manifest.place?.runtimeProfiles?.[options.profile];
+const fallback = options.recipe ? loadPlaceRecipe(options.recipe) : null;
+if (!manifest.place && !fallback) throw new Error('legacy generation manifest requires --recipe');
+const place = manifest.place ?? fallback.recipe;
+const runtimeProfiles =
+  manifest.place?.runtimeProfiles ??
+  loadRuntimeProfiles(
+    path.join(repositoryRoot, 'docs/place-compiler/runtime-profiles.json'),
+    fallback.recipe.runtimeProfiles,
+  );
+const profile = runtimeProfiles[options.profile];
 if (!profile) throw new Error(`run does not publish profile ${options.profile}`);
+const toolLock = JSON.parse(
+  readFileSync(path.join(repositoryRoot, place.toolLock ?? fallback?.recipe.toolLock), 'utf8'),
+);
+const minecraftServer = toolLock.tools.minecraftServer;
 const output = path.join(options.runRoot, 'output');
 const worlds = readdirSync(output).filter((name) => name.startsWith('Arnis World '));
 if (worlds.length !== 1) throw new Error(`expected one source world, found ${worlds.length}`);
@@ -55,10 +73,11 @@ const properties = {
   'generate-structures': true,
   'level-name': 'world',
   'max-players': 20,
-  motd: `${manifest.place.name} · ${options.profile}`,
+  motd: `${place.name} · ${options.profile}`,
   'online-mode': false,
   'server-port': options.port,
   'simulation-distance': minecraft.simulationDistance,
+  'spectators-generate-chunks': true,
   'spawn-animals': ecology.mobSpawning,
   'spawn-monsters': ecology.mobSpawning,
   'spawn-npcs': ecology.mobSpawning,
@@ -93,15 +112,22 @@ writeFileSync(
 );
 const runtime = {
   schemaVersion: 1,
-  placeId: manifest.place.id,
+  placeId: place.id,
   sourceRunId: manifest.runId,
-  sourceRecipeSha256: manifest.place.recipeSha256,
+  sourceRecipeSha256: manifest.place?.recipeSha256 ?? (await sha256(fallback.path)),
   profileId: options.profile,
   profile,
   port: options.port,
   world: 'world',
-  minecraftServerSha256: manifest.generator.minecraftServerSha256,
-  launch: ['java', '-Xms2G', '-Xmx8G', '-jar', manifest.generator.minecraftServerPath, 'nogui'],
+  minecraftServerSha256: manifest.generator.minecraftServerSha256 ?? minecraftServer.sha256,
+  launch: [
+    'java',
+    '-Xms2G',
+    '-Xmx8G',
+    '-jar',
+    manifest.generator.minecraftServerPath ?? minecraftServer.path,
+    'nogui',
+  ],
 };
 writeFileSync(
   path.join(options.destination, 'runtime-manifest.json'),
