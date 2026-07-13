@@ -95,6 +95,7 @@ export type ManagedWorldRun = Readonly<{
   serverPid: number;
   controllerPid: number;
   finished: Promise<void>;
+  quiesceController(reason?: string): Promise<void>;
   stop(reason?: string): Promise<void>;
 }>;
 
@@ -266,6 +267,7 @@ export async function startManagedWorld(
   let controllerExit: Promise<ProcessExit> | null = null;
   let serverOutput: OutputCapture | null = null;
   let stopping = false;
+  let controllerQuiescing = false;
 
   try {
     const fenced = await inspectRuntime();
@@ -374,7 +376,7 @@ export async function startManagedWorld(
     control.append('run_ready', { serverPid: server.pid, controllerPid: controller.pid });
 
     const finished = Promise.race([serverExit, controllerExit]).then((exit) => {
-      if (!stopping) {
+      if (!stopping && !(exit.name === 'controller' && controllerQuiescing)) {
         throw new WorldRunnerError(
           `${exit.name} exited while the managed world was running`,
           'managed_child_exited',
@@ -384,6 +386,29 @@ export async function startManagedWorld(
     });
 
     let stopPromise: Promise<void> | null = null;
+    let quiescePromise: Promise<void> | null = null;
+    const quiesceController = (reason = 'witness_observation') => {
+      if (quiescePromise) return quiescePromise;
+      if (stopPromise || stopping) {
+        return Promise.reject(
+          new WorldRunnerError(
+            'Controller cannot be quiesced after managed shutdown begins',
+            'controller_quiesce_after_stop',
+          ),
+        );
+      }
+      controllerQuiescing = true;
+      quiescePromise = quiesceManagedController({
+        control,
+        controller: controller!,
+        controllerExit: controllerExit!,
+        controllerLeasePath: options.controllerLeasePath,
+        timeoutMs: shutdownTimeoutMs,
+        sleep,
+        reason,
+      });
+      return quiescePromise;
+    };
     const stop = (reason = 'operator_request') => {
       if (stopPromise) return stopPromise;
       stopping = true;
@@ -411,6 +436,7 @@ export async function startManagedWorld(
       serverPid: server.pid,
       controllerPid: controller.pid,
       finished,
+      quiesceController,
       stop,
     });
   } catch (error: any) {
@@ -451,6 +477,35 @@ export async function startManagedWorld(
     }
     throw failure;
   }
+}
+
+async function quiesceManagedController(input: {
+  control: HeldWorldControl;
+  controller: ChildProcessWithoutNullStreams;
+  controllerExit: Promise<ProcessExit>;
+  controllerLeasePath: string;
+  timeoutMs: number;
+  sleep: (milliseconds: number) => Promise<void>;
+  reason: string;
+}) {
+  input.control.append('controller_quiescing', { reason: input.reason });
+  if (!processExited(input.controller)) input.controller.stdin.end();
+  const exit = await withTimeout(input.controllerExit, input.timeoutMs, 'controller quiescence');
+  if (!cleanExit(exit)) {
+    throw new WorldRunnerError(
+      'Controller exited abnormally while entering witness quiescence',
+      'controller_quiesce_exit_abnormal',
+      exit,
+    );
+  }
+  await waitForCondition(
+    'controller lease release before witness',
+    input.timeoutMs,
+    input.sleep,
+    async () => !fs.existsSync(input.controllerLeasePath),
+  );
+  input.control.update('running', { controllers: [] });
+  input.control.append('controller_quiesced', { reason: input.reason, exit });
 }
 
 async function cleanupFailedStart(input: {

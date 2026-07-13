@@ -107,6 +107,12 @@ test('managed world runner owns readiness, controller lease, save, stop, and dur
   assert.equal(fs.existsSync(fixture.lease), true);
   assert.equal(run.control.record().state, 'running');
 
+  await run.quiesceController('fixture_witness');
+  assert.equal(fs.existsSync(fixture.lease), false);
+  assert.equal(run.control.record().state, 'running');
+  assert.deepEqual(run.control.record().controllers, []);
+  assert.equal(serverAlive, true);
+
   await run.stop('fixture_complete');
   await run.finished;
 
@@ -123,6 +129,7 @@ test('managed world runner owns readiness, controller lease, save, stop, and dur
     .map((line) => JSON.parse(line));
   assert.ok(events.some((event) => event.type === 'server_ready'));
   assert.ok(events.some((event) => event.type === 'run_ready'));
+  assert.ok(events.some((event) => event.type === 'controller_quiesced'));
   assert.ok(events.some((event) => event.type === 'server_save_acknowledged'));
   assert.ok(events.some((event) => event.type === 'run_stopped'));
   assert.equal(events.at(-1).type, 'control_released');

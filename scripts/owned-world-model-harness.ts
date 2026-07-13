@@ -117,9 +117,11 @@ export async function runManagedModelPhase<Witness = null>(input: {
       wait.abort();
     }
 
-    const witness = input.witness
-      ? await input.witness({ run, events, journalFile })
-      : (null as Witness | null);
+    let witness: Witness | null = null;
+    if (input.witness) {
+      await run.quiesceController(`${prefix}_${input.phase}_before_witness`);
+      witness = await input.witness({ run, events, journalFile });
+    }
     await run.stop(`${prefix}_${input.phase}_complete`);
     await run.finished;
     events = readRunJournal(journalFile);
