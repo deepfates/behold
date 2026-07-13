@@ -422,7 +422,7 @@ test('system guidance follows the admitted affordances instead of describing abs
     await policy.tick();
     await until(() => turns.length === 1);
     const system = String(request.messages[0].content);
-    assert.ok(system.length < 6000, `four-gate prompt was ${system.length} characters`);
+    assert.ok(system.length < 4000, `four-gate prompt was ${system.length} characters`);
     assert.match(
       system,
       /ordering, preconditions, and prohibitions.*take precedence over the generic action heuristics/i,
