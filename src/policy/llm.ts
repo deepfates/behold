@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
 import { historyMessages, type EntityTurn } from '../entity/loom';
@@ -27,6 +28,7 @@ type Options = {
   foldTriggerTurns?: number;
   summarizeLoom?: LoomFoldSummarizer;
   now?: () => number;
+  recordModelIO?: boolean;
   log?: (s: string) => void;
   /** Accept only lifecycle objects minted by the engine that owns attempt(). */
   acceptEngineEvent: (event: EngineEvent) => boolean;
@@ -36,6 +38,13 @@ type Options = {
     observation: any;
     assistant: any;
     intent: Intent | null;
+    call: ModelCallEvidence;
+  }) => void;
+  onModelError?: (failure: {
+    at: number;
+    model: string;
+    error: string;
+    call: ModelCallFailureEvidence | null;
   }) => void;
   onEntityTurn?: (turn: EntityTurn) => unknown | Promise<unknown>;
 };
@@ -57,7 +66,53 @@ type ModelDecision = {
   intent: Intent | null;
   toolCallId: string | null;
   wait: boolean;
+  call: ModelCallEvidence;
 };
+
+export type ModelCallEvidence = {
+  protocol: 'behold.model-call.v1';
+  requestId: string;
+  endpoint: string;
+  startedAt: number;
+  completedAt: number;
+  latencyMs: number;
+  request: {
+    model: string;
+    messageCount: number;
+    toolCount: number;
+    toolChoice: unknown;
+    bodySha256: string;
+    messagesSha256: string;
+    toolsSha256: string;
+    body?: unknown;
+  };
+  response: {
+    id: string | null;
+    model: string | null;
+    provider: string | null;
+    finishReason: string | null;
+    nativeFinishReason: string | null;
+    usage: unknown;
+    raw?: unknown;
+  };
+};
+
+export type ModelCallFailureEvidence = Omit<ModelCallEvidence, 'response'> & {
+  response: {
+    status: number | null;
+    bodyPreview: string | null;
+  };
+};
+
+class ModelCallError extends Error {
+  constructor(
+    message: string,
+    readonly call: ModelCallFailureEvidence,
+  ) {
+    super(message);
+    this.name = 'ModelCallError';
+  }
+}
 
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const WAIT_TOOL = 'wait_for_event';
@@ -274,6 +329,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         observation: currentObservation,
         assistant,
         intent: decision.intent,
+        call: decision.call,
       });
 
       if (decision.wait) {
@@ -441,6 +497,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       pending = { intent, toolCallId: decision.toolCallId, draft };
     } catch (e: any) {
       log(`[policy] error: ${e?.message || String(e)}`);
+      opts.onModelError?.({
+        at: now(),
+        model: opts.model,
+        error: e?.message || String(e),
+        call: e instanceof ModelCallError ? e.call : null,
+      });
       turnActive = false;
       turnSteps = 0;
     } finally {
@@ -929,12 +991,69 @@ async function callLLM(
   if (process.env.OPENROUTER_TITLE) headers['X-Title'] = String(process.env.OPENROUTER_TITLE);
 
   const endpoint = opts.endpoint || DEFAULT_ENDPOINT;
-  const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body) });
+  const requestId = rid('model');
+  const startedAt = opts.now ? opts.now() : Date.now();
+  const requestBody = JSON.stringify(body);
+  const request = {
+    model: opts.model,
+    messageCount: messages.length,
+    toolCount: specs.length,
+    toolChoice: body.tool_choice,
+    bodySha256: sha256(requestBody),
+    messagesSha256: sha256(stableJson(messages)),
+    toolsSha256: sha256(stableJson(specs)),
+    ...(opts.recordModelIO ? { body: JSON.parse(requestBody) } : {}),
+  };
+  let res: Response;
+  try {
+    res = await fetch(endpoint, { method: 'POST', headers, body: requestBody });
+  } catch (error: any) {
+    const completedAt = opts.now ? opts.now() : Date.now();
+    throw new ModelCallError(`llm network error: ${error?.message || String(error)}`, {
+      protocol: 'behold.model-call.v1',
+      requestId,
+      endpoint: safeEndpoint(endpoint),
+      startedAt,
+      completedAt,
+      latencyMs: Math.max(0, completedAt - startedAt),
+      request,
+      response: { status: null, bodyPreview: null },
+    });
+  }
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`llm ${res.status}: ${text.slice(0, 200)}`);
+    const completedAt = opts.now ? opts.now() : Date.now();
+    throw new ModelCallError(`llm ${res.status}: ${text.slice(0, 200)}`, {
+      protocol: 'behold.model-call.v1',
+      requestId,
+      endpoint: safeEndpoint(endpoint),
+      startedAt,
+      completedAt,
+      latencyMs: Math.max(0, completedAt - startedAt),
+      request,
+      response: { status: res.status, bodyPreview: text.slice(0, 200) || null },
+    });
   }
   const data: any = await res.json();
+  const completedAt = opts.now ? opts.now() : Date.now();
+  const call: ModelCallEvidence = {
+    protocol: 'behold.model-call.v1',
+    requestId,
+    endpoint: safeEndpoint(endpoint),
+    startedAt,
+    completedAt,
+    latencyMs: Math.max(0, completedAt - startedAt),
+    request,
+    response: {
+      id: stringOrNull(data?.id),
+      model: stringOrNull(data?.model),
+      provider: stringOrNull(data?.provider),
+      finishReason: stringOrNull(data?.choices?.[0]?.finish_reason),
+      nativeFinishReason: stringOrNull(data?.choices?.[0]?.native_finish_reason),
+      usage: cloneJson(data?.usage ?? null),
+      ...(opts.recordModelIO ? { raw: cloneJson(data) } : {}),
+    },
+  };
   const assistant = data?.choices?.[0]?.message || { role: 'assistant', content: '' };
   const toolCall = assistant?.tool_calls?.[0];
   if (toolCall?.function?.name) {
@@ -950,6 +1069,7 @@ async function callLLM(
         intent: null,
         toolCallId: String(toolCall.id || rid('wait')),
         wait: true,
+        call,
       };
     }
     return {
@@ -957,6 +1077,7 @@ async function callLLM(
       intent: toIntent(name, args),
       toolCallId: String(toolCall.id || rid('tool')),
       wait: false,
+      call,
     };
   }
 
@@ -972,9 +1093,34 @@ async function callLLM(
       },
       toolCallId: null,
       wait: false,
+      call,
     };
   }
-  return { assistant, intent: null, toolCallId: null, wait: false };
+  return { assistant, intent: null, toolCallId: null, wait: false, call };
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function safeEndpoint(value: string) {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return value.split('?')[0];
+  }
+}
+
+function stringOrNull(value: unknown) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function cloneJson(value: unknown) {
+  if (value == null) return null;
+  return JSON.parse(JSON.stringify(value));
 }
 
 function normalizeAssistant(assistant: any) {

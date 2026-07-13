@@ -304,6 +304,8 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       {
         apiKey,
         model,
+        endpoint: process.env.OPENROUTER_BASE_URL || undefined,
+        recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
         tickMs: Number(process.env.AGENT_TICK_MS || 3000),
         maxTurnSteps: task ? 8 : 16,
         resumeAfterBudget: task == null,
@@ -318,6 +320,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           taskRuntime?.verifier.recordControllerDecision(turn.intent, turn.observation);
           appendJournal('model_turn', turn);
         },
+        onModelError: (failure) => appendJournal('model_call_failed', failure),
         onEntityTurn: async (turn) => {
           projects.validate(turn);
           places.validate(turn);

@@ -157,6 +157,135 @@ test('controller receives real action results and continues the same bounded tur
   }
 });
 
+test('model turns preserve reproducible call, usage, latency, and opt-in IO evidence', async () => {
+  const originalFetch = globalThis.fetch;
+  let now = 1000;
+  globalThis.fetch = (async () => {
+    now = 1027;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 'generation-1',
+        model: 'provider/resolved-model',
+        provider: 'Example Provider',
+        choices: [
+          {
+            finish_reason: 'tool_calls',
+            native_finish_reason: 'tool_use',
+            message: assistantTool('call-wait-evidence', 'wait_for_event', {
+              reason: 'proof complete',
+            }),
+          },
+        ],
+        usage: {
+          prompt_tokens: 120,
+          completion_tokens: 8,
+          total_tokens: 128,
+          cost: 0.00042,
+        },
+      }),
+      text: async () => '',
+    } as any;
+  }) as typeof fetch;
+
+  const modelTurns: any[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('inspect_volume')],
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'test-key',
+      model: 'test/model',
+      endpoint: 'https://models.example.test/v1/chat/completions?credential=redacted',
+      now: () => now,
+      recordModelIO: true,
+      acceptEngineEvent: () => true,
+      onModelTurn: (turn) => modelTurns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => modelTurns.length === 1);
+    const call = modelTurns[0].call;
+    assert.equal(call.protocol, 'behold.model-call.v1');
+    assert.equal(call.endpoint, 'https://models.example.test/v1/chat/completions');
+    assert.equal(call.startedAt, 1000);
+    assert.equal(call.completedAt, 1027);
+    assert.equal(call.latencyMs, 27);
+    assert.equal(call.request.model, 'test/model');
+    assert.equal(call.request.toolChoice, 'auto');
+    assert.match(call.request.bodySha256, /^[a-f0-9]{64}$/);
+    assert.match(call.request.messagesSha256, /^[a-f0-9]{64}$/);
+    assert.match(call.request.toolsSha256, /^[a-f0-9]{64}$/);
+    assert.equal((call.request.body as any).messages[0].role, 'system');
+    assert.equal(call.response.id, 'generation-1');
+    assert.equal(call.response.model, 'provider/resolved-model');
+    assert.equal(call.response.provider, 'Example Provider');
+    assert.equal(call.response.finishReason, 'tool_calls');
+    assert.equal(call.response.nativeFinishReason, 'tool_use');
+    assert.equal(call.response.usage.total_tokens, 128);
+    assert.equal(call.response.usage.cost, 0.00042);
+    assert.equal(call.response.raw.id, 'generation-1');
+  } finally {
+    policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a failed model call is visible once with request provenance and no credential', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let now = 2000;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    now = 2041;
+    return {
+      ok: false,
+      status: 429,
+      json: async () => ({}),
+      text: async () => 'rate limited',
+    } as any;
+  }) as typeof fetch;
+
+  const failures: any[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('inspect_volume')],
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'super-secret-test-key',
+      model: 'test/model',
+      endpoint: 'https://models.example.test/v1/chat/completions?credential=secret',
+      now: () => now,
+      acceptEngineEvent: () => true,
+      onModelError: (failure) => failures.push(failure),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(calls, 1);
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].call.response.status, 429);
+    assert.equal(failures[0].call.response.bodyPreview, 'rate limited');
+    assert.equal(failures[0].call.endpoint, 'https://models.example.test/v1/chat/completions');
+    assert.equal(failures[0].call.latencyMs, 41);
+    assert.equal(failures[0].call.request.body, undefined);
+    assert.equal(JSON.stringify(failures[0]).includes('super-secret-test-key'), false);
+  } finally {
+    policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('controller breaks a communication-only loop until the body acts or a human replies', async () => {
   const originalFetch = globalThis.fetch;
   const responses = [
