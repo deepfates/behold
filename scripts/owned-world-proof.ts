@@ -171,7 +171,7 @@ async function main() {
         proofWait.abort();
       }
       const proof = readJson(proofFile);
-      validateInhabitantProof(proof, phase);
+      validateInhabitantProof(proof, phase, run.runId);
       await run.stop(`owned_world_${phase}_complete`);
       await run.finished;
       const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
@@ -179,6 +179,7 @@ async function main() {
         proofFile,
         proofSha256: sha256File(proofFile),
         proof,
+        managedRunId: run.runId,
         lifecycleFile: run.control.journalFile,
         lifecycleTipDigest: lifecycle.tipDigest,
         lifecycleEvents: lifecycle.events.length,
@@ -214,6 +215,22 @@ async function main() {
     independentConsequenceObserved:
       act.proof.independentWitness?.source === 'fresh_minecraft_connection' &&
       !act.proof.independentWitness?.droppedItems?.some((item: any) => item?.name === TARGET.item),
+    inhabitantBoundToManagedIdentity:
+      act.proof.circleId === WORLD_ID &&
+      act.proof.runId === act.managedRunId &&
+      act.proof.initialObservation?.circle?.id === WORLD_ID &&
+      act.proof.initialObservation?.circle?.managedRunId === act.managedRunId &&
+      resume.proof.circleId === WORLD_ID &&
+      resume.proof.runId === resume.managedRunId &&
+      resume.proof.initialObservation?.circle?.id === WORLD_ID &&
+      resume.proof.initialObservation?.circle?.managedRunId === resume.managedRunId,
+    independentWitnessBoundToActEpoch:
+      act.proof.independentWitness?.worldId === WORLD_ID &&
+      act.proof.independentWitness?.managedRunId === act.managedRunId,
+    managedEpochAdvancedOnRestart:
+      act.managedRunId !== resume.managedRunId &&
+      act.managedRunId.startsWith(`${WORLD_ID}-`) &&
+      resume.managedRunId.startsWith(`${WORLD_ID}-`),
     firstLifePersistedOneTurn: act.proof.resultingTurns === 1,
     restartLoadedPriorLife: resume.proof.priorTurns === 1,
     consequencePersistedAcrossRestart:
@@ -262,12 +279,14 @@ async function main() {
       loomFile: loomFiles[0],
       loomSha256: sha256File(loomFiles[0]),
       act: {
+        managedRunId: act.managedRunId,
         proofFile: act.proofFile,
         proofSha256: act.proofSha256,
         lifecycleFile: act.lifecycleFile,
         lifecycleTipDigest: act.lifecycleTipDigest,
       },
       resume: {
+        managedRunId: resume.managedRunId,
         proofFile: resume.proofFile,
         proofSha256: resume.proofSha256,
         lifecycleFile: resume.lifecycleFile,
@@ -386,12 +405,15 @@ function copyWorld(from: string, to: string) {
   });
 }
 
-function validateInhabitantProof(value: any, phase: 'act' | 'resume') {
+function validateInhabitantProof(value: any, phase: 'act' | 'resume', managedRunId: string) {
   if (
     value?.protocol !== 'behold.owned-world-inhabitant-proof.v1' ||
     value?.phase !== phase ||
     value?.entityId !== ENTITY_ID ||
     value?.circleId !== WORLD_ID ||
+    value?.runId !== managedRunId ||
+    value?.initialObservation?.circle?.id !== WORLD_ID ||
+    value?.initialObservation?.circle?.managedRunId !== managedRunId ||
     !Array.isArray(value?.engineEvents)
   ) {
     throw new Error(`invalid ${phase} inhabitant proof`);

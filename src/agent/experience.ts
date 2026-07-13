@@ -66,6 +66,7 @@ export type InhabitantObservation = {
   circle: {
     id: string;
     substrate: 'minecraft';
+    managedRunId?: string;
   };
   sequence: number;
   observedAt: number;
@@ -161,6 +162,7 @@ type EngineEvent = { type: string; at: number; data: any };
 
 export type ExperienceOptions = {
   circleId?: string;
+  managedRunId?: string | null;
   task?: TaskBrief | null;
   eventHistory?: number;
   pulseIntervalMs?: number;
@@ -332,12 +334,14 @@ export class InhabitantExperience {
       base.position,
       base.dimension == null ? null : String(base.dimension),
     );
+    const managedRunId = stringOrNull(this.options.managedRunId);
 
     return {
       protocol: 'behold.inhabitant.v1',
       circle: {
         id: this.options.circleId || 'minecraft:unknown',
         substrate: 'minecraft',
+        ...(managedRunId ? { managedRunId } : {}),
       },
       sequence: this.sequence,
       observedAt: this.now(),

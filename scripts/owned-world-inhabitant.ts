@@ -48,7 +48,11 @@ async function main() {
 
   try {
     bot = createBot(cfg, loom.connectionCapability);
-    experience = new InhabitantExperience(bot as any, { eventHistory: 40 });
+    experience = new InhabitantExperience(bot as any, {
+      circleId: cfg.circle.id,
+      managedRunId: process.env.BEHOLD_RUN_ID || null,
+      eventHistory: 40,
+    });
     const interpreter = buildInterpreter(bot as any, {
       observe: () => experience!.observe(),
       changeConfirmationTimeoutMs: 10_000,

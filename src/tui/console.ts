@@ -90,6 +90,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const task = taskRuntime?.task ?? resolveTask(opts.task, opts.target);
   const experience = new InhabitantExperience(bot as any, {
     circleId: cfg.circle.id,
+    managedRunId: process.env.BEHOLD_RUN_ID || null,
     task,
     projects: () => projects.snapshot(),
     places: () => places.snapshot(),

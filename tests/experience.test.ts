@@ -45,6 +45,8 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   const bot = fakeBot();
   const experience = new InhabitantExperience(bot, {
     now: () => now,
+    circleId: 'minecraft:test-world',
+    managedRunId: 'minecraft:test-world-7',
     task: {
       id: 'come-see-do-report',
       goal: 'Find importdf',
@@ -89,6 +91,11 @@ test('inhabitant observation preserves embodied state, provenance, and new event
 
   const initial = experience.observe();
   assert.equal(initial.protocol, 'behold.inhabitant.v1');
+  assert.deepEqual(initial.circle, {
+    id: 'minecraft:test-world',
+    substrate: 'minecraft',
+    managedRunId: 'minecraft:test-world-7',
+  });
   assert.equal(initial.self.identity, 'Scout');
   assert.equal(initial.self.pose.yaw, 0);
   assert.equal(initial.self.condition.oxygen, 20);
