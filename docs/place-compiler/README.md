@@ -51,6 +51,21 @@ node scripts/place-compiler/materialize-runtime.mjs \
 
 The materializer APFS-clones the immutable source, writes the selected server properties, and installs a tiny datapack that applies the profile's daylight, weather, spawning, and difficulty settings through ordinary Minecraft gamerules.
 
+## Living Places Benchmark
+
+The versioned benchmark contract binds accepted San Francisco and Lower Manhattan world-tree identities to six independent dimensions: correspondence, legibility, habitability, ecology, experience, and capacity. It never collapses them into one synthetic score.
+
+Validate the immutable fixtures, runtime profiles, geographic checkpoints, refusal rules, and execution budgets, then print the hardware-specific ready plan:
+
+```bash
+node scripts/place-compiler/benchmark.mjs
+```
+
+The benchmark refuses recipe, source-input, world-tree, file-count, byte-size, projection, scale, checkpoint, profile, or lock disagreement before starting a disposable runtime. Its contract and machine-readable schema are tracked at:
+
+- `docs/place-compiler/benchmarks/living-places-v1.json`
+- `docs/place-compiler/benchmark-v1.schema.json`
+
 ## Compare and package
 
 `compare-previews.mjs` creates a checksummed, labeled two-place proof from the map previews of any two recorded runs. Legacy runs require an explicit recipe so their older manifests can be interpreted without silently guessing a place.

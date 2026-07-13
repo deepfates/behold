@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "id": "living-places-v1",
+  "purpose": "Measure accepted place artifacts as recognizable, inhabitable, native-Minecraft living worlds across distinct runtime purposes and resource budgets.",
+  "dimensions": [
+    "correspondence",
+    "legibility",
+    "habitability",
+    "ecology",
+    "experience",
+    "capacity"
+  ],
+  "fixtures": [
+    {
+      "placeId": "san-francisco",
+      "runId": "sf-full-v3-snapshot-20260713T095831Z",
+      "runRoot": ".behold-artifacts/sf/runs/full-city/sf-full-v3-snapshot-20260713T095831Z",
+      "recipePath": "docs/place-compiler/places/san-francisco.json",
+      "recipeSha256": "851060da98bb03eea40fe02dd4503baa82ade794c68eee5744566cd08b99a3ec",
+      "inputSha256": "0afff75444a2235c55fab52cac73d85bedada6b31caa3ea246cf8cb59bebe2c7",
+      "worldTreeSha256": "4fd327ebe85e90931e3fee4cd01c50490fd3ae4638f98ac53d1e6045d29554d1",
+      "worldFileCount": 824,
+      "worldSizeBytes": 6138031022
+    },
+    {
+      "placeId": "lower-manhattan",
+      "runId": "lower-manhattan-v3",
+      "runRoot": ".behold-artifacts/places/lower-manhattan/runs/lower-manhattan-v3",
+      "recipePath": "docs/place-compiler/places/lower-manhattan.json",
+      "recipeSha256": "94159bec1a30935f6826541aa330f430924d69c4c9a96c28bbbb3b10827e6620",
+      "inputSha256": "08aa3e1acf855c49377b86e43fbe8af1ea441adef3ac953d2a4b0273d5878900",
+      "worldTreeSha256": "08425c0cda60155a129a8772b994f6d50041190aedd13e8e0f5ac0b11eea69a6",
+      "worldFileCount": 48,
+      "worldSizeBytes": 311166010
+    }
+  ],
+  "profiles": ["cinematic", "playable", "living"],
+  "inspections": {
+    "ground": true,
+    "aerial": true,
+    "columnRadius": 8,
+    "observationRadius": 128
+  },
+  "ecologySoak": {
+    "profile": "living",
+    "settleTicks": 1200,
+    "sprintTicks": 24000,
+    "maxWallSeconds": 300
+  },
+  "performanceSweep": {
+    "profiles": ["cinematic", "playable", "living"],
+    "sprintTicks": 6000,
+    "repetitions": 2,
+    "maxWallSecondsPerCase": 180
+  },
+  "refusalRules": [
+    "fixture recipe digest mismatch",
+    "fixture generation input digest mismatch",
+    "fixture world-tree identity mismatch",
+    "source world contains session.lock",
+    "runtime profile is absent or has changed",
+    "benchmark attempts to mutate an immutable fixture",
+    "evidence omits tool, hardware, command, duration, or exit status",
+    "a failed or timed-out run is presented as a measurement"
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behold.local/schemas/living-places-benchmark-v1.json",
+  "title": "Living Places Benchmark v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "purpose",
+    "dimensions",
+    "fixtures",
+    "profiles",
+    "inspections",
+    "ecologySoak",
+    "performanceSweep",
+    "refusalRules"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "purpose": { "type": "string", "minLength": 1 },
+    "dimensions": {
+      "type": "array",
+      "minItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "correspondence",
+          "legibility",
+          "habitability",
+          "ecology",
+          "experience",
+          "capacity"
+        ]
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "placeId",
+          "runId",
+          "runRoot",
+          "recipePath",
+          "recipeSha256",
+          "inputSha256",
+          "worldTreeSha256",
+          "worldFileCount",
+          "worldSizeBytes"
+        ],
+        "properties": {
+          "placeId": { "type": "string" },
+          "runId": { "type": "string" },
+          "runRoot": { "type": "string" },
+          "recipePath": { "type": "string" },
+          "recipeSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "inputSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "worldTreeSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "worldFileCount": { "type": "integer", "minimum": 1 },
+          "worldSizeBytes": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "profiles": {
+      "type": "array",
+      "minItems": 3,
+      "uniqueItems": true,
+      "items": { "enum": ["cinematic", "playable", "living"] }
+    },
+    "inspections": {
+      "type": "object",
+      "required": ["ground", "aerial", "columnRadius", "observationRadius"],
+      "properties": {
+        "ground": { "type": "boolean" },
+        "aerial": { "type": "boolean" },
+        "columnRadius": { "type": "integer", "minimum": 1 },
+        "observationRadius": { "type": "integer", "minimum": 16 }
+      }
+    },
+    "ecologySoak": {
+      "type": "object",
+      "required": ["profile", "settleTicks", "sprintTicks", "maxWallSeconds"],
+      "properties": {
+        "profile": { "const": "living" },
+        "settleTicks": { "type": "integer", "minimum": 1 },
+        "sprintTicks": { "type": "integer", "minimum": 24000 },
+        "maxWallSeconds": { "type": "integer", "minimum": 30 }
+      }
+    },
+    "performanceSweep": {
+      "type": "object",
+      "required": ["profiles", "sprintTicks", "repetitions", "maxWallSecondsPerCase"],
+      "properties": {
+        "profiles": { "type": "array", "minItems": 3 },
+        "sprintTicks": { "type": "integer", "minimum": 1000 },
+        "repetitions": { "type": "integer", "minimum": 1 },
+        "maxWallSecondsPerCase": { "type": "integer", "minimum": 30 }
+      }
+    },
+    "refusalRules": {
+      "type": "array",
+      "minItems": 5,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

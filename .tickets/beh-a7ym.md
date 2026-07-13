@@ -1,6 +1,6 @@
 ---
 id: beh-a7ym
-status: open
+status: in_progress
 deps: [beh-p6ti]
 links: []
 created: 2026-07-13T22:02:30Z
