@@ -62,7 +62,10 @@ function bindCoreEvents(bot: Bot, config: Config) {
 
     void bot
       .waitForChunksToLoad()
-      .then(() => console.log('[bot] Local world loaded.'))
+      // Keep the lifecycle marker on its own stderr line. The interactive
+      // readline prompt shares stdout and can otherwise prefix the exact
+      // marker, leaving the managed launcher unable to prove readiness.
+      .then(() => process.stderr.write('[bot] Local world loaded.\n'))
       .catch((error: any) =>
         bot.emit(
           'error',
