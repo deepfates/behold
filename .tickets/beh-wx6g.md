@@ -1,6 +1,6 @@
 ---
 id: beh-wx6g
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-07-13T22:02:11Z
@@ -27,3 +27,7 @@ Both accepted places run through the same reproducible harness; structural, grou
 **2026-07-13T22:04:12Z**
 
 Coordination rule: Place Compiler owns immutable place artifacts, recipes, benchmark evidence, and runtime-profile recommendations. Behold owns world epochs, body admission, controller leases, observations, actions, and consequence witnesses. Cross-lane communication occurs only when the artifact identity or launch boundary changes; no benchmark ticket depends on Behold implementation.
+
+**2026-07-13T23:29:02Z**
+
+Living Places Benchmark v1 delivered. Contract, both immutable fixtures, real inspection, native ecology days, 12-case performance frontier, qualified six-dimension findings, prioritized repairs/defaults, deterministic checksummed release, full gate, and narrow Behold coordination are complete.
