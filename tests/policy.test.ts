@@ -286,6 +286,71 @@ test('model action space contains only executable gates plus explicit yield', as
     );
     assert.equal(request.tool_choice, 'auto');
     assert.equal(turns[0].action.name, 'wait_for_event');
+    const system = String(request.messages[0].content);
+    assert.match(system, /use inspect_volume at the worksite/i);
+    assert.doesNotMatch(system, /Minecraft chat is narrow/i);
+    assert.doesNotMatch(system, /descend_step/i);
+    assert.doesNotMatch(system, /self\.projects is your bounded/i);
+  } finally {
+    policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('system guidance follows the admitted affordances instead of describing absent tools', async () => {
+  const originalFetch = globalThis.fetch;
+  let request: any = null;
+  globalThis.fetch = (async (_url, init) => {
+    request = JSON.parse(String(init?.body));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: assistantTool('bounded-prompt-wait', 'wait_for_event', {
+              reason: 'working context inspected',
+            }),
+          },
+        ],
+        usage: { total_tokens: 10 },
+      }),
+      text: async () => '',
+    } as any;
+  }) as typeof fetch;
+
+  const turns: EntityTurn[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Builder',
+      actions: [
+        tool('manage_project'),
+        tool('collect_nearby_item'),
+        tool('inspect_volume'),
+        tool('place_block'),
+      ],
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'test-key',
+      model: 'test/model',
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => turns.length === 1);
+    const system = String(request.messages[0].content);
+    assert.ok(system.length < 6000, `four-gate prompt was ${system.length} characters`);
+    assert.match(system, /self\.projects is your bounded/i);
+    assert.match(system, /dropped items are nearby/i);
+    assert.match(system, /bodyFeet.*occupied by bodies/i);
+    assert.doesNotMatch(system, /Minecraft chat is narrow/i);
+    assert.doesNotMatch(system, /descend_step/i);
+    assert.doesNotMatch(system, /sealed=true/i);
   } finally {
     policy.stop();
     globalThis.fetch = originalFetch;
