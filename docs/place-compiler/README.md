@@ -38,3 +38,29 @@ Validation fails closed if the recipe, tool lock, generator, captured OSM, world
 ## Runtime boundary
 
 Recipes select named `cinematic`, `playable`, and `living` profiles. The living profile deliberately leaves daylight, weather, spawning, and ecology authoritative in Minecraft. A packaged world artifact has no Behold dependency. When a launcher later instantiates it, Behold assigns its own world and epoch identity and admits bodies through its independently owned contract.
+
+Materialize an isolated, launchable server clone from a named profile:
+
+```bash
+node scripts/place-compiler/materialize-runtime.mjs \
+  --run-root .behold-artifacts/places/PLACE/runs/RUN_ID \
+  --profile living \
+  --destination .behold-artifacts/places/PLACE/runtime/RUN_ID-living \
+  --port 25685
+```
+
+The materializer APFS-clones the immutable source, writes the selected server properties, and installs a tiny datapack that applies the profile's daylight, weather, spawning, and difficulty settings through ordinary Minecraft gamerules.
+
+## Compare and package
+
+`compare-previews.mjs` creates a checksummed, labeled two-place proof from the map previews of any two recorded runs. Legacy runs require an explicit recipe so their older manifests can be interpreted without silently guessing a place.
+
+Package an accepted run into separate immutable-world, evidence, reproduction, and optional input archives, then stream-verify their digests, sizes, paths, and required contents:
+
+```bash
+node scripts/place-compiler/package-release.mjs \
+  --run-root .behold-artifacts/places/PLACE/runs/RUN_ID \
+  --include-inputs
+node scripts/place-compiler/verify-release.mjs \
+  .behold-artifacts/places/PLACE/releases/RUN_ID
+```

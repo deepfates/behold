@@ -32,6 +32,12 @@ if (!process.argv[2] || !existsSync(manifestPath)) fail('missing run or generati
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 if (manifest.schemaVersion !== 2 || manifest.status !== 'generated' || manifest.exitCode !== 0)
   fail('run is not a successful Place Compiler generation');
+if (!manifest.repository?.revision || manifest.repository.scopedDirty !== false)
+  fail('generation was not tied to a clean Place Compiler revision');
+for (const [source, expected] of Object.entries(manifest.repository.compilerSourceDigests ?? {})) {
+  if ((await sha256(path.join(repositoryRoot, source))) !== expected)
+    fail(`compiler source has changed since generation: ${source}`);
+}
 const recipePath = path.join(repositoryRoot, manifest.place.recipePath);
 const { recipe } = loadPlaceRecipe(recipePath);
 if ((await sha256(recipePath)) !== manifest.place.recipeSha256)
@@ -100,6 +106,7 @@ const report = {
     generatorSha256: manifest.generator.binarySha256,
     osmSha256: manifest.inputs.sha256,
     worldTreeSha256: JSON.parse(readFileSync(worldChecksums, 'utf8')).treeSha256,
+    repositoryRevision: manifest.repository.revision,
   },
   world: {
     path: world,

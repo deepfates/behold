@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
   constants,
   copyFileSync,
@@ -57,6 +57,37 @@ export async function generate(argv) {
   const osmJson = path.join(inputRoot, `${recipe.id}-overpass.json`);
   const profilesPath = path.join(repositoryRoot, 'docs/place-compiler/runtime-profiles.json');
   const profiles = loadRuntimeProfiles(profilesPath, recipe.runtimeProfiles);
+  const compilerSources = [
+    'scripts/place-compiler/core.mjs',
+    'scripts/place-compiler/generate.mjs',
+    'scripts/place-compiler/validate-run.mjs',
+    'scripts/place-compiler/materialize-runtime.mjs',
+    'scripts/place-compiler/package-release.mjs',
+    'scripts/place-compiler/verify-release.mjs',
+    'scripts/place-compiler/compare-previews.mjs',
+    'docs/place-compiler/runtime-profiles.json',
+    path.relative(repositoryRoot, loaded.path),
+  ];
+  const compilerSourceDigests = Object.fromEntries(
+    await Promise.all(
+      compilerSources.map(async (source) => [
+        source,
+        await sha256(path.join(repositoryRoot, source)),
+      ]),
+    ),
+  );
+  const revision = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+  }).stdout.trim();
+  const scopedStatus = spawnSync(
+    'git',
+    ['status', '--porcelain=v1', '--', 'scripts/place-compiler', 'docs/place-compiler'],
+    { cwd: repositoryRoot, encoding: 'utf8' },
+  ).stdout.trim();
+  if (!options.dryRun && scopedStatus.length > 0) {
+    throw new Error(`Place Compiler sources must be clean before generation:\n${scopedStatus}`);
+  }
   const args = compileArnisArguments(recipe, outputRoot, osmJson, Boolean(options.osmJson));
   const runner = path.join(repositoryRoot, 'scripts/sf-world/run-recorded.mjs');
   const command = [
@@ -73,6 +104,11 @@ export async function generate(argv) {
   const manifest = {
     schemaVersion: 2,
     compiler: { name: 'behold-place-compiler', schemaVersion: 1 },
+    repository: {
+      revision,
+      scopedDirty: scopedStatus.length > 0,
+      compilerSourceDigests,
+    },
     runId,
     status: options.dryRun ? 'dry-run' : 'running',
     startedAt: new Date().toISOString(),
