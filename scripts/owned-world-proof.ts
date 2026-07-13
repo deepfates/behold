@@ -17,7 +17,7 @@ import {
   isMinecraftSaveAcknowledgement,
   startManagedWorld,
 } from './world-runner';
-import { findConfirmedWorldChange } from './owned-world-proof-support';
+import { findClientObservedWorldChange } from './owned-world-proof-support';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 
 const PROTOCOL = 'behold.owned-world-proof.v1' as const;
@@ -207,8 +207,8 @@ async function main() {
     throw new Error(`expected one authoritative Lync log, found ${loomFiles.length}`);
   const assertions = {
     initialAffordanceObserved: act.proof.search?.result?.blocks?.length === 1,
-    mutationConfirmedByMinecraft: Boolean(
-      findConfirmedWorldChange(act.proof.mutation?.result, {
+    clientTransitionObserved: Boolean(
+      findClientObservedWorldChange(act.proof.mutation?.result, {
         verb: 'dig',
         position: TARGET,
         before: TARGET.before,
@@ -216,6 +216,9 @@ async function main() {
         confirmationSource: 'mineflayer:blockUpdate',
       }),
     ),
+    independentConsequenceObserved:
+      act.proof.independentWitness?.source === 'fresh_minecraft_connection' &&
+      String(act.proof.independentWitness?.block?.name || '').endsWith('air'),
     firstLifePersistedTwoTurns: act.proof.resultingTurns === 2,
     restartLoadedPriorLife: resume.proof.priorTurns === 2,
     consequencePersistedAcrossRestart: resume.proof.search?.result?.blocks?.length === 0,
@@ -345,7 +348,7 @@ function writeServerConfiguration(directory: string, port: number) {
     'enforce-secure-profile=false',
     'force-gamemode=true',
     'function-permission-level=2',
-    'gamemode=creative',
+    'gamemode=survival',
     'generate-structures=false',
     `level-seed=${LEVEL_SEED}`,
     'level-type=minecraft:flat',

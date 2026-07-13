@@ -311,14 +311,21 @@ export async function startManagedWorld(
     control.append('server_started', { pid: server.pid });
 
     await raceProcessExit(
-      waitForCondition('Minecraft server readiness', startupTimeoutMs, sleep, async () => {
-        if (!serverOutput.lines().some(isMinecraftReadyLine)) return false;
-        const evidence = await inspectRuntime();
-        return (
-          evidenceOwnedBy(evidence.runtimeSessionLock, server!.pid!) &&
-          evidenceOwnedBy(evidence.serverPort, server!.pid!)
-        );
-      }),
+      (signal) =>
+        waitForCondition(
+          'Minecraft server readiness',
+          startupTimeoutMs,
+          sleep,
+          async () => {
+            if (!serverOutput.lines().some(isMinecraftReadyLine)) return false;
+            const evidence = await inspectRuntime();
+            return (
+              evidenceOwnedBy(evidence.runtimeSessionLock, server!.pid!) &&
+              evidenceOwnedBy(evidence.serverPort, server!.pid!)
+            );
+          },
+          signal,
+        ),
       serverExit,
     );
     control.append('server_ready', { pid: server.pid });
@@ -346,19 +353,21 @@ export async function startManagedWorld(
     });
 
     await raceProcessExit(
-      waitForCondition(
-        'controller readiness',
-        startupTimeoutMs,
-        sleep,
-        async () =>
-          controllerOutput.lines().some(isControllerReadyLine) &&
-          leaseOwnedBy(
-            options.controllerLeasePath,
-            controller!.pid!,
-            options.controllerEntityId,
-            managedRunId,
-          ),
-      ),
+      (signal) =>
+        waitForCondition(
+          'controller readiness',
+          startupTimeoutMs,
+          sleep,
+          async () =>
+            controllerOutput.lines().some(isControllerReadyLine) &&
+            leaseOwnedBy(
+              options.controllerLeasePath,
+              controller!.pid!,
+              options.controllerEntityId,
+              managedRunId,
+            ),
+          signal,
+        ),
       controllerExit,
     );
     control.update('running');
@@ -704,17 +713,25 @@ export function isMinecraftSaveAcknowledgement(line: string) {
   return /^(?:\[[^\]\r\n]+\] )?\[Server thread\/INFO\]: Saved the game$/.test(line.trim());
 }
 
-async function raceProcessExit<T>(operation: Promise<T>, exit: Promise<ProcessExit>) {
-  return Promise.race([
-    operation,
-    exit.then((e) => {
-      throw new WorldRunnerError(
-        `${e.name} exited before readiness`,
-        'child_exited_before_ready',
-        e,
-      );
-    }),
-  ]);
+async function raceProcessExit<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  exit: Promise<ProcessExit>,
+) {
+  const cancellation = new AbortController();
+  try {
+    return await Promise.race([
+      operation(cancellation.signal),
+      exit.then((e) => {
+        throw new WorldRunnerError(
+          `${e.name} exited before readiness`,
+          'child_exited_before_ready',
+          e,
+        );
+      }),
+    ]);
+  } finally {
+    cancellation.abort();
+  }
 }
 
 async function waitForCondition(
@@ -722,9 +739,11 @@ async function waitForCondition(
   timeoutMs: number,
   sleep: (milliseconds: number) => Promise<void>,
   condition: () => Promise<boolean>,
+  signal?: AbortSignal,
 ) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    signal?.throwIfAborted();
     if (await condition()) return;
     await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
   }

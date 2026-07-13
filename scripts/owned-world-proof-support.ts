@@ -6,7 +6,7 @@ export interface ExpectedWorldChange {
   confirmationSource: string;
 }
 
-export function findConfirmedWorldChange(result: any, expected: ExpectedWorldChange) {
+export function findClientObservedWorldChange(result: any, expected: ExpectedWorldChange) {
   if (!result?.ok || !Array.isArray(result.changes)) return null;
   return (
     result.changes.find(

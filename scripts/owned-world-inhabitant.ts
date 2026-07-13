@@ -3,15 +3,17 @@ import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { Vec3 } from 'vec3';
 import { getConfig } from '../src/config';
 import { createBot } from '../src/bot';
 import { openEntityLoom, type EntityTurn } from '../src/entity/loom';
 import { InhabitantExperience } from '../src/agent/experience';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine, type EngineEvent } from '../src/loop/engine';
-import { findConfirmedWorldChange } from './owned-world-proof-support';
+import { findClientObservedWorldChange } from './owned-world-proof-support';
 
 const PROTOCOL = 'behold.owned-world-inhabitant-proof.v1' as const;
+const WITNESS_ID = 'ProofWitness';
 
 async function main() {
   const args = parseArgs({
@@ -53,7 +55,7 @@ async function main() {
       observe: () => experience!.observe(),
       changeConfirmationTimeoutMs: 10_000,
       changeStabilityWindowMs: 150,
-      worldCommandTimeoutMs: 20_000,
+      worldCommandTimeoutMs: 30_000,
     });
     const events: EngineEvent[] = [];
     engine = createEngine(
@@ -88,6 +90,7 @@ async function main() {
     });
     const blocks = Array.isArray(search.result?.blocks) ? search.result.blocks : [];
     let mutation: Awaited<ReturnType<typeof executeTurn>> | null = null;
+    let independentWitness: Awaited<ReturnType<typeof observeTargetFromFreshBody>> | null = null;
 
     if (phase === 'act') {
       if (priorTurns !== 0)
@@ -109,7 +112,7 @@ async function main() {
         input: target,
       });
       if (
-        !findConfirmedWorldChange(mutation.result, {
+        !findClientObservedWorldChange(mutation.result, {
           verb: 'dig',
           position: { x: 2, y: -60, z: 0 },
           before: 'gold_block',
@@ -117,8 +120,16 @@ async function main() {
           confirmationSource: 'mineflayer:blockUpdate',
         })
       ) {
+        throw new Error(`client transition was not observed: ${JSON.stringify(mutation)}`);
+      }
+      independentWitness = await observeTargetFromFreshBody(cfg, {
+        x: 2,
+        y: -60,
+        z: 0,
+      });
+      if (!String(independentWitness.block.name || '').endsWith('air')) {
         throw new Error(
-          `world mutation was not independently confirmed: ${JSON.stringify(mutation)}`,
+          `fresh Minecraft connection did not observe the consequence: ${JSON.stringify(independentWitness)}`,
         );
       }
     } else {
@@ -151,6 +162,7 @@ async function main() {
       initialObservation,
       search,
       mutation,
+      independentWitness,
       finalObservation,
       engineEvents: events,
       physicalMutationAttempts: events.filter(
@@ -177,6 +189,41 @@ async function main() {
     if (bot) await disconnect(bot).catch(() => {});
     await loom.close().catch(() => {});
     throw error;
+  }
+}
+
+async function observeTargetFromFreshBody(
+  config: ReturnType<typeof getConfig>,
+  position: { x: number; y: number; z: number },
+) {
+  const witnessLoom = await openEntityLoom(WITNESS_ID, undefined, config.circle.id);
+  let witness: ReturnType<typeof createBot> | null = null;
+  try {
+    witness = createBot(
+      {
+        ...config,
+        auth: { ...config.auth, username: WITNESS_ID, mode: 'offline' },
+        viewer: { ...config.viewer, enabled: false },
+      },
+      witnessLoom.connectionCapability,
+    );
+    await waitForLocalWorld(witness, 45_000);
+    const block = (witness as any).blockAt?.(new Vec3(position.x, position.y, position.z));
+    return {
+      entityId: WITNESS_ID,
+      worldId: config.circle.id,
+      managedRunId: process.env.BEHOLD_RUN_ID || null,
+      source: 'fresh_minecraft_connection',
+      observedAt: Date.now(),
+      position,
+      block: {
+        name: block?.name == null ? null : String(block.name),
+        stateId: block?.stateId == null ? null : Number(block.stateId),
+      },
+    };
+  } finally {
+    if (witness) await disconnect(witness).catch(() => {});
+    await witnessLoom.close().catch(() => {});
   }
 }
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { findConfirmedWorldChange } from '../scripts/owned-world-proof-support';
+import { findClientObservedWorldChange } from '../scripts/owned-world-proof-support';
 
 const expected = {
   verb: 'dig',
@@ -10,7 +10,7 @@ const expected = {
   confirmationSource: 'mineflayer:blockUpdate',
 };
 
-test('owned-world proof accepts the independently confirmed interpreter change shape', () => {
+test('owned-world proof recognizes the client-observed interpreter transition shape', () => {
   const change = {
     verb: 'dig',
     position: { x: 2, y: -60, z: 0 },
@@ -20,19 +20,19 @@ test('owned-world proof accepts the independently confirmed interpreter change s
     observed: true,
     confirmation: { source: 'mineflayer:blockUpdate', observedAt: 123 },
   };
-  assert.equal(findConfirmedWorldChange({ ok: true, changes: [change] }, expected), change);
+  assert.equal(findClientObservedWorldChange({ ok: true, changes: [change] }, expected), change);
 });
 
 test('owned-world proof rejects a top-level claim or the wrong physical transition', () => {
   assert.equal(
-    findConfirmedWorldChange(
+    findClientObservedWorldChange(
       { ok: true, confirmation: 'mineflayer:blockUpdate', changes: [] },
       expected,
     ),
     null,
   );
   assert.equal(
-    findConfirmedWorldChange(
+    findClientObservedWorldChange(
       {
         ok: true,
         changes: [
