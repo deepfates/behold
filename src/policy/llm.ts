@@ -47,6 +47,19 @@ type Options = {
     error: string;
     call: ModelCallFailureEvidence | null;
   }) => void;
+  onAuxiliaryModelCall?: (turn: {
+    at: number;
+    model: string;
+    purpose: 'loom_fold';
+    call: ModelCallEvidence;
+  }) => void;
+  onAuxiliaryModelError?: (failure: {
+    at: number;
+    model: string;
+    purpose: 'loom_fold';
+    error: string;
+    call: ModelCallFailureEvidence;
+  }) => void;
   onEntityTurn?: (turn: EntityTurn) => unknown | Promise<unknown>;
 };
 
@@ -189,7 +202,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     cacheFile: opts.foldCacheFile,
     recentTurns: opts.foldRecentTurns ?? 8,
     foldBatchTurns: opts.foldBatchTurns ?? 24,
-    foldTriggerTurns: opts.foldTriggerTurns ?? 4,
+    foldTriggerTurns: opts.foldTriggerTurns ?? 8,
     now,
     summarize: opts.summarizeLoom ?? ((request) => summarizeLoom(request, opts)),
   });
@@ -1006,17 +1019,92 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options) {
   if (process.env.OPENROUTER_REFERER)
     headers['HTTP-Referer'] = String(process.env.OPENROUTER_REFERER);
   if (process.env.OPENROUTER_TITLE) headers['X-Title'] = String(process.env.OPENROUTER_TITLE);
-
-  const response = await fetch(opts.endpoint || DEFAULT_ENDPOINT, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
+  const endpoint = opts.endpoint || DEFAULT_ENDPOINT;
+  const requestId = rid('model-aux');
+  const startedAt = opts.now ? opts.now() : Date.now();
+  const requestBody = JSON.stringify(body);
+  const requestEvidence = {
+    model: opts.model,
+    messageCount: messages.length,
+    toolCount: 0,
+    toolChoice: null,
+    bodySha256: sha256(requestBody),
+    messagesSha256: sha256(stableJson(messages)),
+    toolsSha256: sha256(stableJson([])),
+    ...(opts.recordModelIO ? { body: JSON.parse(requestBody) } : {}),
+  };
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { method: 'POST', headers, body: requestBody });
+  } catch (error: any) {
+    const completedAt = opts.now ? opts.now() : Date.now();
+    const call: ModelCallFailureEvidence = {
+      protocol: 'behold.model-call.v1',
+      requestId,
+      endpoint: safeEndpoint(endpoint),
+      startedAt,
+      completedAt,
+      latencyMs: Math.max(0, completedAt - startedAt),
+      request: requestEvidence,
+      response: { status: null, bodyPreview: null },
+    };
+    opts.onAuxiliaryModelError?.({
+      at: completedAt,
+      model: opts.model,
+      purpose: 'loom_fold',
+      error: error?.message || String(error),
+      call,
+    });
+    throw new ModelCallError(`loom fold network error: ${error?.message || String(error)}`, call);
+  }
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`loom fold ${response.status}: ${text.slice(0, 200)}`);
+    const completedAt = opts.now ? opts.now() : Date.now();
+    const call: ModelCallFailureEvidence = {
+      protocol: 'behold.model-call.v1',
+      requestId,
+      endpoint: safeEndpoint(endpoint),
+      startedAt,
+      completedAt,
+      latencyMs: Math.max(0, completedAt - startedAt),
+      request: requestEvidence,
+      response: { status: response.status, bodyPreview: text.slice(0, 200) || null },
+    };
+    opts.onAuxiliaryModelError?.({
+      at: completedAt,
+      model: opts.model,
+      purpose: 'loom_fold',
+      error: `loom fold ${response.status}: ${text.slice(0, 200)}`,
+      call,
+    });
+    throw new ModelCallError(`loom fold ${response.status}: ${text.slice(0, 200)}`, call);
   }
   const data: any = await response.json();
+  const completedAt = opts.now ? opts.now() : Date.now();
+  const call: ModelCallEvidence = {
+    protocol: 'behold.model-call.v1',
+    requestId,
+    endpoint: safeEndpoint(endpoint),
+    startedAt,
+    completedAt,
+    latencyMs: Math.max(0, completedAt - startedAt),
+    request: requestEvidence,
+    response: {
+      id: stringOrNull(data?.id),
+      model: stringOrNull(data?.model),
+      provider: stringOrNull(data?.provider),
+      finishReason: stringOrNull(data?.choices?.[0]?.finish_reason),
+      nativeFinishReason: stringOrNull(data?.choices?.[0]?.native_finish_reason),
+      usage: cloneJson(data?.usage ?? null),
+      ...(opts.recordModelIO ? { raw: cloneJson(data) } : {}),
+    },
+  };
+  opts.onAuxiliaryModelCall?.({
+    at: completedAt,
+    model: opts.model,
+    purpose: 'loom_fold',
+    call,
+  });
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
     throw new Error('loom fold returned no summary text');

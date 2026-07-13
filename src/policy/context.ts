@@ -72,14 +72,47 @@ function projectTask(task: any) {
  */
 export function projectHistoricalModelObservation(frame: any) {
   const projected = projectCurrentModelObservation(frame);
-  if (!projected || typeof projected !== 'object' || !('task' in projected)) return projected;
-  const { task: _task, ...withoutRepeatedTask } = projected;
+  if (!projected || typeof projected !== 'object') return projected;
   return {
-    ...withoutRepeatedTask,
+    protocol: projected.protocol,
+    circle: projected.circle,
+    sequence: projected.sequence,
+    observedAt: projected.observedAt,
+    eventWindow: projected.eventWindow,
+    self: projectHistoricalSelf(projected.self),
+    events: projected.events,
     taskReference: {
       source: 'authoritative_entity_turn',
       omittedFromWorkingContext: true,
     },
+    snapshotReference: {
+      source: 'authoritative_entity_turn',
+      omittedFromWorkingContext: [
+        'task',
+        'self.pose.orientation_and_velocity',
+        'self.currentAction',
+        'self.places',
+        'self.placeConflicts',
+        'scene',
+      ],
+    },
+  };
+}
+
+function projectHistoricalSelf(self: any) {
+  if (!self || typeof self !== 'object') return self;
+  return {
+    identity: self.identity,
+    pose: self.pose
+      ? {
+          position: self.pose.position,
+          onGround: self.pose.onGround,
+        }
+      : self.pose,
+    condition: self.condition,
+    heldItem: self.heldItem,
+    inventory: self.inventory,
+    projects: self.projects,
   };
 }
 

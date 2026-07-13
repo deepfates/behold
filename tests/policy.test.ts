@@ -237,6 +237,84 @@ test('model turns preserve reproducible call, usage, latency, and opt-in IO evid
   }
 });
 
+test('loom-fold model usage is journalable instead of hidden from resident budgets', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: any[] = [];
+  globalThis.fetch = (async (_url: any, init: any) => {
+    const request = JSON.parse(String(init?.body || '{}'));
+    requests.push(request);
+    if (!Array.isArray(request.tools)) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 'fold-generation',
+          model: 'provider/fold-model',
+          provider: 'Example Provider',
+          choices: [{ finish_reason: 'stop', message: { content: '[t1-t4] compact continuity' } }],
+          usage: { prompt_tokens: 80, completion_tokens: 10, total_tokens: 90, cost: 0.0001 },
+        }),
+        text: async () => '',
+      } as any;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 'action-generation',
+        choices: [
+          {
+            message: assistantTool('wait-after-fold', 'wait_for_event', {
+              reason: 'fold accounted',
+            }),
+          },
+        ],
+        usage: { prompt_tokens: 100, completion_tokens: 8, total_tokens: 108 },
+      }),
+      text: async () => '',
+    } as any;
+  }) as typeof fetch;
+
+  const auxiliary: any[] = [];
+  const turns: EntityTurn[] = [];
+  const history = Array.from({ length: 16 }, (_, index) =>
+    failedTurn(index + 1, 'status'),
+  );
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'test-key',
+      model: 'test/model',
+      recordModelIO: true,
+      history,
+      acceptEngineEvent: () => true,
+      onAuxiliaryModelCall: (turn) => auxiliary.push(turn),
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => turns.length === 1);
+    assert.equal(requests.length, 2);
+    assert.equal(auxiliary.length, 1);
+    assert.equal(auxiliary[0].purpose, 'loom_fold');
+    assert.equal(auxiliary[0].call.protocol, 'behold.model-call.v1');
+    assert.equal(auxiliary[0].call.request.toolCount, 0);
+    assert.equal(auxiliary[0].call.request.body.messages[0].role, 'system');
+    assert.equal(auxiliary[0].call.response.id, 'fold-generation');
+    assert.equal(auxiliary[0].call.response.usage.total_tokens, 90);
+  } finally {
+    policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('model action space contains only executable gates plus explicit yield', async () => {
   const originalFetch = globalThis.fetch;
   let request: any = null;
@@ -896,7 +974,7 @@ test('a restarted controller continues the same entity trajectory from loom turn
 test('controller context remains bounded across a continuing life', async () => {
   const originalFetch = globalThis.fetch;
   const requests: any[] = [];
-  const actionCount = 14;
+  const actionCount = 18;
   const responses = [
     ...Array.from({ length: actionCount }, (_, index) =>
       assistantTool(`call-status-${index}`, 'status', { sample: index }),
@@ -929,7 +1007,7 @@ test('controller context remains bounded across a continuing life', async () => 
     {
       apiKey: 'test-key',
       model: 'test/model',
-      maxTurnSteps: 16,
+      maxTurnSteps: 32,
       acceptEngineEvent: () => true,
       summarizeLoom: async ({ previousSummary, fromSequence, toSequence }) =>
         `${previousSummary || ''} [t${fromSequence}-t${toSequence}]`.trim(),
@@ -949,9 +1027,10 @@ test('controller context remains bounded across a continuing life', async () => 
     }
     await until(() => policy.state().turnActive === false && requests.length === actionCount + 1);
     assert.ok(
-      Math.max(...requests.map((request) => request.messages.length)) <= 36,
+      Math.max(...requests.map((request) => request.messages.length)) <= 48,
       'working context should contain only the bounded recent trajectory',
     );
+    assert.ok(policy.state().loomContext.foldedThrough >= 8);
   } finally {
     policy.stop();
     globalThis.fetch = originalFetch;

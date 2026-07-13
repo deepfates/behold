@@ -57,6 +57,10 @@ export function assessOwnedWorldProjectEvidence(
   const resumeEntityTurns = eventData(resumeEvents, 'entity_turn');
   const actFailures = eventData(actEvents, 'model_call_failed');
   const resumeFailures = eventData(resumeEvents, 'model_call_failed');
+  const actAuxiliaryCalls = eventData(actEvents, 'model_auxiliary_call');
+  const resumeAuxiliaryCalls = eventData(resumeEvents, 'model_auxiliary_call');
+  const actAuxiliaryFailures = eventData(actEvents, 'model_auxiliary_call_failed');
+  const resumeAuxiliaryFailures = eventData(resumeEvents, 'model_auxiliary_call_failed');
 
   const startTurn = projectTurn(actEntityTurns, expected.projectId, 'start');
   const collectionTurn = actEntityTurns.find(
@@ -125,7 +129,12 @@ export function assessOwnedWorldProjectEvidence(
       decisionMatchesEntityTurn(decision, turn),
     ),
   );
-  const calls = [...actModelTurns, ...resumeModelTurns]
+  const calls = [
+    ...actModelTurns,
+    ...resumeModelTurns,
+    ...actAuxiliaryCalls,
+    ...resumeAuxiliaryCalls,
+  ]
     .map((turn) => turn?.call)
     .filter((call) => call?.protocol === 'behold.model-call.v1');
   const usage = summarizeUsage(calls);
@@ -211,7 +220,11 @@ export function assessOwnedWorldProjectEvidence(
     modelFreelyChoseEveryCriticalStep:
       criticalDecisions.length === criticalTurns.length &&
       criticalDecisions.every((decision) => decision?.call?.request?.toolChoice === 'auto'),
-    noModelCallFailed: actFailures.length === 0 && resumeFailures.length === 0,
+    noModelCallFailed:
+      actFailures.length === 0 &&
+      resumeFailures.length === 0 &&
+      actAuxiliaryFailures.length === 0 &&
+      resumeAuxiliaryFailures.length === 0,
     usageRecorded: usage.callCount >= 6 && usage.totalTokens > 0 && usage.totalLatencyMs >= 0,
     contextBudgetSatisfied:
       expected.contextBudget == null ||

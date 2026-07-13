@@ -68,6 +68,54 @@ test('project evidence fails closed when production context exceeds its declared
   );
 });
 
+test('project budget includes loom-fold calls and their failures', () => {
+  const evidence = validEvidence();
+  const auxiliary = structuredClone(modelEvent(evidence.resume, 'place_block').data.call);
+  auxiliary.request.body.tools = undefined;
+  auxiliary.request.toolCount = 0;
+  auxiliary.response.id = 'fold-response';
+  auxiliary.response.usage = {
+    prompt_tokens: 15,
+    completion_tokens: 5,
+    total_tokens: 20,
+    cost: 0.0001,
+  };
+  evidence.resume.push(
+    envelope(evidence.resume.length + 1, 'model_auxiliary_call', {
+      purpose: 'loom_fold',
+      call: auxiliary,
+    }),
+  );
+
+  const assessed = assessOwnedWorldProjectEvidence(
+    evidence.act,
+    evidence.resume,
+    evidence.firstWitness,
+    evidence.finalWitness,
+    expected,
+  );
+  assert.equal(assessed.usage.callCount, 10);
+  assert.equal(assessed.usage.promptTokens, 105);
+  assert.equal(assessed.assertions.contextBudgetSatisfied, false);
+
+  evidence.resume.push(
+    envelope(evidence.resume.length + 1, 'model_auxiliary_call_failed', {
+      purpose: 'loom_fold',
+      error: 'rate limited',
+    }),
+  );
+  assert.equal(
+    assessOwnedWorldProjectEvidence(
+      evidence.act,
+      evidence.resume,
+      evidence.firstWitness,
+      evidence.finalWitness,
+      expected,
+    ).assertions.noModelCallFailed,
+    false,
+  );
+});
+
 test('project evidence rejects early completion and forced model choice', () => {
   const evidence = validEvidence();
   const lateProject = structuredClone(evidence.act);

@@ -321,6 +321,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           appendJournal('model_turn', turn);
         },
         onModelError: (failure) => appendJournal('model_call_failed', failure),
+        onAuxiliaryModelCall: (turn) => appendJournal('model_auxiliary_call', turn),
+        onAuxiliaryModelError: (failure) =>
+          appendJournal('model_auxiliary_call_failed', failure),
         onEntityTurn: async (turn) => {
           projects.validate(turn);
           places.validate(turn);

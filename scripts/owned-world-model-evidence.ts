@@ -38,6 +38,10 @@ export function assessOwnedWorldModelEvidence(
   const resumeEntityTurns = eventData(resumeEvents, 'entity_turn');
   const actFailures = eventData(actEvents, 'model_call_failed');
   const resumeFailures = eventData(resumeEvents, 'model_call_failed');
+  const actAuxiliaryCalls = eventData(actEvents, 'model_auxiliary_call');
+  const resumeAuxiliaryCalls = eventData(resumeEvents, 'model_auxiliary_call');
+  const actAuxiliaryFailures = eventData(actEvents, 'model_auxiliary_call_failed');
+  const resumeAuxiliaryFailures = eventData(resumeEvents, 'model_auxiliary_call_failed');
   const collectionTurn = actEntityTurns.find(
     (turn) => turn?.action?.name === 'collect_nearby_item' && turn?.action?.source === 'llm',
   );
@@ -59,7 +63,12 @@ export function assessOwnedWorldModelEvidence(
   const resumePromptObservation = promptedObservation(resumeFirstDecision?.call?.request?.body);
   const resumeRequestBody = resumeFirstDecision?.call?.request?.body;
   const resumeRequestText = JSON.stringify(resumeRequestBody ?? null);
-  const calls = [...actModelTurns, ...resumeModelTurns]
+  const calls = [
+    ...actModelTurns,
+    ...resumeModelTurns,
+    ...actAuxiliaryCalls,
+    ...resumeAuxiliaryCalls,
+  ]
     .map((turn) => turn?.call)
     .filter((call) => call?.protocol === 'behold.model-call.v1');
   const usage = summarizeUsage(calls);
@@ -127,7 +136,11 @@ export function assessOwnedWorldModelEvidence(
       resumeRequestText.includes('collect_nearby_item') &&
       resumeRequestText.includes('mineflayer:playerCollect') &&
       resumeRequestText.includes('apple'),
-    noModelCallFailed: actFailures.length === 0 && resumeFailures.length === 0,
+    noModelCallFailed:
+      actFailures.length === 0 &&
+      resumeFailures.length === 0 &&
+      actAuxiliaryFailures.length === 0 &&
+      resumeAuxiliaryFailures.length === 0,
     usageRecorded: usage.callCount >= 2 && usage.totalTokens > 0 && usage.totalLatencyMs >= 0,
   };
   const failed = Object.entries(assertions)

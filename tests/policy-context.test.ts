@@ -46,7 +46,7 @@ test('model context suppresses only duplicated own-success lifecycle events with
   assert.equal(projected.eventWindow.complete, false);
 });
 
-test('historical frames omit repeated task prose but retain identity, epoch, project, and gap evidence', () => {
+test('historical frames retain causal state and events without replaying whole world snapshots', () => {
   const projected = projectHistoricalModelObservation(observation());
 
   assert.equal(projected.task, undefined);
@@ -57,7 +57,32 @@ test('historical frames omit repeated task prose but retain identity, epoch, pro
   assert.equal(projected.circle.id, 'world-one');
   assert.equal(projected.circle.managedRunId, 'world-one-2');
   assert.equal(projected.self.identity, 'Scout');
+  assert.deepEqual(projected.self.inventory, [{ name: 'cobblestone', count: 1 }]);
   assert.equal(projected.self.projects[0].id, 'marker');
+  assert.equal(projected.self.currentAction, undefined);
+  assert.equal(projected.scene, undefined);
+  assert.deepEqual(projected.snapshotReference, {
+    source: 'authoritative_entity_turn',
+    omittedFromWorkingContext: [
+      'task',
+      'self.pose.orientation_and_velocity',
+      'self.currentAction',
+      'self.places',
+      'self.placeConflicts',
+      'scene',
+    ],
+  });
+  assert.deepEqual(
+    projected.events.map((event: any) => event.type),
+    [
+      'spawned',
+      'block_changed_nearby',
+      'inventory_changed',
+      'action_failed',
+      'action_completed',
+      'chat_received',
+    ],
+  );
   assert.equal(projected.eventWindow.missingBeforeOldest, 3);
   assert.equal(projected.eventWindow.omittedNewEvents, 2);
 });
