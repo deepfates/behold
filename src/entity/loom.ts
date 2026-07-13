@@ -55,6 +55,7 @@ type EntityRuntimeLeaseRecord = {
   hostname: string;
   startedAt: number;
   token: string;
+  managedRunId?: string;
 };
 
 type EntityRuntimeLease = {
@@ -337,6 +338,7 @@ async function acquireEntityRuntimeLease(
     hostname: os.hostname(),
     startedAt: Date.now(),
     token: randomUUID(),
+    ...(process.env.BEHOLD_RUN_ID ? { managedRunId: process.env.BEHOLD_RUN_ID } : {}),
   };
 
   for (let attempt = 0; attempt < 3; attempt += 1) {

@@ -38,10 +38,25 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const projects = createProjectMemory(name, entityLoom.turns());
   const places = createPlaceMemory(name, entityLoom.turns());
   const journal = createRunJournal(name);
+  let shutdownStarted = false;
+  let shutdownPromise: Promise<void> | null = null;
+  let requestShutdown: ((reason: string, terminalError?: Error | null) => Promise<void>) | null =
+    null;
+  const appendJournal: typeof journal.append = (type, data, source) => {
+    try {
+      journal.append(type, data, source);
+    } catch (error: any) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      console.error(`[journal] fatal write failure: ${failure.message}`);
+      if (!shutdownStarted) void requestShutdown?.('journal_write_failed', failure);
+      throw failure;
+    }
+  };
   const taskTarget =
     opts.task === 'come-see-do-report' ? opts.target || 'importdf' : (opts.target ?? null);
-  journal.append('run_started', {
-    runId: journal.id,
+  appendJournal('run_started', {
+    runId: process.env.BEHOLD_RUN_ID || journal.id,
+    journalId: journal.id,
     server: cfg.server,
     circle: cfg.circle,
     authMode: cfg.auth.mode,
@@ -85,7 +100,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const recordTaskProgress = () => {
     if (!taskRuntime) return null;
     const progress = taskRuntime.verifier.snapshot(experience.observe());
-    journal.append('task_progress', progress);
+    appendJournal('task_progress', progress);
     return progress;
   };
 
@@ -94,10 +109,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     if (user === (bot as any).username) return;
     cache.chatTail.push({ user, text });
     cache.chatTail = cache.chatTail.slice(-3);
-    journal.append('chat_received', { user, text });
+    appendJournal('chat_received', { user, text });
     taskRuntime?.permissions.recordIncomingChat(user, text);
     taskRuntime?.verifier.recordIncomingChat(user, text);
-    if (taskRuntime) journal.append('task_permissions', taskRuntime.permissions.snapshot());
+    if (taskRuntime) appendJournal('task_permissions', taskRuntime.permissions.snapshot());
     recordTaskProgress();
     if (!taskRuntime || user.toLowerCase() === taskRuntime.task.target?.toLowerCase()) {
       engine?.muteLLM(false);
@@ -187,7 +202,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         }
       };
       deliver('experience event consumer', () => experience.recordEngineEvent(event));
-      deliver('run journal', () => journal.append(event.type, event.data, { engineAt: event.at }));
+      deliver('run journal', () => appendJournal(event.type, event.data, { engineAt: event.at }));
       if (event.type === 'preemption_deferred') {
         const requested = String(event.data?.intent?.tool || 'human action');
         const active = String(event.data?.activeIntent?.tool || 'active action');
@@ -225,6 +240,14 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   engine.start();
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  let displayTimer: NodeJS.Timeout | null = null;
+  let botEnded = false;
+  let resolveDone!: () => void;
+  let rejectDone!: (error: Error) => void;
+  const done = new Promise<void>((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
   const prompt = () => rl.setPrompt('» ');
   const show = () => {
     try {
@@ -237,27 +260,30 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   };
 
   bot.once('spawn', () => {
-    journal.append('spawned', experience.observe());
+    appendJournal('spawned', experience.observe());
     recordTaskProgress();
     policy?.wake();
     show();
     let lastObservationAt = 0;
-    setInterval(() => {
+    displayTimer = setInterval(() => {
       if (!rl.line) show();
       if (Date.now() - lastObservationAt >= 10_000) {
         lastObservationAt = Date.now();
+        let observation: unknown;
         try {
-          journal.append('observation', experience.observe());
+          observation = experience.observe();
         } catch (error: any) {
-          journal.append('observation_error', { error: error?.message || String(error) });
+          appendJournal('observation_error', { error: error?.message || String(error) });
+          return;
         }
+        appendJournal('observation', observation);
       }
     }, 1500);
   });
 
   // Optional LLM policy
   const apiKey = process.env.OPENROUTER_API_KEY;
-  const model = process.env.LLM_MODEL || 'openai/gpt-4o-mini';
+  const model = cfg.llm.model;
   if (apiKey && !opts.paused) {
     const toolSpecs = interp.list('inhabitant').map((s: any) => ({
       type: 'function',
@@ -289,7 +315,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         acceptEngineEvent: engine.acceptsEvent,
         onModelTurn: (turn) => {
           taskRuntime?.verifier.recordControllerDecision(turn.intent, turn.observation);
-          journal.append('model_turn', turn);
+          appendJournal('model_turn', turn);
         },
         onEntityTurn: async (turn) => {
           projects.validate(turn);
@@ -297,7 +323,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           await entityLoom.append(turn);
           projects.record(turn);
           places.record(turn);
-          journal.append('entity_turn', turn);
+          appendJournal('entity_turn', turn);
         },
       },
     );
@@ -371,24 +397,64 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     show();
   });
 
-  rl.on('close', () => {
-    if (taskRuntime)
-      journal.append('task_verification', taskRuntime.verifier.snapshot(experience.observe()));
-    journal.append('run_stopped');
-    try {
-      engine.stop();
-    } catch {}
-    try {
-      policy?.stop();
-    } catch {}
-    try {
-      experience.destroy();
-    } catch {}
-    try {
-      (bot as any).end();
-    } catch {}
-    process.exit(0);
+  requestShutdown = (reason: string, terminalError: Error | null = null) => {
+    if (shutdownStarted) return shutdownPromise ?? Promise.resolve();
+    shutdownStarted = true;
+    shutdownPromise = Promise.resolve().then(async () => {
+      try {
+        appendJournal('run_stopping', { reason });
+        if (displayTimer) clearInterval(displayTimer);
+        displayTimer = null;
+        policy?.stop();
+        const drain = await engine!.shutdown(reason);
+        if (!drain.drained) throw new Error('engine did not drain its active action');
+        if (taskRuntime) {
+          appendJournal('task_verification', taskRuntime.verifier.snapshot(experience.observe()));
+        }
+        experience.destroy();
+        await entityLoom.close();
+        if (!botEnded) {
+          await new Promise<void>((resolve) => {
+            (bot as any).once('end', () => resolve());
+            (bot as any).end();
+          });
+        }
+        appendJournal('run_stopped', {
+          reason,
+          drained: true,
+          terminalError: terminalError?.message ?? null,
+        });
+        if (terminalError) rejectDone(terminalError);
+        else resolveDone();
+      } catch (error: any) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        try {
+          journal.append('run_stop_failed', { reason, error: failure.message });
+        } catch {}
+        rejectDone(failure);
+      }
+    });
+    return shutdownPromise;
+  };
+
+  rl.on('close', () => void requestShutdown?.('controller_stdin_closed'));
+  (bot as any).once('end', (reason: string) => {
+    botEnded = true;
+    if (!shutdownPromise) {
+      void requestShutdown?.(
+        'minecraft_connection_ended',
+        new Error(`Minecraft connection ended${reason ? `: ${reason}` : ''}`),
+      );
+    }
   });
+  (bot as any).once('kicked', (reason: unknown) => {
+    void requestShutdown?.('minecraft_kicked', new Error(`Minecraft kicked: ${String(reason)}`));
+  });
+  (bot as any).once('error', (error: Error) => {
+    void requestShutdown?.('minecraft_error', error);
+  });
+
+  return done;
 }
 
 function resolveTask(taskName?: string, targetName?: string): TaskBrief | null {

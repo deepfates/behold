@@ -24,6 +24,13 @@ Play the San Francisco world on this Mac
 - The native launch log lives at `.behold-runtime/native-launch.log`; Scout's detached runtime log lives at `.behold-runtime/companion.log`.
 - Run `npm run play -- --dry-run` to validate the installed Java, libraries, assets, and launch configuration without opening Minecraft.
 
+Managed world lifecycle (under active development)
+
+- `npm run world -- status --config .behold-worlds.example.json --world sf-csdr` reports world-control, process-ownership, baseline, and topology evidence without changing the world.
+- `npm run world -- start --config .behold-worlds.example.json --world sf-csdr` is fail-closed: it requires a clean Git worktree, an OpenRouter key, the pinned server jar, a stopped and unowned runtime, a prepared baseline, and an archive root.
+- The foreground runner owns the server and controller together. A normal stop drains the controller, releases its entity lease, receives Minecraft's `save-all flush` acknowledgement, stops the JVM, verifies the port and `session.lock` are clear, and then releases its durable owner record.
+- The current SF runtime is still foreign-owned and has no named prepared baseline. Status is usable now; managed start and reset remain red until that handoff is completed.
+
 Quickstart
 
 - Install + configure:
@@ -37,7 +44,7 @@ Quickstart
   - `dig @cursor` · `equip pickaxe` · `eat`
 
 What is it?
-Behold runs a Mineflayer bot and exposes a spec‑first command registry you can call from a console, an LLM, or a script. A small arbiter executes one action at a time. `stop` suspends new model work and cancels queued model intents, but the active Mineflayer command must reach a terminal result before another action starts. Immediate, acknowledged in-flight cancellation is still red. A legacy JSONL harness also exists, but it has not yet been canonicalized against the embodied/Lync path.
+Behold runs a Mineflayer bot and exposes a spec‑first command registry you can call from a console, an LLM, or a script. A small arbiter executes one action at a time. `stop` suspends new model work, cancels queued model intents, and asks the active adapter to cancel; pathfinding and digging only report cancellation after Mineflayer acknowledges it. Adapters without an acknowledgement still serialize and drain instead of fabricating interruption. A legacy JSONL harness also exists, but it has not yet been canonicalized against the embodied/Lync path.
 
 Key files
 
@@ -51,10 +58,12 @@ Key files
 - `src/agent/harness_stdio.ts` — JSONL stdio harness for external control
 - `src/cli/main.ts` — Transitional CLI (`tools`, `agent --stdio`)
 - `src/loop/*` — Arbiter + engine skeleton
+- `src/runtime/world-control.ts` — Durable, token-checked ownership record for a managed world process
 - `src/tui/*` — Console REPL (preview)
 - `src/input/keyboard.ts` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
 - `src/tools/index.ts` — Registry of callable tools the reasoner can invoke
 - `scripts/swarm.ts` — Multi-bot launcher for local/offline testing
+- `scripts/world-runner.ts` — Foreground server/controller lifecycle and refusal gates
 - `.env.example` — Example environment variables to copy into `.env`
 
 Prerequisites
@@ -108,11 +117,11 @@ Environment Variables
 - `OPENROUTER_BASE_URL` — Override OpenRouter base (default `https://openrouter.ai/api/v1/chat/completions`)
 - `OPENROUTER_REFERER` — Optional Referer header for OpenRouter
 - `OPENROUTER_TITLE` — Optional X-Title header for OpenRouter
-- `LLM_MODEL` — OpenRouter model slug (e.g., `openai/gpt-4o-mini`)
+- `LLM_MODEL` — exact OpenRouter model slug (default `openai/gpt-5.6-luna`)
 
 LLM Autopilot (optional)
 
-- Set `OPENROUTER_API_KEY` and choose a model via `LLM_MODEL` (defaults to `openai/gpt-4o-mini`).
+- Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `openai/gpt-5.6-luna`).
 - The console starts a function‑calling “policy” that proposes one tool per tick using the same command registry you use as a human.
 
 Command registry and tools

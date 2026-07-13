@@ -4,13 +4,15 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { sanitizeName } from '../src/observability/journal';
+import { DEFAULT_LLM_MODEL } from '../src/config';
 
 const host = process.env.NATIVE_MC_HOST || '127.0.0.1';
 const port = Number(process.env.NATIVE_MC_PORT || 25565);
 const dryRun = process.argv.includes('--dry-run');
 const runtimeDir = path.resolve(process.cwd(), '.behold-runtime');
 const companionName = process.env.BEHOLD_COMPANION_NAME || 'ScoutLife';
-const companionModel = process.env.BEHOLD_COMPANION_MODEL || 'openai/gpt-5.4';
+const companionModel =
+  process.env.BEHOLD_COMPANION_MODEL || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 
 async function main() {
   const running = await canConnect(host, port);

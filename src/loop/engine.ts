@@ -82,6 +82,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
 
   let timer: NodeJS.Timeout | null = null;
   let mutedLLM = false;
+  let shuttingDown = false;
   let inFlight: {
     intent: Intent;
     promise: Promise<any>;
@@ -89,6 +90,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
   } | null = null;
 
   async function tick() {
+    if (shuttingDown) return;
     // Until each adapter can acknowledge cancellation, serialize all actions.
     // This is deliberately stricter than the arbiter's future parallel lane:
     // correctness comes before speculative concurrency.
@@ -117,7 +119,9 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       return;
     }
     const controller = new AbortController();
-    const execution = execute(intent, controller);
+    // Publish execution ownership before any lifecycle observer can request
+    // shutdown or preemption from a synchronously delivered event.
+    const execution = Promise.resolve().then(() => execute(intent, controller));
     inFlight = { intent, promise: execution, controller };
     try {
       return await execution;
@@ -235,6 +239,44 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
     timer = null;
   }
 
+  async function shutdown(reason = 'engine_shutdown') {
+    if (shuttingDown) {
+      if (inFlight) await inFlight.promise;
+      return { drained: inFlight == null, activeIntent: inFlight?.intent ?? null };
+    }
+    shuttingDown = true;
+    stop();
+    mutedLLM = true;
+    emit('controller_suspended', {
+      reason,
+      activeIntent: inFlight?.intent ?? arbiter.activeLease()?.intent ?? null,
+    });
+    for (const cancelled of arbiter.cancelQueued(() => true)) {
+      emit('intent_blocked', {
+        intent: cancelled,
+        reason,
+        error: 'engine_shutdown',
+        result: { ok: false, error: 'engine_shutdown' },
+      });
+    }
+    if (!inFlight) return { drained: true, activeIntent: null };
+    const active = inFlight;
+    if (!active.controller.signal.aborted) {
+      emit('cancellation_requested', {
+        intent: active.intent,
+        requestedBy: {
+          id: `system-${reason}`,
+          source: 'system',
+          tool: 'shutdown',
+        },
+        reason,
+      });
+      active.controller.abort(reason);
+    }
+    await active.promise;
+    return { drained: inFlight == null, activeIntent: inFlight?.intent ?? null };
+  }
+
   function enqueueHumanIntent(intent: Omit<Intent, 'source' | 'id'>) {
     if (intent.tool === 'stop') {
       muteLLM(true, 'human_stop');
@@ -247,6 +289,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       input: intent.input,
       preempt: intent.preempt,
     };
+    if (shuttingDown) return enqueueIntent(fullIntent);
     if (intent.preempt && inFlight) {
       const reason = intent.tool === 'stop' ? 'human_stop' : 'human_preemption';
       if (!inFlight.controller.signal.aborted) {
@@ -263,10 +306,19 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
         reason: 'awaiting_active_action_terminal_cancellation_acknowledgement',
       });
     }
-    enqueueIntent(fullIntent);
+    return enqueueIntent(fullIntent);
   }
 
   function enqueueIntent(intent: Intent) {
+    if (shuttingDown) {
+      emit('intent_blocked', {
+        intent,
+        reason: 'engine_shutdown',
+        error: 'engine_shutdown',
+        result: { ok: false, error: 'engine_shutdown' },
+      });
+      return false;
+    }
     if (mutedLLM && intent.source === 'llm') {
       emit('intent_blocked', {
         intent,
@@ -304,6 +356,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
   return {
     start,
     stop,
+    shutdown,
     tick,
     enqueueHumanIntent,
     enqueueIntent,
@@ -313,6 +366,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       Boolean(event && typeof event === 'object' && authenticEvents.has(event as object)),
     state: () => ({
       mutedLLM,
+      shuttingDown,
       inFlightIntent: inFlight?.intent ?? null,
       queuedLease: arbiter.activeLease(),
     }),

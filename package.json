@@ -18,6 +18,7 @@
     "pilot": "node scripts/patch-prismarine-viewer.js && ts-node --transpile-only scripts/pilot.ts",
     "native": "ts-node --transpile-only scripts/native-client.ts",
     "play": "ts-node --transpile-only scripts/play.ts",
+    "world": "npm run build && node dist/scripts/world-runner.js",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "lint": "tsc -p tsconfig.json --noEmit && eslint .",

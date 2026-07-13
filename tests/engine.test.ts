@@ -522,6 +522,115 @@ test('human stop never fabricates cancellation when an active adapter cannot ack
   );
 });
 
+test('engine shutdown stops admission, requests adapter cancellation, and drains the terminal', async () => {
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const events: any[] = [];
+  let observedSignal: AbortSignal | null = null;
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async (_tool, _args, _intent, execution) => {
+        observedSignal = execution!.signal;
+        entered();
+        await new Promise<void>((resolve) =>
+          execution!.signal.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        return {
+          ok: false,
+          error: 'interrupted_by_shutdown',
+          cancellation: { acknowledged: true, adapter: 'fixture-adapter' },
+        };
+      },
+    },
+    { onEvent: (event) => events.push(event) },
+  );
+  engine.enqueueIntent({ id: 'shutdown-active', source: 'llm', tool: 'move_to' });
+  const tick = engine.tick();
+  await started;
+
+  const result = await engine.shutdown('controller_stdin_closed');
+  await tick;
+
+  assert.equal(result.drained, true);
+  assert.equal(observedSignal?.aborted, true);
+  assert.equal(engine.state().inFlightIntent, null);
+  const requested = events.find((event) => event.type === 'cancellation_requested');
+  assert.equal(requested.data.requestedBy.source, 'system');
+  const terminal = events.find((event) => event.type === 'action_failed');
+  assert.equal(terminal.data.cancellation.acknowledged, true);
+});
+
+test('engine shutdown cancels every queued source and permanently closes admission', async () => {
+  let dispatches = 0;
+  const events: any[] = [];
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async () => {
+        dispatches += 1;
+        return { ok: true };
+      },
+    },
+    { onEvent: (event) => events.push(event) },
+  );
+  engine.enqueueIntent({ id: 'queued-human', source: 'human', tool: 'chat' });
+  engine.enqueueIntent({ id: 'queued-system', source: 'system', tool: 'status' });
+  engine.enqueueIntent({ id: 'queued-llm', source: 'llm', tool: 'look' });
+
+  const result = await engine.shutdown('fixture_shutdown');
+  assert.equal(result.drained, true);
+  assert.equal(engine.state().shuttingDown, true);
+  assert.equal(engine.enqueueIntent({ id: 'late-llm', source: 'llm', tool: 'look' }), false);
+  assert.equal(
+    engine.enqueueIntent({ id: 'late-system', source: 'system', tool: 'status' }),
+    false,
+  );
+  assert.equal(engine.enqueueHumanIntent({ tool: 'chat' }), false);
+  await engine.tick();
+
+  assert.equal(dispatches, 0);
+  const blocked = events.filter((event) => event.type === 'intent_blocked');
+  for (const id of ['queued-human', 'queued-system', 'queued-llm', 'late-llm', 'late-system']) {
+    assert.ok(blocked.some((event) => event.data.intent.id === id));
+  }
+  assert.ok(blocked.some((event) => event.data.intent.source === 'human'));
+});
+
+test('execution ownership exists before a lifecycle observer can request shutdown', async () => {
+  let engine: ReturnType<typeof createEngine>;
+  let shutdown: Promise<any> | null = null;
+  let sawAbortedSignal = false;
+  engine = createEngine(
+    {
+      list: () => [],
+      run: async (_tool, _args, _intent, execution) => {
+        sawAbortedSignal = execution!.signal.aborted;
+        return {
+          ok: false,
+          error: 'interrupted_by_shutdown',
+          cancellation: { acknowledged: true, adapter: 'fixture' },
+        };
+      },
+    },
+    {
+      onEvent: (event) => {
+        if (event.type === 'action_started') shutdown = engine.shutdown('observer_shutdown');
+      },
+    },
+  );
+  engine.enqueueIntent({ id: 'observer-shutdown', source: 'llm', tool: 'move_to' });
+
+  await engine.tick();
+  await shutdown;
+
+  assert.equal(sawAbortedSignal, true);
+  assert.equal(engine.state().inFlightIntent, null);
+  assert.equal(engine.state().shuttingDown, true);
+});
+
 test('human stop latches model execution while a continuing controller tries to replace the action', async () => {
   const originalFetch = globalThis.fetch;
   let modelCalls = 0;

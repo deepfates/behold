@@ -9,7 +9,7 @@ export function getReasoner(bot: Bot, config: Config, _tools: any, _toolSpecs: a
 }
 
 function fallbackReasoner(bot: Bot) {
-  const botName = () => (bot.username || 'bot');
+  const botName = () => bot.username || 'bot';
   return {
     name: 'fallback',
     async plan(observation: any) {
@@ -26,9 +26,10 @@ function fallbackReasoner(bot: Bot) {
 }
 
 function openRouterTextResponder(_bot: Bot, config: Config) {
-  const model = config.llm.model || 'openai/gpt-4o-mini';
+  const model = config.llm.model;
   const apiKey = config.llm.apiKey as string;
-  const endpoint = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1/chat/completions';
+  const endpoint =
+    process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1/chat/completions';
   const extraHeaders: Record<string, string> = {};
   if (process.env.OPENROUTER_REFERER) {
     extraHeaders['HTTP-Referer'] = process.env.OPENROUTER_REFERER;
