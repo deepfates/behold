@@ -3,15 +3,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import {
   createFixtureExecutionCapability,
   digestTree,
   inspectTopology,
+  recoverWorldReset,
   resetWorld,
   runCli,
   SafetyRefusal,
   ResetExecutionError,
   statusWorld,
+  TREE_DIGEST_PROFILE,
   validateWorldLabConfig,
   verifyWorld,
   type OwnershipEvidence,
@@ -30,7 +34,7 @@ const clearProbes: Pick<WorldLabDependencies, 'probeSessionLock' | 'probeListeni
   probeListeningPort: async () => ({ ...CLEAR }),
 };
 
-test('tree digest is deterministic and excludes session.lock', (t) => {
+test('tree digest is deterministic, includes structure, and excludes only root session.lock', (t) => {
   const left = temporaryDirectory(t);
   const right = temporaryDirectory(t);
   write(path.join(left, 'z.txt'), 'last');
@@ -50,15 +54,86 @@ test('tree digest is deterministic and excludes session.lock', (t) => {
   fs.writeFileSync(path.join(left, 'session.lock'), 'changed while stopped');
   const afterLockChange = digestTree(left);
   assert.equal(afterLockChange.digest, first.digest);
+
+  fs.mkdirSync(path.join(left, 'empty'));
+  assert.notEqual(digestTree(left).digest, digestTree(right).digest);
+  fs.mkdirSync(path.join(right, 'empty'));
+  assert.equal(digestTree(left).digest, digestTree(right).digest);
+
+  write(path.join(left, 'nested', 'session.lock'), 'nested artifact state');
+  assert.notEqual(digestTree(left).digest, digestTree(right).digest);
+  write(path.join(right, 'nested', 'session.lock'), 'nested artifact state');
+  assert.equal(digestTree(left).digest, digestTree(right).digest);
+});
+
+test('tree digest refuses same-size concurrent rewrites even when mtime is restored', async (t) => {
+  const root = temporaryDirectory(t);
+  const slowFile = path.join(root, 'a-slow.bin');
+  const target = path.join(root, 'z-target.bin');
+  fs.writeFileSync(slowFile, Buffer.alloc(64 * 1024 * 1024, 0x61));
+  fs.writeFileSync(target, Buffer.alloc(1024 * 1024, 0x62));
+  const targetStats = fs.statSync(target);
+  const coordination = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
+  const state = new Int32Array(coordination);
+  const worker = new Worker(
+    `
+      const fs = require('node:fs');
+      const { workerData } = require('node:worker_threads');
+      const state = new Int32Array(workerData.coordination);
+      Atomics.store(state, 0, 1);
+      Atomics.notify(state, 0);
+      Atomics.wait(state, 1, 0);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+      fs.writeFileSync(workerData.target, Buffer.alloc(workerData.size, 0x63));
+      fs.utimesSync(workerData.target, workerData.atimeMs / 1000, workerData.mtimeMs / 1000);
+    `,
+    {
+      eval: true,
+      workerData: {
+        coordination,
+        target,
+        size: targetStats.size,
+        atimeMs: targetStats.atimeMs,
+        mtimeMs: targetStats.mtimeMs,
+      },
+    },
+  );
+  while (Atomics.load(state, 0) === 0) Atomics.wait(state, 0, 0, 100);
+  Atomics.store(state, 1, 1);
+  Atomics.notify(state, 1);
+
+  assert.throws(() => digestTree(root), /changed while it was being hashed/);
+  await new Promise<void>((resolve, reject) => {
+    worker.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`worker ${code}`))));
+    worker.once('error', reject);
+  });
 });
 
 test('config validation requires absolute, disjoint paths and explicit baseline state', (t) => {
   const fixture = makeLab(t);
-  const valid = validateWorldLabConfig({ schemaVersion: 1, worlds: { fixture: fixture.world } });
+  const valid = validateWorldLabConfig({ schemaVersion: 2, worlds: { fixture: fixture.world } });
   assert.equal(valid.worlds.fixture.preparedBaseline?.path, fixture.baseline);
 
+  assert.throws(
+    () => validateWorldLabConfig({ schemaVersion: 1, worlds: { fixture: fixture.world } }),
+    /schemaVersion 2/,
+  );
+  assert.throws(
+    () =>
+      validateWorldLabConfig({
+        schemaVersion: 2,
+        worlds: {
+          fixture: {
+            ...fixture.world,
+            source: { path: fixture.source, expectedDigest: fixture.world.source.expectedDigest },
+          },
+        },
+      }),
+    /source\.digestProfile must be behold-tree-v2/,
+  );
+
   const missingBaseline = validateWorldLabConfig({
-    schemaVersion: 1,
+    schemaVersion: 2,
     worlds: { fixture: { ...fixture.world, preparedBaseline: null } },
   });
   assert.equal(missingBaseline.worlds.fixture.preparedBaseline, null);
@@ -66,11 +141,15 @@ test('config validation requires absolute, disjoint paths and explicit baseline 
   assert.throws(
     () =>
       validateWorldLabConfig({
-        schemaVersion: 1,
+        schemaVersion: 2,
         worlds: {
           fixture: {
             ...fixture.world,
-            source: { path: './relative', expectedDigest: '0'.repeat(64) },
+            source: {
+              path: './relative',
+              digestProfile: TREE_DIGEST_PROFILE,
+              expectedDigest: '0'.repeat(64),
+            },
           },
         },
       }),
@@ -79,12 +158,13 @@ test('config validation requires absolute, disjoint paths and explicit baseline 
   assert.throws(
     () =>
       validateWorldLabConfig({
-        schemaVersion: 1,
+        schemaVersion: 2,
         worlds: {
           fixture: {
             ...fixture.world,
             preparedBaseline: {
               path: fixture.runtime,
+              digestProfile: TREE_DIGEST_PROFILE,
               expectedDigest: '0'.repeat(64),
             },
           },
@@ -101,12 +181,13 @@ test('normalized aliases and archive roots inside source or baseline are rejecte
   assert.throws(
     () =>
       validateWorldLabConfig({
-        schemaVersion: 1,
+        schemaVersion: 2,
         worlds: {
           fixture: {
             ...fixture.world,
             preparedBaseline: {
               path: dottedSourceAlias,
+              digestProfile: TREE_DIGEST_PROFILE,
               expectedDigest: fixture.world.source.expectedDigest,
             },
           },
@@ -123,7 +204,7 @@ test('normalized aliases and archive roots inside source or baseline are rejecte
     assert.throws(
       () =>
         validateWorldLabConfig({
-          schemaVersion: 1,
+          schemaVersion: 2,
           worlds: {
             fixture: {
               ...fixture.world,
@@ -157,6 +238,7 @@ test('canonical topology catches symlink and dev/inode aliases that lexical path
     ...fixture.world,
     preparedBaseline: {
       path: baselineAlias,
+      digestProfile: TREE_DIGEST_PROFILE,
       expectedDigest: fixture.world.source.expectedDigest,
     },
   };
@@ -330,7 +412,7 @@ test('CLI dry-run emits the complete staged plan and changes nothing', async (t)
   const configPath = path.join(fixture.root, 'worlds.json');
   fs.writeFileSync(
     configPath,
-    `${JSON.stringify({ schemaVersion: 1, worlds: { fixture: fixture.world } }, null, 2)}\n`,
+    `${JSON.stringify({ schemaVersion: 2, worlds: { fixture: fixture.world } }, null, 2)}\n`,
   );
   const before = snapshot(fixture.root);
   let stdout = '';
@@ -473,6 +555,451 @@ test('fixture-only execute stages a verified baseline, archives the old run, and
   assert.deepEqual(snapshot(result.archivePath!), oldRuntime);
   assert.equal(fs.readFileSync(path.join(result.archivePath!, 'old-run.txt'), 'utf8'), 'old-world');
   assert.deepEqual(snapshot(fixture.source), originalSource);
+  assert.ok(result.journalPath);
+  assert.equal(JSON.parse(fs.readFileSync(result.journalPath!, 'utf8')).phase, 'completed');
+  assert.equal(fs.existsSync(path.join(path.dirname(fixture.runtime), '.world.reset.lock')), false);
+});
+
+test('per-runtime operation lock refuses concurrent resets with different run ids', async (t) => {
+  const fixture = makeLab(t);
+  let portProbeCalls = 0;
+  let releaseLockedGate!: () => void;
+  let reportLockedGate!: () => void;
+  const lockedGateReached = new Promise<void>((resolve) => {
+    reportLockedGate = resolve;
+  });
+  const holdLockedGate = new Promise<void>((resolve) => {
+    releaseLockedGate = resolve;
+  });
+  const dependencies: WorldLabDependencies = {
+    ...clearProbes,
+    fixtureExecutionCapability: fixture.fixtureCapability,
+    probeListeningPort: async () => {
+      portProbeCalls += 1;
+      if (portProbeCalls === 2) {
+        reportLockedGate();
+        await holdLockedGate;
+      }
+      return { ...CLEAR };
+    },
+  };
+
+  const first = resetWorld(
+    'fixture',
+    fixture.world,
+    { mode: 'execute', runId: 'concurrent-one' },
+    dependencies,
+  );
+  await lockedGateReached;
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'concurrent-two' },
+      dependencies,
+    ),
+    (error: any) => {
+      assert.ok(error instanceof SafetyRefusal);
+      assert.ok(error.message.includes('reset_operation_locked'));
+      return true;
+    },
+  );
+  releaseLockedGate();
+  const completed = await first;
+
+  assert.equal(completed.mode, 'executed');
+  assert.equal(fs.existsSync(path.join(path.dirname(fixture.runtime), '.world.reset.lock')), false);
+  assert.equal(
+    fs.existsSync(path.join(path.dirname(fixture.runtime), '.world.reset-concurrent-two.json')),
+    false,
+  );
+});
+
+test('activation gate refuses a runtime changed while the verified stage is being prepared', async (t) => {
+  const fixture = makeLab(t);
+  const archive = path.join(fixture.archiveRoot, 'runtime-race-world');
+  const stage = path.join(path.dirname(fixture.runtime), '.world.stage-runtime-race');
+  const journalPath = path.join(path.dirname(fixture.runtime), '.world.reset-runtime-race.json');
+
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'runtime-race' },
+      {
+        ...clearProbes,
+        fixtureExecutionCapability: fixture.fixtureCapability,
+        mutationOperations: {
+          copyDirectory(from, to) {
+            fs.cpSync(from, to, { recursive: true, force: false, errorOnExist: true });
+            fs.rmSync(path.join(to, 'session.lock'), { force: true });
+            write(path.join(fixture.runtime, 'concurrent-write.txt'), 'external writer');
+          },
+        },
+      },
+    ),
+    (error: any) => {
+      assert.ok(error instanceof ResetExecutionError);
+      assert.match(error.evidence.activationError, /runtime_changed_during_reset/);
+      assert.equal(error.evidence.rollbackAttempted, false);
+      assert.equal(error.evidence.rollbackSucceeded, false);
+      return true;
+    },
+  );
+
+  assert.equal(fs.existsSync(archive), false);
+  assert.equal(fs.existsSync(stage), true);
+  assert.equal(fs.readFileSync(path.join(fixture.runtime, 'old-run.txt'), 'utf8'), 'old-world');
+  assert.equal(
+    fs.readFileSync(path.join(fixture.runtime, 'concurrent-write.txt'), 'utf8'),
+    'external writer',
+  );
+  assert.equal(JSON.parse(fs.readFileSync(journalPath, 'utf8')).phase, 'recovery_required');
+  assert.equal(fs.existsSync(path.join(path.dirname(fixture.runtime), '.world.reset.lock')), false);
+});
+
+test('a directory fsync failure after rename is reconciled before rollback is terminal', async (t) => {
+  const fixture = makeLab(t);
+  const oldRuntime = snapshot(fixture.runtime);
+  const originalFsync = fs.fsyncSync;
+  t.after(() => {
+    fs.fsyncSync = originalFsync;
+  });
+  let armed = false;
+
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'rename-fsync-failure' },
+      {
+        ...clearProbes,
+        fixtureExecutionCapability: fixture.fixtureCapability,
+        mutationOperations: {
+          rename(from, to) {
+            fs.renameSync(from, to);
+            if (!armed) {
+              armed = true;
+              fs.fsyncSync = ((descriptor: number) => {
+                fs.fsyncSync = originalFsync;
+                throw new Error(`injected directory fsync failure on ${descriptor}`);
+              }) as typeof fs.fsyncSync;
+            }
+          },
+        },
+      },
+    ),
+    (error: any) => {
+      assert.ok(error instanceof ResetExecutionError);
+      assert.equal(error.evidence.rollbackAttempted, true);
+      assert.equal(error.evidence.rollbackSucceeded, true);
+      return true;
+    },
+  );
+  fs.fsyncSync = originalFsync;
+
+  const runtimeParent = path.dirname(fixture.runtime);
+  assert.deepEqual(snapshot(fixture.runtime), oldRuntime);
+  assert.equal(fs.existsSync(path.join(fixture.archiveRoot, 'rename-fsync-failure-world')), false);
+  assert.equal(
+    JSON.parse(
+      fs.readFileSync(path.join(runtimeParent, '.world.reset-rename-fsync-failure.json'), 'utf8'),
+    ).phase,
+    'rolled_back',
+  );
+});
+
+test('durable journal reconciles runtime-absent crash state and a dead operation lock', async (t) => {
+  const fixture = makeLab(t);
+  const oldRuntime = snapshot(fixture.runtime);
+  let renameCount = 0;
+
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'crash-state' },
+      {
+        ...clearProbes,
+        fixtureExecutionCapability: fixture.fixtureCapability,
+        mutationOperations: {
+          rename(from, to) {
+            renameCount += 1;
+            if (renameCount >= 2) throw new Error('simulated process loss during activation');
+            fs.renameSync(from, to);
+          },
+        },
+      },
+    ),
+    (error: any) => {
+      assert.ok(error instanceof ResetExecutionError);
+      assert.equal(error.evidence.rollbackSucceeded, false);
+      assert.ok(error.evidence.journalPath);
+      return true;
+    },
+  );
+
+  const runtimeParent = path.dirname(fixture.runtime);
+  const archive = path.join(fixture.archiveRoot, 'crash-state-world');
+  const stage = path.join(runtimeParent, '.world.stage-crash-state');
+  const journalPath = path.join(runtimeParent, '.world.reset-crash-state.json');
+  const lockPath = path.join(runtimeParent, '.world.reset.lock');
+  assert.equal(fs.existsSync(fixture.runtime), false);
+  assert.equal(fs.existsSync(archive), true);
+  assert.equal(fs.existsSync(stage), true);
+  assert.equal(JSON.parse(fs.readFileSync(journalPath, 'utf8')).phase, 'recovery_required');
+
+  fs.writeFileSync(
+    lockPath,
+    `${JSON.stringify({
+      protocol: 'behold-world-lab-operation-lock.v1',
+      world: 'fixture',
+      runId: 'crash-state',
+      pid: 999_999_999,
+      hostname: os.hostname(),
+      token: 'dead-fixture-owner',
+      createdAt: '2026-07-13T00:00:00.000Z',
+    })}\n`,
+  );
+
+  const recovered = await recoverWorldReset('fixture', fixture.world, 'crash-state', {
+    fixtureExecutionCapability: fixture.fixtureCapability,
+  });
+
+  assert.equal(recovered.action, 'rollback_restored');
+  assert.equal(recovered.journal.phase, 'recovered_rolled_back');
+  assert.deepEqual(snapshot(fixture.runtime), oldRuntime);
+  assert.equal(fs.existsSync(archive), false);
+  assert.equal(fs.existsSync(stage), true, 'verified stage remains as recovery evidence');
+  assert.equal(fs.existsSync(lockPath), false);
+});
+
+test('a fresh process recovers after the reset process is killed at either rename boundary', async (t) => {
+  for (const killAfterRename of [1, 2]) {
+    const fixture = makeLab(t);
+    const oldRuntime = snapshot(fixture.runtime);
+    const result = runKilledResetChild(fixture, `killed-${killAfterRename}`, killAfterRename);
+    assert.equal(result.signal, 'SIGKILL', result.stderr);
+
+    const recovered = await recoverWorldReset(
+      'fixture',
+      fixture.world,
+      `killed-${killAfterRename}`,
+      { fixtureExecutionCapability: fixture.fixtureCapability },
+    );
+    if (killAfterRename === 1) {
+      assert.equal(recovered.action, 'rollback_restored');
+      assert.deepEqual(snapshot(fixture.runtime), oldRuntime);
+    } else {
+      assert.equal(recovered.action, 'activation_accepted');
+      assert.equal(
+        digestTree(fixture.runtime).digest,
+        fixture.world.preparedBaseline?.expectedDigest,
+      );
+    }
+    assert.equal(
+      fs.existsSync(path.join(path.dirname(fixture.runtime), '.world.reset.lock')),
+      false,
+    );
+  }
+});
+
+test('a recovery-required transaction fences every later run id for the same runtime', async (t) => {
+  const fixture = makeLab(t);
+  let renameCount = 0;
+
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'unresolved-first' },
+      {
+        ...clearProbes,
+        fixtureExecutionCapability: fixture.fixtureCapability,
+        mutationOperations: {
+          rename(from, to) {
+            renameCount += 1;
+            if (renameCount === 3) throw new Error('rollback cannot move active runtime');
+            fs.renameSync(from, to);
+            if (renameCount === 2) write(path.join(to, 'corrupt-after-activation.txt'), 'bad');
+          },
+        },
+      },
+    ),
+    (error: any) => {
+      assert.ok(error instanceof ResetExecutionError);
+      assert.equal(error.evidence.rollbackSucceeded, false);
+      return true;
+    },
+  );
+
+  const runtimeParent = path.dirname(fixture.runtime);
+  assert.equal(
+    JSON.parse(
+      fs.readFileSync(path.join(runtimeParent, '.world.reset-unresolved-first.json'), 'utf8'),
+    ).phase,
+    'recovery_required',
+  );
+  const beforeSecond = snapshot(fixture.root);
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'unresolved-second' },
+      { ...clearProbes, fixtureExecutionCapability: fixture.fixtureCapability },
+    ),
+    (error: any) => {
+      assert.ok(error instanceof SafetyRefusal);
+      assert.ok(error.message.includes('unresolved_reset_transaction'));
+      return true;
+    },
+  );
+  assert.deepEqual(snapshot(fixture.root), beforeSecond);
+  assert.equal(
+    fs.existsSync(path.join(runtimeParent, '.world.reset-unresolved-second.json')),
+    false,
+  );
+  assert.equal(fs.existsSync(path.join(fixture.archiveRoot, 'unresolved-second-world')), false);
+});
+
+test('recovery refuses a corrupted archive without moving or deleting evidence', async (t) => {
+  const fixture = makeLab(t);
+  let renameCount = 0;
+
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'corrupt-archive' },
+      {
+        ...clearProbes,
+        fixtureExecutionCapability: fixture.fixtureCapability,
+        mutationOperations: {
+          rename(from, to) {
+            renameCount += 1;
+            if (renameCount >= 2) throw new Error('simulated process loss during activation');
+            fs.renameSync(from, to);
+          },
+        },
+      },
+    ),
+    ResetExecutionError,
+  );
+
+  const runtimeParent = path.dirname(fixture.runtime);
+  const archive = path.join(fixture.archiveRoot, 'corrupt-archive-world');
+  const journalPath = path.join(runtimeParent, '.world.reset-corrupt-archive.json');
+  write(path.join(archive, 'old-run.txt'), 'corrupted after crash');
+
+  await assert.rejects(
+    recoverWorldReset('fixture', fixture.world, 'corrupt-archive', {
+      fixtureExecutionCapability: fixture.fixtureCapability,
+    }),
+    (error: any) => {
+      assert.ok(error instanceof SafetyRefusal);
+      assert.ok(error.message.includes('recovery_archive_digest_mismatch'));
+      return true;
+    },
+  );
+
+  assert.equal(fs.existsSync(fixture.runtime), false);
+  assert.equal(fs.existsSync(archive), true);
+  assert.equal(fs.readFileSync(path.join(archive, 'old-run.txt'), 'utf8'), 'corrupted after crash');
+  assert.equal(JSON.parse(fs.readFileSync(journalPath, 'utf8')).phase, 'recovery_required');
+  assert.equal(fs.existsSync(path.join(runtimeParent, '.world.reset.lock')), false);
+});
+
+test('recovery rejects a journal edit that attempts to bless corrupted archive bytes', async (t) => {
+  const fixture = makeLab(t);
+  let renameCount = 0;
+
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'journal-digest-tamper' },
+      {
+        ...clearProbes,
+        fixtureExecutionCapability: fixture.fixtureCapability,
+        mutationOperations: {
+          rename(from, to) {
+            renameCount += 1;
+            if (renameCount >= 2) throw new Error('simulated process loss during activation');
+            fs.renameSync(from, to);
+          },
+        },
+      },
+    ),
+    ResetExecutionError,
+  );
+
+  const runtimeParent = path.dirname(fixture.runtime);
+  const archive = path.join(fixture.archiveRoot, 'journal-digest-tamper-world');
+  const journalPath = path.join(runtimeParent, '.world.reset-journal-digest-tamper.json');
+  write(path.join(archive, 'old-run.txt'), 'CORRUPT!');
+  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'));
+  journal.preResetRuntimeDigest = digestTree(archive).digest;
+  fs.writeFileSync(journalPath, `${JSON.stringify(journal, null, 2)}\n`);
+
+  await assert.rejects(
+    recoverWorldReset('fixture', fixture.world, 'journal-digest-tamper', {
+      fixtureExecutionCapability: fixture.fixtureCapability,
+    }),
+    (error: any) => {
+      assert.equal(error.code, 'invalid_reset_journal_authentication');
+      return true;
+    },
+  );
+  assert.equal(fs.existsSync(fixture.runtime), false);
+  assert.equal(fs.existsSync(archive), true);
+});
+
+test('recovery binds journal paths to the configured world instead of trusting editable JSON', async (t) => {
+  const fixture = makeLab(t);
+  let renameCount = 0;
+
+  await assert.rejects(
+    resetWorld(
+      'fixture',
+      fixture.world,
+      { mode: 'execute', runId: 'journal-path-tamper' },
+      {
+        ...clearProbes,
+        fixtureExecutionCapability: fixture.fixtureCapability,
+        mutationOperations: {
+          rename(from, to) {
+            renameCount += 1;
+            if (renameCount >= 2) throw new Error('simulated process loss during activation');
+            fs.renameSync(from, to);
+          },
+        },
+      },
+    ),
+    ResetExecutionError,
+  );
+
+  const runtimeParent = path.dirname(fixture.runtime);
+  const journalPath = path.join(runtimeParent, '.world.reset-journal-path-tamper.json');
+  const realArchive = path.join(fixture.archiveRoot, 'journal-path-tamper-world');
+  const forgedArchive = path.join(fixture.root, 'forged-old-world');
+  fs.renameSync(realArchive, forgedArchive);
+  const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8'));
+  journal.plan.archivePath = forgedArchive;
+  fs.writeFileSync(journalPath, `${JSON.stringify(journal, null, 2)}\n`);
+
+  await assert.rejects(
+    recoverWorldReset('fixture', fixture.world, 'journal-path-tamper', {
+      fixtureExecutionCapability: fixture.fixtureCapability,
+    }),
+    (error: any) => {
+      assert.equal(error.code, 'invalid_reset_journal_authentication');
+      return true;
+    },
+  );
+
+  assert.equal(fs.existsSync(fixture.runtime), false);
+  assert.equal(fs.existsSync(forgedArchive), true);
+  assert.equal(fs.existsSync(path.join(runtimeParent, '.world.reset.lock')), false);
 });
 
 test('activation rename failure rolls the old run back and retains the verified stage as evidence', async (t) => {
@@ -539,13 +1066,59 @@ function makeLab(t: test.TestContext) {
 
   const world: WorldLabDefinition = {
     label: 'fixture',
-    source: { path: source, expectedDigest: digestTree(source).digest },
-    preparedBaseline: { path: baseline, expectedDigest: digestTree(baseline).digest },
+    source: {
+      path: source,
+      digestProfile: TREE_DIGEST_PROFILE,
+      expectedDigest: digestTree(source).digest,
+    },
+    preparedBaseline: {
+      path: baseline,
+      digestProfile: TREE_DIGEST_PROFILE,
+      expectedDigest: digestTree(baseline).digest,
+    },
     runtime: { worldPath: runtime, archiveRoot },
     server: { host: '127.0.0.1', port: 25565 },
   };
   const fixtureCapability = createFixtureExecutionCapability(root);
   return { root, source, baseline, server, runtime, archiveRoot, world, fixtureCapability };
+}
+
+function runKilledResetChild(
+  fixture: ReturnType<typeof makeLab>,
+  runId: string,
+  killAfterRename: number,
+) {
+  const modulePath = path.resolve('dist/scripts/world-lab.js');
+  const program = `
+    const fs = require('node:fs');
+    const { createFixtureExecutionCapability, resetWorld } = require(${JSON.stringify(modulePath)});
+    const root = ${JSON.stringify(fixture.root)};
+    const world = ${JSON.stringify(fixture.world)};
+    const runId = ${JSON.stringify(runId)};
+    const killAfterRename = ${killAfterRename};
+    let renameCount = 0;
+    const clear = async () => ({ state: 'clear', probe: 'killed-child', owners: [] });
+    resetWorld('fixture', world, { mode: 'execute', runId }, {
+      probeSessionLock: clear,
+      probeListeningPort: clear,
+      fixtureExecutionCapability: createFixtureExecutionCapability(root),
+      mutationOperations: {
+        rename(from, to) {
+          renameCount += 1;
+          fs.renameSync(from, to);
+          if (renameCount === killAfterRename) process.kill(process.pid, 'SIGKILL');
+        },
+      },
+    }).then(() => process.exit(0)).catch((error) => {
+      process.stderr.write(String(error && (error.stack || error)));
+      process.exit(70);
+    });
+  `;
+  return spawnSync(process.execPath, ['-e', program], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
 }
 
 function temporaryDirectory(t: test.TestContext) {

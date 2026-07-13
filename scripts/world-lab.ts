@@ -1,16 +1,18 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 
-export const CONFIG_SCHEMA_VERSION = 1;
+export const CONFIG_SCHEMA_VERSION = 2;
 export const SESSION_LOCK = 'session.lock';
+export const TREE_DIGEST_PROFILE = 'behold-tree-v2';
 
 export interface HashedDirectory {
   path: string;
+  digestProfile: typeof TREE_DIGEST_PROFILE;
   expectedDigest: string;
 }
 
@@ -31,12 +33,13 @@ export interface WorldLabDefinition {
 }
 
 export interface WorldLabConfig {
-  schemaVersion: 1;
+  schemaVersion: 2;
   worlds: Record<string, WorldLabDefinition>;
 }
 
 export interface TreeDigest {
   algorithm: 'sha256';
+  profile: typeof TREE_DIGEST_PROFILE;
   digest: string;
   files: number;
   directories: number;
@@ -131,6 +134,7 @@ export interface ResetPlan {
   runtimePath: string;
   stagePath: string;
   archivePath: string;
+  digestProfile: typeof TREE_DIGEST_PROFILE;
   expectedBaselineDigest: string;
   operations: Array<{
     order: number;
@@ -147,7 +151,69 @@ export interface ResetResult {
   verification: WorldVerification;
   stageDigest?: string;
   archivePath?: string;
+  journalPath?: string;
 }
+
+export type ResetPhase =
+  | 'intent_recorded'
+  | 'stage_verified'
+  | 'runtime_archived'
+  | 'activated'
+  | 'completed'
+  | 'rolled_back'
+  | 'recovery_required'
+  | 'recovered_rolled_back'
+  | 'recovered_completed';
+
+export interface ResetJournal {
+  protocol: 'behold-world-lab-reset.v1';
+  world: string;
+  runId: string;
+  phase: ResetPhase;
+  plan: ResetPlan;
+  createdAt: string;
+  updatedAt: string;
+  preResetRuntimeDigest: string;
+  digestProfile: typeof TREE_DIGEST_PROFILE;
+  expectedBaselineDigest: string;
+  identities: {
+    source: ArtifactIdentity;
+    preparedBaseline: ArtifactIdentity;
+    runtime: ArtifactIdentity;
+    archiveRoot: ArtifactIdentity;
+  };
+  events: Array<{ phase: ResetPhase; at: string; detail?: string }>;
+  journalMac: string;
+}
+
+export interface ResetRecoveryResult {
+  mode: 'recovered';
+  journalPath: string;
+  journal: ResetJournal;
+  action: 'rollback_restored' | 'activation_accepted' | 'already_rolled_back';
+}
+
+type ArtifactIdentity = {
+  canonicalPath: string;
+  device: number;
+  inode: number;
+};
+
+type OperationLockRecord = {
+  protocol: 'behold-world-lab-operation-lock.v1';
+  world: string;
+  runId: string;
+  pid: number;
+  hostname: string;
+  token: string;
+  createdAt: string;
+};
+
+type HeldOperationLock = {
+  path: string;
+  token: string;
+  release(): void;
+};
 
 export interface WorldLabProbes {
   probeSessionLock(lockPath: string): Promise<OwnershipEvidence>;
@@ -201,6 +267,7 @@ export class ResetExecutionError extends WorldLabError {
     rollbackAttempted: boolean;
     rollbackSucceeded: boolean;
     rollbackError?: string;
+    journalPath?: string;
   };
 
   constructor(message: string, evidence: ResetExecutionError['evidence']) {
@@ -211,6 +278,8 @@ export class ResetExecutionError extends WorldLabError {
 }
 
 const issuedFixtureCapabilities = new WeakSet<object>();
+const fixtureAuthorityKeys = new WeakMap<object, Buffer>();
+const FIXTURE_AUTHORITY_KEY_FILE = '.behold-world-lab-authority.key';
 
 /**
  * Grants mutation authority only for a freshly-created world-lab directory
@@ -244,8 +313,78 @@ export function createFixtureExecutionCapability(rootPath: string): FixtureExecu
     device: root.device!,
     inode: root.inode!,
   });
+  const authorityKey = loadOrCreateFixtureAuthorityKey(root.canonicalPath);
   issuedFixtureCapabilities.add(capability);
+  fixtureAuthorityKeys.set(capability, authorityKey);
   return capability;
+}
+
+function loadOrCreateFixtureAuthorityKey(root: string) {
+  const keyPath = path.join(root, FIXTURE_AUTHORITY_KEY_FILE);
+  let descriptor: number | null = null;
+  try {
+    descriptor = fs.openSync(keyPath, 'wx', 0o600);
+    const key = randomBytes(32);
+    fs.writeFileSync(descriptor, key);
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = null;
+    fsyncDirectory(root);
+  } catch (error: any) {
+    if (descriptor !== null) fs.closeSync(descriptor);
+    if (error?.code !== 'EEXIST') throw error;
+  }
+
+  return readFixtureAuthorityKey(root);
+}
+
+function readFixtureAuthorityKey(root: string) {
+  const keyPath = path.join(root, FIXTURE_AUTHORITY_KEY_FILE);
+  const stats = fs.lstatSync(keyPath);
+  if (
+    !stats.isFile() ||
+    stats.isSymbolicLink() ||
+    stats.size !== 32 ||
+    (stats.mode & 0o077) !== 0
+  ) {
+    throw new WorldLabError(
+      'Fixture reset authority key must be a private 32-byte regular file',
+      'fixture_authority_key_invalid',
+      { keyPath, mode: stats.mode & 0o777, size: stats.size },
+    );
+  }
+  return fs.readFileSync(keyPath);
+}
+
+function requireFixtureAuthorityKey(capability: FixtureExecutionCapability | undefined) {
+  if (!capability || !issuedFixtureCapabilities.has(capability)) {
+    throw new SafetyRefusal(['fixture_execution_capability_required'], {});
+  }
+  const expectedKey = fixtureAuthorityKeys.get(capability);
+  const currentRoot = canonicalizeDirectory('runtime_world', capability.root);
+  let currentKey: Buffer | null = null;
+  try {
+    currentKey = readFixtureAuthorityKey(capability.canonicalRoot);
+  } catch {
+    // Report the same fail-closed capability error without leaking key material.
+  }
+  if (
+    !expectedKey ||
+    !currentKey ||
+    currentKey.length !== expectedKey.length ||
+    !timingSafeEqual(currentKey, expectedKey) ||
+    currentRoot.error ||
+    currentRoot.canonicalPath !== capability.canonicalRoot ||
+    currentRoot.device !== capability.device ||
+    currentRoot.inode !== capability.inode
+  ) {
+    throw new SafetyRefusal(['fixture_execution_capability_invalid'], {
+      capability,
+      currentRoot,
+      authorityKeyAvailable: currentKey !== null,
+    });
+  }
+  return expectedKey;
 }
 
 const defaultMutationOperations: MutationOperations = {
@@ -256,7 +395,7 @@ const defaultMutationOperations: MutationOperations = {
       errorOnExist: true,
       preserveTimestamps: true,
       dereference: false,
-      filter: (entry) => path.basename(entry) !== SESSION_LOCK,
+      filter: (entry) => portableRelative(from, entry) !== SESSION_LOCK,
     });
   },
   makeDirectory(target) {
@@ -286,61 +425,25 @@ const defaultProbes: WorldLabProbes = {
 };
 
 /**
- * Hashes file content and relative paths, not mtimes, ownership, absolute paths,
- * or empty directories. Minecraft's ephemeral session.lock is not included.
+ * Hashes file content, entry types, and relative paths, including empty
+ * directories. Only Minecraft's root session.lock is excluded. Entry metadata
+ * is sampled before and after hashing as a whole-tree generation fence.
  */
 export function digestTree(rootPath: string): TreeDigest {
   const root = path.resolve(rootPath);
   assertPlainDirectory(root, 'digest_root');
 
-  const entries: Array<{ type: 'directory' | 'file'; relative: string; full: string }> = [];
-  const excluded: string[] = [];
-
-  function walk(directory: string) {
-    const children = fs
-      .readdirSync(directory, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name, 'en'));
-    for (const child of children) {
-      const full = path.join(directory, child.name);
-      const relative = portableRelative(root, full);
-      if (child.name === SESSION_LOCK) {
-        excluded.push(relative);
-        continue;
-      }
-      if (child.isSymbolicLink()) {
-        throw new WorldLabError(
-          `Refusing to hash symbolic link: ${full}`,
-          'symbolic_link_refused',
-          { path: full },
-        );
-      }
-      if (child.isDirectory()) {
-        entries.push({ type: 'directory', relative, full });
-        walk(full);
-      } else if (child.isFile()) {
-        entries.push({ type: 'file', relative, full });
-      } else {
-        throw new WorldLabError(
-          `Unsupported filesystem entry: ${full}`,
-          'unsupported_filesystem_entry',
-          { path: full },
-        );
-      }
-    }
-  }
-
-  walk(root);
-  entries.sort((a, b) => Buffer.compare(Buffer.from(a.relative), Buffer.from(b.relative)));
-  excluded.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  const initial = scanDigestTree(root);
 
   const tree = createHash('sha256');
   let files = 0;
   let directories = 0;
   let bytes = 0;
 
-  for (const entry of entries) {
+  for (const entry of initial.entries) {
     if (entry.type === 'directory') {
       directories += 1;
+      tree.update(`D  ./${entry.relative}/\n`);
       continue;
     }
 
@@ -353,35 +456,121 @@ export function digestTree(rootPath: string): TreeDigest {
     }
 
     const before = fs.statSync(entry.full);
+    assertDigestEntryUnchanged(entry, before);
     const contents = fs.readFileSync(entry.full);
     const after = fs.statSync(entry.full);
-    if (
-      before.size !== after.size ||
-      before.mtimeMs !== after.mtimeMs ||
-      before.ino !== after.ino
-    ) {
-      throw new WorldLabError(
-        `File changed while it was being hashed: ${entry.full}`,
-        'tree_changed_during_digest',
-        { path: entry.full },
-      );
-    }
+    assertDigestEntryUnchanged(entry, after);
 
     const fileDigest = createHash('sha256').update(contents).digest('hex');
     files += 1;
     bytes += contents.byteLength;
-    tree.update(fileDigest);
-    tree.update(`  ./${entry.relative}\n`);
+    tree.update(`F ${fileDigest}  ./${entry.relative}\n`);
+  }
+
+  const final = scanDigestTree(root);
+  if (digestGeneration(initial.entries) !== digestGeneration(final.entries)) {
+    throw new WorldLabError(
+      `Tree changed while it was being hashed: ${root}`,
+      'tree_changed_during_digest',
+      { path: root },
+    );
   }
 
   return {
     algorithm: 'sha256',
+    profile: TREE_DIGEST_PROFILE,
     digest: tree.digest('hex'),
     files,
     directories,
     bytes,
-    excluded,
+    excluded: initial.excluded,
   };
+}
+
+type DigestTreeEntry = {
+  type: 'directory' | 'file';
+  relative: string;
+  full: string;
+  device: number;
+  inode: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+};
+
+function scanDigestTree(root: string) {
+  const entries: DigestTreeEntry[] = [];
+  const excluded: string[] = [];
+
+  function walk(directory: string) {
+    const children = fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name, 'en'));
+    for (const child of children) {
+      const full = path.join(directory, child.name);
+      const relative = portableRelative(root, full);
+      if (relative === SESSION_LOCK) {
+        excluded.push(relative);
+        continue;
+      }
+      if (child.isSymbolicLink()) {
+        throw new WorldLabError(
+          `Refusing to hash symbolic link: ${full}`,
+          'symbolic_link_refused',
+          { path: full },
+        );
+      }
+      if (!child.isDirectory() && !child.isFile()) {
+        throw new WorldLabError(
+          `Unsupported filesystem entry: ${full}`,
+          'unsupported_filesystem_entry',
+          { path: full },
+        );
+      }
+      const stats = fs.statSync(full);
+      entries.push({
+        type: child.isDirectory() ? 'directory' : 'file',
+        relative,
+        full,
+        device: stats.dev,
+        inode: stats.ino,
+        size: stats.size,
+        mtimeMs: stats.mtimeMs,
+        ctimeMs: stats.ctimeMs,
+      });
+      if (child.isDirectory()) walk(full);
+    }
+  }
+
+  walk(root);
+  entries.sort((a, b) => Buffer.compare(Buffer.from(a.relative), Buffer.from(b.relative)));
+  excluded.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  return { entries, excluded };
+}
+
+function assertDigestEntryUnchanged(entry: DigestTreeEntry, stats: fs.Stats) {
+  if (
+    entry.device !== stats.dev ||
+    entry.inode !== stats.ino ||
+    entry.size !== stats.size ||
+    entry.mtimeMs !== stats.mtimeMs ||
+    entry.ctimeMs !== stats.ctimeMs
+  ) {
+    throw new WorldLabError(
+      `Filesystem entry changed while it was being hashed: ${entry.full}`,
+      'tree_changed_during_digest',
+      { path: entry.full },
+    );
+  }
+}
+
+function digestGeneration(entries: DigestTreeEntry[]) {
+  return entries
+    .map(
+      (entry) =>
+        `${entry.type}\0${entry.relative}\0${entry.device}\0${entry.inode}\0${entry.size}\0${entry.mtimeMs}\0${entry.ctimeMs}`,
+    )
+    .join('\n');
 }
 
 export function loadWorldLabConfig(configPath: string): WorldLabConfig {
@@ -604,6 +793,7 @@ function createResetPlanFromTopology(
     runtimePath,
     stagePath,
     archivePath,
+    digestProfile: TREE_DIGEST_PROFILE,
     expectedBaselineDigest: world.preparedBaseline.expectedDigest,
     operations: [
       {
@@ -650,7 +840,8 @@ export async function resetWorld(
   options: { mode: 'dry-run' | 'execute'; runId?: string },
   dependencies: WorldLabDependencies = {},
 ): Promise<ResetResult> {
-  const runId = options.runId || defaultRunId((dependencies.now || (() => new Date()))());
+  const clock = dependencies.now || (() => new Date());
+  const runId = options.runId || defaultRunId(clock());
   const verification = await verifyWorld(worldId, world, dependencies);
   if (!verification.resetReady) throw new SafetyRefusal(verification.blockers, verification);
   const plan = createResetPlanFromTopology(worldId, world, runId, verification.runtime.topology);
@@ -665,68 +856,973 @@ export async function resetWorld(
 
   if (options.mode === 'dry-run') return { mode: 'dry-run', plan, verification };
 
-  assertFixtureExecutionCapability(dependencies.fixtureExecutionCapability, plan, verification);
+  const authorityKey = assertFixtureExecutionCapability(
+    dependencies.fixtureExecutionCapability,
+    plan,
+    verification,
+  );
+  const control = resetControlPaths(plan);
+  const operationLock = acquireOperationLock(control.lockPath, worldId, runId, clock());
+  try {
+    const unresolved = findUnresolvedResetJournals(plan.runtimePath, authorityKey);
+    if (unresolved.length) {
+      throw new SafetyRefusal(['unresolved_reset_transaction'], { plan, unresolved });
+    }
+    if (fs.existsSync(control.journalPath)) {
+      throw new SafetyRefusal(['reset_journal_already_exists'], { plan, control });
+    }
+    if (fs.existsSync(plan.stagePath)) {
+      throw new SafetyRefusal(['staging_path_already_exists'], { plan });
+    }
+    if (fs.existsSync(plan.archivePath)) {
+      throw new SafetyRefusal(['archive_path_already_exists'], { plan });
+    }
 
-  const mutation = {
-    ...defaultMutationOperations,
-    ...(dependencies.mutationOperations || {}),
-  };
-  mutation.makeDirectory(path.dirname(plan.archivePath));
-  mutation.copyDirectory(plan.baselinePath, plan.stagePath);
+    const lockedVerification = await verifyWorld(worldId, world, dependencies);
+    if (!lockedVerification.resetReady) {
+      throw new SafetyRefusal(lockedVerification.blockers, { plan, lockedVerification });
+    }
+    assertTopologyIdentityUnchanged(
+      verification.runtime.topology,
+      lockedVerification.runtime.topology,
+    );
 
-  const stageDigest = digestTree(plan.stagePath).digest;
-  if (stageDigest !== plan.expectedBaselineDigest) {
+    const mutation = {
+      ...defaultMutationOperations,
+      ...(dependencies.mutationOperations || {}),
+    };
+    fsyncTree(plan.runtimePath);
+    const preResetRuntimeDigest = digestTree(plan.runtimePath).digest;
+    let journal = createResetJournal(
+      worldId,
+      plan,
+      lockedVerification.runtime.topology,
+      preResetRuntimeDigest,
+      clock(),
+      authorityKey,
+    );
+    durableWriteJson(control.journalPath, journal);
+
+    let stageDigest: string | undefined;
+    try {
+      mutation.makeDirectory(path.dirname(plan.archivePath));
+      mutation.copyDirectory(plan.baselinePath, plan.stagePath);
+      fsyncTree(plan.stagePath);
+
+      stageDigest = digestTree(plan.stagePath).digest;
+      if (stageDigest !== plan.expectedBaselineDigest) {
+        throw new WorldLabError(
+          `Staged baseline digest mismatch: expected ${plan.expectedBaselineDigest}, got ${stageDigest}`,
+          'staged_digest_mismatch',
+          { plan, stageDigest },
+        );
+      }
+      journal = advanceResetJournal(
+        control.journalPath,
+        journal,
+        'stage_verified',
+        clock(),
+        authorityKey,
+      );
+
+      // Repeat lock, port, digest, and identity evidence immediately before
+      // activation while this process still holds the per-runtime fence.
+      const activationGate = await verifyWorld(worldId, world, dependencies);
+      if (!activationGate.resetReady) {
+        throw new SafetyRefusal(activationGate.blockers, { plan, activationGate });
+      }
+      assertTopologyIdentityUnchanged(
+        lockedVerification.runtime.topology,
+        activationGate.runtime.topology,
+      );
+      const runtimeDigestBeforeArchive = digestTree(plan.runtimePath).digest;
+      if (runtimeDigestBeforeArchive !== preResetRuntimeDigest) {
+        throw new SafetyRefusal(['runtime_changed_during_reset'], {
+          plan,
+          preResetRuntimeDigest,
+          runtimeDigestBeforeArchive,
+        });
+      }
+      const stageDigestBeforeActivation = digestTree(plan.stagePath).digest;
+      if (stageDigestBeforeActivation !== plan.expectedBaselineDigest) {
+        throw new SafetyRefusal(['stage_changed_before_activation'], {
+          plan,
+          stageDigestBeforeActivation,
+        });
+      }
+
+      durableRename(mutation, plan.runtimePath, plan.archivePath);
+      journal = advanceResetJournal(
+        control.journalPath,
+        journal,
+        'runtime_archived',
+        clock(),
+        authorityKey,
+      );
+      durableRename(mutation, plan.stagePath, plan.runtimePath);
+      journal = advanceResetJournal(
+        control.journalPath,
+        journal,
+        'activated',
+        clock(),
+        authorityKey,
+      );
+
+      const activatedDigest = digestTree(plan.runtimePath).digest;
+      if (activatedDigest !== plan.expectedBaselineDigest) {
+        throw new WorldLabError(
+          `Activated baseline digest mismatch: expected ${plan.expectedBaselineDigest}, got ${activatedDigest}`,
+          'activated_digest_mismatch',
+          { plan, activatedDigest },
+        );
+      }
+      journal = advanceResetJournal(
+        control.journalPath,
+        journal,
+        'completed',
+        clock(),
+        authorityKey,
+      );
+    } catch (activationError: any) {
+      const rollback = attemptResetRollback(plan, mutation, preResetRuntimeDigest);
+      journal = advanceResetJournal(
+        control.journalPath,
+        journal,
+        rollback.succeeded ? 'rolled_back' : 'recovery_required',
+        clock(),
+        authorityKey,
+        String(activationError?.message || activationError),
+      );
+      throw new ResetExecutionError(
+        rollback.succeeded
+          ? 'Baseline activation failed; the previous run remains active'
+          : 'Baseline activation failed and rollback did not restore the previous run',
+        {
+          plan,
+          activationError: String(activationError?.message || activationError),
+          rollbackAttempted: rollback.attempted,
+          rollbackSucceeded: rollback.succeeded,
+          rollbackError: rollback.errors.length ? rollback.errors.join('; ') : undefined,
+          journalPath: control.journalPath,
+        },
+      );
+    }
+
+    return {
+      mode: 'executed',
+      plan,
+      verification: lockedVerification,
+      stageDigest,
+      archivePath: plan.archivePath,
+      journalPath: control.journalPath,
+    };
+  } finally {
+    operationLock.release();
+  }
+}
+
+export async function recoverWorldReset(
+  worldId: string,
+  world: WorldLabDefinition,
+  runId: string,
+  dependencies: WorldLabDependencies = {},
+): Promise<ResetRecoveryResult> {
+  assertSafeRunId(runId);
+  const clock = dependencies.now || (() => new Date());
+  const control = resetControlPathsForRuntime(path.resolve(world.runtime.worldPath), runId);
+  const authorityKey = requireFixtureAuthorityKey(dependencies.fixtureExecutionCapability);
+  const journal = readResetJournal(control.journalPath, worldId, runId, authorityKey);
+  if (TERMINAL_RESET_PHASES.has(journal.phase)) {
+    throw new SafetyRefusal(['reset_journal_already_terminal'], {
+      journalPath: control.journalPath,
+      phase: journal.phase,
+    });
+  }
+  assertRecoveryPlanMatchesWorld(journal, world);
+  assertFixtureRecoveryCapability(dependencies.fixtureExecutionCapability, journal.plan, control);
+  removeDemonstrablyStaleOperationLock(control.lockPath);
+  const operationLock = acquireOperationLock(control.lockPath, worldId, runId, clock());
+  try {
+    const mutation = {
+      ...defaultMutationOperations,
+      ...(dependencies.mutationOperations || {}),
+    };
+    const runtimeExists = fs.existsSync(journal.plan.runtimePath);
+    const archiveExists = fs.existsSync(journal.plan.archivePath);
+
+    if (!runtimeExists && archiveExists) {
+      const archiveDigest = digestTree(journal.plan.archivePath).digest;
+      if (archiveDigest !== journal.preResetRuntimeDigest) {
+        throw new SafetyRefusal(['recovery_archive_digest_mismatch'], {
+          journal,
+          archiveDigest,
+        });
+      }
+      durableRename(mutation, journal.plan.archivePath, journal.plan.runtimePath);
+      const restoredDigest = digestTree(journal.plan.runtimePath).digest;
+      if (restoredDigest !== journal.preResetRuntimeDigest) {
+        throw new SafetyRefusal(['recovered_runtime_digest_mismatch'], {
+          journal,
+          restoredDigest,
+        });
+      }
+      const recovered = advanceResetJournal(
+        control.journalPath,
+        journal,
+        'recovered_rolled_back',
+        clock(),
+        authorityKey,
+        'archive restored because runtime was absent',
+      );
+      return {
+        mode: 'recovered',
+        journalPath: control.journalPath,
+        journal: recovered,
+        action: 'rollback_restored',
+      };
+    }
+
+    if (runtimeExists && archiveExists) {
+      const runtimeDigest = digestTree(journal.plan.runtimePath).digest;
+      const archiveDigest = digestTree(journal.plan.archivePath).digest;
+      if (
+        runtimeDigest !== journal.expectedBaselineDigest ||
+        archiveDigest !== journal.preResetRuntimeDigest
+      ) {
+        throw new SafetyRefusal(['ambiguous_runtime_and_archive_state'], {
+          journal,
+          runtimeDigest,
+          archiveDigest,
+        });
+      }
+      const recovered = advanceResetJournal(
+        control.journalPath,
+        journal,
+        'recovered_completed',
+        clock(),
+        authorityKey,
+        'activated runtime matches the prepared baseline and the prior run archive exists',
+      );
+      return {
+        mode: 'recovered',
+        journalPath: control.journalPath,
+        journal: recovered,
+        action: 'activation_accepted',
+      };
+    }
+
+    if (runtimeExists && !archiveExists) {
+      const runtimeDigest = digestTree(journal.plan.runtimePath).digest;
+      if (runtimeDigest !== journal.preResetRuntimeDigest) {
+        throw new SafetyRefusal(['runtime_without_expected_archive_is_ambiguous'], {
+          journal,
+          runtimeDigest,
+        });
+      }
+      const recovered = advanceResetJournal(
+        control.journalPath,
+        journal,
+        'recovered_rolled_back',
+        clock(),
+        authorityKey,
+        'pre-reset runtime was already present and no archive existed',
+      );
+      return {
+        mode: 'recovered',
+        journalPath: control.journalPath,
+        journal: recovered,
+        action: 'already_rolled_back',
+      };
+    }
+
+    throw new SafetyRefusal(['runtime_and_archive_missing'], { journal });
+  } finally {
+    operationLock.release();
+  }
+}
+
+function createResetJournal(
+  worldId: string,
+  plan: ResetPlan,
+  topology: TopologyEvidence,
+  preResetRuntimeDigest: string,
+  at: Date,
+  authorityKey: Buffer,
+): ResetJournal {
+  const timestamp = at.toISOString();
+  return authenticateResetJournal(
+    {
+      protocol: 'behold-world-lab-reset.v1',
+      world: worldId,
+      runId: plan.runId,
+      phase: 'intent_recorded',
+      plan,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      preResetRuntimeDigest,
+      digestProfile: TREE_DIGEST_PROFILE,
+      expectedBaselineDigest: plan.expectedBaselineDigest,
+      identities: {
+        source: artifactIdentity(topology.artifacts.source),
+        preparedBaseline: artifactIdentity(topology.artifacts.preparedBaseline!),
+        runtime: artifactIdentity(topology.artifacts.runtime),
+        archiveRoot: artifactIdentity(topology.artifacts.archiveRoot),
+      },
+      events: [{ phase: 'intent_recorded', at: timestamp }],
+    },
+    authorityKey,
+  );
+}
+
+function advanceResetJournal(
+  journalPath: string,
+  journal: ResetJournal,
+  phase: ResetPhase,
+  at: Date,
+  authorityKey: Buffer,
+  detail?: string,
+) {
+  const timestamp = at.toISOString();
+  const { journalMac: _priorMac, ...prior } = journal;
+  const next = authenticateResetJournal(
+    {
+      ...prior,
+      phase,
+      updatedAt: timestamp,
+      events: [...journal.events, { phase, at: timestamp, ...(detail ? { detail } : {}) }],
+    },
+    authorityKey,
+  );
+  durableWriteJson(journalPath, next);
+  return next;
+}
+
+const RESET_PHASES = new Set<ResetPhase>([
+  'intent_recorded',
+  'stage_verified',
+  'runtime_archived',
+  'activated',
+  'completed',
+  'rolled_back',
+  'recovery_required',
+  'recovered_rolled_back',
+  'recovered_completed',
+]);
+const TERMINAL_RESET_PHASES = new Set<ResetPhase>([
+  'completed',
+  'rolled_back',
+  'recovered_rolled_back',
+  'recovered_completed',
+]);
+
+function authenticateResetJournal(
+  journal: Omit<ResetJournal, 'journalMac'>,
+  authorityKey: Buffer,
+): ResetJournal {
+  const journalMac = createHmac('sha256', authorityKey)
+    .update(JSON.stringify(journal))
+    .digest('hex');
+  return { ...journal, journalMac };
+}
+
+function verifyResetJournalMac(parsed: Record<string, any>, authorityKey: Buffer) {
+  if (typeof parsed.journalMac !== 'string' || !/^[a-f0-9]{64}$/.test(parsed.journalMac)) {
     throw new WorldLabError(
-      `Staged baseline digest mismatch: expected ${plan.expectedBaselineDigest}, got ${stageDigest}`,
-      'staged_digest_mismatch',
-      { plan, stageDigest },
+      'Reset journal has no valid authority MAC',
+      'invalid_reset_journal_authentication',
     );
   }
+  const { journalMac, ...unsigned } = parsed;
+  const expected = createHmac('sha256', authorityKey).update(JSON.stringify(unsigned)).digest();
+  const actual = Buffer.from(journalMac, 'hex');
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    throw new WorldLabError(
+      'Reset journal authority MAC does not match its contents',
+      'invalid_reset_journal_authentication',
+    );
+  }
+}
 
-  // Repeat the evidence probes after copying. This is defense in depth for the
-  // temporary-fixture seam, not a claim of lifecycle-safe real execution.
-  const secondGate = await statusWorld(worldId, world, dependencies);
-  if (!secondGate.safe) throw new SafetyRefusal(secondGate.blockers, { plan, secondGate });
-
-  let archived = false;
+function readResetJournal(
+  journalPath: string,
+  worldId: string | null,
+  runId: string | null,
+  authorityKey: Buffer,
+): ResetJournal {
+  let parsed: any;
   try {
-    mutation.rename(plan.runtimePath, plan.archivePath);
-    archived = true;
-    mutation.rename(plan.stagePath, plan.runtimePath);
-  } catch (activationError: any) {
-    let rollbackAttempted = false;
-    let rollbackSucceeded = false;
-    let rollbackError: string | undefined;
-    if (archived) {
-      rollbackAttempted = true;
-      try {
-        mutation.rename(plan.archivePath, plan.runtimePath);
-        rollbackSucceeded = true;
-      } catch (error: any) {
-        rollbackError = String(error?.message || error);
-      }
+    if (fs.statSync(journalPath).size > 1_048_576) {
+      throw new Error('journal exceeds 1 MiB');
     }
-    throw new ResetExecutionError(
-      rollbackSucceeded
-        ? 'Baseline activation failed; the previous run was restored'
-        : 'Baseline activation failed and rollback did not restore the previous run',
+    parsed = JSON.parse(fs.readFileSync(journalPath, 'utf8'));
+  } catch (error: any) {
+    throw new WorldLabError(
+      `Could not read reset journal ${journalPath}: ${error?.message || String(error)}`,
+      'reset_journal_unavailable',
+      { journalPath },
+    );
+  }
+  if (!isRecord(parsed)) {
+    throw new WorldLabError('Reset journal must be an object', 'invalid_reset_journal', {
+      journalPath,
+    });
+  }
+  verifyResetJournalMac(parsed, authorityKey);
+  validateResetJournalSchema(parsed, journalPath);
+  if (
+    (worldId !== null && parsed.world !== worldId) ||
+    (runId !== null && parsed.runId !== runId)
+  ) {
+    throw new WorldLabError(
+      'Reset journal identity does not match the requested recovery',
+      'invalid_reset_journal',
       {
-        plan,
-        activationError: String(activationError?.message || activationError),
-        rollbackAttempted,
-        rollbackSucceeded,
-        rollbackError,
+        journalPath,
+        worldId,
+        runId,
       },
     );
   }
+  return parsed as ResetJournal;
+}
 
-  return {
-    mode: 'executed',
-    plan,
-    verification,
-    stageDigest,
-    archivePath: plan.archivePath,
+function validateResetJournalSchema(parsed: Record<string, any>, journalPath: string) {
+  const digest = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  const timestamp = (value: unknown) =>
+    typeof value === 'string' && Number.isFinite(Date.parse(value));
+  const identity = (value: unknown) =>
+    isRecord(value) &&
+    typeof value.canonicalPath === 'string' &&
+    path.isAbsolute(value.canonicalPath) &&
+    Number.isInteger(value.device) &&
+    Number.isInteger(value.inode);
+  const plan = parsed.plan;
+  const identities = parsed.identities;
+  const events = parsed.events;
+  if (
+    parsed.protocol !== 'behold-world-lab-reset.v1' ||
+    typeof parsed.world !== 'string' ||
+    typeof parsed.runId !== 'string' ||
+    !RESET_PHASES.has(parsed.phase) ||
+    parsed.digestProfile !== TREE_DIGEST_PROFILE ||
+    !digest(parsed.preResetRuntimeDigest) ||
+    !digest(parsed.expectedBaselineDigest) ||
+    !timestamp(parsed.createdAt) ||
+    !timestamp(parsed.updatedAt) ||
+    !isRecord(plan) ||
+    plan.world !== parsed.world ||
+    plan.runId !== parsed.runId ||
+    plan.digestProfile !== TREE_DIGEST_PROFILE ||
+    !digest(plan.expectedBaselineDigest) ||
+    plan.expectedBaselineDigest !== parsed.expectedBaselineDigest ||
+    ![plan.baselinePath, plan.runtimePath, plan.stagePath, plan.archivePath].every(
+      (candidate) => typeof candidate === 'string' && path.isAbsolute(candidate),
+    ) ||
+    !Array.isArray(plan.operations) ||
+    !isRecord(identities) ||
+    !identity(identities.source) ||
+    !identity(identities.preparedBaseline) ||
+    !identity(identities.runtime) ||
+    !identity(identities.archiveRoot) ||
+    !Array.isArray(events) ||
+    events.length === 0
+  ) {
+    throw new WorldLabError('Reset journal schema is invalid', 'invalid_reset_journal', {
+      journalPath,
+    });
+  }
+
+  let previous: ResetPhase | null = null;
+  for (const event of events) {
+    if (
+      !isRecord(event) ||
+      !RESET_PHASES.has(event.phase) ||
+      !timestamp(event.at) ||
+      (event.detail !== undefined && typeof event.detail !== 'string') ||
+      !validResetPhaseTransition(previous, event.phase)
+    ) {
+      throw new WorldLabError('Reset journal phase history is invalid', 'invalid_reset_journal', {
+        journalPath,
+        previous,
+        event,
+      });
+    }
+    previous = event.phase;
+  }
+  if (
+    events[0].phase !== 'intent_recorded' ||
+    events[0].at !== parsed.createdAt ||
+    events.at(-1).phase !== parsed.phase ||
+    events.at(-1).at !== parsed.updatedAt
+  ) {
+    throw new WorldLabError('Reset journal phase endpoints are invalid', 'invalid_reset_journal', {
+      journalPath,
+    });
+  }
+}
+
+function validResetPhaseTransition(previous: ResetPhase | null, next: ResetPhase) {
+  if (previous === null) return next === 'intent_recorded';
+  const ordinary: Partial<Record<ResetPhase, ResetPhase[]>> = {
+    intent_recorded: [
+      'stage_verified',
+      'rolled_back',
+      'recovery_required',
+      'recovered_rolled_back',
+      'recovered_completed',
+    ],
+    stage_verified: [
+      'runtime_archived',
+      'rolled_back',
+      'recovery_required',
+      'recovered_rolled_back',
+      'recovered_completed',
+    ],
+    runtime_archived: [
+      'activated',
+      'rolled_back',
+      'recovery_required',
+      'recovered_rolled_back',
+      'recovered_completed',
+    ],
+    activated: [
+      'completed',
+      'rolled_back',
+      'recovery_required',
+      'recovered_rolled_back',
+      'recovered_completed',
+    ],
+    recovery_required: ['recovered_rolled_back', 'recovered_completed'],
   };
+  return ordinary[previous]?.includes(next) ?? false;
+}
+
+function findUnresolvedResetJournals(runtimePath: string, authorityKey: Buffer) {
+  const parent = fs.realpathSync.native(path.dirname(path.resolve(runtimePath)));
+  const prefix = `.${path.basename(runtimePath)}.reset-`;
+  const unresolved: Array<Record<string, unknown>> = [];
+  for (const entry of fs.readdirSync(parent, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.startsWith(prefix) || !entry.name.endsWith('.json'))
+      continue;
+    const journalPath = path.join(parent, entry.name);
+    try {
+      const journal = readResetJournal(journalPath, null, null, authorityKey);
+      if (!TERMINAL_RESET_PHASES.has(journal.phase)) {
+        unresolved.push({
+          journalPath,
+          world: journal.world,
+          runId: journal.runId,
+          phase: journal.phase,
+        });
+      }
+    } catch (error: any) {
+      unresolved.push({
+        journalPath,
+        error: error instanceof WorldLabError ? error.code : String(error?.message || error),
+      });
+    }
+  }
+  return unresolved;
+}
+
+function assertRecoveryPlanMatchesWorld(journal: ResetJournal, world: WorldLabDefinition) {
+  if (!world.preparedBaseline) {
+    throw new SafetyRefusal(['reset_journal_world_mismatch'], {
+      reason: 'prepared_baseline_missing',
+    });
+  }
+  const configuredRuntimeParent = fs.realpathSync.native(
+    path.dirname(path.resolve(world.runtime.worldPath)),
+  );
+  const configuredSource = canonicalizeDirectory('source', world.source.path);
+  const configuredBaseline = canonicalizeDirectory(
+    'prepared_baseline',
+    world.preparedBaseline.path,
+  );
+  const configuredArchiveRoot = canonicalizeDirectory('archive_root', world.runtime.archiveRoot);
+  const expectedRuntime = path.join(
+    configuredRuntimeParent,
+    path.basename(world.runtime.worldPath),
+  );
+  const expectedStage = path.join(
+    configuredRuntimeParent,
+    `.${path.basename(expectedRuntime)}.stage-${journal.runId}`,
+  );
+  const expectedArchive = configuredArchiveRoot.canonicalPath
+    ? path.join(
+        configuredArchiveRoot.canonicalPath,
+        `${journal.runId}-${path.basename(expectedRuntime)}`,
+      )
+    : null;
+  const expectedBaselineDigest = world.preparedBaseline.expectedDigest;
+  const currentIdentities = {
+    source: canonicalIdentityAvailable(configuredSource)
+      ? artifactIdentity(configuredSource)
+      : null,
+    preparedBaseline: canonicalIdentityAvailable(configuredBaseline)
+      ? artifactIdentity(configuredBaseline)
+      : null,
+    archiveRoot: canonicalIdentityAvailable(configuredArchiveRoot)
+      ? artifactIdentity(configuredArchiveRoot)
+      : null,
+  };
+  if (
+    journal.plan.world !== journal.world ||
+    journal.plan.runId !== journal.runId ||
+    journal.plan.runtimePath !== expectedRuntime ||
+    journal.plan.stagePath !== expectedStage ||
+    journal.plan.archivePath !== expectedArchive ||
+    journal.plan.baselinePath !== configuredBaseline.canonicalPath ||
+    journal.digestProfile !== TREE_DIGEST_PROFILE ||
+    journal.plan.digestProfile !== TREE_DIGEST_PROFILE ||
+    world.source.digestProfile !== TREE_DIGEST_PROFILE ||
+    world.preparedBaseline.digestProfile !== TREE_DIGEST_PROFILE ||
+    expectedBaselineDigest !== journal.expectedBaselineDigest ||
+    expectedBaselineDigest !== journal.plan.expectedBaselineDigest ||
+    !sameArtifactRecord(journal.identities?.source, currentIdentities.source) ||
+    !sameArtifactRecord(journal.identities?.preparedBaseline, currentIdentities.preparedBaseline) ||
+    !sameArtifactRecord(journal.identities?.archiveRoot, currentIdentities.archiveRoot)
+  ) {
+    throw new SafetyRefusal(['reset_journal_world_mismatch'], {
+      journalWorld: journal.world,
+      planWorld: journal.plan.world,
+      journalRunId: journal.runId,
+      planRunId: journal.plan.runId,
+      journalRuntime: journal.plan.runtimePath,
+      expectedRuntime,
+      journalStage: journal.plan.stagePath,
+      expectedStage,
+      journalArchive: journal.plan.archivePath,
+      expectedArchive,
+      journalBaseline: journal.plan.baselinePath,
+      expectedBaseline: configuredBaseline.canonicalPath,
+      journalBaselineDigest: journal.expectedBaselineDigest,
+      expectedBaselineDigest,
+      journalDigestProfile: journal.digestProfile,
+      journalIdentities: journal.identities,
+      currentIdentities,
+    });
+  }
+}
+
+function sameArtifactRecord(
+  left: ArtifactIdentity | null | undefined,
+  right: ArtifactIdentity | null | undefined,
+) {
+  return Boolean(
+    left &&
+      right &&
+      left.canonicalPath === right.canonicalPath &&
+      left.device === right.device &&
+      left.inode === right.inode,
+  );
+}
+
+function resetControlPaths(plan: ResetPlan) {
+  return resetControlPathsForRuntime(plan.runtimePath, plan.runId);
+}
+
+function resetControlPathsForRuntime(runtimePath: string, runId: string) {
+  const runtimeParent = fs.realpathSync.native(path.dirname(path.resolve(runtimePath)));
+  const runtimeName = path.basename(runtimePath);
+  return {
+    lockPath: path.join(runtimeParent, `.${runtimeName}.reset.lock`),
+    journalPath: path.join(runtimeParent, `.${runtimeName}.reset-${runId}.json`),
+  };
+}
+
+function acquireOperationLock(
+  lockPath: string,
+  worldId: string,
+  runId: string,
+  at: Date,
+): HeldOperationLock {
+  const record: OperationLockRecord = {
+    protocol: 'behold-world-lab-operation-lock.v1',
+    world: worldId,
+    runId,
+    pid: process.pid,
+    hostname: os.hostname(),
+    token: randomUUID(),
+    createdAt: at.toISOString(),
+  };
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(lockPath, 'wx', 0o600);
+  } catch (error: any) {
+    if (error?.code === 'EEXIST') {
+      throw new SafetyRefusal(['reset_operation_locked'], {
+        lockPath,
+        owner: readJsonIfPresent(lockPath),
+      });
+    }
+    throw error;
+  }
+  try {
+    fs.writeFileSync(descriptor, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+    fs.fsyncSync(descriptor);
+    fsyncDirectory(path.dirname(lockPath));
+  } catch (error) {
+    fs.closeSync(descriptor);
+    fs.rmSync(lockPath, { force: true });
+    throw error;
+  }
+
+  let released = false;
+  return {
+    path: lockPath,
+    token: record.token,
+    release() {
+      if (released) return;
+      released = true;
+      fs.closeSync(descriptor);
+      const current = readJsonIfPresent(lockPath) as Partial<OperationLockRecord> | null;
+      if (current?.token !== record.token) {
+        throw new WorldLabError(
+          'Reset operation lock ownership changed unexpectedly',
+          'operation_lock_lost',
+          {
+            lockPath,
+            expectedToken: record.token,
+            current,
+          },
+        );
+      }
+      fs.unlinkSync(lockPath);
+      fsyncDirectory(path.dirname(lockPath));
+    },
+  };
+}
+
+function removeDemonstrablyStaleOperationLock(lockPath: string) {
+  if (!fs.existsSync(lockPath)) return;
+  const record = readJsonIfPresent(lockPath) as Partial<OperationLockRecord> | null;
+  if (
+    record?.protocol !== 'behold-world-lab-operation-lock.v1' ||
+    record.hostname !== os.hostname() ||
+    !Number.isInteger(record.pid)
+  ) {
+    throw new SafetyRefusal(['reset_operation_lock_owner_unknown'], { lockPath, record });
+  }
+  if (processIsAlive(Number(record.pid))) {
+    throw new SafetyRefusal(['reset_operation_locked'], { lockPath, owner: record });
+  }
+  fs.unlinkSync(lockPath);
+  fsyncDirectory(path.dirname(lockPath));
+}
+
+function processIsAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: any) {
+    return error?.code === 'EPERM';
+  }
+}
+
+function durableWriteJson(file: string, value: unknown) {
+  const directory = path.dirname(file);
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  const descriptor = fs.openSync(temporary, 'wx', 0o600);
+  try {
+    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  try {
+    fs.renameSync(temporary, file);
+    fsyncDirectory(directory);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+function fsyncDirectory(directory: string) {
+  const descriptor = fs.openSync(directory, 'r');
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function fsyncTree(root: string) {
+  assertPlainDirectory(root, 'fsync_root');
+  const directories: string[] = [root];
+  const files: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new WorldLabError(
+          `Refusing to fsync symbolic link: ${full}`,
+          'symbolic_link_refused',
+          {
+            path: full,
+          },
+        );
+      }
+      if (entry.isDirectory()) {
+        directories.push(full);
+        visit(full);
+      } else if (entry.isFile()) {
+        files.push(full);
+      } else {
+        throw new WorldLabError(
+          `Unsupported filesystem entry during fsync: ${full}`,
+          'unsupported_filesystem_entry',
+          { path: full },
+        );
+      }
+    }
+  };
+  visit(root);
+  for (const file of files) {
+    const descriptor = fs.openSync(file, 'r');
+    try {
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  }
+  for (const directory of directories.reverse()) fsyncDirectory(directory);
+}
+
+function durableRename(mutation: MutationOperations, from: string, to: string) {
+  mutation.rename(from, to);
+  const parents = [...new Set([path.dirname(from), path.dirname(to)])];
+  for (const parent of parents) fsyncDirectory(parent);
+}
+
+function attemptResetRollback(
+  plan: ResetPlan,
+  mutation: MutationOperations,
+  preResetRuntimeDigest: string,
+) {
+  const errors: string[] = [];
+  const initiallyRuntimeExists = fs.existsSync(plan.runtimePath);
+  const initiallyArchiveExists = fs.existsSync(plan.archivePath);
+  const attempted = initiallyArchiveExists || !initiallyRuntimeExists;
+
+  if (fs.existsSync(plan.archivePath) && fs.existsSync(plan.runtimePath)) {
+    if (fs.existsSync(plan.stagePath)) {
+      errors.push('runtime, archive, and stage all exist; activated runtime cannot be quarantined');
+    } else {
+      try {
+        durableRename(mutation, plan.runtimePath, plan.stagePath);
+      } catch (error: any) {
+        errors.push(`quarantine activated runtime: ${String(error?.message || error)}`);
+      }
+    }
+  }
+  if (fs.existsSync(plan.archivePath) && !fs.existsSync(plan.runtimePath)) {
+    try {
+      durableRename(mutation, plan.archivePath, plan.runtimePath);
+    } catch (error: any) {
+      errors.push(`restore archived runtime: ${String(error?.message || error)}`);
+    }
+  }
+
+  // A retry here closes the exact ambiguity where rename(2) applied but the
+  // first directory fsync failed. Terminal recovery is recorded only after the
+  // final namespace and both parent directories are durable.
+  try {
+    for (const parent of [
+      ...new Set([path.dirname(plan.runtimePath), path.dirname(plan.archivePath)]),
+    ]) {
+      fsyncDirectory(parent);
+    }
+  } catch (error: any) {
+    errors.push(`final rollback directory sync: ${String(error?.message || error)}`);
+  }
+
+  let runtimeDigest: string | null = null;
+  try {
+    if (fs.existsSync(plan.runtimePath)) runtimeDigest = digestTree(plan.runtimePath).digest;
+  } catch (error: any) {
+    errors.push(`verify restored runtime: ${String(error?.message || error)}`);
+  }
+  const succeeded =
+    errors.length === 0 &&
+    runtimeDigest === preResetRuntimeDigest &&
+    !fs.existsSync(plan.archivePath);
+  if (!succeeded && runtimeDigest !== preResetRuntimeDigest) {
+    errors.push(`restored runtime digest is ${runtimeDigest || 'unavailable'}`);
+  }
+  if (!succeeded && fs.existsSync(plan.archivePath)) errors.push('archive remains present');
+  return { attempted, succeeded, errors };
+}
+
+function readJsonIfPresent(file: string) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function artifactIdentity(artifact: CanonicalArtifactEvidence): ArtifactIdentity {
+  if (!artifact.canonicalPath || artifact.device === null || artifact.inode === null) {
+    throw new SafetyRefusal([`${artifact.role}_identity_unavailable`], { artifact });
+  }
+  return {
+    canonicalPath: artifact.canonicalPath,
+    device: artifact.device,
+    inode: artifact.inode,
+  };
+}
+
+function assertTopologyIdentityUnchanged(before: TopologyEvidence, after: TopologyEvidence) {
+  const changed: string[] = [];
+  for (const role of ['source', 'preparedBaseline', 'runtime', 'archiveRoot'] as const) {
+    const left = before.artifacts[role];
+    const right = after.artifacts[role];
+    if (!left || !right) {
+      if (left !== right) changed.push(role);
+      continue;
+    }
+    if (
+      left.canonicalPath !== right.canonicalPath ||
+      left.device !== right.device ||
+      left.inode !== right.inode
+    ) {
+      changed.push(role);
+    }
+  }
+  if (changed.length) {
+    throw new SafetyRefusal(
+      changed.map((role) => `${role}_identity_changed_during_reset`),
+      { before, after },
+    );
+  }
+}
+
+function assertFixtureRecoveryCapability(
+  capability: FixtureExecutionCapability | undefined,
+  plan: ResetPlan,
+  control: { lockPath: string; journalPath: string },
+) {
+  requireFixtureAuthorityKey(capability);
+  const authorizedCapability = capability!;
+  const paths = [
+    plan.baselinePath,
+    plan.runtimePath,
+    plan.stagePath,
+    plan.archivePath,
+    control.lockPath,
+    control.journalPath,
+  ];
+  const outside = paths.filter(
+    (candidate) => !isInsideOrEqual(authorizedCapability.canonicalRoot, path.resolve(candidate)),
+  );
+  if (outside.length) {
+    throw new SafetyRefusal(['fixture_execution_scope_violation'], {
+      capability: authorizedCapability,
+      outside,
+    });
+  }
 }
 
 export async function runCli(
@@ -860,6 +1956,9 @@ function validateWorldDefinition(worldId: string, value: unknown) {
 function validateHashedDirectory(worldId: string, role: string, value: unknown) {
   if (!isRecord(value)) invalidWorld(worldId, `${role} must be an object`);
   absolutePath(worldId, `${role}.path`, value.path);
+  if (value.digestProfile !== TREE_DIGEST_PROFILE) {
+    invalidWorld(worldId, `${role}.digestProfile must be ${TREE_DIGEST_PROFILE}`);
+  }
   if (typeof value.expectedDigest !== 'string' || !/^[a-f0-9]{64}$/.test(value.expectedDigest)) {
     invalidWorld(worldId, `${role}.expectedDigest must be a lowercase SHA-256 digest`);
   }
@@ -1131,21 +2230,8 @@ function assertFixtureExecutionCapability(
   plan: ResetPlan,
   verification: WorldVerification,
 ) {
-  if (!capability || !issuedFixtureCapabilities.has(capability)) {
-    throw new SafetyRefusal(['fixture_execution_capability_required'], { plan });
-  }
-  const currentRoot = canonicalizeDirectory('runtime_world', capability.root);
-  if (
-    currentRoot.error ||
-    currentRoot.canonicalPath !== capability.canonicalRoot ||
-    currentRoot.device !== capability.device ||
-    currentRoot.inode !== capability.inode
-  ) {
-    throw new SafetyRefusal(['fixture_execution_capability_invalid'], {
-      capability,
-      currentRoot,
-    });
-  }
+  const authorityKey = requireFixtureAuthorityKey(capability);
+  const authorizedCapability = capability!;
 
   const scopedPaths = [
     verification.runtime.topology.artifacts.source.canonicalPath,
@@ -1156,14 +2242,15 @@ function assertFixtureExecutionCapability(
     plan.archivePath,
   ].filter(Boolean) as string[];
   const outside = scopedPaths.filter(
-    (candidate) => !isInsideOrEqual(capability.canonicalRoot, path.resolve(candidate)),
+    (candidate) => !isInsideOrEqual(authorizedCapability.canonicalRoot, path.resolve(candidate)),
   );
   if (outside.length) {
     throw new SafetyRefusal(['fixture_execution_scope_violation'], {
-      capability,
+      capability: authorizedCapability,
       outside,
     });
   }
+  return authorityKey;
 }
 
 function assertPlainDirectory(target: string, role: string) {

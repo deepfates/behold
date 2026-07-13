@@ -1,11 +1,12 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "worlds": {
     "sf-csdr": {
       "label": "San Francisco Come–See–Do–Report lab",
       "source": {
         "path": "/Users/deepfates/Library/Application Support/minecraft/saves/Arnis World 4",
-        "expectedDigest": "1c461e67f362c7fc36cf4924431f3469865f8e412ba0fd85b7ff6b4df0b1bb93"
+        "digestProfile": "behold-tree-v2",
+        "expectedDigest": "abd34778edb2c1efb3b1a6694b37ce8e12661b5045fcab98103cf44793f56486"
       },
       "preparedBaseline": null,
       "runtime": {
