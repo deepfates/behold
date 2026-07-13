@@ -62,6 +62,25 @@ test('historical frames omit repeated task prose but retain identity, epoch, pro
   assert.equal(projected.eventWindow.omittedNewEvents, 2);
 });
 
+test('current task projection removes only exact duplicate and empty envelope fields', () => {
+  const frame: any = observation();
+  frame.task = {
+    id: 'Build the landmark exactly as observed',
+    goal: 'Build the landmark exactly as observed',
+    successConditions: [],
+    constraints: ['Remain near spawn'],
+    target: null,
+  };
+
+  assert.deepEqual(projectCurrentModelObservation(frame).task, {
+    goal: 'Build the landmark exactly as observed',
+    constraints: ['Remain near spawn'],
+  });
+
+  frame.task.id = 'landmark-v1';
+  assert.equal(projectCurrentModelObservation(frame).task.id, 'landmark-v1');
+});
+
 test('protocol tool history retains exact consequences removed from duplicate observations', () => {
   const frame = observation();
   const turn: EntityTurn = {

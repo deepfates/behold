@@ -19,8 +19,13 @@ const REDUNDANT_OWN_LIFECYCLE_EVENTS = new Set([
 export function projectCurrentModelObservation(frame: any) {
   if (!frame || typeof frame !== 'object') return frame;
   const projectedSelf = projectSelf(frame.self);
+  const projectedTask = projectTask(frame.task);
   if (!Array.isArray(frame.events)) {
-    return { ...frame, ...(projectedSelf ? { self: projectedSelf } : {}) };
+    return {
+      ...frame,
+      ...(projectedTask ? { task: projectedTask } : {}),
+      ...(projectedSelf ? { self: projectedSelf } : {}),
+    };
   }
 
   const unread = frame.events.filter((event: any) => event?.isNew === true);
@@ -33,6 +38,7 @@ export function projectCurrentModelObservation(frame: any) {
   const omittedNewEvents = Math.max(0, unread.length - delivered.length);
   return {
     ...frame,
+    ...(projectedTask ? { task: projectedTask } : {}),
     ...(projectedSelf ? { self: projectedSelf } : {}),
     events: visible,
     eventWindow: {
@@ -45,6 +51,18 @@ export function projectCurrentModelObservation(frame: any) {
       complete: frame.eventWindow?.complete !== false && omittedNewEvents === 0,
     },
   };
+}
+
+function projectTask(task: any) {
+  if (!task || typeof task !== 'object' || Array.isArray(task)) return task;
+  const projected: Record<string, any> = {};
+  for (const [key, value] of Object.entries(task)) {
+    if (key === 'id' && value === task.goal) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    if (value == null) continue;
+    projected[key] = value;
+  }
+  return projected;
 }
 
 /**

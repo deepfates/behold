@@ -57,6 +57,25 @@ test('entity history projects prior actions and their observations back into mod
   assert.match(messages[2]?.content, /action_completed/);
 });
 
+test('model replay keeps the visible decision but not provider-private reasoning', () => {
+  const remembered = turn(1, null);
+  remembered.utterance.assistant = {
+    ...remembered.utterance.assistant,
+    content: 'I will inspect the area.',
+    reasoning: 'long provider-private deliberation',
+    reasoning_details: [{ type: 'reasoning.text', text: 'duplicate hidden chain' }],
+    refusal: null,
+    provider_extension: { opaque: true },
+  };
+
+  const assistant = historyMessages([remembered])[1];
+  assert.deepEqual(Object.keys(assistant).sort(), ['content', 'role', 'tool_calls']);
+  assert.equal(assistant.content, 'I will inspect the area.');
+  assert.equal(assistant.tool_calls[0].function.name, 'status');
+  assert.equal(JSON.stringify(assistant).includes('provider-private'), false);
+  assert.equal(JSON.stringify(assistant).includes('duplicate hidden chain'), false);
+});
+
 test('a replaceable scripted controller is remembered without impersonating the LLM', () => {
   const scripted = turn(1, null);
   scripted.action.source = 'script';

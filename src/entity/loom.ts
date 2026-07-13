@@ -754,7 +754,7 @@ export function historyMessages(
       role: 'user',
       content: `World observation:\n${JSON.stringify(projectObservation(turn.observation))}`,
     });
-    messages.push(turn.utterance.assistant);
+    messages.push(replayAssistantMessage(turn.utterance.assistant));
     const content = JSON.stringify(turn.outcome);
     if (turn.action.toolCallId) {
       messages.push({
@@ -771,4 +771,22 @@ export function historyMessages(
     }
   }
   return messages;
+}
+
+/**
+ * Reconstruct only the protocol-visible assistant message needed for the next
+ * model call. Provider-private reasoning remains in the immutable EntityTurn
+ * for audit, but replaying it would make every later prompt grow with a second
+ * hidden autobiography that neither caused the action nor observed its result.
+ */
+function replayAssistantMessage(assistant: any) {
+  const replay: any = {
+    role: 'assistant',
+    content: assistant?.content ?? null,
+  };
+  if (Array.isArray(assistant?.tool_calls) && assistant.tool_calls.length > 0) {
+    replay.tool_calls = assistant.tool_calls;
+  }
+  if (assistant?.name != null) replay.name = assistant.name;
+  return replay;
 }
