@@ -1,0 +1,19 @@
+---
+id: beh-p6ti
+status: in_progress
+deps: []
+links: []
+created: 2026-07-13T22:02:30Z
+type: feature
+priority: 1
+assignee: place-compiler
+parent: beh-wx6g
+---
+
+# Define benchmark contract and immutable fixtures
+
+Specify the benchmark manifest, score vector, accepted San Francisco and Lower Manhattan fixture identities, evidence layout, resource budgets, and refusal rules.
+
+## Acceptance
+
+A versioned schema validates both immutable fixtures, records hardware and tool provenance, and defines correspondence, legibility, habitability, ecology, experience, and capacity measurements without collapsing them into one score.
