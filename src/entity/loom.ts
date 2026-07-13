@@ -7,8 +7,11 @@ import type { Intent } from '../loop/arbiter';
 import { sanitizeName } from '../observability/journal';
 import {
   beginManagedControllerAdmission,
+  beginUnmanagedControllerAdmission,
   confirmManagedControllerAdmission,
+  confirmUnmanagedControllerAdmission,
   type ManagedControllerAdmissionProof,
+  type UnmanagedControllerAdmissionProof,
 } from '../runtime/world-control';
 
 export type EntityTurn = {
@@ -44,6 +47,7 @@ export type EntityTurn = {
 export type EntityLoom = {
   backend: 'lync';
   circleId: string | null;
+  connectionCapability: EntityConnectionCapability;
   file: string;
   foldFile: string;
   warnings: string[];
@@ -52,6 +56,12 @@ export type EntityLoom = {
   append: (turn: EntityTurn) => Promise<void>;
   close: () => Promise<void>;
 };
+
+export type EntityConnectionCapability = Readonly<{
+  kind: 'behold.entity-connection.v1';
+  entityId: string;
+  circleId: string | null;
+}>;
 
 type EntityRuntimeLeaseRecord = {
   protocol: 'behold.entity-runtime-lease.v1';
@@ -65,8 +75,22 @@ type EntityRuntimeLeaseRecord = {
 
 type EntityRuntimeLease = {
   file: string;
+  active: () => boolean;
   close: () => Promise<void>;
 };
+
+type ControllerAdmissionProof =
+  | Readonly<{ mode: 'managed'; proof: ManagedControllerAdmissionProof }>
+  | Readonly<{ mode: 'unmanaged'; proof: UnmanagedControllerAdmissionProof }>;
+
+const issuedEntityConnectionCapabilities = new WeakMap<
+  object,
+  Readonly<{
+    entityId: string;
+    circleId: string | null;
+    lease: EntityRuntimeLease;
+  }>
+>();
 
 type EntityLoomMeta = {
   protocol: 'behold.entity-loom.v1';
@@ -131,11 +155,11 @@ export async function openEntityLoom(
   const directory = path.join(root, sanitizeName(entityId));
   await fsPromises.mkdir(directory, { recursive: true });
   const boundCircleId = await ensureEntityCircleBinding(entityId, directory, circleId);
-  const admission = managedControllerAdmissionFromEnvironment();
+  const admission = controllerAdmissionFromEnvironment();
   const lease = await acquireEntityRuntimeLease(entityId, directory);
 
   try {
-    if (admission) confirmManagedControllerAdmission(admission);
+    confirmControllerAdmission(admission);
     // Behold still emits CommonJS. Dynamic import is the narrow bridge to
     // Lync's ESM package; it avoids converting the rest of the runtime.
     const [{ createFileEventStore }, { createLyncLooms, loomRootId }] = await Promise.all([
@@ -225,9 +249,20 @@ export async function openEntityLoom(
       `${encodeURIComponent(loomRootId(lyncLoom.id))}.lync`,
     );
 
+    const connectionCapability: EntityConnectionCapability = Object.freeze({
+      kind: 'behold.entity-connection.v1',
+      entityId,
+      circleId: boundCircleId,
+    });
+    issuedEntityConnectionCapabilities.set(
+      connectionCapability,
+      Object.freeze({ entityId, circleId: boundCircleId, lease }),
+    );
+
     return {
       backend: 'lync',
       circleId: boundCircleId,
+      connectionCapability,
       file: lyncFile,
       foldFile,
       warnings,
@@ -246,7 +281,10 @@ export async function openEntityLoom(
         tipTurnId = appended.id;
         stored.push(turn);
       },
-      close: () => lease.close(),
+      close: async () => {
+        issuedEntityConnectionCapabilities.delete(connectionCapability);
+        await lease.close();
+      },
     };
   } catch (error) {
     await lease.close();
@@ -254,18 +292,55 @@ export async function openEntityLoom(
   }
 }
 
-function managedControllerAdmissionFromEnvironment(): ManagedControllerAdmissionProof | null {
+/** A Mineflayer body may connect only while its own durable entity lease is held. */
+export function assertEntityConnectionCapability(
+  capability: EntityConnectionCapability,
+  entityId: string,
+  circleId: string | null,
+) {
+  const issued = issuedEntityConnectionCapabilities.get(capability);
+  if (
+    !issued ||
+    !issued.lease.active() ||
+    issued.entityId !== entityId ||
+    issued.circleId !== circleId ||
+    capability.kind !== 'behold.entity-connection.v1' ||
+    capability.entityId !== entityId ||
+    capability.circleId !== circleId
+  ) {
+    throw new Error('Minecraft connection requires this entity’s active runtime lease');
+  }
+  return capability;
+}
+
+function controllerAdmissionFromEnvironment(): ControllerAdmissionProof {
   const controlFile = String(process.env.BEHOLD_WORLD_CONTROL_FILE || '').trim();
   const world = String(process.env.BEHOLD_WORLD_ID || '').trim();
   const runId = String(process.env.BEHOLD_RUN_ID || '').trim();
   const supplied = [controlFile, world, runId].filter(Boolean).length;
-  if (supplied === 0) return null;
+  if (supplied === 0) {
+    const controlRoot =
+      process.env.BEHOLD_WORLD_CONTROL_ROOT ||
+      path.resolve(process.cwd(), '.behold-runtime', 'world-control');
+    return Object.freeze({
+      mode: 'unmanaged',
+      proof: beginUnmanagedControllerAdmission(controlRoot),
+    });
+  }
   if (supplied !== 3) {
     throw new Error(
       'Managed controller admission requires BEHOLD_WORLD_CONTROL_FILE, BEHOLD_WORLD_ID, and BEHOLD_RUN_ID together',
     );
   }
-  return beginManagedControllerAdmission({ controlFile, world, runId });
+  return Object.freeze({
+    mode: 'managed',
+    proof: beginManagedControllerAdmission({ controlFile, world, runId }),
+  });
+}
+
+function confirmControllerAdmission(admission: ControllerAdmissionProof) {
+  if (admission.mode === 'managed') return confirmManagedControllerAdmission(admission.proof);
+  return confirmUnmanagedControllerAdmission(admission.proof);
 }
 
 /**
@@ -392,6 +467,7 @@ async function acquireEntityRuntimeLease(
 
       return {
         file,
+        active: () => !closed,
         close: async () => {
           process.removeListener('exit', releaseSync);
           releaseSync();

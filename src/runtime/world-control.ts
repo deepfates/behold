@@ -104,6 +104,18 @@ export type ManagedControllerAdmissionProof = Readonly<{
   runId: string;
 }>;
 
+export type UnmanagedControllerAdmissionProof = Readonly<{
+  kind: 'behold.unmanaged-controller-admission.v1';
+  controlRoot: string;
+}>;
+
+export type WorldControlRootInspection = Readonly<{
+  state: 'clear' | 'held' | 'invalid';
+  controlRoot: string;
+  held: ReadonlyArray<Readonly<{ world: string; file: string; record: WorldOwnerRecord }>>;
+  invalid: ReadonlyArray<Readonly<{ entry: string; error: string }>>;
+}>;
+
 type HeldWorldControlInternals = {
   assertHeld(): void;
   current(): WorldOwnerRecord;
@@ -135,6 +147,92 @@ export function inspectWorldControl(controlRoot: string, world: string): WorldCo
   } catch (error: any) {
     return { state: 'invalid', file, error: error?.message || String(error) };
   }
+}
+
+/**
+ * Finds every active local world owner. Legacy controllers use this as a
+ * repository-wide admission fence: once any managed lifecycle begins, a new
+ * unmanaged body cannot enter behind its reset/start scans.
+ */
+export function inspectWorldControlRoot(controlRoot: string): WorldControlRootInspection {
+  const root = path.resolve(controlRoot);
+  if (!fs.existsSync(root)) {
+    return Object.freeze({
+      state: 'clear',
+      controlRoot: root,
+      held: Object.freeze([]),
+      invalid: Object.freeze([]),
+    });
+  }
+
+  const held: Array<{ world: string; file: string; record: WorldOwnerRecord }> = [];
+  const invalid: Array<{ entry: string; error: string }> = [];
+  let entries: fs.Dirent[] = [];
+  try {
+    const rootStats = fs.lstatSync(root);
+    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
+      throw new Error('world control root is not a plain directory');
+    }
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch (error: any) {
+    invalid.push({ entry: root, error: error?.message || String(error) });
+  }
+
+  for (const entry of entries) {
+    const directory = path.join(root, entry.name);
+    if (entry.isSymbolicLink()) {
+      invalid.push({ entry: directory, error: 'symbolic world control directory' });
+      continue;
+    }
+    if (!entry.isDirectory()) continue;
+    const file = path.join(directory, 'owner.json');
+    if (!fs.existsSync(file)) continue;
+    try {
+      const stats = fs.lstatSync(file);
+      if (!stats.isFile() || stats.isSymbolicLink()) throw new Error('owner is not a plain file');
+      const record = parseOwnerRecord(fs.readFileSync(file, 'utf8'));
+      if (record.world !== entry.name) throw new Error('owner world does not match its directory');
+      held.push({ world: record.world, file, record });
+    } catch (error: any) {
+      invalid.push({ entry: file, error: error?.message || String(error) });
+    }
+  }
+
+  return Object.freeze({
+    state: invalid.length ? 'invalid' : held.length ? 'held' : 'clear',
+    controlRoot: root,
+    held: Object.freeze(held.map((item) => Object.freeze(item))),
+    invalid: Object.freeze(invalid.map((item) => Object.freeze(item))),
+  });
+}
+
+/** First half of admission for a legacy controller that has no managed owner. */
+export function beginUnmanagedControllerAdmission(
+  controlRoot: string,
+): UnmanagedControllerAdmissionProof {
+  assertNoActiveWorldControl(controlRoot, 'before_entity_lease');
+  return Object.freeze({
+    kind: 'behold.unmanaged-controller-admission.v1',
+    controlRoot: path.resolve(controlRoot),
+  });
+}
+
+/** Second half of legacy admission, after its entity lease is durable. */
+export function confirmUnmanagedControllerAdmission(proof: UnmanagedControllerAdmissionProof) {
+  if (proof.kind !== 'behold.unmanaged-controller-admission.v1') {
+    throw new Error('Unmanaged controller admission proof is invalid');
+  }
+  return assertNoActiveWorldControl(proof.controlRoot, 'after_entity_lease');
+}
+
+function assertNoActiveWorldControl(controlRoot: string, phase: string) {
+  const inspection = inspectWorldControlRoot(controlRoot);
+  if (inspection.state !== 'clear') {
+    throw new Error(
+      `Unmanaged controller admission is blocked during ${phase}: local world control is ${inspection.state}`,
+    );
+  }
+  return inspection;
 }
 
 /** First half of controller admission, before its entity runtime lease is created. */

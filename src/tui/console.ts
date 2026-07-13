@@ -82,7 +82,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   console.error(`[circle] ${cfg.circle.id} (${cfg.circle.source})`);
   for (const warning of entityLoom.warnings) console.error(`[entity] ${warning}`);
   console.error(`[console] connecting to ${cfg.server.host}:${cfg.server.port} as ${name}`);
-  const bot = createBot(cfg);
+  const bot = createBot(cfg, entityLoom.connectionCapability);
   const taskRuntime =
     opts.task === 'come-see-do-report'
       ? createComeSeeDoReportRuntime(bot as any, taskTarget!)

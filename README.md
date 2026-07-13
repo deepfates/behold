@@ -19,9 +19,10 @@ Build and run Minecraft agents on your own server in minutes. Behold gives you:
 Play the San Francisco world on this Mac
 
 - Double-click `Behold SF.app`, or run `npm run play`.
-- The signed local app starts the isolated SF server and `ScoutLife` when necessary, becomes the already-installed native Minecraft 1.21.4 client as `importdf`, and connects it to `127.0.0.1:25565`.
+- When no server is running, the app asks the foreground managed world owner to start the server and `ScoutLife`, then launches the already-installed native Minecraft 1.21.4 client as `importdf`. Closing that managed play session drains and stops both children.
+- When a server is already running, the app only attaches the human client. It reports an existing companion but never invents ownership by starting a detached controller behind an unmanaged server.
 - It does not use Microsoft credentials or modify the original world. Client settings live under `.behold-runtime/native-client/game`; the playable server uses the working copy under `.behold-runtime/server`.
-- The native launch log lives at `.behold-runtime/native-launch.log`; Scout's detached runtime log lives at `.behold-runtime/companion.log`.
+- The native launch log lives at `.behold-runtime/native-launch.log`; managed server/controller output remains attached to the owning command.
 - Run `npm run play -- --dry-run` to validate the installed Java, libraries, assets, and launch configuration without opening Minecraft.
 
 Managed world lifecycle (under active development)
@@ -30,7 +31,7 @@ Managed world lifecycle (under active development)
 - `npm run world -- start --config .behold-worlds.example.json --world sf-csdr` is fail-closed: it requires a clean Git worktree, an OpenRouter key, the pinned server jar, a stopped and unowned runtime, a prepared baseline, and an archive root.
 - The foreground runner owns the server and controller together. A normal stop drains the controller, releases its entity lease, receives Minecraft's `save-all flush` acknowledgement, stops the JVM, verifies the port and `session.lock` are clear, and then releases its durable owner record.
 - Disposable-world tests prove that a stopped lifecycle owner can authorize exactly one canonical reset transaction and rebind itself to the newly activated runtime inode. Production reset remains deliberately absent from the CLI until managed crash recovery and a named, operator-attested baseline are proven.
-- That proof covers controllers launched through the managed admission protocol. Legacy unmanaged launch paths and arbitrary same-user processes are not excluded yet and must not be treated as safely resettable.
+- Every repository-created Mineflayer body now requires its entity's unforgeable live connection capability. Managed bodies must join the exact owner epoch; unmanaged bodies check the repository-wide world-control fence both before and after creating their durable lease. The old direct server command delegates to the managed owner. Arbitrary foreign same-user processes remain outside this cooperative boundary and must not be treated as safely excluded.
 - The current SF runtime is still foreign-owned and has no named prepared baseline. Status is usable now; managed start and reset remain red until that handoff is completed.
 
 Quickstart

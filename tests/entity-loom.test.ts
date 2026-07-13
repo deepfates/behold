@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { historyMessages, openEntityLoom, type EntityTurn } from '../src/entity/loom';
+import {
+  assertEntityConnectionCapability,
+  historyMessages,
+  openEntityLoom,
+  type EntityTurn,
+} from '../src/entity/loom';
 import { acquireWorldControl } from '../src/runtime/world-control';
 
 function turn(sequence: number, parentId: string | null, entityId = 'Scout'): EntityTurn {
@@ -160,6 +165,38 @@ test('Lync runtime lease permits one incarnation per entity and independent inha
   await resumedScout.close();
 });
 
+test('a Minecraft connection capability is exact, unforgeable, and dies with the entity lease', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-entity-connection-'));
+  const scout = await openEntityLoom('Scout', root, 'fixture-circle');
+  assert.equal(
+    assertEntityConnectionCapability(scout.connectionCapability, 'Scout', 'fixture-circle'),
+    scout.connectionCapability,
+  );
+  assert.throws(
+    () =>
+      assertEntityConnectionCapability(
+        { ...scout.connectionCapability },
+        'Scout',
+        'fixture-circle',
+      ),
+    /active runtime lease/,
+  );
+  assert.throws(
+    () => assertEntityConnectionCapability(scout.connectionCapability, 'Builder', 'fixture-circle'),
+    /active runtime lease/,
+  );
+  assert.throws(
+    () => assertEntityConnectionCapability(scout.connectionCapability, 'Scout', 'other-circle'),
+    /active runtime lease/,
+  );
+  await scout.close();
+  assert.throws(
+    () => assertEntityConnectionCapability(scout.connectionCapability, 'Scout', 'fixture-circle'),
+    /active runtime lease/,
+  );
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('Lync runtime lease recovers only a demonstrably dead same-host holder', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-stale-'));
   const directory = path.join(root, 'Scout');
@@ -238,6 +275,32 @@ test('managed entity admission is checked before and after its durable runtime l
   assert.equal(fs.existsSync(path.join(entityRoot, 'Late', 'runtime.lock')), false);
   control.update('stopped_verified', { server: null });
   control.release();
+});
+
+test('an unmanaged entity cannot open while any repository world lifecycle is active', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-unmanaged-entity-'));
+  const runtime = path.join(root, 'runtime');
+  const entityRoot = path.join(root, 'entities');
+  const controlRoot = path.join(root, 'control');
+  fs.mkdirSync(runtime);
+  fs.mkdirSync(entityRoot);
+  const previous = process.env.BEHOLD_WORLD_CONTROL_ROOT;
+  process.env.BEHOLD_WORLD_CONTROL_ROOT = controlRoot;
+  t.after(() => {
+    restoreEnvironment('BEHOLD_WORLD_CONTROL_ROOT', previous);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const control = acquireWorldControl({ controlRoot, world: 'fixture', runtimePath: runtime });
+  await assert.rejects(
+    openEntityLoom('Unmanaged', entityRoot, 'fixture'),
+    /Unmanaged controller admission is blocked/,
+  );
+  assert.equal(fs.existsSync(path.join(entityRoot, 'Unmanaged', 'runtime.lock')), false);
+  control.release();
+
+  const admitted = await openEntityLoom('Unmanaged', entityRoot, 'fixture');
+  await admitted.close();
 });
 
 function restoreEnvironment(name: string, value: string | undefined) {

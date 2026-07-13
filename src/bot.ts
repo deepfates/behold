@@ -2,6 +2,7 @@ import mineflayer, { type Bot } from 'mineflayer';
 import { pathfinder, Movements } from 'mineflayer-pathfinder';
 import mcDataLoader, { type IndexedData } from 'minecraft-data';
 import type { Config } from './config';
+import { assertEntityConnectionCapability, type EntityConnectionCapability } from './entity/loom';
 
 let mineflayerViewer:
   | ((
@@ -18,8 +19,9 @@ try {
   mineflayerViewer = null;
 }
 
-export function createBot(config: Config): Bot {
+export function createBot(config: Config, connectionCapability: EntityConnectionCapability): Bot {
   const { server, auth } = config;
+  assertEntityConnectionCapability(connectionCapability, auth.username, config.circle.id);
 
   const bot = mineflayer.createBot({
     host: server.host,

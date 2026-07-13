@@ -7,9 +7,12 @@ import {
   acquireWorldControl,
   authorizeManagedWorldResetCapability,
   beginManagedControllerAdmission,
+  beginUnmanagedControllerAdmission,
   confirmManagedControllerAdmission,
+  confirmUnmanagedControllerAdmission,
   inspectEntityLeaseFence,
   inspectWorldControl,
+  inspectWorldControlRoot,
   issueManagedWorldResetCapability,
   settleManagedWorldResetCapability,
   verifyWorldLifecycleJournal,
@@ -247,6 +250,37 @@ test('managed controller admission rechecks the same owner epoch after its lease
   assert.throws(() => confirmManagedControllerAdmission(proof), /blocked while world is stopping/);
   control.update('stopped_verified', { server: null });
   control.release();
+});
+
+test('unmanaged controller admission is fenced by every active local world owner', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-unmanaged-admission-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runtime = path.join(root, 'runtime');
+  const controlRoot = path.join(root, 'control');
+  fs.mkdirSync(runtime);
+
+  assert.equal(inspectWorldControlRoot(controlRoot).state, 'clear');
+  const proof = beginUnmanagedControllerAdmission(controlRoot);
+  const control = acquireWorldControl({ controlRoot, world: 'fixture', runtimePath: runtime });
+  const held = inspectWorldControlRoot(controlRoot);
+  assert.equal(held.state, 'held');
+  assert.equal(held.held[0]?.world, 'fixture');
+  assert.throws(
+    () => confirmUnmanagedControllerAdmission(proof),
+    /blocked during after_entity_lease/,
+  );
+  assert.throws(
+    () => beginUnmanagedControllerAdmission(controlRoot),
+    /blocked during before_entity_lease/,
+  );
+  control.release();
+  assert.doesNotThrow(() => confirmUnmanagedControllerAdmission(proof));
+
+  const invalidWorld = path.join(controlRoot, 'invalid');
+  fs.mkdirSync(invalidWorld);
+  fs.writeFileSync(path.join(invalidWorld, 'owner.json'), '{}\n');
+  assert.equal(inspectWorldControlRoot(controlRoot).state, 'invalid');
+  assert.throws(() => beginUnmanagedControllerAdmission(controlRoot), /control is invalid/);
 });
 
 function makeResetControlFixture(t: test.TestContext) {
