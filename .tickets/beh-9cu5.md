@@ -1,6 +1,6 @@
 ---
 id: beh-9cu5
-status: open
+status: in_progress
 deps: [beh-p6ti]
 links: []
 created: 2026-07-13T22:02:30Z
@@ -17,3 +17,9 @@ Sweep named view distance, simulation distance, chunk activity, and entity or lo
 ## Acceptance
 
 Results identify stable and unstable operating points for cinematic, playable, and living profiles and publish smart defaults plus the hardware fingerprint and measurement method.
+
+## Notes
+
+**2026-07-13T22:48:05Z**
+
+Starting real-server cinematic/playable/living performance matrix for both fixtures; 6000-tick sprints, two repetitions per profile, hardware/process evidence.
