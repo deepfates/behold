@@ -226,6 +226,7 @@ test('project evidence rejects missing restart memory, restatement, or external 
   const noRestatement = structuredClone(evidence.resume);
   const update = entityEvent(noRestatement, 'manage_project', 'update');
   update.data.action.input.nextStep = 'look around';
+  update.data.outcome.result.project.nextStep = 'look around';
   assert.ok(
     assessOwnedWorldProjectEvidence(
       evidence.act,
@@ -246,6 +247,40 @@ test('project evidence rejects missing restart memory, restatement, or external 
       evidence.finalWitness,
       expected,
     ).failed.includes('independentBodySawThePartialBuild'),
+  );
+});
+
+test('project evidence compares restart memory with the canonical committed project state', () => {
+  const evidence = validEvidence();
+  const update = entityEvent(evidence.act, 'manage_project', 'update');
+  const rawNextStep = `${nextStep} ${'near spawn '.repeat(24)}`;
+  const canonicalNextStep = rawNextStep.trim().replace(/\s+/g, ' ').slice(0, 200);
+  assert.ok(rawNextStep.length > canonicalNextStep.length);
+  update.data.action.input.nextStep = rawNextStep;
+  update.data.outcome.result.project.nextStep = canonicalNextStep;
+
+  const firstDecision = evidence.resume.find((event) => event.type === 'model_turn')!;
+  const user = firstDecision.data.call.request.body.messages.find(
+    (message: any) => message.role === 'user',
+  );
+  const observation = JSON.parse(
+    user.content.slice(
+      user.content.indexOf('\n') + 1,
+      user.content.lastIndexOf('\nPrevious action:'),
+    ),
+  );
+  observation.self.projects[0].nextStep = canonicalNextStep;
+  user.content = `New world experience:\n${JSON.stringify(observation)}\nPrevious action: none`;
+
+  assert.deepEqual(
+    assessOwnedWorldProjectEvidence(
+      evidence.act,
+      evidence.resume,
+      evidence.firstWitness,
+      evidence.finalWitness,
+      expected,
+    ).failed,
+    [],
   );
 });
 

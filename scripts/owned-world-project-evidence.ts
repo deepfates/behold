@@ -138,8 +138,13 @@ export function assessOwnedWorldProjectEvidence(
     .map((turn) => turn?.call)
     .filter((call) => call?.protocol === 'behold.model-call.v1');
   const usage = summarizeUsage(calls);
-  const nextStep = String(actUpdateTurn?.action?.input?.nextStep || '');
-  const restatedNextStep = String(resumeFirstTurn?.action?.input?.nextStep || '');
+  // Project memory deliberately canonicalizes and bounds model prose before it
+  // becomes durable state. Compare the restart view to that committed result,
+  // not to an arbitrarily longer raw tool argument.
+  const nextStep = String(terminalMinecraftResult(actUpdateTurn)?.project?.nextStep || '');
+  const restatedNextStep = String(
+    terminalMinecraftResult(resumeFirstTurn)?.project?.nextStep || '',
+  );
 
   const assertions = {
     productionModelRan:
