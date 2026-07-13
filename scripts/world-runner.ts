@@ -6,17 +6,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
+  assertFixtureExecutionScope,
+  digestTree,
   loadWorldLabConfig,
+  resetWorld,
   statusWorld,
   verifyWorld,
+  worldLabDefinitionDigest,
   type OwnershipEvidence,
+  type ResetResult,
   type RuntimeEvidence,
+  type FixtureExecutionCapability,
+  type WorldLabDependencies,
   type WorldLabDefinition,
 } from './world-lab';
 import {
   acquireWorldControl,
+  inspectEntityLeaseFence,
   inspectWorldControl,
+  issueManagedWorldResetCapability,
+  settleManagedWorldResetCapability,
   type HeldWorldControl,
+  type ManagedWorldResetScope,
 } from '../src/runtime/world-control';
 import { DEFAULT_LLM_MODEL } from '../src/config';
 
@@ -98,6 +109,101 @@ export class WorldRunnerError extends Error {
   }
 }
 
+export type ManagedWorldResetOptions = Readonly<{
+  worldId: string;
+  world: WorldLabDefinition;
+  control: HeldWorldControl;
+  resetRunId: string;
+  entityRoot: string;
+}>;
+
+type ManagedResetTestDependencies = Omit<
+  WorldLabDependencies,
+  'fixtureExecutionCapability' | 'managedResetCapability'
+> & {
+  fixtureExecutionCapability: FixtureExecutionCapability;
+};
+
+/**
+ * Runs the canonical world-lab transaction beneath an already-held lifecycle
+ * owner. This seam is programmatic until crash recovery and a named baseline
+ * are proven; the standalone world-lab CLI remains dry-run only.
+ */
+export async function resetHeldManagedWorld(
+  options: ManagedWorldResetOptions,
+): Promise<ResetResult> {
+  return resetHeldManagedWorldInternal(options, {});
+}
+
+/** Test-only dependency seam, structurally confined to an issued temporary fixture. */
+export async function resetHeldManagedWorldFixture(
+  options: ManagedWorldResetOptions,
+  dependencies: ManagedResetTestDependencies,
+): Promise<ResetResult> {
+  assertFixtureExecutionScope(dependencies.fixtureExecutionCapability, [
+    options.world.source.path,
+    options.world.preparedBaseline?.path ?? options.world.source.path,
+    options.world.runtime.worldPath,
+    options.world.runtime.archiveRoot,
+    options.entityRoot,
+  ]);
+  const { fixtureExecutionCapability: _fixtureExecutionCapability, ...fixtureDependencies } =
+    dependencies;
+  return resetHeldManagedWorldInternal(options, fixtureDependencies);
+}
+
+async function resetHeldManagedWorldInternal(
+  options: ManagedWorldResetOptions,
+  dependencies: WorldLabDependencies,
+): Promise<ResetResult> {
+  const planned = await resetWorld(
+    options.worldId,
+    options.world,
+    { mode: 'dry-run', runId: options.resetRunId },
+    dependencies,
+  );
+  const plan = planned.plan;
+  const scope: ManagedWorldResetScope = {
+    world: options.worldId,
+    runId: options.resetRunId,
+    worldConfigDigest: worldLabDefinitionDigest(options.world),
+    baselinePath: plan.baselinePath,
+    baselineDigest: plan.expectedBaselineDigest,
+    runtimePath: plan.runtimePath,
+    archiveRoot: path.dirname(plan.archivePath),
+    stagePath: plan.stagePath,
+    archivePath: plan.archivePath,
+    entityRoot: path.resolve(options.entityRoot),
+    circleIds: worldCircleIds(options.worldId, options.world),
+  };
+  const capability = issueManagedWorldResetCapability(options.control, scope);
+  try {
+    const result = await resetWorld(
+      options.worldId,
+      options.world,
+      { mode: 'execute', runId: options.resetRunId },
+      { ...dependencies, managedResetCapability: capability },
+    );
+    const stopped = await statusWorld(options.worldId, options.world, dependencies);
+    assertStoppedEvidence(stopped, 'after_managed_reset');
+    const activatedDigest = digestTree(options.world.runtime.worldPath).digest;
+    if (activatedDigest !== plan.expectedBaselineDigest) {
+      throw new WorldRunnerError(
+        'Managed reset activated an unexpected runtime digest',
+        'managed_reset_digest_mismatch',
+        { expected: plan.expectedBaselineDigest, actual: activatedDigest },
+      );
+    }
+    settleManagedWorldResetCapability(capability, 'completed');
+    return result;
+  } catch (error) {
+    try {
+      settleManagedWorldResetCapability(capability, 'recovery_required');
+    } catch {}
+    throw error;
+  }
+}
+
 export async function startManagedWorld(
   options: ManagedWorldRunOptions,
   dependencies: WorldRunnerDependencies = {},
@@ -112,6 +218,8 @@ export async function startManagedWorld(
   const stderr = dependencies.stderr ?? ((text) => process.stderr.write(text));
   const startupTimeoutMs = Math.max(100, options.startupTimeoutMs ?? 60_000);
   const shutdownTimeoutMs = Math.max(100, options.shutdownTimeoutMs ?? 60_000);
+  const entityRoot = path.dirname(path.dirname(options.controllerLeasePath));
+  const circleIds = worldCircleIds(options.worldId, options.world);
 
   const existingControl = inspectWorldControl(options.controlRoot, options.worldId);
   if (existingControl.state !== 'clear') {
@@ -131,6 +239,7 @@ export async function startManagedWorld(
   }
   const before = await inspectRuntime();
   assertStoppedEvidence(before, 'before_control_acquisition');
+  assertNoWorldControllerLeases(options, 'before_control_acquisition');
   const jarSha256 = sha256File(options.serverJar);
   if (jarSha256 !== options.expectedServerJarSha256.toLowerCase()) {
     throw new WorldRunnerError(
@@ -161,6 +270,7 @@ export async function startManagedWorld(
   try {
     const fenced = await inspectRuntime();
     assertStoppedEvidence(fenced, 'after_control_acquisition');
+    assertNoWorldControllerLeases(options, 'after_control_acquisition');
     const launchJarSha256 = sha256File(options.serverJar);
     if (launchJarSha256 !== jarSha256) {
       throw new WorldRunnerError(
@@ -215,7 +325,7 @@ export async function startManagedWorld(
 
     controller =
       dependencies.spawnController?.({ runId: managedRunId }) ??
-      spawnDefaultController(options, managedRunId);
+      spawnDefaultController(options, managedRunId, control.file);
     if (!controller.pid) {
       throw new WorldRunnerError('Controller process has no PID', 'controller_pid_missing');
     }
@@ -277,6 +387,8 @@ export async function startManagedWorld(
         serverOutput: serverOutput!,
         inspectRuntime,
         controllerLeasePath: options.controllerLeasePath,
+        entityRoot,
+        circleIds,
         timeoutMs: shutdownTimeoutMs,
         sleep,
         reason,
@@ -306,6 +418,8 @@ export async function startManagedWorld(
       serverOutput,
       inspectRuntime,
       controllerLeasePath: options.controllerLeasePath,
+      entityRoot,
+      circleIds,
       timeoutMs: shutdownTimeoutMs,
       sleep,
     });
@@ -339,6 +453,8 @@ async function cleanupFailedStart(input: {
   serverOutput: OutputCapture | null;
   inspectRuntime: () => Promise<RuntimeInspection>;
   controllerLeasePath: string;
+  entityRoot: string;
+  circleIds: readonly string[];
   timeoutMs: number;
   sleep: (milliseconds: number) => Promise<void>;
 }) {
@@ -375,6 +491,7 @@ async function cleanupFailedStart(input: {
     }
     const stopped = await input.inspectRuntime();
     assertStoppedEvidence(stopped, 'after_failed_start_cleanup');
+    assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_failed_start_cleanup');
     input.control.update('stopped_verified', { server: null, controllers: [] });
     input.control.append('failed_start_cleanup_completed');
     input.control.release();
@@ -398,6 +515,8 @@ async function stopManagedWorld(input: {
   serverOutput: OutputCapture;
   inspectRuntime: () => Promise<RuntimeInspection>;
   controllerLeasePath: string;
+  entityRoot: string;
+  circleIds: readonly string[];
   timeoutMs: number;
   sleep: (milliseconds: number) => Promise<void>;
   reason: string;
@@ -447,6 +566,7 @@ async function stopManagedWorld(input: {
 
     const stopped = await input.inspectRuntime();
     assertStoppedEvidence(stopped, 'after_managed_shutdown');
+    assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_managed_shutdown');
     if (abnormalExits.length) {
       control.update('stopping', { server: null, controllers: [] });
       throw new WorldRunnerError(
@@ -479,7 +599,11 @@ function spawnDefaultServer(options: ManagedWorldRunOptions) {
   );
 }
 
-function spawnDefaultController(options: ManagedWorldRunOptions, runId: string) {
+function spawnDefaultController(
+  options: ManagedWorldRunOptions,
+  runId: string,
+  controlFile: string,
+) {
   const args = [
     options.controllerEntry,
     options.controllerEntityId,
@@ -497,7 +621,13 @@ function spawnDefaultController(options: ManagedWorldRunOptions, runId: string) 
   if (options.allowTools?.length) args.push('--allowTools', options.allowTools.join(','));
   return spawn(process.execPath, args, {
     cwd: process.cwd(),
-    env: { ...process.env, VIEWER_ENABLED: '0', BEHOLD_RUN_ID: runId },
+    env: {
+      ...process.env,
+      VIEWER_ENABLED: '0',
+      BEHOLD_RUN_ID: runId,
+      BEHOLD_WORLD_ID: options.worldId,
+      BEHOLD_WORLD_CONTROL_FILE: controlFile,
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
@@ -647,6 +777,50 @@ function assertStoppedEvidence(evidence: RuntimeInspection, phase: string) {
   }
 }
 
+function worldCircleIds(worldId: string, world: WorldLabDefinition) {
+  const hosts =
+    world.server.host === '127.0.0.1' ||
+    world.server.host === 'localhost' ||
+    world.server.host === '::1'
+      ? ['127.0.0.1', 'localhost', '[::1]']
+      : [world.server.host];
+  return Object.freeze([
+    worldId,
+    ...hosts.map((host) => `minecraft://${host}:${world.server.port}`),
+  ]);
+}
+
+function assertNoWorldControllerLeases(options: ManagedWorldRunOptions, phase: string) {
+  if (fs.existsSync(options.controllerLeasePath)) {
+    throw new WorldRunnerError(
+      `Configured controller lease already exists during ${phase}`,
+      'configured_controller_lease_present',
+      { phase, leasePath: options.controllerLeasePath },
+    );
+  }
+  return assertNoControllerLeasesAtRoot(
+    path.dirname(path.dirname(options.controllerLeasePath)),
+    worldCircleIds(options.worldId, options.world),
+    phase,
+  );
+}
+
+function assertNoControllerLeasesAtRoot(
+  entityRoot: string,
+  circleIds: readonly string[],
+  phase: string,
+) {
+  const inspection = inspectEntityLeaseFence(entityRoot, circleIds);
+  if (inspection.state !== 'clear') {
+    throw new WorldRunnerError(
+      `World controller lease fence is ${inspection.state} during ${phase}`,
+      'world_controller_lease_not_clear',
+      { phase, inspection },
+    );
+  }
+  return inspection;
+}
+
 function evidenceOwnedBy(evidence: OwnershipEvidence, pid: number) {
   return (
     evidence.state === 'owned' && evidence.owners.length === 1 && evidence.owners[0].pid === pid
@@ -736,9 +910,17 @@ export async function runCli(argv = process.argv.slice(2)) {
     const result = {
       control: inspectWorldControl(controlRoot, worldId),
       runtime: await statusWorld(worldId, world),
+      controllerLeases: inspectEntityLeaseFence(
+        path.resolve('.behold-entities'),
+        worldCircleIds(worldId, world),
+      ),
     };
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    return result.control.state === 'clear' && result.runtime.safe ? 0 : 1;
+    return result.control.state === 'clear' &&
+      result.runtime.safe &&
+      result.controllerLeases.state === 'clear'
+      ? 0
+      : 1;
   }
   if (command !== 'start')
     throw new WorldRunnerError(`Unknown command: ${command}`, 'unknown_command');

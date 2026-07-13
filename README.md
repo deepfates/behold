@@ -26,9 +26,11 @@ Play the San Francisco world on this Mac
 
 Managed world lifecycle (under active development)
 
-- `npm run world -- status --config .behold-worlds.example.json --world sf-csdr` reports world-control, process-ownership, baseline, and topology evidence without changing the world.
+- `npm run world -- status --config .behold-worlds.example.json --world sf-csdr` reports world-control, process ownership, world-bound controller leases, baseline, and topology evidence without changing the world.
 - `npm run world -- start --config .behold-worlds.example.json --world sf-csdr` is fail-closed: it requires a clean Git worktree, an OpenRouter key, the pinned server jar, a stopped and unowned runtime, a prepared baseline, and an archive root.
 - The foreground runner owns the server and controller together. A normal stop drains the controller, releases its entity lease, receives Minecraft's `save-all flush` acknowledgement, stops the JVM, verifies the port and `session.lock` are clear, and then releases its durable owner record.
+- Disposable-world tests prove that a stopped lifecycle owner can authorize exactly one canonical reset transaction and rebind itself to the newly activated runtime inode. Production reset remains deliberately absent from the CLI until managed crash recovery and a named, operator-attested baseline are proven.
+- That proof covers controllers launched through the managed admission protocol. Legacy unmanaged launch paths and arbitrary same-user processes are not excluded yet and must not be treated as safely resettable.
 - The current SF runtime is still foreign-owned and has no named prepared baseline. Status is usable now; managed start and reset remain red until that handoff is completed.
 
 Quickstart

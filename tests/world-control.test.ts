@@ -5,9 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   acquireWorldControl,
+  authorizeManagedWorldResetCapability,
+  beginManagedControllerAdmission,
+  confirmManagedControllerAdmission,
+  inspectEntityLeaseFence,
   inspectWorldControl,
+  issueManagedWorldResetCapability,
+  settleManagedWorldResetCapability,
   verifyWorldLifecycleJournal,
   WORLD_OWNER_PROTOCOL,
+  type ManagedWorldResetScope,
 } from '../src/runtime/world-control';
 
 test('world control is exclusive, durable, sequenced, and releases only when stopped', (t) => {
@@ -105,3 +112,164 @@ test('world lifecycle verification rejects edits and reordering and exposes a tr
   const truncated = verifyWorldLifecycleJournal(control.journalFile);
   assert.notEqual(truncated.tipDigest, JSON.parse(lines.at(-1)!).digest);
 });
+
+test('managed reset authority is opaque, exact, one-shot, and transition fenced', (t) => {
+  const fixture = makeResetControlFixture(t);
+  const control = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: 'fixture',
+    runtimePath: fixture.runtime,
+  });
+  assert.throws(() => control.update('running'), /Invalid world control transition/);
+  assert.throws(() => control.update('resetting'), /managed reset capability/);
+
+  const capability = issueManagedWorldResetCapability(control, fixture.scope);
+  assert.equal(control.record().state, 'resetting');
+  assert.equal(authorizeManagedWorldResetCapability(capability, fixture.scope).length, 32);
+  assert.throws(
+    () => authorizeManagedWorldResetCapability({ ...capability }, fixture.scope),
+    /absent or settled/,
+  );
+  assert.throws(
+    () =>
+      authorizeManagedWorldResetCapability(capability, {
+        ...fixture.scope,
+        runId: 'different-run',
+      }),
+    /no longer valid/,
+  );
+
+  settleManagedWorldResetCapability(capability, 'unchanged');
+  assert.equal(control.record().state, 'stopped_verified');
+  assert.throws(
+    () => authorizeManagedWorldResetCapability(capability, fixture.scope),
+    /absent or settled/,
+  );
+  control.release();
+});
+
+test('world-bound entity leases fence reset and ambiguity remains recovery-required', (t) => {
+  const fixture = makeResetControlFixture(t);
+  const entityDirectory = path.join(fixture.entityRoot, 'Scout');
+  fs.mkdirSync(entityDirectory);
+  fs.writeFileSync(
+    path.join(entityDirectory, 'circle.json'),
+    JSON.stringify({
+      protocol: 'behold.entity-circle-binding.v1',
+      entityId: 'Scout',
+      circleId: fixture.scope.circleIds[0],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(entityDirectory, 'runtime.lock'),
+    JSON.stringify({ protocol: 'behold.entity-runtime-lease.v1', entityId: 'Scout', pid: 42 }),
+  );
+  assert.equal(inspectEntityLeaseFence(fixture.entityRoot, fixture.scope.circleIds).state, 'owned');
+
+  const control = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: 'fixture',
+    runtimePath: fixture.runtime,
+  });
+  assert.throws(
+    () => issueManagedWorldResetCapability(control, fixture.scope),
+    /entity lease fence is owned/,
+  );
+  assert.equal(control.record().state, 'stopped_verified');
+
+  fs.unlinkSync(path.join(entityDirectory, 'runtime.lock'));
+  const capability = issueManagedWorldResetCapability(control, fixture.scope);
+  fs.writeFileSync(path.join(entityDirectory, 'runtime.lock'), '{}\n');
+  assert.throws(
+    () => authorizeManagedWorldResetCapability(capability, fixture.scope),
+    /entity lease fence is unknown/,
+  );
+  settleManagedWorldResetCapability(capability, 'recovery_required');
+  assert.equal(control.record().state, 'recovery_required');
+  assert.throws(() => control.release(), /cannot release/);
+});
+
+test('managed reset refuses child ownership and owner replacement invalidates an issued capability', (t) => {
+  const first = makeResetControlFixture(t);
+  const running = acquireWorldControl({
+    controlRoot: first.controlRoot,
+    world: 'fixture',
+    runtimePath: first.runtime,
+  });
+  running.update('starting', { server: { pid: 91, jarSha256: 'abc' } });
+  assert.throws(
+    () => issueManagedWorldResetCapability(running, first.scope),
+    /cannot begin from state starting/,
+  );
+  running.update('stopping', { server: null });
+  running.update('stopped_verified');
+  running.release();
+
+  const second = makeResetControlFixture(t);
+  const replaced = acquireWorldControl({
+    controlRoot: second.controlRoot,
+    world: 'fixture',
+    runtimePath: second.runtime,
+  });
+  const capability = issueManagedWorldResetCapability(replaced, second.scope);
+  fs.unlinkSync(replaced.file);
+  fs.writeFileSync(replaced.file, '{}\n');
+  assert.throws(
+    () => authorizeManagedWorldResetCapability(capability, second.scope),
+    /record was replaced/,
+  );
+});
+
+test('managed controller admission rechecks the same owner epoch after its lease is durable', (t) => {
+  const fixture = makeResetControlFixture(t);
+  const control = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: 'fixture',
+    runtimePath: fixture.runtime,
+  });
+  assert.throws(
+    () =>
+      beginManagedControllerAdmission({
+        controlFile: control.file,
+        world: 'fixture',
+        runId: 'fixture-1',
+      }),
+    /blocked while world is stopped_verified/,
+  );
+  control.update('starting', { server: { pid: 44, jarSha256: 'abc' } });
+  const proof = beginManagedControllerAdmission({
+    controlFile: control.file,
+    world: 'fixture',
+    runId: 'fixture-1',
+  });
+  assert.equal(confirmManagedControllerAdmission(proof).state, 'starting');
+  control.update('stopping');
+  assert.throws(() => confirmManagedControllerAdmission(proof), /blocked while world is stopping/);
+  control.update('stopped_verified', { server: null });
+  control.release();
+});
+
+function makeResetControlFixture(t: test.TestContext) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-world-reset-control-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runtime = path.join(root, 'runtime');
+  const baseline = path.join(root, 'baseline');
+  const archiveRoot = path.join(root, 'archive');
+  const entityRoot = path.join(root, 'entities');
+  const controlRoot = path.join(root, 'control');
+  for (const directory of [runtime, baseline, archiveRoot, entityRoot]) fs.mkdirSync(directory);
+  const scope: ManagedWorldResetScope = {
+    world: 'fixture',
+    runId: 'reset-one',
+    worldConfigDigest: '1'.repeat(64),
+    baselinePath: baseline,
+    baselineDigest: '2'.repeat(64),
+    runtimePath: runtime,
+    archiveRoot,
+    stagePath: path.join(root, '.runtime.stage-reset-one'),
+    archivePath: path.join(archiveRoot, 'reset-one-runtime'),
+    entityRoot,
+    circleIds: ['minecraft://127.0.0.1:25599'],
+  };
+  return { root, runtime, controlRoot, entityRoot, scope };
+}

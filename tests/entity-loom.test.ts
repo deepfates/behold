@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { historyMessages, openEntityLoom, type EntityTurn } from '../src/entity/loom';
+import { acquireWorldControl } from '../src/runtime/world-control';
 
 function turn(sequence: number, parentId: string | null, entityId = 'Scout'): EntityTurn {
   return {
@@ -197,3 +198,49 @@ test('an entity loom is bound to one circle and refuses cross-world memory leaka
   assert.equal(resumed.circleId, 'minecraft://world-one');
   await resumed.close();
 });
+
+test('managed entity admission is checked before and after its durable runtime lease', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-managed-entity-'));
+  const runtime = path.join(root, 'runtime');
+  const entityRoot = path.join(root, 'entities');
+  fs.mkdirSync(runtime);
+  fs.mkdirSync(entityRoot);
+  const control = acquireWorldControl({
+    controlRoot: path.join(root, 'control'),
+    world: 'fixture',
+    runtimePath: runtime,
+  });
+  control.update('starting', { server: { pid: 44, jarSha256: 'abc' } });
+  const previous = {
+    file: process.env.BEHOLD_WORLD_CONTROL_FILE,
+    world: process.env.BEHOLD_WORLD_ID,
+    run: process.env.BEHOLD_RUN_ID,
+  };
+  process.env.BEHOLD_WORLD_CONTROL_FILE = control.file;
+  process.env.BEHOLD_WORLD_ID = 'fixture';
+  process.env.BEHOLD_RUN_ID = 'fixture-1';
+  t.after(() => {
+    restoreEnvironment('BEHOLD_WORLD_CONTROL_FILE', previous.file);
+    restoreEnvironment('BEHOLD_WORLD_ID', previous.world);
+    restoreEnvironment('BEHOLD_RUN_ID', previous.run);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const managed = await openEntityLoom('Managed', entityRoot, 'fixture');
+  assert.equal(fs.existsSync(path.join(entityRoot, 'Managed', 'runtime.lock')), true);
+  await managed.close();
+
+  control.update('stopping');
+  await assert.rejects(
+    openEntityLoom('Late', entityRoot, 'fixture'),
+    /blocked while world is stopping/,
+  );
+  assert.equal(fs.existsSync(path.join(entityRoot, 'Late', 'runtime.lock')), false);
+  control.update('stopped_verified', { server: null });
+  control.release();
+});
+
+function restoreEnvironment(name: string, value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}

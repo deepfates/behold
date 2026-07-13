@@ -5,6 +5,11 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Intent } from '../loop/arbiter';
 import { sanitizeName } from '../observability/journal';
+import {
+  beginManagedControllerAdmission,
+  confirmManagedControllerAdmission,
+  type ManagedControllerAdmissionProof,
+} from '../runtime/world-control';
 
 export type EntityTurn = {
   protocol: 'behold.entity-turn.v1';
@@ -125,10 +130,12 @@ export async function openEntityLoom(
 ): Promise<EntityLoom> {
   const directory = path.join(root, sanitizeName(entityId));
   await fsPromises.mkdir(directory, { recursive: true });
+  const boundCircleId = await ensureEntityCircleBinding(entityId, directory, circleId);
+  const admission = managedControllerAdmissionFromEnvironment();
   const lease = await acquireEntityRuntimeLease(entityId, directory);
 
   try {
-    const boundCircleId = await ensureEntityCircleBinding(entityId, directory, circleId);
+    if (admission) confirmManagedControllerAdmission(admission);
     // Behold still emits CommonJS. Dynamic import is the narrow bridge to
     // Lync's ESM package; it avoids converting the rest of the runtime.
     const [{ createFileEventStore }, { createLyncLooms, loomRootId }] = await Promise.all([
@@ -247,6 +254,20 @@ export async function openEntityLoom(
   }
 }
 
+function managedControllerAdmissionFromEnvironment(): ManagedControllerAdmissionProof | null {
+  const controlFile = String(process.env.BEHOLD_WORLD_CONTROL_FILE || '').trim();
+  const world = String(process.env.BEHOLD_WORLD_ID || '').trim();
+  const runId = String(process.env.BEHOLD_RUN_ID || '').trim();
+  const supplied = [controlFile, world, runId].filter(Boolean).length;
+  if (supplied === 0) return null;
+  if (supplied !== 3) {
+    throw new Error(
+      'Managed controller admission requires BEHOLD_WORLD_CONTROL_FILE, BEHOLD_WORLD_ID, and BEHOLD_RUN_ID together',
+    );
+  }
+  return beginManagedControllerAdmission({ controlFile, world, runId });
+}
+
 /**
  * Lync's events.json is a derived acceleration snapshot; the .lync bytes are
  * the durable center. Its current file store rewrites the snapshot before the
@@ -323,6 +344,7 @@ async function ensureEntityCircleBinding(
   const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
   await fsPromises.writeFile(temporary, `${JSON.stringify(binding, null, 2)}\n`, 'utf8');
   await fsPromises.rename(temporary, file);
+  fsyncDirectorySync(directory);
   return requested;
 }
 
@@ -350,6 +372,7 @@ async function acquireEntityRuntimeLease(
       } finally {
         await handle.close();
       }
+      fsyncDirectorySync(directory);
 
       let closed = false;
       const releaseSync = () => {
@@ -357,7 +380,10 @@ async function acquireEntityRuntimeLease(
         closed = true;
         try {
           const current = JSON.parse(fs.readFileSync(file, 'utf8')) as EntityRuntimeLeaseRecord;
-          if (current.token === record.token) fs.unlinkSync(file);
+          if (current.token === record.token) {
+            fs.unlinkSync(file);
+            fsyncDirectorySync(directory);
+          }
         } catch (error: any) {
           if (error?.code !== 'ENOENT') throw error;
         }
@@ -410,6 +436,15 @@ async function acquireEntityRuntimeLease(
   }
 
   throw new Error(`could not acquire runtime lease for ${entityId}`);
+}
+
+function fsyncDirectorySync(directory: string) {
+  const descriptor = fs.openSync(directory, 'r');
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 async function readRuntimeLease(file: string): Promise<EntityRuntimeLeaseRecord | null> {

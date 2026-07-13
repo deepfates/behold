@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { Worker } from 'node:worker_threads';
 import {
   createFixtureExecutionCapability,
@@ -362,6 +363,37 @@ test('status exposes a listening owner and reset refuses it without mutation', a
     },
   );
   assert.deepEqual(snapshot(fixture.root), before);
+});
+
+test('default OS probes see a real listener and an actually open session lock', async (t) => {
+  const lsof = spawnSync('lsof', ['-v'], { encoding: 'utf8' });
+  if ((lsof.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+    t.skip('lsof is unavailable on this host');
+    return;
+  }
+  const fixture = makeLab(t);
+  const listener = createServer();
+  await new Promise<void>((resolve, reject) => {
+    listener.once('error', reject);
+    listener.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise<void>((resolve) => listener.close(() => resolve())));
+  const address = listener.address();
+  assert.ok(address && typeof address === 'object');
+  const lockDescriptor = fs.openSync(path.join(fixture.runtime, 'session.lock'), 'r');
+  t.after(() => fs.closeSync(lockDescriptor));
+  const world: WorldLabDefinition = {
+    ...fixture.world,
+    server: { host: '127.0.0.1', port: address.port },
+  };
+
+  const status = await statusWorld('fixture', world);
+  assert.equal(status.runtimeSessionLock.state, 'owned');
+  assert.equal(status.serverPort.state, 'owned');
+  assert.ok(status.runtimeSessionLock.owners.some((owner) => owner.pid === process.pid));
+  assert.ok(status.serverPort.owners.some((owner) => owner.pid === process.pid));
+  assert.ok(status.blockers.includes('runtime_session_lock_owned'));
+  assert.ok(status.blockers.includes('server_port_listening'));
 });
 
 test('source digest mismatch refuses before creating stage or archive', async (t) => {

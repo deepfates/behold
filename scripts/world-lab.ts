@@ -5,6 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
+import {
+  authorizeManagedWorldResetCapability,
+  type ManagedWorldResetCapability,
+  type ManagedWorldResetPlanScope,
+} from '../src/runtime/world-control';
 
 export const CONFIG_SCHEMA_VERSION = 2;
 export const SESSION_LOCK = 'session.lock';
@@ -229,6 +234,7 @@ export interface MutationOperations {
 export interface WorldLabDependencies extends Partial<WorldLabProbes> {
   mutationOperations?: Partial<MutationOperations>;
   fixtureExecutionCapability?: FixtureExecutionCapability;
+  managedResetCapability?: ManagedWorldResetCapability;
   now?: () => Date;
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
@@ -317,6 +323,32 @@ export function createFixtureExecutionCapability(rootPath: string): FixtureExecu
   issuedFixtureCapabilities.add(capability);
   fixtureAuthorityKeys.set(capability, authorityKey);
   return capability;
+}
+
+/** Validates that test-only dependency injection cannot escape a temporary fixture root. */
+export function assertFixtureExecutionScope(
+  capability: FixtureExecutionCapability,
+  paths: readonly string[],
+) {
+  requireFixtureAuthorityKey(capability);
+  const outside = paths
+    .map(canonicalizeExistingPrefix)
+    .filter((candidate) => !isInsideOrEqual(capability.canonicalRoot, candidate));
+  if (outside.length) {
+    throw new SafetyRefusal(['fixture_execution_scope_violation'], { capability, outside });
+  }
+}
+
+function canonicalizeExistingPrefix(candidate: string) {
+  let existing = path.resolve(candidate);
+  const suffix: string[] = [];
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) throw new Error(`No existing parent for ${candidate}`);
+    suffix.unshift(path.basename(existing));
+    existing = parent;
+  }
+  return path.join(fs.realpathSync.native(existing), ...suffix);
 }
 
 function loadOrCreateFixtureAuthorityKey(root: string) {
@@ -588,6 +620,20 @@ export function loadWorldLabConfig(configPath: string): WorldLabConfig {
   return validateWorldLabConfig(parsed);
 }
 
+/** Stable identity for the complete world definition consumed by lifecycle authority. */
+export function worldLabDefinitionDigest(world: WorldLabDefinition) {
+  const semantic = {
+    protocol: 'behold.world-definition.v1',
+    label: world.label ?? null,
+    source: world.source,
+    preparedBaseline: world.preparedBaseline,
+    runtime: world.runtime,
+    server: world.server,
+    notes: world.notes ?? [],
+  };
+  return createHash('sha256').update(stableJson(semantic)).digest('hex');
+}
+
 export function validateWorldLabConfig(value: unknown): WorldLabConfig {
   if (!isRecord(value) || value.schemaVersion !== CONFIG_SCHEMA_VERSION) {
     throw new WorldLabError(
@@ -856,11 +902,7 @@ export async function resetWorld(
 
   if (options.mode === 'dry-run') return { mode: 'dry-run', plan, verification };
 
-  const authorityKey = assertFixtureExecutionCapability(
-    dependencies.fixtureExecutionCapability,
-    plan,
-    verification,
-  );
+  const authorityKey = assertResetExecutionCapability(dependencies, plan, verification, world);
   const control = resetControlPaths(plan);
   const operationLock = acquireOperationLock(control.lockPath, worldId, runId, clock());
   try {
@@ -886,6 +928,7 @@ export async function resetWorld(
       verification.runtime.topology,
       lockedVerification.runtime.topology,
     );
+    assertResetExecutionCapability(dependencies, plan, lockedVerification, world);
 
     const mutation = {
       ...defaultMutationOperations,
@@ -935,6 +978,7 @@ export async function resetWorld(
         lockedVerification.runtime.topology,
         activationGate.runtime.topology,
       );
+      assertResetExecutionCapability(dependencies, plan, activationGate, world);
       const runtimeDigestBeforeArchive = digestTree(plan.runtimePath).digest;
       if (runtimeDigestBeforeArchive !== preResetRuntimeDigest) {
         throw new SafetyRefusal(['runtime_changed_during_reset'], {
@@ -1027,6 +1071,9 @@ export async function recoverWorldReset(
   runId: string,
   dependencies: WorldLabDependencies = {},
 ): Promise<ResetRecoveryResult> {
+  if (dependencies.managedResetCapability) {
+    throw new SafetyRefusal(['managed_reset_recovery_not_available'], { worldId, runId });
+  }
   assertSafeRunId(runId);
   const clock = dependencies.now || (() => new Date());
   const control = resetControlPathsForRuntime(path.resolve(world.runtime.worldPath), runId);
@@ -2253,6 +2300,43 @@ function assertFixtureExecutionCapability(
   return authorityKey;
 }
 
+function assertResetExecutionCapability(
+  dependencies: WorldLabDependencies,
+  plan: ResetPlan,
+  verification: WorldVerification,
+  world: WorldLabDefinition,
+) {
+  if (dependencies.fixtureExecutionCapability && dependencies.managedResetCapability) {
+    throw new SafetyRefusal(['multiple_reset_execution_capabilities'], { plan });
+  }
+  if (!dependencies.managedResetCapability) {
+    return assertFixtureExecutionCapability(
+      dependencies.fixtureExecutionCapability,
+      plan,
+      verification,
+    );
+  }
+  const scope: ManagedWorldResetPlanScope = {
+    world: plan.world,
+    runId: plan.runId,
+    worldConfigDigest: worldLabDefinitionDigest(world),
+    baselinePath: plan.baselinePath,
+    baselineDigest: plan.expectedBaselineDigest,
+    runtimePath: plan.runtimePath,
+    archiveRoot: path.dirname(plan.archivePath),
+    stagePath: plan.stagePath,
+    archivePath: plan.archivePath,
+  };
+  try {
+    return authorizeManagedWorldResetCapability(dependencies.managedResetCapability, scope);
+  } catch (error: any) {
+    throw new SafetyRefusal(['managed_reset_capability_invalid'], {
+      scope,
+      error: error?.message || String(error),
+    });
+  }
+}
+
 function assertPlainDirectory(target: string, role: string) {
   let stats: fs.Stats;
   try {
@@ -2270,6 +2354,18 @@ function assertPlainDirectory(target: string, role: string) {
       { path: target },
     );
   }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, child]) => child !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 function assertSameFilesystem(left: string, right: string) {
