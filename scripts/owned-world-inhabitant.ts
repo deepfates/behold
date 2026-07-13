@@ -76,6 +76,8 @@ async function main() {
     );
 
     await waitForLocalWorld(bot, 45_000);
+    if (phase === 'act') await waitForDroppedItem(bot, 'apple', 5_000);
+    else await delay(500);
     const initialObservation = experience.observe();
     const initialDroppedItems = observedDroppedItems(bot);
     let collection: Awaited<ReturnType<typeof executeTurn>> | null = null;
@@ -201,6 +203,7 @@ async function observeDroppedItemsFromFreshBody(config: ReturnType<typeof getCon
       witnessLoom.connectionCapability,
     );
     await waitForLocalWorld(witness, 45_000);
+    await delay(500);
     return {
       entityId: WITNESS_ID,
       worldId: config.circle.id,
@@ -213,6 +216,23 @@ async function observeDroppedItemsFromFreshBody(config: ReturnType<typeof getCon
     if (witness) await disconnect(witness).catch(() => {});
     await witnessLoom.close().catch(() => {});
   }
+}
+
+async function waitForDroppedItem(
+  bot: ReturnType<typeof createBot>,
+  name: string,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (observedDroppedItems(bot).some((item) => item.name === name)) return;
+    await delay(50);
+  }
+  throw new Error(`Minecraft entity stream did not expose the prepared ${name}`);
+}
+
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function observedDroppedItems(bot: ReturnType<typeof createBot>) {
