@@ -627,6 +627,8 @@ function spawnDefaultController(
       BEHOLD_RUN_ID: runId,
       BEHOLD_WORLD_ID: options.worldId,
       BEHOLD_WORLD_CONTROL_FILE: controlFile,
+      BEHOLD_WORLD_CONTROL_ROOT: path.dirname(path.dirname(controlFile)),
+      BEHOLD_ENTITY_DIR: path.dirname(path.dirname(options.controllerLeasePath)),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

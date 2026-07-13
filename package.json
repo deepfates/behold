@@ -19,6 +19,7 @@
     "native": "ts-node --transpile-only scripts/native-client.ts",
     "play": "ts-node --transpile-only scripts/play.ts",
     "world": "npm run build && node dist/scripts/world-runner.js",
+    "proof:owned-world": "npm run build && node dist/scripts/owned-world-proof.js",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "lint": "tsc -p tsconfig.json --noEmit && eslint .",

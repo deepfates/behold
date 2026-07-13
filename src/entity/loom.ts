@@ -3,7 +3,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Intent } from '../loop/arbiter';
+import type { IntentSource } from '../loop/arbiter';
 import { sanitizeName } from '../observability/journal';
 import {
   beginManagedControllerAdmission,
@@ -30,7 +30,7 @@ export type EntityTurn = {
     id: string;
     name: string;
     input: any;
-    source: 'llm';
+    source: IntentSource;
     /** Historical turn field; all new embodied actions are serialized. */
     kind: 'exclusive' | 'parallel' | 'yield';
     toolCallId: string | null;
@@ -738,6 +738,18 @@ export function historyMessages(
 ) {
   const messages: any[] = [];
   for (const turn of turns) {
+    if (turn.action.source !== 'llm') {
+      messages.push({
+        role: 'user',
+        content: `Historical ${turn.action.source} controller turn:\n${JSON.stringify({
+          observation: projectObservation(turn.observation),
+          action: turn.action,
+          outcome: turn.outcome,
+          nextObservation: projectObservation(turn.nextObservation),
+        })}`,
+      });
+      continue;
+    }
     messages.push({
       role: 'user',
       content: `World observation:\n${JSON.stringify(projectObservation(turn.observation))}`,

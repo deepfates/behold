@@ -412,13 +412,13 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           appendJournal('task_verification', taskRuntime.verifier.snapshot(experience.observe()));
         }
         experience.destroy();
-        await entityLoom.close();
         if (!botEnded) {
           await new Promise<void>((resolve) => {
             (bot as any).once('end', () => resolve());
             (bot as any).end();
           });
         }
+        await entityLoom.close();
         appendJournal('run_stopped', {
           reason,
           drained: true,

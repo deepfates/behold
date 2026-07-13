@@ -57,6 +57,18 @@ test('entity history projects prior actions and their observations back into mod
   assert.match(messages[2]?.content, /action_completed/);
 });
 
+test('a replaceable scripted controller is remembered without impersonating the LLM', () => {
+  const scripted = turn(1, null);
+  scripted.action.source = 'script';
+  scripted.action.toolCallId = null;
+  scripted.utterance.assistant = null;
+  const messages = historyMessages([scripted]);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.role, 'user');
+  assert.match(messages[0]?.content, /Historical script controller turn/);
+  assert.match(messages[0]?.content, /action_completed/);
+});
+
 test('Lync becomes authoritative without rewriting the legacy autobiography', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-migration-'));
   const legacyFile = path.join(root, 'Scout', 'loom.jsonl');

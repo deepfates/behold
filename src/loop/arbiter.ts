@@ -1,4 +1,4 @@
-export type IntentSource = 'human' | 'llm' | 'system';
+export type IntentSource = 'human' | 'llm' | 'system' | 'script';
 
 export type Intent = {
   id: string;
@@ -43,6 +43,7 @@ export class ActionArbiter {
         this.qHuman.push(queued);
         break;
       case 'system':
+      case 'script':
         this.qSystem.push(queued);
         break;
       case 'llm':
