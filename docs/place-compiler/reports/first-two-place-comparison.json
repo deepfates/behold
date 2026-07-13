@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "kind": "place-compiler-two-place-comparison",
+  "createdAt": "2026-07-13T21:46:38.774Z",
+  "tool": "Version: ImageMagick 7.1.2-8 Q16-HDRI aarch64 23412 https://imagemagick.org",
+  "places": [
+    {
+      "id": "san-francisco",
+      "name": "San Francisco",
+      "runId": "sf-full-v3-snapshot-20260713T095831Z",
+      "recipeSha256": "851060da98bb03eea40fe02dd4503baa82ade794c68eee5744566cd08b99a3ec",
+      "inputSha256": "0afff75444a2235c55fab52cac73d85bedada6b31caa3ea246cf8cb59bebe2c7",
+      "previewSha256": "090cbe91cb631bed7cdfd5da267176dc29895345c914cc5e6ae99c6f908b448a"
+    },
+    {
+      "id": "lower-manhattan",
+      "name": "Lower Manhattan",
+      "runId": "lower-manhattan-v3",
+      "recipeSha256": "94159bec1a30935f6826541aa330f430924d69c4c9a96c28bbbb3b10827e6620",
+      "inputSha256": "08aa3e1acf855c49377b86e43fbe8af1ea441adef3ac953d2a4b0273d5878900",
+      "previewSha256": "9616ac61182e608cedd4be39899e62ad2c185ca640781583020009e509c1a03b"
+    }
+  ],
+  "artifact": {
+    "path": ".behold-artifacts/places/comparisons/first-two-place-proof-v3/place-compiler-two-place-proof.png",
+    "width": 2400,
+    "height": 947,
+    "sha256": "48610b9075c05ead1887474c45aeeb838a5d22512734ba820dd3dda497f8ffd0"
+  }
+}
