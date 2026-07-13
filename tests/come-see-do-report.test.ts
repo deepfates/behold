@@ -4,6 +4,7 @@ import {
   ComeSeeDoReportPermissions,
   ComeSeeDoReportVerifier,
 } from '../src/tasks/come-see-do-report';
+import { buildInterpreter } from '../src/agent/interpreter';
 import { createWorldChangeAuthority, type WorldChangeExecutor } from '../src/safety/world-change';
 import type { InhabitantObservation } from '../src/agent/experience';
 
@@ -71,15 +72,40 @@ function observation(): InhabitantObservation {
   };
 }
 
-function completed(tool: string, input: any, result: any, at: number) {
+function completed(
+  tool: string,
+  input: any,
+  result: any,
+  at: number,
+  source: 'llm' | 'human' = 'llm',
+) {
   return {
     type: 'action_completed',
     at,
     data: {
-      intent: { id: `${tool}-1`, source: 'llm', tool, input },
+      intent: {
+        id: `${tool}-1`,
+        source,
+        tool,
+        input,
+        observationSequence: observation().sequence,
+      },
+      authorization: {
+        ok: true,
+        authority: source === 'llm' ? 'come-see-do-report-task' : 'operator-console',
+      },
       result,
     },
   } as any;
+}
+
+function recordModelCompletion(
+  verifier: ComeSeeDoReportVerifier,
+  event: ReturnType<typeof completed>,
+  observed: InhabitantObservation,
+) {
+  verifier.recordControllerDecision(event.data.intent, observed);
+  verifier.recordEngineEvent(event, observed);
 }
 
 function recordWorldChange(executor: WorldChangeExecutor, change: any) {
@@ -110,64 +136,94 @@ test("task permissions enforce human activation without choosing the resident's 
     },
     () => heldItem,
   );
-  assert.equal(permissions.authorizeAction('approach_entity').ok, false);
-  assert.equal(permissions.authorizeAction('place_against').ok, false);
-  assert.equal(permissions.authorizeAction('survey_area').ok, false);
+  const authorize = (tool: string, input?: any) =>
+    permissions.authorizeAction(
+      tool,
+      input,
+      tool === 'dig_block'
+        ? { blockMutation: 'dig' }
+        : ['place_against', 'place_block'].includes(tool)
+          ? { blockMutation: 'place' }
+          : ['descend_step'].includes(tool)
+            ? { blockMutation: 'multiple' }
+            : ['toggle_block', 'sleep_in_bed', 'wake_up'].includes(tool)
+              ? { blockMutation: 'state' }
+              : {},
+    );
+  const missingEffects = permissions.authorizeAction('chat', {}, undefined);
+  assert.equal(missingEffects.ok, false);
+  if (!missingEffects.ok) assert.equal(missingEffects.error, 'command_effects_required');
+  assert.equal(authorize('approach_entity').ok, false);
+  assert.equal(authorize('place_against').ok, false);
+  assert.equal(authorize('survey_area').ok, false);
 
   permissions.recordIncomingChat('someone-else', 'Scout, come here');
-  assert.equal(permissions.authorizeAction('approach_entity').ok, false);
+  assert.equal(authorize('approach_entity').ok, false);
   permissions.recordIncomingChat('importdf', "Don't break or place anything");
-  assert.equal(permissions.authorizeAction('approach_entity').ok, true);
-  assert.equal(permissions.authorizeAction('place_against').ok, false);
+  assert.equal(authorize('approach_entity').ok, true);
+  assert.equal(authorize('place_against').ok, false);
+  for (const tool of ['place_block', 'descend_step', 'toggle_block']) {
+    assert.equal(authorize(tool).ok, false);
+  }
+  const interpreter = buildInterpreter({} as any);
+  for (const tool of ['sleep_in_bed', 'wake_up']) {
+    const effects = interpreter.describe(tool)?.effects;
+    assert.equal(effects?.blockMutation, 'state');
+    assert.equal(permissions.authorizeAction(tool, {}, effects).ok, false);
+  }
 
   permissions.recordIncomingChat('importdf', 'Place a lantern here');
-  const ambiguous = permissions.authorizeAction('place_against');
+  const ambiguous = authorize('place_against');
   assert.equal(ambiguous.ok, false);
   if (!ambiguous.ok) assert.equal(ambiguous.error, 'ambiguous_change_request');
 
   permissions.recordIncomingChat('importdf', 'Place a lantern on this block');
-  assert.equal(permissions.authorizeAction('place_against').ok, false);
+  assert.equal(authorize('place_against').ok, false);
   permissions.recordIncomingChat('importdf', 'Place a lantern on this gray concrete block');
   assert.equal(
-    permissions.authorizeAction('place_against', {
+    authorize('place_against', {
       on: { x: 1, y: 63, z: 0 },
       face: 'top',
     }).ok,
     true,
   );
-  const wrongTarget = permissions.authorizeAction('place_against', {
+  const wrongTarget = authorize('place_against', {
     on: { x: 3, y: 63, z: 0 },
     face: 'top',
   });
   assert.equal(wrongTarget.ok, false);
   if (!wrongTarget.ok) assert.equal(wrongTarget.error, 'requested_target_mismatch');
   heldItem = 'dirt';
-  const wrongItem = permissions.authorizeAction('place_against', {
+  const wrongItem = authorize('place_against', {
     on: { x: 1, y: 63, z: 0 },
     face: 'top',
   });
   assert.equal(wrongItem.ok, false);
   if (!wrongItem.ok) assert.equal(wrongItem.error, 'requested_target_mismatch');
   heldItem = 'lantern';
-  assert.equal(permissions.authorizeAction('dig_block').ok, false);
+  assert.equal(authorize('dig_block').ok, false);
+
+  permissions.recordIncomingChat('importdf', 'Place a lantern at 1 64 0');
+  assert.equal(authorize('place_block', { x: 1, y: 64, z: 0, name: 'lantern' }).ok, true);
+  assert.equal(authorize('descend_step', { direction: 'north' }).ok, false);
 
   permissions.recordIncomingChat('importdf', "Never mind, don't place anything");
   assert.equal(
-    permissions.authorizeAction('place_against', {
+    authorize('place_against', {
       on: { x: 1, y: 63, z: 0 },
       face: 'top',
     }).ok,
     false,
   );
   permissions.recordIncomingChat('importdf', 'Dig the stone at 2 64 0');
-  assert.equal(permissions.authorizeAction('dig_block', { x: 2, y: 64, z: 0 }).ok, true);
-  assert.equal(permissions.authorizeAction('dig_block', { x: 3, y: 64, z: 0 }).ok, false);
+  assert.equal(authorize('dig_block', { x: 2, y: 64, z: 0 }).ok, true);
+  assert.equal(authorize('dig_block', { x: 3, y: 64, z: 0 }).ok, false);
   permissions.recordIncomingChat('importdf', 'Dig the stone at -2 64 0');
-  assert.equal(permissions.authorizeAction('dig_block', { x: -2, y: 64, z: 0 }).ok, true);
-  assert.equal(permissions.authorizeAction('dig_block', { x: 2, y: 64, z: 0 }).ok, false);
-  assert.equal(permissions.authorizeAction('survey_area').ok, false);
+  assert.equal(authorize('dig_block', { x: -2, y: 64, z: 0 }).ok, true);
+  assert.equal(authorize('dig_block', { x: 2, y: 64, z: 0 }).ok, false);
+  assert.equal(authorize('survey_area').ok, false);
   permissions.recordIncomingChat('importdf', 'Please scan the area');
-  assert.equal(permissions.authorizeAction('survey_area').ok, true);
+  assert.equal(authorize('survey_area').ok, true);
 });
 
 test('Come–See–Do–Report verifier requires an ordered, evidenced trajectory', () => {
@@ -187,7 +243,8 @@ test('Come–See–Do–Report verifier requires an ordered, evidenced trajector
     ),
     obs,
   );
-  verifier.recordEngineEvent(
+  recordModelCompletion(
+    verifier,
     completed(
       'chat',
       { text: 'I am beside you; the nearby terrain includes gray concrete.' },
@@ -236,9 +293,10 @@ test('Come–See–Do–Report verifier requires an ordered, evidenced trajector
   );
   verifier.recordEngineEvent(placeCompleted, obs);
   verifier.recordEngineEvent(placeCompleted, obs);
-  verifier.recordEngineEvent(completed('chat', { text: 'Done.' }, { ok: true }, 60), obs);
+  recordModelCompletion(verifier, completed('chat', { text: 'Done.' }, { ok: true }, 60), obs);
   assert.equal(verifier.snapshot(obs).outcomeReported, false);
-  verifier.recordEngineEvent(
+  recordModelCompletion(
+    verifier,
     completed('chat', { text: 'I placed the lantern successfully.' }, { ok: true }, 70),
     obs,
   );
@@ -251,6 +309,77 @@ test('Come–See–Do–Report verifier requires an ordered, evidenced trajector
   assert.deepEqual(progress.outcomeReport?.evidence, ['lantern', 'place']);
   assert.equal('nextAction' in progress, false);
   assert.deepEqual(progress.missing, []);
+});
+
+test('verifier never credits operator reports or world changes to the resident', () => {
+  const { guard, executor } = createWorldChangeAuthority({ budget: 1 });
+  const verifier = new ComeSeeDoReportVerifier('importdf', guard, null, () => true);
+  const obs = observation();
+  verifier.recordIncomingChat('importdf', 'Come here first', 10);
+  verifier.recordEngineEvent(
+    completed(
+      'approach_entity',
+      { name: 'importdf' },
+      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      20,
+    ),
+    obs,
+  );
+  verifier.recordEngineEvent(
+    completed(
+      'chat',
+      { text: 'The nearby terrain includes gray concrete.' },
+      { ok: true },
+      30,
+      'human',
+    ),
+    obs,
+  );
+  verifier.recordIncomingChat('importdf', 'Place the lantern on this gray concrete block', 40);
+  const confirmation = {
+    source: 'mineflayer:blockUpdate' as const,
+    observedAt: 49,
+    beforeStateId: 0,
+    afterStateId: 12,
+  };
+  recordWorldChange(executor, {
+    verb: 'place',
+    position: { x: 1, y: 64, z: 0 },
+    before: 'air',
+    after: 'lantern',
+    evidence: confirmation,
+  });
+  verifier.recordEngineEvent(
+    completed(
+      'place_against',
+      {},
+      {
+        ok: true,
+        changes: [
+          {
+            position: { x: 1, y: 64, z: 0 },
+            before: 'air',
+            after: 'lantern',
+            verified: true,
+            confirmation,
+          },
+        ],
+      },
+      50,
+      'human',
+    ),
+    obs,
+  );
+  verifier.recordEngineEvent(
+    completed('chat', { text: 'I placed the lantern successfully.' }, { ok: true }, 60, 'human'),
+    obs,
+  );
+
+  const progress = verifier.snapshot(obs);
+  assert.equal(progress.groundedReport, null);
+  assert.equal(progress.verifiedChanges.length, 0);
+  assert.equal(progress.outcomeReport, null);
+  assert.equal(progress.success, false);
 });
 
 test('verifier rejects negated scene and outcome claims', () => {
@@ -267,12 +396,14 @@ test('verifier rejects negated scene and outcome claims', () => {
     ),
     obs,
   );
-  verifier.recordEngineEvent(
+  recordModelCompletion(
+    verifier,
     completed('chat', { text: 'There is no gray concrete here.' }, { ok: true }, 30),
     obs,
   );
   assert.equal(verifier.snapshot(obs).groundedReport, null);
-  verifier.recordEngineEvent(
+  recordModelCompletion(
+    verifier,
     completed('chat', { text: 'Gray concrete appears absent here.' }, { ok: true }, 31),
     obs,
   );
@@ -318,12 +449,14 @@ test('verifier rejects negated scene and outcome claims', () => {
     ),
     obs,
   );
-  verifier.recordEngineEvent(
+  recordModelCompletion(
+    verifier,
     completed('chat', { text: 'I did not place the lantern.' }, { ok: true }, 60),
     obs,
   );
   assert.equal(verifier.snapshot(obs).outcomeReport, null);
-  verifier.recordEngineEvent(
+  recordModelCompletion(
+    verifier,
     completed('chat', { text: 'I failed to place the lantern.' }, { ok: true }, 61),
     obs,
   );
@@ -374,10 +507,65 @@ test('verifier uses event timestamps rather than processing order', () => {
     ),
     obs,
   );
-  verifier.recordEngineEvent(
+  recordModelCompletion(
+    verifier,
     completed('chat', { text: 'The nearby terrain includes gray concrete.' }, { ok: true }, 5),
     obs,
   );
+  assert.equal(verifier.snapshot(obs).groundedReport, null);
+});
+
+test('verifier grounds a report in the model decision observation, not later world state', () => {
+  const { guard } = createWorldChangeAuthority({ budget: 1 });
+  const verifier = new ComeSeeDoReportVerifier('importdf', guard, null, () => true);
+  const decisionObservation = observation();
+  decisionObservation.sequence = 3;
+  decisionObservation.scene.terrain.materials = [{ name: 'dirt', count: 12 }];
+  const completionObservation = observation();
+  verifier.recordIncomingChat('importdf', 'Come here', 10);
+  verifier.recordEngineEvent(
+    completed(
+      'approach_entity',
+      { name: 'importdf' },
+      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      20,
+    ),
+    completionObservation,
+  );
+  const report = completed(
+    'chat',
+    { text: 'The nearby terrain includes gray concrete.' },
+    { ok: true },
+    30,
+  );
+  report.data.intent.observationSequence = 3;
+  verifier.recordControllerDecision(report.data.intent, decisionObservation);
+
+  verifier.recordEngineEvent(report, completionObservation);
+
+  assert.equal(verifier.snapshot(completionObservation).groundedReport, null);
+});
+
+test('verifier requires a recorded model decision even when completion sequence matches', () => {
+  const { guard } = createWorldChangeAuthority({ budget: 1 });
+  const verifier = new ComeSeeDoReportVerifier('importdf', guard, null, () => true);
+  const obs = observation();
+  verifier.recordIncomingChat('importdf', 'Come here', 10);
+  verifier.recordEngineEvent(
+    completed(
+      'approach_entity',
+      { name: 'importdf' },
+      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      20,
+    ),
+    obs,
+  );
+
+  verifier.recordEngineEvent(
+    completed('chat', { text: 'The nearby terrain includes gray concrete.' }, { ok: true }, 30),
+    obs,
+  );
+
   assert.equal(verifier.snapshot(obs).groundedReport, null);
 });
 

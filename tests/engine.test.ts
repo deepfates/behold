@@ -74,6 +74,100 @@ test('an interpreter result with ok false emits a failed lifecycle', async () =>
   assert.equal(events.includes('action_completed'), false);
 });
 
+test('permission denial is recorded before dispatch and never starts the adapter', async () => {
+  const events: string[] = [];
+  let dispatches = 0;
+  const engine = createEngine(
+    {
+      list: () => [],
+      authorize: () => ({
+        ok: false,
+        authority: 'task-policy',
+        error: 'explicit_change_request_required',
+        reason: 'Wait for the player request',
+      }),
+      run: async () => {
+        dispatches += 1;
+        return { ok: true };
+      },
+    },
+    { onEvent: (event) => events.push(event.type) },
+  );
+  engine.enqueueIntent({ id: 'denied-place', source: 'llm', tool: 'place_block' });
+
+  await engine.tick();
+
+  assert.equal(dispatches, 0);
+  assert.deepEqual(events.slice(-3), ['intent_selected', 'permission_decision', 'intent_blocked']);
+  assert.equal(events.includes('action_started'), false);
+});
+
+test('positive permission is engine-bound and precedes action start', async () => {
+  const events: any[] = [];
+  const engine = createEngine(
+    {
+      list: () => [],
+      authorize: () => ({ ok: true, authority: 'task-policy' }),
+      run: async () => ({ ok: true, status: 'arrived' }),
+    },
+    { onEvent: (event) => events.push(event) },
+  );
+  engine.enqueueIntent({ id: 'allowed-move', source: 'llm', tool: 'move_to' });
+
+  await engine.tick();
+
+  assert.deepEqual(
+    events
+      .filter((event) =>
+        ['intent_selected', 'permission_decision', 'action_started', 'action_completed'].includes(
+          event.type,
+        ),
+      )
+      .map((event) => event.type),
+    ['intent_selected', 'permission_decision', 'action_started', 'action_completed'],
+  );
+  const completed = events.find((event) => event.type === 'action_completed');
+  assert.deepEqual(completed.data.authorization, { ok: true, authority: 'task-policy' });
+});
+
+test('engine tool allowlist blocks a mutator before registry authorization or dispatch', async () => {
+  const events: any[] = [];
+  let authorizations = 0;
+  let dispatches = 0;
+  const engine = createEngine(
+    {
+      list: () => [],
+      authorize: () => {
+        authorizations += 1;
+        return { ok: true, authority: 'task-policy' };
+      },
+      run: async () => {
+        dispatches += 1;
+        return { ok: true };
+      },
+    },
+    {
+      allowTools: ['approach_entity', 'chat'],
+      onEvent: (event) => events.push(event),
+    },
+  );
+  engine.enqueueIntent({ id: 'not-allowed', source: 'llm', tool: 'descend_step' });
+
+  await engine.tick();
+
+  assert.equal(authorizations, 0);
+  assert.equal(dispatches, 0);
+  assert.deepEqual(
+    events.slice(-3).map((event) => event.type),
+    ['intent_selected', 'permission_decision', 'intent_blocked'],
+  );
+  assert.equal(events.at(-2).data.authorization.authority, 'engine-tool-allowlist');
+  assert.equal(
+    events.some((event) => event.type === 'action_started'),
+    false,
+  );
+});
+
 test('human preemption never overlaps the active world action', async () => {
   let finishMove!: (value: any) => void;
   const move = new Promise((resolve) => {
@@ -319,6 +413,113 @@ test('human stop cancels queued model intents before they can execute', async ()
   assert.equal(blocked[0].intent.id, 'dig-after-stop');
   assert.equal(blocked[0].reason, 'human_stop');
   assert.equal(blocked[0].result.error, 'interrupted_by_human');
+});
+
+test('human stop reaches an active adapter and waits for its cancellation acknowledgement', async () => {
+  const events: any[] = [];
+  let activeStarted!: () => void;
+  const started = new Promise<void>((resolve) => (activeStarted = resolve));
+  const ran: string[] = [];
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async (name, _args, _intent, execution) => {
+        ran.push(name);
+        if (name === 'stop') return { ok: true };
+        activeStarted();
+        await new Promise<void>((resolve) =>
+          execution!.signal.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        return {
+          ok: false,
+          error: 'interrupted_by_human',
+          cancellation: { acknowledged: true, adapter: 'test-adapter' },
+        };
+      },
+    },
+    { onEvent: (event) => events.push(event) },
+  );
+  engine.enqueueIntent({ id: 'active-move', source: 'llm', tool: 'move_to' });
+
+  const activeTick = engine.tick();
+  await started;
+  engine.enqueueHumanIntent({ tool: 'stop', preempt: true });
+  await activeTick;
+  await engine.tick();
+
+  assert.deepEqual(ran, ['move_to', 'stop']);
+  assert.deepEqual(
+    events
+      .filter((event) =>
+        ['cancellation_requested', 'action_failed', 'action_completed'].includes(event.type),
+      )
+      .map((event) => [event.type, event.data.intent.tool]),
+    [
+      ['cancellation_requested', 'move_to'],
+      ['action_failed', 'move_to'],
+      ['action_completed', 'stop'],
+    ],
+  );
+  const failed = events.find(
+    (event) => event.type === 'action_failed' && event.data.intent.id === 'active-move',
+  );
+  assert.deepEqual(failed.data.cancellation, {
+    requested: true,
+    reason: 'human_stop',
+    acknowledged: true,
+    adapter: 'test-adapter',
+  });
+  assert.equal(failed.data.failureKind, 'adapter_acknowledged_cancellation');
+});
+
+test('human stop never fabricates cancellation when an active adapter cannot acknowledge it', async () => {
+  const events: any[] = [];
+  let activeStarted!: () => void;
+  const started = new Promise<void>((resolve) => (activeStarted = resolve));
+  let finishActive!: () => void;
+  const finish = new Promise<void>((resolve) => (finishActive = resolve));
+  const ran: string[] = [];
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async (name) => {
+        ran.push(name);
+        if (name === 'stop') return { ok: true };
+        activeStarted();
+        await finish;
+        return { ok: true };
+      },
+    },
+    { onEvent: (event) => events.push(event) },
+  );
+  engine.enqueueIntent({ id: 'active-place', source: 'llm', tool: 'place_block' });
+
+  const activeTick = engine.tick();
+  await started;
+  engine.enqueueHumanIntent({ tool: 'stop', preempt: true });
+  await engine.tick();
+  assert.deepEqual(ran, ['place_block']);
+
+  finishActive();
+  await activeTick;
+  await engine.tick();
+
+  assert.deepEqual(ran, ['place_block', 'stop']);
+  const completed = events.find(
+    (event) => event.type === 'action_completed' && event.data.intent.id === 'active-place',
+  );
+  assert.deepEqual(completed.data.cancellation, {
+    requested: true,
+    reason: 'human_stop',
+    acknowledged: false,
+    adapter: null,
+  });
+  assert.equal(
+    events.some(
+      (event) => event.type === 'action_failed' && event.data.intent.id === 'active-place',
+    ),
+    false,
+  );
 });
 
 test('human stop latches model execution while a continuing controller tries to replace the action', async () => {

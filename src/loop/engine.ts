@@ -1,9 +1,28 @@
 import { ActionArbiter, type Intent } from './arbiter';
 
 export type Registry = {
-  run: (name: string, args?: any, intent?: Intent) => Promise<any>;
+  run: (name: string, args?: any, intent?: Intent, execution?: ActionExecution) => Promise<any>;
+  authorize?: (
+    name: string,
+    args: any,
+    intent: Intent,
+  ) => ActionAuthorization | Promise<ActionAuthorization>;
   list: () => Array<{ name: string; description?: string; parameters?: any }>;
 };
+
+export type ActionAuthorization =
+  | { ok: true; authority: string; evidence?: Readonly<Record<string, unknown>> }
+  | {
+      ok: false;
+      authority: string;
+      error: string;
+      reason: string;
+      evidence?: Readonly<Record<string, unknown>>;
+    };
+
+export type ActionExecution = Readonly<{
+  signal: AbortSignal;
+}>;
 
 export type EngineEvent = Readonly<{
   type: string;
@@ -63,7 +82,11 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
 
   let timer: NodeJS.Timeout | null = null;
   let mutedLLM = false;
-  let inFlight: { intent: Intent; promise: Promise<any> } | null = null;
+  let inFlight: {
+    intent: Intent;
+    promise: Promise<any>;
+    controller: AbortController;
+  } | null = null;
 
   async function tick() {
     // Until each adapter can acknowledge cancellation, serialize all actions.
@@ -75,12 +98,27 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
     if (!intent) return;
     if (allow && !allow.has(intent.tool) && intent.tool !== 'stop') {
       log(`[engine] blocked by allowlist: ${intent.tool}`);
-      emit('intent_blocked', { intent, reason: 'allowlist' });
+      const authorization: ActionAuthorization = {
+        ok: false,
+        authority: 'engine-tool-allowlist',
+        error: 'tool_not_allowed',
+        reason: `${intent.tool} is not in the configured tool allowlist`,
+      };
+      emit('intent_selected', { intent });
+      emit('permission_decision', { intent, authorization });
+      emit('intent_blocked', {
+        intent,
+        authorization,
+        reason: authorization.error,
+        error: authorization.error,
+        result: authorization,
+      });
       arbiter.releaseLease(intent.id);
       return;
     }
-    const execution = execute(intent);
-    inFlight = { intent, promise: execution };
+    const controller = new AbortController();
+    const execution = execute(intent, controller);
+    inFlight = { intent, promise: execution, controller };
     try {
       return await execution;
     } finally {
@@ -88,22 +126,77 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
     }
   }
 
-  async function execute(intent: Intent) {
+  async function execute(intent: Intent, controller: AbortController) {
+    let authorization: ActionAuthorization = { ok: true, authority: 'registry-default' };
     try {
       log(`[arbiter] selected: ${intent.source} ${intent.tool}`);
       log(`[engine] act: ${intent.tool}`);
       emit('intent_selected', { intent });
-      emit('action_started', { intent });
-      const res = await registry.run(intent.tool, intent.input, intent);
-      emit('tool_result', { intent, result: res });
+      if (registry.authorize) {
+        try {
+          authorization = await registry.authorize(intent.tool, intent.input, intent);
+        } catch (error: any) {
+          authorization = {
+            ok: false,
+            authority: 'registry-authorization-error',
+            error: 'authorization_error',
+            reason: error?.message || String(error),
+          };
+        }
+      }
+      emit('permission_decision', { intent, authorization });
+      if (authorization.ok === false) {
+        emit('intent_blocked', {
+          intent,
+          authorization,
+          reason: authorization.error,
+          error: authorization.error,
+          result: authorization,
+        });
+        arbiter.releaseLease(intent.id);
+        return authorization;
+      }
+      emit('action_started', { intent, authorization });
+      const res = await registry.run(intent.tool, intent.input, intent, {
+        signal: controller.signal,
+      });
+      emit('tool_result', { intent, authorization, result: res });
       if (res?.ok === false) {
         emit('action_failed', {
           intent,
+          authorization,
           result: res,
           error: res?.error || 'action_failed',
+          ...(controller.signal.aborted
+            ? {
+                cancellation: {
+                  requested: true,
+                  reason: String(controller.signal.reason || 'interrupted_by_human'),
+                  acknowledged: res?.cancellation?.acknowledged === true,
+                  adapter: res?.cancellation?.adapter ?? null,
+                },
+                ...(res?.cancellation?.acknowledged === true
+                  ? { failureKind: 'adapter_acknowledged_cancellation' }
+                  : {}),
+              }
+            : {}),
         });
       } else {
-        emit('action_completed', { intent, result: res });
+        emit('action_completed', {
+          intent,
+          authorization,
+          result: res,
+          ...(controller.signal.aborted
+            ? {
+                cancellation: {
+                  requested: true,
+                  reason: String(controller.signal.reason || 'interrupted_by_human'),
+                  acknowledged: false,
+                  adapter: null,
+                },
+              }
+            : {}),
+        });
       }
       // If exclusive finished, release lease
       arbiter.releaseLease(intent.id);
@@ -113,8 +206,21 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       log(`[engine] error in ${intent.tool}: ${e?.message || String(e)}`);
       emit('action_failed', {
         intent,
+        authorization,
         error: e?.message || String(e),
-        failureKind: 'registry_exception',
+        failureKind: controller.signal.aborted
+          ? 'unacknowledged_cancellation_registry_exception'
+          : 'registry_exception',
+        ...(controller.signal.aborted
+          ? {
+              cancellation: {
+                requested: true,
+                reason: String(controller.signal.reason || 'interrupted_by_human'),
+                acknowledged: false,
+                adapter: null,
+              },
+            }
+          : {}),
       });
     }
   }
@@ -142,10 +248,19 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       preempt: intent.preempt,
     };
     if (intent.preempt && inFlight) {
+      const reason = intent.tool === 'stop' ? 'human_stop' : 'human_preemption';
+      if (!inFlight.controller.signal.aborted) {
+        emit('cancellation_requested', {
+          intent: inFlight.intent,
+          requestedBy: fullIntent,
+          reason,
+        });
+        inFlight.controller.abort(reason);
+      }
       emit('preemption_deferred', {
         intent: fullIntent,
         activeIntent: inFlight.intent,
-        reason: 'active_action_must_reach_a_terminal_result',
+        reason: 'awaiting_active_action_terminal_cancellation_acknowledgement',
       });
     }
     enqueueIntent(fullIntent);

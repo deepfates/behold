@@ -27,10 +27,19 @@ export type CommandSpec = {
   name: string;
   description: string;
   parameters: any; // JSON Schema
-  run: (args: any) => Promise<any>;
+  run: (args: any, execution?: CommandExecution) => Promise<any>;
   category?: string;
   audience?: 'inhabitant' | 'operator' | 'privileged';
+  effects?: CommandEffects;
 };
+
+export type CommandExecution = Readonly<{
+  signal?: AbortSignal;
+}>;
+
+export type CommandEffects = Readonly<{
+  blockMutation?: 'dig' | 'place' | 'state' | 'multiple';
+}>;
 
 type InterpreterOptions = {
   worldChangeExecutor?: WorldChangeExecutor | null;
@@ -220,7 +229,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z, near = 0, maxTravel, timeoutMs = 45_000 }) => {
+    run: async ({ x, y, z, near = 0, maxTravel, timeoutMs = 45_000 }, execution) => {
       const pathfinder = (bot as any).pathfinder;
       if (!pathfinder) return { ok: false, error: 'pathfinder_unavailable' };
       const requestedDestination = { x: Number(x), y: Number(y), z: Number(z) };
@@ -255,6 +264,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         destination,
         near: effectiveNear,
         timeoutMs: clamp(Number(timeoutMs), 1000, 120_000),
+        signal: execution?.signal,
       });
       const final = positionOf(bot);
       const remainingDistance = final ? distance(final, requestedDestination) : null;
@@ -289,7 +299,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['name'],
     },
-    run: async ({ name, distance = 2.5, timeoutMs = 45_000 }) => {
+    run: async ({ name, distance = 2.5, timeoutMs = 45_000 }, execution) => {
       const pathfinder = (bot as any).pathfinder;
       if (!pathfinder) return { ok: false, error: 'pathfinder_unavailable' };
       const targetName = String(name).toLowerCase();
@@ -324,6 +334,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         near: stopDistance,
         timeoutMs: clamp(Number(timeoutMs), 1000, 120_000),
         target: String(target.username || target.name || name),
+        signal: execution?.signal,
       });
       if (result.ok && target?.position) {
         try {
@@ -392,7 +403,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         timeoutMs: { type: 'number', minimum: 1000, maximum: 120000 },
       },
     },
-    run: async ({ name, maxDistance = 16, timeoutMs = 45_000 }) => {
+    run: async ({ name, maxDistance = 16, timeoutMs = 45_000 }, execution) => {
       const pathfinder = (bot as any).pathfinder;
       if (!pathfinder) return { ok: false, error: 'pathfinder_unavailable' };
       const requested = name ? normalizeRegistryName(String(name)) : null;
@@ -447,6 +458,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           near: 0,
           timeoutMs: clamp(Number(timeoutMs), 1000, 120_000),
           target: target.item,
+          signal: execution?.signal,
         },
       );
       let collected = await watcher.wait(navigation.ok ? 400 : 100);
@@ -563,7 +575,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z }) => {
+    run: async ({ x, y, z }, execution) => {
       let b = (bot as any).blockAt(new Vec3(x, y, z));
       if (!b) return { ok: false, error: 'no_block' };
       const position = { x: b.position.x, y: b.position.y, z: b.position.z };
@@ -620,6 +632,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
             near: 4.5,
             timeoutMs: 45_000,
             target: String(b.name || 'block'),
+            signal: execution?.signal,
           },
         );
         if (!navigation.ok) {
@@ -650,6 +663,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         stabilityWindowMs: opts.changeStabilityWindowMs,
         commandTimeoutMs: opts.worldCommandTimeoutMs,
         perform: () => (bot as any).dig(b),
+        signal: execution?.signal,
       });
       const adjacentBlocks = result.ok ? adjacentSolidBlocks(bot, position) : [];
       return {
@@ -667,6 +681,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       };
     },
     category: 'world',
+    effects: { blockMutation: 'dig' },
   });
 
   add({
@@ -861,6 +876,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       };
     },
     category: 'world',
+    effects: { blockMutation: 'multiple' },
   });
 
   add({
@@ -1014,6 +1030,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       });
     },
     category: 'world',
+    effects: { blockMutation: 'place' },
   });
 
   add({
@@ -1034,7 +1051,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z, name, timeoutMs = 45_000 }) => {
+    run: async ({ x, y, z, name, timeoutMs = 45_000 }, execution) => {
       const position = {
         x: Math.floor(Number(x)),
         y: Math.floor(Number(y)),
@@ -1093,6 +1110,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
             near: 3,
             timeoutMs: clamp(Number(timeoutMs), 1000, 120_000),
             target: 'placement cell',
+            signal: execution?.signal,
           },
         );
         if (!navigation.ok) {
@@ -1134,10 +1152,12 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         stabilityWindowMs: opts.changeStabilityWindowMs,
         commandTimeoutMs: opts.worldCommandTimeoutMs,
         perform: () => performPlacement(bot, reference.block, reference.vector),
+        signal: execution?.signal,
       });
       return { ...result, navigation, item: selected.item };
     },
     category: 'world',
+    effects: { blockMutation: 'place' },
   });
 
   add({
@@ -1162,6 +1182,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         opts,
       ),
     category: 'world',
+    effects: { blockMutation: 'state' },
   });
 
   if (opts.places) {
@@ -1298,6 +1319,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         };
       },
       category: 'move',
+      effects: { blockMutation: 'state' },
     });
 
     add({
@@ -1425,6 +1447,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         };
       },
       category: 'move',
+      effects: { blockMutation: 'state' },
     });
   }
 
@@ -1733,6 +1756,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       };
     },
     category: 'self-care',
+    effects: { blockMutation: 'state' },
   });
 
   add({
@@ -1745,6 +1769,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return { ok: !(bot as any).isSleeping };
     },
     category: 'self-care',
+    effects: { blockMutation: 'state' },
   });
 
   add({
@@ -2131,26 +2156,37 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         ? specs.filter((spec) => (spec.audience ?? 'inhabitant') === audience)
         : specs;
       return visible.map(
-        ({ name, description, parameters, category, audience: commandAudience }) => ({
+        ({ name, description, parameters, category, audience: commandAudience, effects }) => ({
           name,
           description,
           parameters,
           category,
           audience: commandAudience ?? 'inhabitant',
+          effects: effects ?? {},
         }),
       );
     },
     describe(name: string) {
       const c = specs.find((s) => s.name === name);
       if (!c) return null;
-      const { description, parameters, category, audience } = c;
-      return { name, description, parameters, category, audience: audience ?? 'inhabitant' };
+      const { description, parameters, category, audience, effects } = c;
+      return {
+        name,
+        description,
+        parameters,
+        category,
+        audience: audience ?? 'inhabitant',
+        effects: effects ?? {},
+      };
     },
-    async run(name: string, args: any) {
+    async run(name: string, args: any, execution?: CommandExecution) {
       const c = specs.find((s) => s.name === name);
       if (!c) return { ok: false, error: 'unknown_command' };
+      if (execution?.signal?.aborted) {
+        return cancelledAction('behold-command-dispatch');
+      }
       try {
-        return await c.run(args ?? {});
+        return await c.run(args ?? {}, execution);
       } catch (e: any) {
         return { ok: false, error: e?.message || String(e) };
       }
@@ -2258,7 +2294,9 @@ async function executeConfirmedWorldChange(options: {
   stabilityWindowMs?: number;
   commandTimeoutMs?: number;
   perform: () => Promise<unknown>;
+  signal?: AbortSignal;
 }) {
+  if (options.signal?.aborted) return cancelledAction('behold-command-dispatch');
   const before = blockState(options.beforeBlock);
   const request = {
     verb: options.verb,
@@ -2270,6 +2308,26 @@ async function executeConfirmedWorldChange(options: {
 
   const observer = observeBlockTransition(options.bot, options.position, before);
   let commandError: string | null = null;
+  let cancellationAcknowledged = false;
+  const onDiggingAborted = (block: any) => {
+    if (
+      options.signal?.aborted &&
+      block?.position &&
+      samePosition(block.position, options.position)
+    ) {
+      cancellationAcknowledged = true;
+    }
+  };
+  const requestDigCancellation = () => {
+    if (options.verb !== 'dig') return;
+    const active = (options.bot as any).targetDigBlock;
+    if (!active?.position || !samePosition(active.position, options.position)) return;
+    (options.bot as any).stopDigging?.();
+  };
+  if (options.verb === 'dig') {
+    (options.bot as any).on?.('diggingAborted', onDiggingAborted);
+    options.signal?.addEventListener('abort', requestDigCancellation, { once: true });
+  }
   try {
     await boundedWorldCommand(
       options.perform(),
@@ -2298,6 +2356,10 @@ async function executeConfirmedWorldChange(options: {
       ? !sameBlockState(current, before)
       : transition != null && sameBlockState(current, transition.after);
   observer.close();
+  if (options.verb === 'dig') {
+    (options.bot as any).removeListener?.('diggingAborted', onDiggingAborted);
+    options.signal?.removeEventListener('abort', requestDigCancellation);
+  }
   const after = current;
   const transitionVerified = transition != null && latestStateMatches && expectedChangePersists;
   // A matching world transition proves that the cell changed during the
@@ -2306,8 +2368,9 @@ async function executeConfirmedWorldChange(options: {
   // action rather than another inhabitant. Consume the reservation, preserve
   // the observation, and fail with explicit uncertainty.
   const verified = transitionVerified && commandError == null;
-  const error =
-    transitionVerified && commandError
+  const error = cancellationAcknowledged
+    ? 'interrupted_by_human'
+    : transitionVerified && commandError
       ? 'world_change_attribution_uncertain'
       : verified
         ? undefined
@@ -2336,6 +2399,15 @@ async function executeConfirmedWorldChange(options: {
     confirmation: transition?.evidence ?? null,
     ...(options.context ? { context: options.context } : {}),
   };
+
+  if (cancellationAcknowledged) {
+    return {
+      ...cancelledAction('mineflayer-digging'),
+      commandError,
+      attemptedChanges: [change],
+      sideEffectObserved: transitionVerified,
+    };
+  }
 
   if (!verified) {
     return {
@@ -3957,12 +4029,22 @@ async function runPathfinderGoal(
     near: number;
     timeoutMs: number;
     target?: string;
+    signal?: AbortSignal;
   },
 ) {
   const pathfinder = (bot as any).pathfinder;
   const startedAt = Date.now();
   const start = positionOf(bot);
   let timer: NodeJS.Timeout | null = null;
+  let stopIssued = false;
+  const requestStop = () => {
+    try {
+      pathfinder.stop();
+      stopIssued = true;
+    } catch {}
+  };
+  if (options.signal?.aborted) return cancelledAction('mineflayer-pathfinder');
+  options.signal?.addEventListener('abort', requestStop, { once: true });
   try {
     await Promise.race([
       pathfinder.goto(goal),
@@ -4004,6 +4086,17 @@ async function runPathfinderGoal(
       durationMs: Date.now() - startedAt,
     };
   } catch (error: any) {
+    if (options.signal?.aborted && stopIssued && navigationError(error) === 'interrupted') {
+      return {
+        ...cancelledAction('mineflayer-pathfinder'),
+        target: options.target,
+        destination: options.destination,
+        near: options.near,
+        start,
+        final: positionOf(bot),
+        durationMs: Date.now() - startedAt,
+      };
+    }
     const final = positionOf(bot);
     return {
       ok: false,
@@ -4018,7 +4111,19 @@ async function runPathfinderGoal(
     };
   } finally {
     if (timer) clearTimeout(timer);
+    options.signal?.removeEventListener('abort', requestStop);
   }
+}
+
+function cancelledAction(adapter: string) {
+  return {
+    ok: false,
+    error: 'interrupted_by_human',
+    cancellation: {
+      acknowledged: true,
+      adapter,
+    },
+  };
 }
 
 function positionOf(bot: Bot) {

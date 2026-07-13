@@ -32,6 +32,7 @@ export type TaskBrief = {
 
 export type ActionStatus =
   | 'queued'
+  | 'selected'
   | 'started'
   | 'running'
   | 'completed'
@@ -253,8 +254,17 @@ export class InhabitantExperience {
           updatedAt,
         };
         break;
-      case 'action_started':
       case 'intent_selected':
+        this.currentAction = {
+          id,
+          tool,
+          source: intent?.source,
+          input: intent?.input,
+          status: 'selected',
+          updatedAt,
+        };
+        break;
+      case 'action_started':
         this.currentAction = {
           id,
           tool,

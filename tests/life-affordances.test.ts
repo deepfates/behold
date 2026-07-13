@@ -292,6 +292,41 @@ test('move_to can expose a fresh observation after one generic short travel leg'
   assert.equal(result.arrivedAtRequestedDestination, false);
 });
 
+test('move_to reports cancellation only after Mineflayer pathfinding acknowledges stop', async () => {
+  const bot = baseBot();
+  let rejectPath!: (error: Error) => void;
+  let stopCalls = 0;
+  bot.pathfinder = {
+    goto: () => new Promise<void>((_resolve, reject) => (rejectPath = reject)),
+    stop: () => {
+      stopCalls += 1;
+      const error = new Error('Path was stopped before it could be completed');
+      error.name = 'PathStopped';
+      rejectPath(error);
+    },
+  };
+  const controller = new AbortController();
+
+  const pending = buildInterpreter(bot).run(
+    'move_to',
+    { x: 8, y: 64, z: 0 },
+    { signal: controller.signal },
+  );
+  controller.abort('human_stop');
+  const result = await pending;
+
+  assert.equal(stopCalls, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'interrupted_by_human');
+  assert.deepEqual(result.cancellation, {
+    acknowledged: true,
+    adapter: 'mineflayer-pathfinder',
+  });
+  assert.deepEqual(result.start, { x: 0, y: 64, z: 0 });
+  assert.deepEqual(result.final, { x: 0, y: 64, z: 0 });
+  assert.equal(result.remainingDistance, 8);
+});
+
 test('digging a distant loaded block approaches into reach before the confirmed mutation', async () => {
   const bot = baseBot();
   let block: any = {
@@ -324,6 +359,50 @@ test('digging a distant loaded block approaches into reach before the confirmed 
   assert.equal(result.navigation.ok, true);
   assert.equal(result.navigation.target, 'oak_log');
   assert.equal(result.changes[0].verified, true);
+});
+
+test('dig_block reports cancellation only after Mineflayer acknowledges diggingAborted', async () => {
+  const bot = baseBot();
+  const block: any = {
+    name: 'oak_log',
+    type: 17,
+    stateId: 170,
+    position: new Vec3(1, 64, 0),
+  };
+  bot.blockAt = () => block;
+  bot.canSeeBlock = () => true;
+  let digStarted!: () => void;
+  const started = new Promise<void>((resolve) => (digStarted = resolve));
+  let rejectDig!: (error: Error) => void;
+  bot.dig = () => {
+    bot.targetDigBlock = block;
+    digStarted();
+    return new Promise<void>((_resolve, reject) => (rejectDig = reject));
+  };
+  bot.stopDigging = () => {
+    const active = bot.targetDigBlock;
+    bot.targetDigBlock = null;
+    bot.emit('diggingAborted', active);
+    rejectDig(new Error('Digging aborted'));
+  };
+  const controller = new AbortController();
+
+  const pending = buildInterpreter(bot, {
+    changeConfirmationTimeoutMs: 1,
+    changeStabilityWindowMs: 1,
+  }).run('dig_block', { x: 1, y: 64, z: 0 }, { signal: controller.signal });
+  await started;
+  controller.abort('human_stop');
+  const result = await pending;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'interrupted_by_human');
+  assert.deepEqual(result.cancellation, {
+    acknowledged: true,
+    adapter: 'mineflayer-digging',
+  });
+  assert.equal(result.sideEffectObserved, false);
+  assert.equal(result.attemptedChanges[0].verified, false);
 });
 
 test('digging refuses air, body support, and an unsafe downward shaft', async () => {

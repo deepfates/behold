@@ -38,11 +38,22 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const projects = createProjectMemory(name, entityLoom.turns());
   const places = createPlaceMemory(name, entityLoom.turns());
   const journal = createRunJournal(name);
+  const taskTarget =
+    opts.task === 'come-see-do-report' ? opts.target || 'importdf' : (opts.target ?? null);
   journal.append('run_started', {
+    runId: journal.id,
     server: cfg.server,
     circle: cfg.circle,
     authMode: cfg.auth.mode,
     model: cfg.llm.model,
+    controller: {
+      kind: cfg.llm.apiKey && !opts.paused ? 'llm' : 'operator',
+      tickMs: Number(process.env.AGENT_TICK_MS || 3000),
+      paused: Boolean(opts.paused),
+      allowTools: opts.allowTools ?? null,
+    },
+    task: opts.task ?? null,
+    target: taskTarget,
     entityLoom: entityLoom.file,
     entityLoomBackend: entityLoom.backend,
     priorEntityTurns: entityLoom.turns().length,
@@ -59,7 +70,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const bot = createBot(cfg);
   const taskRuntime =
     opts.task === 'come-see-do-report'
-      ? createComeSeeDoReportRuntime(bot as any, opts.target || 'importdf')
+      ? createComeSeeDoReportRuntime(bot as any, taskTarget!)
       : null;
   const task = taskRuntime?.task ?? resolveTask(opts.task, opts.target);
   const experience = new InhabitantExperience(bot as any, {
@@ -142,18 +153,28 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     observe: () => experience.observe(),
   });
   const registry = {
-    run: (tool: string, args?: any, intent?: any) => {
+    authorize: (tool: string, args: any, intent: any) => {
       if (taskRuntime && intent?.source === 'llm') {
-        const authorization = taskRuntime.permissions.authorizeAction(tool, args);
-        if (!authorization.ok) return Promise.resolve(authorization);
+        return {
+          ...taskRuntime.permissions.authorizeAction(tool, args, interp.describe(tool)?.effects),
+          authority: 'come-see-do-report-task',
+          evidence: { task: taskRuntime.task.id, target: taskRuntime.task.target },
+        };
       }
-      return interp.run(tool, args);
+      return {
+        ok: true as const,
+        authority: intent?.source === 'human' ? 'operator-console' : 'behold-default',
+      };
+    },
+    run: (tool: string, args?: any, _intent?: any, execution?: { signal: AbortSignal }) => {
+      return interp.run(tool, args, execution);
     },
     list: () => interp.list(),
   };
 
   engine = createEngine(registry, {
     tickMs: Number(process.env.AGENT_TICK_MS || 3000),
+    allowTools: opts.allowTools,
     log: (s) => console.error(s),
     onEvent: (event) => {
       const deliver = (consumer: string, fn: () => void) => {
@@ -166,7 +187,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         }
       };
       deliver('experience event consumer', () => experience.recordEngineEvent(event));
-      deliver('run journal', () => journal.append(event.type, event.data));
+      deliver('run journal', () => journal.append(event.type, event.data, { engineAt: event.at }));
       if (event.type === 'preemption_deferred') {
         const requested = String(event.data?.intent?.tool || 'human action');
         const active = String(event.data?.activeIntent?.tool || 'active action');
@@ -266,7 +287,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         foldCacheFile: entityLoom.foldFile,
         log: (s) => console.error(s),
         acceptEngineEvent: engine.acceptsEvent,
-        onModelTurn: (turn) => journal.append('model_turn', turn),
+        onModelTurn: (turn) => {
+          taskRuntime?.verifier.recordControllerDecision(turn.intent, turn.observation);
+          journal.append('model_turn', turn);
+        },
         onEntityTurn: async (turn) => {
           projects.validate(turn);
           places.validate(turn);

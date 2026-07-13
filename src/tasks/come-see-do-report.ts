@@ -2,6 +2,7 @@ import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import type { EngineOptions } from '../loop/engine';
 import type { InhabitantObservation, TaskBrief } from '../agent/experience';
+import type { CommandEffects } from '../agent/interpreter';
 import { createWorldChangeAuthority, type WorldChangeGuard } from '../safety/world-change';
 
 type EngineEvent = Parameters<NonNullable<EngineOptions['onEvent']>>[0];
@@ -55,7 +56,9 @@ export type TaskActionAuthorization =
         | 'ambiguous_change_request'
         | 'requested_action_mismatch'
         | 'requested_target_mismatch'
-        | 'privileged_sensor_not_permitted';
+        | 'privileged_sensor_not_permitted'
+        | 'command_effects_required'
+        | 'block_mutation_not_permitted';
       reason: string;
     };
 
@@ -163,7 +166,26 @@ export class ComeSeeDoReportPermissions {
     if (isExplicitSurveyPermission(text)) this.privilegedSurveyAllowed = true;
   }
 
-  authorizeAction(tool: string, input?: any): TaskActionAuthorization {
+  authorizeAction(
+    tool: string,
+    input: any,
+    effects: CommandEffects | null | undefined,
+  ): TaskActionAuthorization {
+    if (!effects) {
+      return {
+        ok: false,
+        error: 'command_effects_required',
+        reason: `The task cannot authorize ${tool} without its declared world effects.`,
+      };
+    }
+    const requestedMutationTools = ['dig_block', 'place_against', 'place_block'];
+    if (effects.blockMutation && !requestedMutationTools.includes(tool)) {
+      return {
+        ok: false,
+        error: 'block_mutation_not_permitted',
+        reason: `${tool} can mutate blocks but is not one of this task's single-change affordances.`,
+      };
+    }
     if (['move_to', 'approach_entity', 'set_control'].includes(tool) && !this.heardTarget) {
       return {
         ok: false,
@@ -171,7 +193,7 @@ export class ComeSeeDoReportPermissions {
         reason: `Wait until ${this.target} has spoken before moving to meet them.`,
       };
     }
-    if (['dig_block', 'place_against'].includes(tool) && !this.explicitChangeRequest) {
+    if (requestedMutationTools.includes(tool) && !this.explicitChangeRequest) {
       if (this.ambiguousChangeRequest) {
         return {
           ok: false,
@@ -192,7 +214,10 @@ export class ComeSeeDoReportPermissions {
         reason: `${this.target} requested a placement, not a dig action.`,
       };
     }
-    if (tool === 'place_against' && this.explicitChangeRequest?.kind === 'dig') {
+    if (
+      ['place_against', 'place_block'].includes(tool) &&
+      this.explicitChangeRequest?.kind === 'dig'
+    ) {
       return {
         ok: false,
         error: 'requested_action_mismatch',
@@ -200,7 +225,7 @@ export class ComeSeeDoReportPermissions {
       };
     }
     if (
-      ['dig_block', 'place_against'].includes(tool) &&
+      requestedMutationTools.includes(tool) &&
       this.explicitChangeRequest &&
       !proposedTargetMatches(
         tool,
@@ -247,6 +272,7 @@ export class ComeSeeDoReportVerifier {
   private verifiedChanges: ComeSeeDoReportProgress['verifiedChanges'] = [];
   private outcomeReport: ComeSeeDoReportProgress['outcomeReport'] = null;
   private readonly recordedWorldOutcomes = new Set<string>();
+  private readonly controllerObservations = new Map<string, InhabitantObservation>();
   private eventSourceBound: boolean;
   private acceptEngineEvent: (event: EngineEvent) => boolean;
 
@@ -283,10 +309,30 @@ export class ComeSeeDoReportVerifier {
     }
   }
 
+  recordControllerDecision(intent: any, observation: InhabitantObservation) {
+    if (
+      intent?.source !== 'llm' ||
+      intent?.tool !== 'chat' ||
+      !intent?.id ||
+      Number(intent?.observationSequence) !== Number(observation?.sequence)
+    ) {
+      return;
+    }
+    this.controllerObservations.set(String(intent.id), structuredClone(observation));
+  }
+
   recordEngineEvent(event: EngineEvent, observation: InhabitantObservation) {
     if (!this.acceptEngineEvent(event)) return;
     if (event.type !== 'action_completed') return;
     const intent = event.data?.intent;
+    const authorization = event.data?.authorization;
+    if (
+      intent?.source !== 'llm' ||
+      authorization?.ok !== true ||
+      authorization?.authority !== 'come-see-do-report-task'
+    ) {
+      return;
+    }
     const result = event.data?.result;
     if (intent?.tool === 'approach_entity') {
       const target = String(result?.target || intent?.input?.name || '').toLowerCase();
@@ -296,7 +342,6 @@ export class ComeSeeDoReportVerifier {
       );
       const observedDistance = finiteOrNull(observedTarget?.distance);
       if (
-        intent?.source === 'llm' &&
         target === this.target.toLowerCase() &&
         result?.status === 'arrived' &&
         this.heardTargetAt != null &&
@@ -317,7 +362,11 @@ export class ComeSeeDoReportVerifier {
     }
 
     const worldVerb =
-      intent?.tool === 'dig_block' ? 'dig' : intent?.tool === 'place_against' ? 'place' : null;
+      intent?.tool === 'dig_block'
+        ? 'dig'
+        : ['place_against', 'place_block'].includes(intent?.tool)
+          ? 'place'
+          : null;
     const changes = worldVerb && Array.isArray(result?.changes) ? result.changes : [];
     for (const change of changes) {
       if (
@@ -363,18 +412,20 @@ export class ComeSeeDoReportVerifier {
 
     if (intent?.tool === 'chat') {
       const text = String(intent?.input?.text || '');
+      const proposalObservation = this.controllerObservations.get(String(intent?.id || '')) ?? null;
       if (
         !this.groundedReport &&
         this.approachedAt != null &&
         event.at >= this.approachedAt &&
-        this.verifiedChanges.length === 0
+        this.verifiedChanges.length === 0 &&
+        proposalObservation
       ) {
-        const evidence = groundedEvidence(text, observation);
+        const evidence = groundedEvidence(text, proposalObservation);
         if (evidence.length) {
           this.groundedReport = {
             text,
             evidence,
-            observationSequence: observation.sequence,
+            observationSequence: proposalObservation.sequence,
             at: event.at,
           };
         }
@@ -396,6 +447,7 @@ export class ComeSeeDoReportVerifier {
           };
         }
       }
+      this.controllerObservations.delete(String(intent?.id || ''));
     }
   }
 
@@ -549,7 +601,7 @@ function proposedTargetMatches(
   if (coordinates) {
     const proposedPosition =
       request.coordinateRole === 'support' ? proposed.targetPosition : proposed.effectPosition;
-    if (!samePosition(coordinates, proposedPosition)) return false;
+    if (!proposedPosition || !samePosition(coordinates, proposedPosition)) return false;
   }
   const materialEvidence = request.targetEvidence.filter((value) => value !== 'coordinates');
   if (
@@ -559,9 +611,12 @@ function proposedTargetMatches(
   ) {
     return false;
   }
-  if (tool === 'place_against' && request.effectEvidence.length > 0) {
-    const held = inspectHeldItem?.();
-    if (!held || !request.effectEvidence.some((value) => normalize(held).includes(value))) {
+  if (['place_against', 'place_block'].includes(tool) && request.effectEvidence.length > 0) {
+    const placedMaterial = String(input?.name || inspectHeldItem?.() || '');
+    if (
+      !placedMaterial ||
+      !request.effectEvidence.some((value) => normalize(placedMaterial).includes(value))
+    ) {
       return false;
     }
   }
@@ -580,6 +635,15 @@ function proposedWorldTarget(
       effectPosition: targetPosition,
       targetPosition,
       targetMaterial: inspectBlock?.(targetPosition) ?? null,
+    };
+  }
+  if (tool === 'place_block') {
+    const effectPosition = finitePosition(input);
+    if (!effectPosition) return null;
+    return {
+      effectPosition,
+      targetPosition: null,
+      targetMaterial: null,
     };
   }
   if (tool !== 'place_against') return null;

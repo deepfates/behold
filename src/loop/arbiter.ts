@@ -8,6 +8,8 @@ export type Intent = {
   preempt?: boolean;
   deadlineMs?: number;
   enqueuedAt?: number;
+  observationSequence?: number;
+  decidedAt?: number;
 };
 
 export type Lease = {

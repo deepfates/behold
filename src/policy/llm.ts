@@ -254,6 +254,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       const assistant = normalizeAssistant(decision.assistant);
+      const decidedAt = now();
+      if (decision.intent) {
+        decision.intent = {
+          ...decision.intent,
+          observationSequence: Number(currentObservation?.sequence),
+          decidedAt,
+        };
+      }
       const draft: TurnDraft = {
         startedAt,
         observation: currentObservation,
@@ -261,7 +269,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       };
       messages.push(assistant);
       opts.onModelTurn?.({
-        at: now(),
+        at: decidedAt,
         model: opts.model,
         observation: currentObservation,
         assistant,
@@ -777,7 +785,9 @@ function finiteAtMost(value: unknown, threshold: number) {
 
 function hasUnfinishedAction(frame: any) {
   const status = frame?.self?.currentAction?.status;
-  return status === 'queued' || status === 'started' || status === 'running';
+  return (
+    status === 'queued' || status === 'selected' || status === 'started' || status === 'running'
+  );
 }
 
 export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {
