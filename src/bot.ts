@@ -60,6 +60,18 @@ function bindCoreEvents(bot: Bot, config: Config) {
       console.warn('[bot] Could not initialize default movements:', e?.message || e);
     }
 
+    void bot
+      .waitForChunksToLoad()
+      .then(() => console.log('[bot] Local world loaded.'))
+      .catch((error: any) =>
+        bot.emit(
+          'error',
+          new Error(
+            `Could not establish local-world readiness: ${error?.message || String(error)}`,
+          ),
+        ),
+      );
+
     try {
       const enabled = config?.viewer?.enabled !== false;
       if (enabled && mineflayerViewer) {

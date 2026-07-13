@@ -30,8 +30,8 @@ test('lifecycle markers require exact positive protocol lines', () => {
     true,
   );
   assert.equal(isMinecraftReadyLine('Not Done loading world'), false);
-  assert.equal(isControllerReadyLine('[bot] Spawned in the world.'), true);
-  assert.equal(isControllerReadyLine('expected marker was: [bot] Spawned in the world.'), false);
+  assert.equal(isControllerReadyLine('[bot] Local world loaded.'), true);
+  assert.equal(isControllerReadyLine('expected marker was: [bot] Local world loaded.'), false);
   assert.equal(
     isMinecraftSaveAcknowledgement('[12:00:01] [Server thread/INFO]: Saved the game'),
     true,

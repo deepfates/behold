@@ -697,7 +697,7 @@ export function isMinecraftReadyLine(line: string) {
 }
 
 export function isControllerReadyLine(line: string) {
-  return line.trim() === '[bot] Spawned in the world.';
+  return line.trim() === '[bot] Local world loaded.';
 }
 
 export function isMinecraftSaveAcknowledgement(line: string) {

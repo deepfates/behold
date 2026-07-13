@@ -74,7 +74,7 @@ async function main() {
       },
     );
 
-    await waitForSpawn(bot, 45_000);
+    await waitForLocalWorld(bot, 45_000);
     const initialObservation = experience.observe();
     const search = await executeTurn({
       entityId,
@@ -238,19 +238,30 @@ async function executeTurn(input: {
   return { turnId: turn.id, result: turn.outcome.result, events: actionEvents };
 }
 
-function waitForSpawn(bot: ReturnType<typeof createBot>, timeoutMs: number) {
-  if ((bot as any).entity) return Promise.resolve();
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Minecraft spawn timed out')), timeoutMs);
-    bot.once('spawn', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    bot.once('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-  });
+async function waitForLocalWorld(bot: ReturnType<typeof createBot>, timeoutMs: number) {
+  const localWorld = (async () => {
+    if (!(bot as any).entity) {
+      await new Promise<void>((resolve, reject) => {
+        bot.once('spawn', () => resolve());
+        bot.once('error', reject);
+      });
+    }
+    await bot.waitForChunksToLoad();
+  })();
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    await Promise.race([
+      localWorld,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('Minecraft local-world readiness timed out')),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function waitForManagerStop(bot: ReturnType<typeof createBot>) {
