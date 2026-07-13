@@ -21,6 +21,7 @@
     "world": "npm run build && node dist/scripts/world-runner.js",
     "proof:owned-world": "npm run build && node dist/scripts/owned-world-proof.js",
     "proof:owned-world-model": "npm run build && node dist/scripts/owned-world-model-proof.js",
+    "proof:owned-world-project": "npm run build && node dist/scripts/owned-world-project-proof.js",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "lint": "tsc -p tsconfig.json --noEmit && eslint .",

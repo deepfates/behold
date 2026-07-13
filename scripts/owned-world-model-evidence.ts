@@ -217,11 +217,11 @@ export function hasFirstRestartTurn(events: readonly RunJournalEvent[]) {
   return eventData(events, 'entity_turn').length >= 1;
 }
 
-function eventData(events: readonly RunJournalEvent[], type: string) {
+export function eventData(events: readonly RunJournalEvent[], type: string) {
   return events.filter((event) => event.type === type).map((event) => event.data);
 }
 
-function decisionMatchesEntityTurn(decision: any, turn: any) {
+export function decisionMatchesEntityTurn(decision: any, turn: any) {
   const intentId = String(decision?.intent?.id || '');
   const actionId = String(turn?.action?.id || '');
   if (intentId && intentId === actionId) return true;
@@ -230,19 +230,19 @@ function decisionMatchesEntityTurn(decision: any, turn: any) {
   return !!callId && callId === toolCallId;
 }
 
-function decisionActionName(decision: any) {
+export function decisionActionName(decision: any) {
   return (decision?.intent?.tool ??
     decision?.assistant?.tool_calls?.[0]?.function?.name ??
     null) as string | null;
 }
 
-function terminalMinecraftResult(turn: any) {
+export function terminalMinecraftResult(turn: any) {
   const result = turn?.outcome?.result;
   if (result?.result && typeof result.result === 'object') return result.result;
   return result;
 }
 
-function inventoryCount(observation: any, name: string) {
+export function inventoryCount(observation: any, name: string) {
   return (Array.isArray(observation?.self?.inventory) ? observation.self.inventory : [])
     .filter((item: any) => String(item?.name) === name)
     .reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.count) || 0), 0);
@@ -256,13 +256,13 @@ function sceneHasItem(observation: any, name: string) {
   );
 }
 
-function requestToolNames(body: any) {
+export function requestToolNames(body: any) {
   return (Array.isArray(body?.tools) ? body.tools : [])
     .map((tool: any) => String(tool?.function?.name || ''))
     .filter(Boolean);
 }
 
-function promptedObservation(body: any) {
+export function promptedObservation(body: any) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   for (const message of [...messages].reverse()) {
     if (message?.role !== 'user' || typeof message?.content !== 'string') continue;
@@ -285,7 +285,7 @@ function promptedObservation(body: any) {
   return null;
 }
 
-function summarizeUsage(calls: readonly any[]) {
+export function summarizeUsage(calls: readonly any[]) {
   let promptTokens = 0;
   let completionTokens = 0;
   let totalTokens = 0;

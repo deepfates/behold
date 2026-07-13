@@ -37,6 +37,7 @@ export async function runManagedModelPhase<Witness = null>(input: {
   task: string;
   allowTools: readonly string[];
   timeoutMs: number;
+  agentTickMs?: number;
   transcript: string[];
   milestone: (events: readonly RunJournalEvent[]) => boolean;
   witness?: (context: {
@@ -56,7 +57,7 @@ export async function runManagedModelPhase<Witness = null>(input: {
   };
   process.env.BEHOLD_RUN_DIR = journalDirectory;
   process.env.BEHOLD_RECORD_MODEL_IO = '1';
-  process.env.AGENT_TICK_MS = '1000';
+  process.env.AGENT_TICK_MS = String(Math.max(250, input.agentTickMs ?? 1000));
   let run: ManagedWorldRun | null = null;
   try {
     run = await startManagedWorld(
@@ -150,6 +151,7 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
   port: number;
   model: string;
   witnessId: string;
+  settleMs?: number;
   observe: (bot: ReturnType<typeof createBot>) => T | Promise<T>;
 }) {
   return withEnvironment(
@@ -180,7 +182,7 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
       try {
         bot = createBot(config, loom.connectionCapability);
         await waitForLocalWorld(bot, 45_000);
-        await delay(500);
+        await delay(Math.max(0, input.settleMs ?? 500));
         const observed = await input.observe(bot);
         return {
           ...observed,
