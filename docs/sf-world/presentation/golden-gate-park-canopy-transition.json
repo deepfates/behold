@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "runId": "sf-full-v3-snapshot-20260713T095831Z",
+  "acceptedAt": "2026-07-13T20:18:00.000Z",
+  "purpose": "Convert the largest unresolved cross-city route cluster into an intentional park-to-city scale reveal without changing blocks",
+  "sourceRouteRange": [140, 169],
+  "verifiedEndpoints": {
+    "start": { "x": 3010, "y": 118.15, "z": 7100, "routeIndex": 140 },
+    "end": { "x": 3054, "y": 124.15, "z": 6947, "routeIndex": 169 }
+  },
+  "clearance": {
+    "highestAuditedClusterBlockY": 143,
+    "minimumAerialY": 185,
+    "marginBlocks": 42
+  },
+  "shot": {
+    "durationSeconds": 10.1,
+    "generatedFrameCount": 202,
+    "mutatesBlocks": false,
+    "manifestSha256": "f6f4662c08450caa898738eb724740bb46e35147dfd2490703931d70198b050f",
+    "liveRehearsal": "passed"
+  },
+  "acceptedRecording": {
+    "localPath": ".behold-artifacts/sf/playable/sf-full-v3-snapshot-20260713T095831Z/recordings/canopy-transition-sck-take-03-clean.mov",
+    "sha256": "43c4f725dc465dae9493f76aeca0a14045f8c5e9b96f901765c5eaf656913276",
+    "container": "QuickTime MOV",
+    "codec": "H.264",
+    "width": 2560,
+    "height": 1440,
+    "framesPerSecond": 60,
+    "durationSeconds": 11.2,
+    "hudVisible": false,
+    "windowChromeVisible": false,
+    "audio": false
+  },
+  "decision": "accepted-proof-segment",
+  "sourceWorldModified": false,
+  "disposableStageBlocksModified": false
+}

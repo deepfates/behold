@@ -7,10 +7,15 @@ This directory contains small, reviewable evidence for the complete San Francisc
 - `manifests/`: generator, source-world, played-world, and atlas manifests plus checksums
 - `reports/`: validation results, performance measurements, deviations, and acceptance decisions
 - `research/`: dated research snapshots supporting version, bounds, projection, and tool decisions
+- `presentation/`: small direction manifests that bind routes, audits, rehearsals, and future reversible overlays to a source-world identity
 - `tooling/`: the narrowly scoped patch needed to reproduce the accepted Arnis binary
 - `landmarks.json`: the shared latitude/longitude, Minecraft, chunk, and BlueMap marker coordinates used by validation and future Behold agents
 
 The accepted full-city build is summarized in `manifests/sf-full-v3-snapshot-20260713T095831Z.json` and the corresponding execution report. The ignored run root contains the exhaustive per-file checksums and logs.
+
+The first experiential route audit, accepted JFK Drive proof-of-method, hero-view scout, and accepted no-edit canopy transition are recorded in `reports/2026-07-13-experiential-correspondence-audit.md` and `presentation/`. Large route, block-audit, generated datapack, and recording artifacts remain in the ignored disposable stage and are bound to the tracked record by SHA-256.
+
+`FEDERATION_ALIGNMENT.md` records the deliberately small boundary with Behold, Lync, Armok Lab, ALMO, and World Instrument. It is a mapping document, not a new shared ontology or dependency.
 
 ## Not tracked here
 

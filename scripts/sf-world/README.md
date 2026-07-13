@@ -139,3 +139,32 @@ node scripts/sf-world/verify-release.mjs \
 Packaging refuses a source world that contains `session.lock`, writes separate world, generation-evidence, reproduction-kit, input, atlas, and atlas-evidence archives at nice level 10, uses portable USTAR plus low-overhead gzip level 1, strips extended attributes, normalizes archive ownership, and disables the gzip header timestamp. The atlas-evidence archive carries configs, logs, the web-tree checksum manifest, and every recorded render leg while excluding Mojang's client resource. USTAR also avoids platform-specific access, change, and creation-time PAX records. Given unchanged source trees and modification times, the content archives are byte-reproducible; `release-manifest.json` intentionally records a fresh creation time. The reproduction kit carries the frozen tool lock, landmark coordinates, Arnis patch, manifest template, research snapshot, validation template, evidence README, and every SF pipeline script without depending on unrelated repository files. Verification checks every digest and recorded size, streams every archive listing, rejects unsafe paths or a source `session.lock`, and requires the expected role-specific contents.
 
 Do not swap a packaged world into Behold's live runtime while its server owns the world lock or port. Runtime deployment is intentionally a separate, explicit operation.
+
+## Capture a specific game window
+
+For repeatable film evidence, compile the small ScreenCaptureKit recorder and select the Minecraft window by stable owner/title text. Unlike display capture, this records a desktop-independent window even when Minecraft is on another macOS Space. Unlike legacy window capture, it records the GPU-backed Minecraft surface instead of a black frame.
+
+```bash
+swiftc -parse-as-library scripts/sf-world/capture-window.swift \
+  -o .behold-artifacts/sf/tools/capture-window \
+  -framework AppKit \
+  -framework ScreenCaptureKit \
+  -framework AVFoundation \
+  -framework CoreMedia \
+  -framework CoreVideo
+
+.behold-artifacts/sf/tools/capture-window \
+  'Behold SF Distant Horizons' 15 \
+  .behold-artifacts/sf/recordings/rehearsal.mov
+```
+
+The first invocation requires macOS Screen Recording permission for the invoking terminal host. The recorder writes H.264 video without cursor or audio. Keep recordings beneath `.behold-artifacts/`; track only their manifest, checksum, and acceptance decision.
+
+Generate the accepted no-block-edit Golden Gate Park canopy transition inside a disposable stage datapack:
+
+```bash
+node scripts/sf-world/generate-canopy-transition.mjs \
+  .behold-artifacts/sf/playable/RUN_ID/stages/04-distant-horizons/server/world/datapacks/behold_tour
+```
+
+The command requires an existing datapack root, replaces only the `behold_transition` function namespace, and writes a timestamp-free `vertical-transition-manifest.json`. Its fixed controls are bound to the accepted source run and audited route indices 140 through 169; do not apply them to another projection or world without a new correspondence audit.
