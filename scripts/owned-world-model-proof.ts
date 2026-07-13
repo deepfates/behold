@@ -22,6 +22,7 @@ import {
   gitRevision,
   listFiles,
   prepareOwnedWorld,
+  readJson,
   restoreEnvironment,
   sha256File,
   waitFor,
@@ -44,13 +45,18 @@ async function main() {
       port: { type: 'string' },
       model: { type: 'string' },
       timeout: { type: 'string' },
+      reassess: { type: 'string' },
       help: { type: 'boolean', default: false },
     },
   });
   if (parsed.values.help) {
     process.stdout.write(
-      'Usage: owned-world-model-proof [--run <safe-id>] [--port <unused-loopback-port>] [--model <OpenRouter-slug>] [--timeout <seconds>]\n',
+      'Usage: owned-world-model-proof [--run <safe-id>] [--port <unused-loopback-port>] [--model <OpenRouter-slug>] [--timeout <seconds>] [--reassess <model-report.json>]\n',
     );
+    return;
+  }
+  if (parsed.values.reassess) {
+    reassessExistingProof(String(parsed.values.reassess));
     return;
   }
 
@@ -268,6 +274,63 @@ async function main() {
     );
   }
   process.stdout.write(`[owned-world-model] PASS ${reportFile}\n`);
+}
+
+function reassessExistingProof(inputFile: string) {
+  const sourceFile = path.resolve(inputFile);
+  const source = readJson(sourceFile);
+  if (source?.protocol !== PROTOCOL) {
+    throw new Error(`cannot reassess unsupported proof: ${source?.protocol || 'missing protocol'}`);
+  }
+  const actJournalFile = path.resolve(String(source?.evidence?.act?.journalFile || ''));
+  const resumeJournalFile = path.resolve(String(source?.evidence?.resume?.journalFile || ''));
+  const loomFile = path.resolve(String(source?.evidence?.loomFile || ''));
+  const integrity = {
+    actJournal: sha256File(actJournalFile) === String(source?.evidence?.act?.journalSha256 || ''),
+    resumeJournal:
+      sha256File(resumeJournalFile) === String(source?.evidence?.resume?.journalSha256 || ''),
+    loom: sha256File(loomFile) === String(source?.evidence?.loomSha256 || ''),
+  };
+  const assessment = assessOwnedWorldModelEvidence(
+    parseRunJournal(fs.readFileSync(actJournalFile, 'utf8')),
+    parseRunJournal(fs.readFileSync(resumeJournalFile, 'utf8')),
+    source.evidence.independentWitness,
+    {
+      worldId: String(source.worldId),
+      entityId: String(source.entityId),
+      model: String(source.model),
+      task: String(source.task),
+      actRunId: String(source.evidence.act.managedRunId),
+      resumeRunId: String(source.evidence.resume.managedRunId),
+    },
+  );
+  const failedIntegrity = Object.entries(integrity)
+    .filter(([, ok]) => !ok)
+    .map(([name]) => name);
+  const outputFile = path.join(path.dirname(sourceFile), 'model-report-reassessed.json');
+  if (fs.existsSync(outputFile)) throw new Error(`reassessment already exists: ${outputFile}`);
+  const passed = failedIntegrity.length === 0 && assessment.failed.length === 0;
+  durableWriteJson(outputFile, {
+    protocol: 'behold.owned-world-model-reassessment.v1',
+    status: passed ? 'passed' : 'failed',
+    reassessedAt: new Date().toISOString(),
+    verifierRevision: gitRevision(),
+    source: {
+      file: sourceFile,
+      sha256: sha256File(sourceFile),
+      protocol: source.protocol,
+      status: source.status,
+    },
+    integrity,
+    failedIntegrity,
+    assessment,
+  });
+  if (!passed) {
+    throw new Error(
+      `existing model proof did not pass reassessment (${[...failedIntegrity, ...assessment.failed].join(', ')}): ${outputFile}`,
+    );
+  }
+  process.stdout.write(`[owned-world-model] REASSESSED PASS ${outputFile}\n`);
 }
 
 async function waitForJournal(directory: string, timeoutMs: number) {

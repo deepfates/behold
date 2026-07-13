@@ -266,12 +266,18 @@ function promptedObservation(body: any) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   for (const message of [...messages].reverse()) {
     if (message?.role !== 'user' || typeof message?.content !== 'string') continue;
-    const marker = 'world experience:\n';
-    const start = message.content.indexOf(marker);
+    const firstLineEnd = message.content.indexOf('\n');
     const end = message.content.lastIndexOf('\nPrevious action:');
-    if (start < 0 || end <= start) continue;
+    const label = firstLineEnd >= 0 ? message.content.slice(0, firstLineEnd) : '';
+    if (
+      firstLineEnd < 0 ||
+      end <= firstLineEnd ||
+      (!/^(?:New|Current) world experience:$/.test(label) && !/^World after .+:$/.test(label))
+    ) {
+      continue;
+    }
     try {
-      return JSON.parse(message.content.slice(start + marker.length, end));
+      return JSON.parse(message.content.slice(firstLineEnd + 1, end));
     } catch {
       return null;
     }

@@ -23,7 +23,17 @@ test('model-world evidence requires a free choice, real consequence, and non-rep
       task: expected.task,
       priorEntityTurns: 0,
     }),
-    journal(2, 'model_turn', modelTurn(expected.actRunId, 'collect_nearby_item', 'act-call')),
+    journal(
+      2,
+      'model_turn',
+      modelTurn(
+        expected.actRunId,
+        'collect_nearby_item',
+        'act-call',
+        false,
+        'World after inspect_volume',
+      ),
+    ),
     journal(3, 'entity_turn', collectionTurn('act-call')),
     journal(4, 'model_turn', modelTurn(expected.actRunId, 'wait_for_event', 'act-yield')),
     journal(5, 'entity_turn', waitTurn('act-yield')),
@@ -129,7 +139,13 @@ function journal(sequence: number, type: string, data: any): RunJournalEvent {
   };
 }
 
-function modelTurn(runId: string, name: string, callId: string, resumed = false) {
+function modelTurn(
+  runId: string,
+  name: string,
+  callId: string,
+  resumed = false,
+  observationLabel = 'New world experience',
+) {
   const observation = {
     protocol: 'behold.inhabitant.v1',
     circle: { id: expected.worldId, managedRunId: runId },
@@ -172,7 +188,7 @@ function modelTurn(runId: string, name: string, callId: string, resumed = false)
               : []),
             {
               role: 'user',
-              content: `New world experience:\n${JSON.stringify(observation)}\nPrevious action: none`,
+              content: `${observationLabel}:\n${JSON.stringify(observation)}\nPrevious action: none`,
             },
           ],
           tools: [
