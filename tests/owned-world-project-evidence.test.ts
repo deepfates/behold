@@ -48,6 +48,22 @@ test('project evidence requires an interrupted physical commitment resumed witho
 
 test('project evidence rejects early completion and forced model choice', () => {
   const evidence = validEvidence();
+  const lateProject = structuredClone(evidence.act);
+  moveEntityAfter(lateProject, 'manage_project', 'start', 'place_block');
+  assert.ok(
+    assessOwnedWorldProjectEvidence(
+      lateProject,
+      evidence.resume,
+      evidence.firstWitness,
+      evidence.finalWitness,
+      expected,
+    ).failed.includes('projectStartedBeforeConstruction'),
+  );
+  assert.equal(
+    hasInterruptedProjectMilestone(lateProject, expected.projectId, expected.material),
+    false,
+  );
+
   const early = structuredClone(evidence.act);
   const update = entityEvent(early, 'manage_project', 'update');
   update.data.action.input.operation = 'complete';
@@ -165,6 +181,7 @@ test('project evidence rejects missing restart memory, restatement, or external 
 
 function validEvidence() {
   const actTurns = [
+    collection('collect-material'),
     action('manage_project', 'start-project', {
       operation: 'start',
       id: expected.projectId,
@@ -173,7 +190,6 @@ function validEvidence() {
       doneWhen: 'Two adjacent cobblestone blocks form a durable marker beside spawn',
       evidence: 'world_change',
     }),
-    collection('collect-material'),
     placement('place-first', firstPosition),
     action('manage_project', 'record-partial', {
       operation: 'update',
@@ -418,4 +434,25 @@ function movePlacement(events: RunJournalEvent[], position: BlockPosition) {
   const event = entityEvent(events, 'place_block');
   Object.assign(event.data.action.input, position);
   Object.assign(event.data.outcome.result.changes[0].position, position);
+}
+
+function moveEntityAfter(
+  events: RunJournalEvent[],
+  name: string,
+  operation: string,
+  afterName: string,
+) {
+  const from = events.findIndex(
+    (event) =>
+      event.type === 'entity_turn' &&
+      event.data.action.name === name &&
+      event.data.action.input.operation === operation,
+  );
+  assert.ok(from >= 0);
+  const [moved] = events.splice(from, 1);
+  const after = events.findIndex(
+    (event) => event.type === 'entity_turn' && event.data.action.name === afterName,
+  );
+  assert.ok(after >= 0);
+  events.splice(after + 1, 0, moved);
 }

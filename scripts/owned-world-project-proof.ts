@@ -43,7 +43,7 @@ const TASK = [
   'Build a durable two-block cobblestone landmark beside spawn as one restart-worthy project.',
   `Use the stable project id "${PROJECT_ID}". Its doneWhen is that two adjacent cobblestone blocks at feet level form the landmark, and its evidence channel is world_change.`,
   `Keep both blocks at y=${WORKSITE_Y} and within x/z -${MAX_HORIZONTAL_COORDINATE}..${MAX_HORIZONTAL_COORDINATE}. Inspect the local volume before choosing empty cells. Never place at the same coordinate twice.`,
-  'This proof deliberately spans two lives. In the first life, start the project, collect the nearby two-cobblestone stack, place exactly one block, and wait for Minecraft confirmation. Then update the project so nextStep explicitly says to place the remaining second block adjacent to the first marker block, and choose wait_for_event. Do not place the second block or complete the project in the first life.',
+  'This proof deliberately spans two lives. In the first life, secure the nearby two-cobblestone stack before it expires, start the project before construction, place exactly one block, and wait for Minecraft confirmation. Then update the project so nextStep explicitly says to place the remaining second block adjacent to the first marker block, and choose wait_for_event. Do not place the second block or complete the project in the first life.',
   'In the later life, use your active project and prior consequence. Before any physical action, use manage_project update to restate that the remaining second block must be placed adjacent to the first marker block. Then place exactly one distinct adjacent block, complete the project only after Minecraft confirms it, and choose wait_for_event.',
 ].join(' ');
 const ALLOW_TOOLS = Object.freeze([

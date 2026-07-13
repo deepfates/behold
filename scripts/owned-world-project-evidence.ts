@@ -141,9 +141,8 @@ export function assessOwnedWorldProjectEvidence(
       actStarted?.model === expected.model &&
       actStarted?.task === expected.task &&
       Number(actStarted?.priorEntityTurns) === 0,
-    projectStartedBeforePhysicalWork:
+    projectStartedBeforeConstruction:
       projectOperation(startTurn, expected.projectId) === 'start' &&
-      turnIndex(actEntityTurns, startTurn) < turnIndex(actEntityTurns, collectionTurn) &&
       turnIndex(actEntityTurns, startTurn) < turnIndex(actEntityTurns, firstPlacement?.turn),
     twoBlocksCollectedFromMinecraft:
       inventoryCount(collectionTurn?.nextObservation, expected.material) === 2,
