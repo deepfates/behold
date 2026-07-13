@@ -17,6 +17,7 @@ import {
   isMinecraftSaveAcknowledgement,
   startManagedWorld,
 } from './world-runner';
+import { findConfirmedWorldChange } from './owned-world-proof-support';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 
 const PROTOCOL = 'behold.owned-world-proof.v1' as const;
@@ -159,12 +160,17 @@ async function main() {
           },
         },
       );
-      await Promise.race([
-        waitForFile(proofFile, 90_000),
-        run.finished.then(() => {
-          throw new Error(`${phase} controller exited before proof completion`);
-        }),
-      ]);
+      const proofWait = new AbortController();
+      try {
+        await Promise.race([
+          waitForFile(proofFile, 90_000, proofWait.signal),
+          run.finished.then(() => {
+            throw new Error(`${phase} controller exited before proof completion`);
+          }),
+        ]);
+      } finally {
+        proofWait.abort();
+      }
       const proof = readJson(proofFile);
       validateInhabitantProof(proof, phase);
       await run.stop(`owned_world_${phase}_complete`);
@@ -201,8 +207,15 @@ async function main() {
     throw new Error(`expected one authoritative Lync log, found ${loomFiles.length}`);
   const assertions = {
     initialAffordanceObserved: act.proof.search?.result?.blocks?.length === 1,
-    mutationConfirmedByMinecraft:
-      act.proof.mutation?.result?.confirmation === 'mineflayer:blockUpdate',
+    mutationConfirmedByMinecraft: Boolean(
+      findConfirmedWorldChange(act.proof.mutation?.result, {
+        verb: 'dig',
+        position: TARGET,
+        before: TARGET.before,
+        after: TARGET.after,
+        confirmationSource: 'mineflayer:blockUpdate',
+      }),
+    ),
     firstLifePersistedTwoTurns: act.proof.resultingTurns === 2,
     restartLoadedPriorLife: resume.proof.priorTurns === 2,
     consequencePersistedAcrossRestart: resume.proof.search?.result?.blocks?.length === 0,
@@ -379,17 +392,39 @@ function validateInhabitantProof(value: any, phase: 'act' | 'resume') {
   }
 }
 
-function waitForFile(file: string, timeoutMs: number) {
-  return waitFor(() => fs.existsSync(file), timeoutMs, `proof file ${file}`);
+function waitForFile(file: string, timeoutMs: number, signal?: AbortSignal) {
+  return waitFor(() => fs.existsSync(file), timeoutMs, `proof file ${file}`, signal);
 }
 
-async function waitFor(condition: () => boolean, timeoutMs: number, label: string) {
+async function waitFor(
+  condition: () => boolean,
+  timeoutMs: number,
+  label: string,
+  signal?: AbortSignal,
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    signal?.throwIfAborted();
     if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await abortableDelay(100, signal);
   }
   throw new Error(`${label} timed out after ${timeoutMs}ms`);
+}
+
+function abortableDelay(milliseconds: number, signal?: AbortSignal) {
+  if (!signal) return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+  signal.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, milliseconds);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function waitForExit(child: ChildProcessWithoutNullStreams) {

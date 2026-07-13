@@ -82,7 +82,7 @@ test('managed world runner owns readiness, controller lease, save, stop, and dur
         hostname: os.hostname(),
         managedRunId,
       }));
-      console.log('[bot] Spawned in the world.');
+      console.log('[bot] Local world loaded.');
       process.stdin.resume();
       process.stdin.on('end', () => {
         fs.unlinkSync(lease);
@@ -485,7 +485,7 @@ test('abnormal child exits can clear OS resources but never release successful c
         protocol: 'behold.entity-runtime-lease.v1', entityId: 'Scout',
         pid: process.pid, hostname: os.hostname(), managedRunId
       }));
-      console.log('[bot] Spawned in the world.');
+      console.log('[bot] Local world loaded.');
       process.stdin.resume();
       process.stdin.on('end', () => { fs.unlinkSync(lease); process.exit(7); });
     `;

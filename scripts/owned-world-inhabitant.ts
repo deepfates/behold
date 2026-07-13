@@ -9,6 +9,7 @@ import { openEntityLoom, type EntityTurn } from '../src/entity/loom';
 import { InhabitantExperience } from '../src/agent/experience';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine, type EngineEvent } from '../src/loop/engine';
+import { findConfirmedWorldChange } from './owned-world-proof-support';
 
 const PROTOCOL = 'behold.owned-world-inhabitant-proof.v1' as const;
 
@@ -107,7 +108,15 @@ async function main() {
         name: 'dig_block',
         input: target,
       });
-      if (!mutation.result?.ok || mutation.result?.confirmation !== 'mineflayer:blockUpdate') {
+      if (
+        !findConfirmedWorldChange(mutation.result, {
+          verb: 'dig',
+          position: { x: 2, y: -60, z: 0 },
+          before: 'gold_block',
+          after: 'air',
+          confirmationSource: 'mineflayer:blockUpdate',
+        })
+      ) {
         throw new Error(
           `world mutation was not independently confirmed: ${JSON.stringify(mutation)}`,
         );
