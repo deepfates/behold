@@ -130,7 +130,7 @@ export function droppedItemPickupSafety(bot: Bot, target: any): DroppedItemPicku
   if (!target) return { ok: false, reason: 'item_position_unknown' };
   const feet = {
     x: Math.floor(Number(target.x)),
-    y: Math.floor(Number(target.y)) + 1,
+    y: Math.floor(Number(target.y)),
     z: Math.floor(Number(target.z)),
   };
   const supportPosition = { x: feet.x, y: feet.y - 1, z: feet.z };

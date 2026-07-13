@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Vec3 } from 'vec3';
 import { buildInterpreter } from '../src/agent/interpreter';
+import { droppedItemPickupSafety } from '../src/agent/observation';
 
 function baseBot() {
   const bot: any = new EventEmitter();
@@ -941,7 +942,7 @@ test('movement and item collection require consequences beyond pathfinder acknow
     name: 'item',
     type: 'object',
     objectType: 'Item',
-    position: new Vec3(2, 63, 0),
+    position: new Vec3(2, 64.125, 0),
     getDroppedItem: () => ({ name: 'dirt', count: 1 }),
   };
   bot.entities[3] = item;
@@ -970,7 +971,7 @@ test('item collection does not confuse an adjacent floored block with pickup rea
     name: 'item',
     type: 'object',
     objectType: 'Item',
-    position: new Vec3(2.125, 63.5, 0.125),
+    position: new Vec3(2.125, 64.125, 0.125),
     getDroppedItem: () => ({ name: 'spruce_log', count: 1 }),
   };
   bot.entities[4] = item;
@@ -1001,7 +1002,7 @@ test('item collection uses a bounded direct nudge when local pathfinding cannot 
     name: 'item',
     type: 'object',
     objectType: 'Item',
-    position: new Vec3(1.5, 63.5, 0),
+    position: new Vec3(1.5, 64.125, 0),
     getDroppedItem: () => ({ name: 'spruce_log', count: 1 }),
   };
   bot.entities[5] = item;
@@ -1034,7 +1035,7 @@ test('item collection refuses to pathfind or nudge into an unsupported drop', as
     name: 'item',
     type: 'object',
     objectType: 'Item',
-    position: new Vec3(1.5, 62.5, 0),
+    position: new Vec3(1.5, 63.125, 0),
     getDroppedItem: () => ({ name: 'dirt', count: 1 }),
   };
   bot.entities[6] = item;
@@ -1061,6 +1062,23 @@ test('item collection refuses to pathfind or nudge into an unsupported drop', as
   assert.equal(result.pickupSafety.reason, 'unsupported_destination');
   assert.equal(navigationCalls, 0);
   assert.equal(nudgeCalls, 0);
+});
+
+test('dropped-item pickup safety grounds a real entity position below zero', () => {
+  const bot = baseBot();
+  bot.blockAt = (position: Vec3) => ({
+    name: position.y === -61 ? 'grass_block' : 'air',
+    boundingBox: position.y === -61 ? 'block' : 'empty',
+    position,
+  });
+
+  const safety = droppedItemPickupSafety(bot, new Vec3(3, -59.875, 0));
+
+  assert.deepEqual(safety, {
+    ok: true,
+    feet: { x: 3, y: -60, z: 0 },
+    support: { x: 3, y: -61, z: 0, name: 'grass_block' },
+  });
 });
 
 test('offering an item succeeds only when the named nearby player collects it', async () => {

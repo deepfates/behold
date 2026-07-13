@@ -30,7 +30,7 @@ test('nearby dropped stacks expose their item identity and count', () => {
         id: 2,
         name: 'item',
         type: 'object',
-        position: new Vec3(2, 63.5, 0),
+        position: new Vec3(2, 64.125, 0),
         getDroppedItem: () => ({ name: 'birch_log', count: 3 }),
       },
     },
@@ -48,8 +48,8 @@ test('nearby dropped stacks expose their item identity and count', () => {
         feet: { x: 2, y: 64, z: 0 },
         support: { x: 2, y: 63, z: 0, name: 'stone' },
       },
-      distance: 2.1,
-      position: { x: 2, y: 63.5, z: 0 },
+      distance: 2,
+      position: { x: 2, y: 64.1, z: 0 },
     },
   ]);
 });
