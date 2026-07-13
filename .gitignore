@@ -11,5 +11,13 @@ yarn.lock
 # Build
 dist/
 
+# Local Minecraft server and disposable world copies
+.behold-runtime/
+.behold-runs/
+.behold-entities/
+
+# Large local generation inputs, worlds, logs, archives, and atlas renders
+.behold-artifacts/
+
 # OS
 .DS_Store
