@@ -35,6 +35,11 @@ export type OwnedWorldProjectExpectation = Readonly<{
   maxHorizontalCoordinate: number;
   actRunId: string;
   resumeRunId: string;
+  contextBudget?: Readonly<{
+    maxTotalPromptTokens: number;
+    maxPromptTokensPerCall: number;
+    maxRequestBodyChars: number;
+  }>;
 }>;
 
 export function assessOwnedWorldProjectEvidence(
@@ -208,6 +213,11 @@ export function assessOwnedWorldProjectEvidence(
       criticalDecisions.every((decision) => decision?.call?.request?.toolChoice === 'auto'),
     noModelCallFailed: actFailures.length === 0 && resumeFailures.length === 0,
     usageRecorded: usage.callCount >= 6 && usage.totalTokens > 0 && usage.totalLatencyMs >= 0,
+    contextBudgetSatisfied:
+      expected.contextBudget == null ||
+      (usage.promptTokens <= expected.contextBudget.maxTotalPromptTokens &&
+        usage.maxPromptTokens <= expected.contextBudget.maxPromptTokensPerCall &&
+        usage.maxRequestBodyChars <= expected.contextBudget.maxRequestBodyChars),
   };
   const failed = Object.entries(assertions)
     .filter(([, value]) => !value)

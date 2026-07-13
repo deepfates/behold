@@ -23,6 +23,11 @@ const expected = {
   maxHorizontalCoordinate: 8,
   actRunId: 'behold-owned-flat-v1-1',
   resumeRunId: 'behold-owned-flat-v1-2',
+  contextBudget: {
+    maxTotalPromptTokens: 100,
+    maxPromptTokensPerCall: 20,
+    maxRequestBodyChars: 50_000,
+  },
 };
 
 test('project evidence requires an interrupted physical commitment resumed without repetition', () => {
@@ -39,10 +44,27 @@ test('project evidence requires an interrupted physical commitment resumed witho
   assert.deepEqual(assessed.firstPosition, firstPosition);
   assert.deepEqual(assessed.secondPosition, secondPosition);
   assert.equal(assessed.usage.callCount, 9);
+  assert.equal(assessed.assertions.contextBudgetSatisfied, true);
   assert.equal(hasInterruptedProjectMilestone(act, expected.projectId, expected.material), true);
   assert.equal(
     hasCompletedProjectMilestone(resume, expected.projectId, expected.material, firstPosition),
     true,
+  );
+});
+
+test('project evidence fails closed when production context exceeds its declared budget', () => {
+  const evidence = validEvidence();
+  const overBudget = structuredClone(evidence.resume);
+  modelEvent(overBudget, 'place_block').data.call.response.usage.prompt_tokens = 1000;
+
+  assert.ok(
+    assessOwnedWorldProjectEvidence(
+      evidence.act,
+      overBudget,
+      evidence.firstWitness,
+      evidence.finalWitness,
+      expected,
+    ).failed.includes('contextBudgetSatisfied'),
   );
 });
 

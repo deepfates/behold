@@ -38,6 +38,17 @@ const PROJECT_ID = 'spawn-landmark';
 const MATERIAL = 'cobblestone';
 const WORKSITE_Y = -60;
 const MAX_HORIZONTAL_COORDINATE = 8;
+const CONTEXT_BASELINE = Object.freeze({
+  runId: 'project-v2-deepseek-v4-20260713',
+  promptTokens: 227_642,
+  maxPromptTokens: 36_636,
+  maxRequestBodyChars: 150_331,
+});
+const CONTEXT_BUDGET = Object.freeze({
+  maxTotalPromptTokens: 113_821,
+  maxPromptTokensPerCall: 18_318,
+  maxRequestBodyChars: 75_165,
+});
 const TARGET = Object.freeze({ x: 3, y: -60, z: 0, item: MATERIAL, count: 2 });
 const TASK = [
   'Build a durable two-block cobblestone landmark beside spawn as one restart-worthy project.',
@@ -170,6 +181,7 @@ async function main() {
     maxHorizontalCoordinate: MAX_HORIZONTAL_COORDINATE,
     actRunId: act.managedRunId,
     resumeRunId: resume.managedRunId,
+    contextBudget: CONTEXT_BUDGET,
   };
   const assessment = assessOwnedWorldProjectEvidence(
     act.events,
@@ -223,6 +235,23 @@ async function main() {
       resume: phaseEvidence(resume),
     },
     expectation,
+    contextEfficiency: {
+      baseline: CONTEXT_BASELINE,
+      budget: CONTEXT_BUDGET,
+      measured: assessment.usage,
+      promptTokenReductionFraction: reduction(
+        CONTEXT_BASELINE.promptTokens,
+        assessment.usage.promptTokens,
+      ),
+      maxPromptTokenReductionFraction: reduction(
+        CONTEXT_BASELINE.maxPromptTokens,
+        assessment.usage.maxPromptTokens,
+      ),
+      maxRequestBodyReductionFraction: reduction(
+        CONTEXT_BASELINE.maxRequestBodyChars,
+        assessment.usage.maxRequestBodyChars,
+      ),
+    },
     assessment,
   });
   fs.writeFileSync(
@@ -236,6 +265,10 @@ async function main() {
     );
   }
   process.stdout.write(`[owned-world-project] PASS ${reportFile}\n`);
+}
+
+function reduction(baseline: number, measured: number) {
+  return Math.round((1 - measured / baseline) * 1_000_000) / 1_000_000;
 }
 
 function phaseEvidence(phase: {

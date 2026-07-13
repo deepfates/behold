@@ -292,17 +292,36 @@ export function summarizeUsage(calls: readonly any[]) {
   let totalCost = 0;
   let callsWithCost = 0;
   let totalLatencyMs = 0;
+  let maxPromptTokens = 0;
+  let maxCompletionTokens = 0;
+  let maxLatencyMs = 0;
+  let totalRequestBodyChars = 0;
+  let maxRequestBodyChars = 0;
+  let maxMessageCount = 0;
   for (const call of calls) {
     const usage = call?.response?.usage || {};
-    promptTokens += finiteNumber(usage.prompt_tokens);
-    completionTokens += finiteNumber(usage.completion_tokens);
+    const callPromptTokens = finiteNumber(usage.prompt_tokens);
+    const callCompletionTokens = finiteNumber(usage.completion_tokens);
+    const callLatencyMs = finiteNumber(call?.latencyMs);
+    const requestBodyChars = jsonLength(call?.request?.body);
+    const messageCount = Array.isArray(call?.request?.body?.messages)
+      ? call.request.body.messages.length
+      : 0;
+    promptTokens += callPromptTokens;
+    completionTokens += callCompletionTokens;
     totalTokens += finiteNumber(usage.total_tokens);
     const cost = Number(usage.cost);
     if (Number.isFinite(cost)) {
       totalCost += cost;
       callsWithCost += 1;
     }
-    totalLatencyMs += finiteNumber(call?.latencyMs);
+    totalLatencyMs += callLatencyMs;
+    maxPromptTokens = Math.max(maxPromptTokens, callPromptTokens);
+    maxCompletionTokens = Math.max(maxCompletionTokens, callCompletionTokens);
+    maxLatencyMs = Math.max(maxLatencyMs, callLatencyMs);
+    totalRequestBodyChars += requestBodyChars;
+    maxRequestBodyChars = Math.max(maxRequestBodyChars, requestBodyChars);
+    maxMessageCount = Math.max(maxMessageCount, messageCount);
   }
   return {
     callCount: calls.length,
@@ -310,9 +329,23 @@ export function summarizeUsage(calls: readonly any[]) {
     completionTokens,
     totalTokens,
     totalLatencyMs,
+    maxPromptTokens,
+    maxCompletionTokens,
+    maxLatencyMs,
+    totalRequestBodyChars,
+    maxRequestBodyChars,
+    maxMessageCount,
     totalCost: callsWithCost > 0 ? totalCost : null,
     callsWithCost,
   };
+}
+
+function jsonLength(value: unknown) {
+  try {
+    return JSON.stringify(value ?? null).length;
+  } catch {
+    return 0;
+  }
 }
 
 function finiteNumber(value: unknown) {

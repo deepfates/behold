@@ -4,6 +4,7 @@ import type { EngineEvent } from '../loop/engine';
 import { historyMessages, type EntityTurn } from '../entity/loom';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
+import { projectCurrentModelObservation, projectHistoricalModelObservation } from './context';
 import {
   createLoomContextView,
   foldMessage,
@@ -612,7 +613,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function appendWorldUpdate(frame: any, label: string) {
     currentObservation = frame;
-    const projected = modelObservation(frame);
+    const projected = projectCurrentModelObservation(frame);
     const deliveredSequence = projected?.eventWindow?.deliveredNewestSequence;
     if (Number.isFinite(Number(deliveredSequence))) {
       lastSequence = Math.max(lastSequence, Number(deliveredSequence));
@@ -676,7 +677,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       1,
       Math.max(0, messages.length - 1),
       ...(view.fold ? [foldMessage(view.fold)] : []),
-      ...historyMessages(view.turns, modelObservation),
+      ...historyMessages(view.turns, projectHistoricalModelObservation),
     );
   }
 
@@ -1175,27 +1176,6 @@ function toIntent(name: string, args: any): Intent {
     source: 'llm',
     tool: name,
     input: args,
-  };
-}
-
-function modelObservation(frame: any) {
-  if (!frame || typeof frame !== 'object') return frame;
-  if (!Array.isArray(frame.events)) return frame;
-  const newEvents = frame.events.filter((event: any) => event?.isNew === true);
-  // Deliver the oldest unread batch first. Advancing the controller cursor to
-  // the end of the full frame here would permanently skip any omitted events.
-  const events = newEvents.slice(0, 12);
-  const omittedNewEvents = Math.max(0, newEvents.length - events.length);
-  return {
-    ...frame,
-    events,
-    eventWindow: {
-      ...(frame.eventWindow || {}),
-      deliveredOldestSequence: events[0]?.sequence ?? null,
-      deliveredNewestSequence: events.at(-1)?.sequence ?? null,
-      omittedNewEvents,
-      complete: frame.eventWindow?.complete !== false && omittedNewEvents === 0,
-    },
   };
 }
 
