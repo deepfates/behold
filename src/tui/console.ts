@@ -7,6 +7,15 @@ import { buildFrame, renderFrame } from './render';
 import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
 import { startLLMPolicy } from '../policy/llm';
+import { createRunJournal } from '../observability/journal';
+import { openEntityLoom } from '../entity/loom';
+import { createProjectMemory } from '../entity/projects';
+import { createPlaceMemory } from '../entity/places';
+import { InhabitantExperience, type TaskBrief } from '../agent/experience';
+import {
+  createComeSeeDoReportRuntime,
+  createComeSeeDoReportTask,
+} from '../tasks/come-see-do-report';
 
 export type ConsoleOptions = {
   agentName?: string;
@@ -14,6 +23,8 @@ export type ConsoleOptions = {
   tickMs?: number;
   paused?: boolean;
   allowTools?: string[] | null;
+  task?: string;
+  target?: string;
 };
 
 export async function runConsole(opts: ConsoleOptions = {}) {
@@ -23,44 +34,149 @@ export async function runConsole(opts: ConsoleOptions = {}) {
 
   const cfg = getConfig();
   const name = cfg.auth.username || 'Agent';
+  const entityLoom = await openEntityLoom(name, undefined, cfg.circle.id);
+  const projects = createProjectMemory(name, entityLoom.turns());
+  const places = createPlaceMemory(name, entityLoom.turns());
+  const journal = createRunJournal(name);
+  journal.append('run_started', {
+    server: cfg.server,
+    circle: cfg.circle,
+    authMode: cfg.auth.mode,
+    model: cfg.llm.model,
+    entityLoom: entityLoom.file,
+    entityLoomBackend: entityLoom.backend,
+    priorEntityTurns: entityLoom.turns().length,
+    activeProjects: projects.snapshot(),
+    knownPlaces: places.snapshot(),
+  });
+  console.error(`[journal] ${journal.file}`);
+  console.error(
+    `[entity] ${entityLoom.file} (${entityLoom.turns().length} prior turns, ${entityLoom.backend})`,
+  );
+  console.error(`[circle] ${cfg.circle.id} (${cfg.circle.source})`);
+  for (const warning of entityLoom.warnings) console.error(`[entity] ${warning}`);
   console.error(`[console] connecting to ${cfg.server.host}:${cfg.server.port} as ${name}`);
   const bot = createBot(cfg);
+  const taskRuntime =
+    opts.task === 'come-see-do-report'
+      ? createComeSeeDoReportRuntime(bot as any, opts.target || 'importdf')
+      : null;
+  const task = taskRuntime?.task ?? resolveTask(opts.task, opts.target);
+  const experience = new InhabitantExperience(bot as any, {
+    circleId: cfg.circle.id,
+    task,
+    projects: () => projects.snapshot(),
+    places: () => places.snapshot(),
+  });
+  let policy: ReturnType<typeof startLLMPolicy> | null = null;
+  let engine: ReturnType<typeof createEngine> | null = null;
+
+  const recordTaskProgress = () => {
+    if (!taskRuntime) return null;
+    const progress = taskRuntime.verifier.snapshot(experience.observe());
+    journal.append('task_progress', progress);
+    return progress;
+  };
 
   const cache: any = { chatTail: [], nearby: [], cursor: null, last: null };
   bot.on('chat', (user: string, text: string) => {
     if (user === (bot as any).username) return;
     cache.chatTail.push({ user, text });
     cache.chatTail = cache.chatTail.slice(-3);
+    journal.append('chat_received', { user, text });
+    taskRuntime?.permissions.recordIncomingChat(user, text);
+    taskRuntime?.verifier.recordIncomingChat(user, text);
+    if (taskRuntime) journal.append('task_permissions', taskRuntime.permissions.snapshot());
+    recordTaskProgress();
+    if (!taskRuntime || user.toLowerCase() === taskRuntime.task.target?.toLowerCase()) {
+      engine?.muteLLM(false);
+      policy?.resume();
+    } else {
+      policy?.wake();
+    }
   });
 
   const updateSense = () => {
     try {
       const bc: any = (bot as any).blockAtCursor?.(6);
       const ec: any = (bot as any).entityAtCursor?.(3.5);
-      if (bc) cache.cursor = { kind: 'block', name: bc?.name, x: bc?.position?.x, y: bc?.position?.y, z: bc?.position?.z };
+      if (bc)
+        cache.cursor = {
+          kind: 'block',
+          name: bc?.name,
+          x: bc?.position?.x,
+          y: bc?.position?.y,
+          z: bc?.position?.z,
+        };
       else if (ec) {
         const me = (bot as any).entity?.position;
-        const pos = ec?.position; const dist = me && pos ? me.distanceTo(pos) : null;
-        cache.cursor = { kind: 'entity', name: ec?.name, username: ec?.username, dist: dist ?? undefined };
+        const pos = ec?.position;
+        const dist = me && pos ? me.distanceTo(pos) : null;
+        cache.cursor = {
+          kind: 'entity',
+          name: ec?.name,
+          username: ec?.username,
+          dist: dist ?? undefined,
+        };
       } else cache.cursor = null;
     } catch {}
     const me: any = (bot as any).entity?.position;
     const ents = Object.values((bot as any).entities || {})
       .filter((e: any) => e?.type && e?.position && me)
-      .map((e: any) => ({ kind: e.type, name: e.name, username: e.username, dist: me.distanceTo(e.position) }))
+      .map((e: any) => ({
+        kind: e.type,
+        name: e.name,
+        username: e.username,
+        dist: me.distanceTo(e.position),
+      }))
       .sort((a: any, b: any) => (a.dist ?? 0) - (b.dist ?? 0))
       .slice(0, 5)
       .map((e: any, i: number) => ({ idx: i + 1, ...e }));
     cache.nearby = ents;
   };
 
-  const interp = buildInterpreter(bot as any);
+  const interp = buildInterpreter(bot as any, {
+    worldChangeGuard: taskRuntime?.guard,
+    projects,
+    places: () => places.snapshot(),
+    observe: () => experience.observe(),
+  });
   const registry = {
-    run: (tool: string, args?: any) => interp.run(tool, args),
+    run: (tool: string, args?: any, intent?: any) => {
+      if (taskRuntime && intent?.source === 'llm') {
+        const authorization = taskRuntime.permissions.authorizeAction(tool, args);
+        if (!authorization.ok) return Promise.resolve(authorization);
+      }
+      return interp.run(tool, args);
+    },
     list: () => interp.list(),
   };
 
-  const engine = createEngine(bot as any, registry, { tickMs: Number(process.env.AGENT_TICK_MS || 3000), log: (s) => console.error(s) });
+  engine = createEngine(registry, {
+    tickMs: Number(process.env.AGENT_TICK_MS || 3000),
+    log: (s) => console.error(s),
+    onEvent: (event) => {
+      experience.recordEngineEvent(event);
+      journal.append(event.type, event.data);
+      if (taskRuntime) {
+        taskRuntime.verifier.recordEngineEvent(event, experience.observe());
+        if (event.type === 'action_completed' || event.type === 'action_failed') {
+          recordTaskProgress();
+        }
+      }
+      void policy?.onEngineEvent(event);
+      const tool = String(event.data?.intent?.tool || '');
+      const source = String(event.data?.intent?.source || '');
+      if (
+        (event.type === 'action_completed' || event.type === 'action_failed') &&
+        source !== 'llm' &&
+        tool !== 'chat' &&
+        tool !== 'whisper'
+      ) {
+        policy?.wake();
+      }
+    },
+  });
   engine.start();
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -70,28 +186,72 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       updateSense();
       const text = renderFrame(name, buildFrame(bot as any, cache));
       process.stdout.write(`\x1b[2K\r${text.split('\n').join('\n')}\n`);
-      prompt(); rl.prompt();
+      prompt();
+      rl.prompt();
     } catch {}
   };
 
   bot.once('spawn', () => {
+    journal.append('spawned', experience.observe());
+    recordTaskProgress();
+    policy?.wake();
     show();
-    setInterval(() => { if (!rl.line) show(); }, 1500);
+    let lastObservationAt = 0;
+    setInterval(() => {
+      if (!rl.line) show();
+      if (Date.now() - lastObservationAt >= 10_000) {
+        lastObservationAt = Date.now();
+        try {
+          journal.append('observation', experience.observe());
+        } catch (error: any) {
+          journal.append('observation_error', { error: error?.message || String(error) });
+        }
+      }
+    }, 1500);
   });
 
   // Optional LLM policy
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model = process.env.LLM_MODEL || 'openai/gpt-4o-mini';
-  let policy: { start(): void; stop(): void } | null = null;
   if (apiKey && !opts.paused) {
-    const toolSpecs = interp.list().map((s: any) => ({ type: 'function', function: { name: s.name, description: s.description || '', parameters: s.parameters || { type: 'object', properties: {} } } }));
-    policy = startLLMPolicy(bot as any, toolSpecs as any, (i) => engine.arbiter.enqueue(i), {
-      apiKey,
-      model,
-      tickMs: Number(process.env.AGENT_TICK_MS || 3000),
-      allowTools: opts.allowTools ?? null,
-      log: (s) => console.error(s),
-    });
+    const toolSpecs = interp.list('inhabitant').map((s: any) => ({
+      type: 'function',
+      function: {
+        name: s.name,
+        description: s.description || '',
+        parameters: s.parameters || { type: 'object', properties: {} },
+      },
+    }));
+    policy = startLLMPolicy(
+      {
+        entityId: name,
+        observe: (sinceSequence) => experience.observe(sinceSequence),
+        actions: toolSpecs as any,
+        attempt: (intent) => engine!.enqueueIntent(intent),
+      },
+      {
+        apiKey,
+        model,
+        tickMs: Number(process.env.AGENT_TICK_MS || 3000),
+        maxTurnSteps: task ? 8 : 16,
+        resumeAfterBudget: task == null,
+        allowTools: opts.allowTools ?? null,
+        // The complete loom stays authoritative. The adjacent fold is only a
+        // validated, disposable prompt view over older turns.
+        history: entityLoom.turns(),
+        foldCacheFile: entityLoom.foldFile,
+        log: (s) => console.error(s),
+        onModelTurn: (turn) => journal.append('model_turn', turn),
+        onEntityTurn: async (turn) => {
+          projects.validate(turn);
+          places.validate(turn);
+          await entityLoom.append(turn);
+          projects.record(turn);
+          places.record(turn);
+          journal.append('entity_turn', turn);
+        },
+      },
+    );
     policy.start();
     console.error(`[console] LLM policy enabled (model ${model})`);
   } else if (!apiKey) {
@@ -103,15 +263,29 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   rl.on('line', async (line) => {
     const p = parseLine(line);
     if ((p as any).meta === 'help') {
-      console.error('Commands: say, status, nearby, cursor, look <x y z|@cursor>, move to <x y z|@cursor> [near=n], stop, dig <x y z|@cursor>, place @cursor, equip <name>, eat [name]');
-      prompt(); rl.prompt(); return;
+      console.error(
+        'Commands: say, status, nearby, survey [radius=16 step=4], cursor, look <x y z|@cursor>, move to <x y z|@cursor> [near=n], stop, dig <x y z|@cursor>, place @cursor, place at <x y z> [name=block], equip <name>, eat [name]',
+      );
+      prompt();
+      rl.prompt();
+      return;
     }
     if ((p as any).meta === 'json') {
       cache.last = `json ${(p as any).args?.on ? 'on' : 'off'} (not yet)`;
-      show(); return;
+      show();
+      return;
     }
-    if (!(p as any).tool) { cache.last = 'unknown command'; show(); return; }
-    const intent = { tool: (p as any).tool, input: (p as any).args, preempt: (p as any).preempt, kind: (p as any).kind } as any;
+    if (!(p as any).tool) {
+      cache.last = 'unknown command';
+      show();
+      return;
+    }
+    const intent = {
+      tool: (p as any).tool,
+      input: (p as any).args,
+      preempt: (p as any).preempt,
+      kind: (p as any).kind,
+    } as any;
     // Resolve @cursor
     if (intent.input) {
       const cur = cache.cursor;
@@ -129,18 +303,57 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       }
     }
     try {
-      const shown = (() => { try { const s = JSON.stringify(intent.input); return s && s.length > 120 ? s.slice(0,117)+'...' : s; } catch { return ''; } })();
+      const shown = (() => {
+        try {
+          const s = JSON.stringify(intent.input);
+          return s && s.length > 120 ? s.slice(0, 117) + '...' : s;
+        } catch {
+          return '';
+        }
+      })();
       console.error(`[human] propose: ${intent.tool} ${shown || ''}`);
     } catch {}
-    engine.enqueueHumanIntent({ tool: intent.tool, input: intent.input, preempt: intent.preempt, kind: intent.kind });
+    if (intent.tool === 'stop') policy?.suspend('human_stop');
+    engine.enqueueHumanIntent({
+      tool: intent.tool,
+      input: intent.input,
+      preempt: intent.preempt,
+      kind: intent.kind,
+    });
     cache.last = `${intent.tool}`;
     show();
   });
 
   rl.on('close', () => {
-    try { engine.stop(); } catch {}
-    try { policy?.stop(); } catch {}
-    try { (bot as any).end(); } catch {}
+    if (taskRuntime)
+      journal.append('task_verification', taskRuntime.verifier.snapshot(experience.observe()));
+    journal.append('run_stopped');
+    try {
+      engine.stop();
+    } catch {}
+    try {
+      policy?.stop();
+    } catch {}
+    try {
+      experience.destroy();
+    } catch {}
+    try {
+      (bot as any).end();
+    } catch {}
     process.exit(0);
   });
+}
+
+function resolveTask(taskName?: string, targetName?: string): TaskBrief | null {
+  if (!taskName) return null;
+  if (taskName !== 'come-see-do-report') {
+    return {
+      id: taskName,
+      goal: taskName,
+      successConditions: [],
+      constraints: [],
+      target: targetName || null,
+    };
+  }
+  return createComeSeeDoReportTask(targetName || 'importdf');
 }

@@ -14,16 +14,23 @@
     "agent:stdio": "ts-node --transpile-only src/cli/main.ts agent --stdio",
     "tools": "ts-node --transpile-only src/cli/main.ts tools --json",
     "console": "ts-node --transpile-only src/tui/repl.ts",
-    "lint": "eslint .",
+    "server": "ts-node --transpile-only scripts/server.ts",
+    "pilot": "node scripts/patch-prismarine-viewer.js && ts-node --transpile-only scripts/pilot.ts",
+    "native": "ts-node --transpile-only scripts/native-client.ts",
+    "play": "ts-node --transpile-only scripts/play.ts",
+    "viewer:patch": "node scripts/patch-prismarine-viewer.js",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "lint": "tsc -p tsconfig.json --noEmit && eslint .",
     "format": "prettier -w .",
-    "check": "eslint . && prettier -c .",
+    "check": "npm run lint && npm test",
     "prepare": "husky",
     "cli": "ts-node --transpile-only src/tools/readline.ts"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
+    "@deepfates/lync": "^0.3.0",
     "canvas": "^2.11.2",
     "dotenv": "^16.4.5",
     "minecraft-data": "^3.66.0",
@@ -35,13 +42,13 @@
   "devDependencies": {
     "@commitlint/cli": "^19.4.0",
     "@commitlint/config-conventional": "^19.2.2",
+    "@types/node": "^22.7.7",
     "eslint": "^9.11.1",
     "husky": "^9.1.6",
     "lint-staged": "^15.2.10",
     "prettier": "^3.3.3",
-    "typescript": "^5.6.3",
     "ts-node": "^10.9.2",
-    "@types/node": "^22.7.7"
+    "typescript": "^5.6.3"
   },
   "lint-staged": {
     "**/*.{js,jsx}": [

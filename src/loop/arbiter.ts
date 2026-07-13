@@ -29,7 +29,10 @@ export class ActionArbiter {
   private readonly rate: RateWindow;
   private readonly exclusive: Set<string>;
 
-  constructor(rate: RateWindow = { max: 20, windowMs: 60_000 }, exclusive: Set<string> = DEFAULT_EXCLUSIVE) {
+  constructor(
+    rate: RateWindow = { max: 20, windowMs: 60_000 },
+    exclusive: Set<string> = DEFAULT_EXCLUSIVE,
+  ) {
     this.rate = rate;
     this.exclusive = exclusive;
   }
@@ -51,8 +54,36 @@ export class ActionArbiter {
     }
   }
 
+  hasEquivalent(intent: Intent) {
+    const same = (candidate: Intent | undefined | null) =>
+      !!candidate &&
+      candidate.source === intent.source &&
+      candidate.tool === intent.tool &&
+      stableInput(candidate.input) === stableInput(intent.input);
+    return (
+      same(this.lease?.intent) ||
+      this.qHuman.some(same) ||
+      this.qSystem.some(same) ||
+      this.qLLM.some(same)
+    );
+  }
+
   preempt() {
     this.lease = null;
+  }
+
+  cancelQueued(predicate: (intent: Intent) => boolean) {
+    const cancelled: Intent[] = [];
+    const retain = (queue: Intent[]) =>
+      queue.filter((intent) => {
+        if (!predicate(intent)) return true;
+        cancelled.push(intent);
+        return false;
+      });
+    this.qHuman = retain(this.qHuman);
+    this.qSystem = retain(this.qSystem);
+    this.qLLM = retain(this.qLLM);
+    return cancelled;
   }
 
   hasLease() {
@@ -105,20 +136,48 @@ export class ActionArbiter {
     return ready;
   }
 
-  releaseLease() {
+  releaseLease(intentId?: string) {
+    if (intentId && this.lease?.intent.id !== intentId) return;
     this.lease = null;
   }
 
-  private peekHuman() { return this.qHuman[0] || null; }
-  private peekSystem() { return this.qSystem[0] || null; }
-  private peekLLM() { return this.qLLM[0] || null; }
+  private peekHuman() {
+    return this.qHuman[0] || null;
+  }
+  private peekSystem() {
+    return this.qSystem[0] || null;
+  }
+  private peekLLM() {
+    return this.qLLM[0] || null;
+  }
 
   private shift(source: IntentSource): Intent | null {
     switch (source) {
-      case 'human': return this.qHuman.shift() || null;
-      case 'system': return this.qSystem.shift() || null;
-      case 'llm': return this.qLLM.shift() || null;
+      case 'human':
+        return this.qHuman.shift() || null;
+      case 'system':
+        return this.qSystem.shift() || null;
+      case 'llm':
+        return this.qLLM.shift() || null;
     }
   }
 }
 
+function stableInput(value: any) {
+  try {
+    if (!value || typeof value !== 'object') return JSON.stringify(value);
+    return JSON.stringify(sortObject(value));
+  } catch {
+    return String(value);
+  }
+}
+
+function sortObject(value: any): any {
+  if (Array.isArray(value)) return value.map(sortObject);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortObject(value[key])]),
+  );
+}

@@ -1,4 +1,6 @@
-export type Parsed = { tool: string; args?: any; preempt?: boolean; kind?: 'exclusive'|'parallel' } | { meta: 'help'|'json'|'unknown', args?: any };
+export type Parsed =
+  | { tool: string; args?: any; preempt?: boolean; kind?: 'exclusive' | 'parallel' }
+  | { meta: 'help' | 'json' | 'unknown'; args?: any };
 
 export function parseLine(line: string): Parsed {
   const s = (line || '').trim();
@@ -22,19 +24,31 @@ export function parseLine(line: string): Parsed {
       return { tool: 'block_at_cursor', args: {}, kind: 'parallel', preempt } as any;
     case 'nearby':
       return { tool: 'get_nearby', args: parseKV(rest), kind: 'parallel', preempt } as any;
+    case 'survey':
+      return { tool: 'survey_area', args: parseKV(rest), kind: 'parallel', preempt } as any;
     case 'look': {
       const tok = rest;
       if (tok.length >= 3 && isNum(tok[0]) && isNum(tok[1]) && isNum(tok[2])) {
         return { tool: 'look_at', args: { x: +tok[0], y: +tok[1], z: +tok[2] }, preempt };
       }
-      if (tok[0] === '@cursor') return { tool: 'look_at', args: { x: '@cursor_x', y: '@cursor_y', z: '@cursor_z' }, preempt } as any;
+      if (tok[0] === '@cursor')
+        return {
+          tool: 'look_at',
+          args: { x: '@cursor_x', y: '@cursor_y', z: '@cursor_z' },
+          preempt,
+        } as any;
       return { meta: 'unknown' } as any;
     }
     case 'move': {
       if (rest[0] !== 'to') return { meta: 'unknown' } as any;
       const tok = rest.slice(1);
       const kv = parseKV(tok);
-      if (tok[0] === '@cursor') return { tool: 'move_to', args: { x: '@cursor_x', y: '@cursor_y', z: '@cursor_z', ...kv }, preempt } as any;
+      if (tok[0] === '@cursor')
+        return {
+          tool: 'move_to',
+          args: { x: '@cursor_x', y: '@cursor_y', z: '@cursor_z', ...kv },
+          preempt,
+        } as any;
       if (tok.length >= 3 && isNum(tok[0]) && isNum(tok[1]) && isNum(tok[2])) {
         return { tool: 'move_to', args: { x: +tok[0], y: +tok[1], z: +tok[2], ...kv }, preempt };
       }
@@ -44,18 +58,42 @@ export function parseLine(line: string): Parsed {
       return { tool: 'stop', kind: 'exclusive', preempt: true } as any;
     case 'dig': {
       const tok = rest;
-      if (tok[0] === '@cursor') return { tool: 'dig_block', args: { x: '@cursor_x', y: '@cursor_y', z: '@cursor_z' }, preempt } as any;
+      if (tok[0] === '@cursor')
+        return {
+          tool: 'dig_block',
+          args: { x: '@cursor_x', y: '@cursor_y', z: '@cursor_z' },
+          preempt,
+        } as any;
       if (tok.length >= 3 && isNum(tok[0]) && isNum(tok[1]) && isNum(tok[2])) {
         return { tool: 'dig_block', args: { x: +tok[0], y: +tok[1], z: +tok[2] }, preempt };
       }
       return { meta: 'unknown' } as any;
     }
-    case 'place':
-      return { tool: 'place_against', args: { on: { x: '@cursor_x', y: '@cursor_y', z: '@cursor_z' }, face: 'top' }, preempt } as any;
+    case 'place': {
+      if (rest[0] === 'at' && rest.length >= 4 && rest.slice(1, 4).every(isNum)) {
+        return {
+          tool: 'place_block',
+          args: {
+            x: +rest[1],
+            y: +rest[2],
+            z: +rest[3],
+            ...parseKV(rest.slice(4)),
+          },
+          preempt,
+        } as any;
+      }
+      return {
+        tool: 'place_against',
+        args: { on: { x: '@cursor_x', y: '@cursor_y', z: '@cursor_z' }, face: 'top' },
+        preempt,
+      } as any;
+    }
     case 'equip':
       return { tool: 'equip_item', args: { name: stripQuotes(tail) }, preempt };
     case 'eat':
-      return tail ? { tool: 'consume', args: { name: stripQuotes(tail) }, preempt } as any : { tool: 'consume', preempt } as any;
+      return tail
+        ? ({ tool: 'consume', args: { name: stripQuotes(tail) }, preempt } as any)
+        : ({ tool: 'consume', preempt } as any);
   }
 
   return { meta: 'unknown' } as any;
@@ -67,8 +105,14 @@ function split(s: string) {
   let inQ = false;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
-    if (c === '"') { inQ = !inQ; continue; }
-    if (!inQ && /\s/.test(c)) { if (cur) out.push(cur), cur = ''; continue; }
+    if (c === '"') {
+      inQ = !inQ;
+      continue;
+    }
+    if (!inQ && /\s/.test(c)) {
+      if (cur) (out.push(cur), (cur = ''));
+      continue;
+    }
     cur += c;
   }
   if (cur) out.push(cur);
@@ -77,11 +121,14 @@ function split(s: string) {
 
 function stripQuotes(s: string) {
   const t = s.trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1);
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")))
+    return t.slice(1, -1);
   return t;
 }
 
-function isNum(s: string) { return s != null && s !== '' && !Number.isNaN(Number(s)); }
+function isNum(s: string) {
+  return s != null && s !== '' && !Number.isNaN(Number(s));
+}
 
 function parseKV(tokens: string[]) {
   const kv: any = {};
@@ -92,5 +139,7 @@ function parseKV(tokens: string[]) {
   return kv;
 }
 
-function numOrStr(v: string) { const n = Number(v); return Number.isFinite(n) ? n : v; }
-
+function numOrStr(v: string) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : v;
+}

@@ -41,7 +41,7 @@ function spawnBot(botCfg, idx, onEvent) {
 
   const child = spawn(process.execPath, ['src/index.js'], {
     env,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   const prefix = `[bot:${idx}${botCfg.username ? ':' + botCfg.username : ''}]`;
@@ -50,8 +50,14 @@ function spawnBot(botCfg, idx, onEvent) {
     const s = String(buf || '');
     if (s.includes('Connection throttled')) sawThrottle = true;
   };
-  child.stdout.on('data', (d) => { mark(d); process.stdout.write(`${prefix} ${d}`); });
-  child.stderr.on('data', (d) => { mark(d); process.stderr.write(`${prefix} ${d}`); });
+  child.stdout.on('data', (d) => {
+    mark(d);
+    process.stdout.write(`${prefix} ${d}`);
+  });
+  child.stderr.on('data', (d) => {
+    mark(d);
+    process.stderr.write(`${prefix} ${d}`);
+  });
   child.on('exit', (code) => {
     console.log(`${prefix} exited with code ${code}`);
     onEvent?.({ type: 'exit', code, sawThrottle });
@@ -78,13 +84,15 @@ function main() {
     const waitMs = (() => {
       if (attempt === 0) return i * delay;
       const backoff = Math.round(baseRetryMs * Math.pow(1.6, attempt) + Math.random() * 500);
-      console.log(`[swarm] retrying bot ${i + 1} in ${backoff}ms (attempt ${attempt}/${maxRetries})`);
+      console.log(
+        `[swarm] retrying bot ${i + 1} in ${backoff}ms (attempt ${attempt}/${maxRetries})`,
+      );
       return backoff;
     })();
 
     setTimeout(() => {
       const startedAt = Date.now();
-      const child = spawnBot(b, i + 1, ({ type, code, sawThrottle }) => {
+      const child = spawnBot(b, i + 1, ({ type, code: _code, sawThrottle }) => {
         if (type !== 'exit') return;
         const lifetime = Date.now() - startedAt;
         const shouldRetry = attempt < maxRetries && (sawThrottle || lifetime < 5000);
@@ -99,7 +107,11 @@ function main() {
   const shutdown = () => {
     console.log('\n[swarm] stopping bots...');
     for (const c of children) {
-      try { c.kill('SIGINT'); } catch {}
+      try {
+        c.kill('SIGINT');
+      } catch {
+        /* child may already be gone */
+      }
     }
     setTimeout(() => process.exit(0), 250);
   };

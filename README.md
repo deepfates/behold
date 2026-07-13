@@ -6,12 +6,23 @@
 
 Status: 0.1.0‑alpha.0 — See [ROADMAP](docs/ROADMAP.md) for current status and priorities
 
+North star: make worlds agents can genuinely inhabit, and learn what becomes
+possible when they do. The current vertical slice is [First Life](docs/FIRST_LIFE.md).
+
 Build and run Minecraft agents on your own server in minutes. Behold gives you:
 
 - A tiny command API over Mineflayer (chat/look/move/dig/place/etc.).
 - One action stream shared by humans and LLMs (safe preemption, rate limits).
 - A console to see state and type small commands.
 - An optional LLM “autopilot” that uses the same commands.
+
+Play the San Francisco world on this Mac
+
+- Double-click `Behold SF.app`, or run `npm run play`.
+- The signed local app starts the isolated SF server and `ScoutLife` when necessary, becomes the already-installed native Minecraft 1.21.4 client as `importdf`, and connects it to `127.0.0.1:25565`.
+- It does not use Microsoft credentials or modify the original world. Client settings live under `.behold-runtime/native-client/game`; the playable server uses the working copy under `.behold-runtime/server`.
+- The native launch log lives at `.behold-runtime/native-launch.log`; Scout's detached runtime log lives at `.behold-runtime/companion.log`.
+- Run `npm run play -- --dry-run` to validate the installed Java, libraries, assets, and launch configuration without opening Minecraft.
 
 Quickstart
 

@@ -18,5 +18,9 @@ dist/
 # Large local generation inputs, worlds, logs, archives, and atlas renders
 .behold-artifacts/
 
+# Generated local logs and signed launcher bundles
+data/
+*.app/
+
 # OS
 .DS_Store
