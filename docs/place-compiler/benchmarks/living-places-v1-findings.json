@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "benchmarkId": "living-places-v1",
+  "benchmarkSha256": "953315aeb69a9f21258643e09d795badbd0df810047e4bef27b82a45a021c422",
+  "outcome": "qualified",
+  "canonicalRuns": {
+    "inspection": {
+      "runId": "inspection-two-place-v7",
+      "manifestSha256": "6a1b8394ad3c2da66583c3298b115aa3a5264891dcdf1b957c36b95d6d103a3a"
+    },
+    "ecology": {
+      "runId": "ecology-two-place-v2",
+      "manifestSha256": "4e3be02e4286b9a1b9972bc84b69c5f2185ae8577b734cd54904c57fb00a1859"
+    },
+    "performance": {
+      "runId": "performance-two-place-v1",
+      "manifestSha256": "c0edfa275ede60e184bbec998814d9b083b484c042cda6a11452f1e90a537c33"
+    }
+  },
+  "dimensionStatus": [
+    {
+      "placeId": "san-francisco",
+      "correspondence": "qualified",
+      "legibility": "qualified",
+      "habitability": "defect",
+      "ecology": "qualified",
+      "experience": "qualified",
+      "capacity": "accepted"
+    },
+    {
+      "placeId": "lower-manhattan",
+      "correspondence": "qualified",
+      "legibility": "qualified",
+      "habitability": "defect",
+      "ecology": "qualified",
+      "experience": "qualified",
+      "capacity": "accepted"
+    }
+  ],
+  "defects": [
+    {
+      "id": "san-francisco-golden-gate-bridge-surface-mismatch",
+      "scope": "place-specific",
+      "priority": 1,
+      "dimensions": ["correspondence", "habitability", "experience"],
+      "location": {
+        "latitude": 37.8199,
+        "longitude": -122.4783,
+        "x": 3313,
+        "z": 1567
+      },
+      "observation": "The Golden Gate Bridge checkpoint and its complete 17-by-17 local column field resolve to water at y=54 with no standable representative surface.",
+      "qualification": "This does not yet distinguish a landmark-coordinate error from a bridge-generation omission.",
+      "evidence": ["inspection:san-francisco:golden-gate-bridge"],
+      "repair": "Audit the bridge geometry and checkpoint together; change the recipe coordinate only if the generated bridge is present elsewhere.",
+      "expectedBenefit": "Restores a recognizable, standable regional anchor without city-specific logic in the compiler.",
+      "validation": "Rerun the checkpoint field and require a non-water headroom-bearing surface within the declared landmark tolerance."
+    },
+    {
+      "id": "lower-manhattan-brooklyn-bridge-surface-mismatch",
+      "scope": "place-specific",
+      "priority": 1,
+      "dimensions": ["correspondence", "habitability", "experience"],
+      "location": {
+        "latitude": 40.7069,
+        "longitude": -73.9968,
+        "x": 2039,
+        "z": 1567
+      },
+      "observation": "The Brooklyn Bridge Manhattan Approach checkpoint and its complete 17-by-17 local column field resolve to water at y=-53 with no standable representative surface.",
+      "qualification": "This does not yet distinguish a landmark-coordinate error from a bridge-generation omission.",
+      "evidence": ["inspection:lower-manhattan:brooklyn-bridge"],
+      "repair": "Audit approach geometry and checkpoint placement as a pair before editing generation policy.",
+      "expectedBenefit": "Makes the east-side bridge transition recognizable and traversable.",
+      "validation": "Rerun the checkpoint field and a route-aligned bridge approach inspection."
+    },
+    {
+      "id": "lower-manhattan-spawn-survival-pressure",
+      "scope": "place-specific",
+      "priority": 1,
+      "dimensions": ["habitability", "ecology", "experience"],
+      "location": { "x": 640.5, "y": -48, "z": 922.5 },
+      "observation": "A survival observer at the deterministic One World Trade checkpoint died and respawned 17 times during one native Minecraft day, primarily to witch magic.",
+      "qualification": "This is a bounded spawn-region result under normal difficulty, not a city-wide danger rate.",
+      "evidence": ["ecology:lower-manhattan:observerLifecycle"],
+      "repair": "Move the default survival arrival to a verified sheltered surface or publish a small safe-arrival envelope while preserving normal ecology outside it.",
+      "expectedBenefit": "Prevents immediate death loops without weakening the world-wide native ecology.",
+      "validation": "Repeat the full-day soak from the proposed arrival and require zero involuntary deaths while retaining nearby mob turnover."
+    },
+    {
+      "id": "native-spawn-hostile-dominance",
+      "scope": "cross-place-policy",
+      "priority": 2,
+      "dimensions": ["habitability", "ecology"],
+      "locations": [
+        { "placeId": "san-francisco", "x": 8495.5, "y": 158, "z": 6082.5 },
+        { "placeId": "lower-manhattan", "x": 640.38, "y": -48, "z": 922.33 }
+      ],
+      "observation": "After one native day, 70 of 78 nearby San Francisco entities and 48 of 55 nearby Manhattan entities were hostile.",
+      "qualification": "Protocol-visible entities within 128 blocks of one arrival per place; not a world-wide mob census.",
+      "evidence": [
+        "ecology:san-francisco:after.entities",
+        "ecology:lower-manhattan:after.entities"
+      ],
+      "repair": "Add an arrival-site safety audit and habitat-lighting diagnostic; do not globally disable spawning.",
+      "expectedBenefit": "Preserves real Minecraft ecology while preventing generated urban cavities from becoming accidental mob farms.",
+      "validation": "Compare hostile share, animal presence, and observer survival before and after a bounded place repair."
+    },
+    {
+      "id": "san-francisco-coarse-checkpoint-biomes",
+      "scope": "generation-policy-candidate",
+      "priority": 3,
+      "dimensions": ["ecology", "experience"],
+      "observation": "Four widely separated San Francisco checkpoints expose only two biome IDs in the sparse inspection.",
+      "qualification": "Sparse checkpoint evidence, not a full-world biome census.",
+      "evidence": ["inspection:san-francisco:checkpoints"],
+      "repair": "Run a full biome census before deciding whether geographically informed biome assignment belongs in generation.",
+      "expectedBenefit": "Could improve weather, vegetation, color, and spawning variety if the coarse result is world-wide.",
+      "validation": "Census all generated chunks and compare biome diversity against declared place expectations."
+    }
+  ],
+  "defaults": [
+    {
+      "id": "purpose-specific-runtime-profiles",
+      "scope": "reusable-policy",
+      "decision": "Keep cinematic, playable, and living as separate named runtime profiles rather than one maximum setting.",
+      "evidence": ["performance:summary", "ecology:both:assertions"],
+      "expectedBenefit": "Makes visual range, ordinary play, and native simulation independently reproducible and avoids coupling agent work to rendering choices.",
+      "validation": "Require every accepted place to pass all three profiles on the benchmark hardware class."
+    },
+    {
+      "id": "cinematic-default",
+      "scope": "reusable-policy",
+      "decision": "Use creative, peaceful, view distance 32, simulation distance 10, and mob spawning off for directed tours and atlas capture.",
+      "evidence": ["performance:san-francisco:cinematic", "performance:lower-manhattan:cinematic"],
+      "expectedBenefit": "Maximizes visible city extent and shot stability; observed median throughput was 2,156 TPS in San Francisco and 1,940.5 TPS in Manhattan.",
+      "validation": "Retain the 20 TPS floor and visual checkpoint review on each new place."
+    },
+    {
+      "id": "playable-default",
+      "scope": "reusable-policy",
+      "decision": "Use survival, normal difficulty, view distance 16, simulation distance 10, and native mobs for ordinary multiplayer.",
+      "evidence": ["performance:san-francisco:playable", "performance:lower-manhattan:playable"],
+      "expectedBenefit": "Balances human exploration range with vanilla mechanics; the slowest observed repetition retained 19.5 times real-time headroom.",
+      "validation": "Add multi-player concurrency cases before raising the max-player claim."
+    },
+    {
+      "id": "living-default",
+      "scope": "reusable-policy",
+      "decision": "Use survival, normal difficulty, view and simulation distance 12, native time/weather/random ticks/spawning, and no required custom ecology for living-world experiments.",
+      "evidence": [
+        "ecology:both",
+        "performance:san-francisco:living",
+        "performance:lower-manhattan:living"
+      ],
+      "expectedBenefit": "Keeps Minecraft authoritative and leaves Behold-style minds as optional inhabitants; median throughput remained 463.5 TPS in San Francisco and 418 TPS in Manhattan.",
+      "validation": "Repeat a full native day plus concurrency-specific entity tests for each new place."
+    },
+    {
+      "id": "checkpoint-and-arrival-preflight",
+      "scope": "reusable-policy",
+      "decision": "Before accepting a place, project declared landmarks, inspect complete local column fields, and verify a deterministic standable survival arrival.",
+      "evidence": ["inspection:both:defects", "ecology:lower-manhattan:observerLifecycle"],
+      "expectedBenefit": "Catches missing anchors and death-loop arrivals without requiring a heavyweight ontology or city-specific compiler branch.",
+      "validation": "Make coordinate-bearing checkpoint evidence and a clean bounded arrival soak part of acceptance."
+    }
+  ],
+  "nonClaims": [
+    "Direct landmark transects are diagnostic cross-sections, not street routes or pathfinding proofs.",
+    "One protocol observer does not establish capacity for hundreds or thousands of embodied or LLM-powered agents.",
+    "Accelerated tick throughput does not scale linearly with agent count, loaded regions, pathfinding, or inference load.",
+    "Sparse checkpoint biome observations are not a complete biome census.",
+    "Water at a bridge checkpoint does not by itself prove that the bridge geometry is absent.",
+    "The benchmark does not couple place artifacts to Behold characters, looms, or world lifecycles."
+  ]
+}

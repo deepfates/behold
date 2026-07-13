@@ -1,6 +1,6 @@
 ---
 id: beh-1ev8
-status: open
+status: in_progress
 deps: [beh-nfec]
 links: []
 created: 2026-07-13T22:02:30Z
@@ -17,3 +17,9 @@ Assemble schemas, commands, results, visuals, defects, and provenance into a che
 ## Acceptance
 
 The release verifies from packaged evidence, both places are represented, commands are documented, commits are clean, the full test gate passes, and the Behold boundary note confirms artifact-to-world-epoch only.
+
+## Notes
+
+**2026-07-13T23:00:55Z**
+
+Starting checksummed evidence release, independent verification, full repository gate, clean-commit audit, and artifact-to-world-epoch boundary handoff.
