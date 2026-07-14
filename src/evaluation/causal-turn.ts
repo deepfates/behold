@@ -95,7 +95,7 @@ export type DecisionTurnBinding = Readonly<{
 }>;
 
 export type WorldActionTurnBinding = Readonly<{
-  protocol: 'behold.world-action-turn-binding.v1';
+  protocol: 'behold.world-action-turn-binding.v2';
   suite: EvaluationEpisodeDefinition['suite'];
   world: Readonly<{
     id: string;
@@ -126,6 +126,8 @@ export type WorldActionTurnBinding = Readonly<{
   }>;
   worldAction: Readonly<{
     entityTurnJournalSequence: number;
+    permissionEventSequence: number;
+    authority: string;
     startedEventSequence: number;
     terminalEvent: string;
     ok: boolean;
@@ -321,6 +323,8 @@ export function assessWorldActionTurn(input: TurnAssessmentInput) {
     call,
     requestArtifact,
     turn,
+    matchingPermissionEvents,
+    permissionEvent,
     matchingStartEvents,
     startEvent,
     matchingTerminalEvents,
@@ -329,17 +333,39 @@ export function assessWorldActionTurn(input: TurnAssessmentInput) {
   const assertions = {
     ...decisionAssessment.assertions,
     worldActionProposed: turn?.action?.kind !== 'yield',
+    worldPermissionDecision:
+      turn?.action?.kind !== 'yield' &&
+      matchingPermissionEvents.length === 1 &&
+      permissionEvent?.source === 'event' &&
+      permissionEvent?.isNew === true &&
+      Number.isSafeInteger(permissionEvent?.sequence) &&
+      Number.isFinite(Number(permissionEvent?.at)) &&
+      permissionEvent?.data?.authorization?.ok === true &&
+      typeof permissionEvent?.data?.authorization?.authority === 'string',
     worldActionStarted:
       turn?.action?.kind !== 'yield' &&
+      matchingPermissionEvents.length === 1 &&
       matchingStartEvents.length === 1 &&
       startEvent?.source === 'event' &&
-      startEvent?.isNew === true,
+      startEvent?.isNew === true &&
+      Number.isSafeInteger(startEvent?.sequence) &&
+      Number.isFinite(Number(startEvent?.at)) &&
+      Number(permissionEvent?.sequence) < Number(startEvent?.sequence) &&
+      Number(permissionEvent?.at) <= Number(startEvent?.at) &&
+      stableJson(startEvent?.data?.authorization) ===
+        stableJson(permissionEvent?.data?.authorization),
     terminalWorldResult:
       decisionAssessment.assertions.recordedDecision &&
       turn?.action?.kind !== 'yield' &&
       matchingStartEvents.length === 1 &&
       ['action_completed', 'action_failed'].includes(String(turn?.outcome?.eventType)) &&
-      matchingTerminalEvents.length === 1,
+      matchingTerminalEvents.length === 1 &&
+      Number.isSafeInteger(terminalEvent?.sequence) &&
+      Number.isFinite(Number(terminalEvent?.at)) &&
+      Number(startEvent?.sequence) < Number(terminalEvent?.sequence) &&
+      Number(startEvent?.at) <= Number(terminalEvent?.at) &&
+      stableJson(terminalEvent?.data?.authorization) ===
+        stableJson(permissionEvent?.data?.authorization),
     freshTerminalReobservation:
       turn?.action?.kind !== 'yield' &&
       matchingStartEvents.length === 1 &&
@@ -357,33 +383,35 @@ export function assessWorldActionTurn(input: TurnAssessmentInput) {
   };
   const decisionPassed = decisionAssessment.failed.length === 0;
   const worldActionExercised =
-    decisionPassed && assertions.worldActionProposed && assertions.worldActionStarted;
+    decisionPassed && assertions.worldActionProposed && matchingStartEvents.length > 0;
   const status = !decisionPassed
     ? 'failed'
     : !worldActionExercised
       ? 'not_exercised'
-      : assertions.terminalWorldResult && assertions.freshTerminalReobservation
+      : assertions.worldPermissionDecision &&
+          assertions.worldActionStarted &&
+          assertions.terminalWorldResult &&
+          assertions.freshTerminalReobservation
         ? 'passed'
         : 'failed';
   const failed =
     status === 'not_exercised'
       ? []
-      : failedAssertions(assertions).filter(
-          (name) => name !== 'worldActionProposed' && name !== 'worldActionStarted',
-        );
+      : failedAssertions(assertions).filter((name) => name !== 'worldActionProposed');
   const notExercised =
     status === 'not_exercised'
       ? [
           ...(assertions.worldActionProposed ? [] : ['worldActionProposed']),
+          ...(assertions.worldPermissionDecision ? [] : ['worldPermissionDecision']),
           ...(assertions.worldActionStarted ? [] : ['worldActionStarted']),
           'terminalWorldResult',
           'freshTerminalReobservation',
         ]
       : [];
   const binding =
-    status === 'passed' && requestArtifact && call && startEvent && terminalEvent
+    status === 'passed' && requestArtifact && call && permissionEvent && startEvent && terminalEvent
       ? deepFreeze({
-          protocol: 'behold.world-action-turn-binding.v1' as const,
+          protocol: 'behold.world-action-turn-binding.v2' as const,
           suite: structuredClone(input.episode.definition.suite),
           world: {
             id: expected.worldId,
@@ -414,6 +442,8 @@ export function assessWorldActionTurn(input: TurnAssessmentInput) {
           },
           worldAction: {
             entityTurnJournalSequence: input.entityTurn.sequence,
+            permissionEventSequence: Number(permissionEvent.sequence),
+            authority: String(permissionEvent.data.authorization.authority),
             startedEventSequence: Number(startEvent.sequence),
             terminalEvent: turn.outcome.eventType,
             ok: turn.outcome.ok,
@@ -456,6 +486,11 @@ function deriveContext(input: TurnAssessmentInput) {
     (event: any) =>
       event?.type === 'action_started' && event?.data?.intent?.id === turn?.action?.id,
   );
+  const matchingPermissionEvents = (turn?.nextObservation?.events ?? []).filter(
+    (event: any) =>
+      event?.type === 'permission_decision' && event?.data?.intent?.id === turn?.action?.id,
+  );
+  const permissionEvent = matchingPermissionEvents[0] ?? null;
   const startEvent = matchingStartEvents[0] ?? null;
   const terminalEvent = matchingTerminalEvents[0] ?? null;
   const configured = input.lifecycle.events.find((event) => event.type === 'run_configured');
@@ -468,6 +503,8 @@ function deriveContext(input: TurnAssessmentInput) {
     request,
     intent,
     turn,
+    matchingPermissionEvents,
+    permissionEvent,
     matchingStartEvents,
     startEvent,
     matchingTerminalEvents,

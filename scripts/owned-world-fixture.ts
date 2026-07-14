@@ -78,7 +78,8 @@ export async function prepareOwnedWorld(
   const controlRoot = path.join(root, 'control');
   const evidenceRoot = path.join(root, 'evidence');
   for (const directory of [serverDirectory, archiveRoot, entityRoot, controlRoot, evidenceRoot]) {
-    fs.mkdirSync(directory, { recursive: true });
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.chmodSync(directory, 0o700);
   }
 
   const toolLock = JSON.parse(fs.readFileSync('docs/sf-world/tool-lock.json', 'utf8'));
@@ -205,7 +206,8 @@ export async function prepareAdmittedPlaceWorld(
   const controlRoot = path.join(root, 'control');
   const evidenceRoot = path.join(root, 'evidence');
   for (const directory of [entityRoot, controlRoot, evidenceRoot]) {
-    fs.mkdirSync(directory, { recursive: true });
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.chmodSync(directory, 0o700);
   }
 
   const toolLock = JSON.parse(fs.readFileSync('docs/sf-world/tool-lock.json', 'utf8'));

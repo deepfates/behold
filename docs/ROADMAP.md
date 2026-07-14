@@ -62,6 +62,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   world edge as not exercised; material-world effects still require native or
   fresh-body evidence. See
   `docs/reports/2026-07-14-neutral-turn-boundaries.md`
+- Passed world actions can now be projected into a structurally checked action
+  graph. Observation, proposal, authentic permission, execution, optional
+  world fact, and outside judgment have separate content IDs and relations
+  while Minecraft payloads remain world-owned. See `docs/ACTION_RECORD.md`
 - Managed multi-resident epochs with conjunctive readiness, exact per-entity
   leases, isolated journals/Lync lives, bounded process/model concurrency, and
   all-resident drain before one Minecraft save/stop

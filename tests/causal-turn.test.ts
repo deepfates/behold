@@ -5,6 +5,13 @@ import {
   assessUncoachedDecisionTurn,
   assessWorldActionTurn,
 } from '../src/evaluation/causal-turn';
+import { createWorldActionRecord } from '../src/evaluation/behold-action-record';
+import {
+  actionRecordSha256,
+  assessActionRecordBundle,
+  completeActionRecord,
+  createActionRecordEnvelope,
+} from '../src/evaluation/action-record';
 import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
 
 test('a world-action turn binds one exact mind input through terminal delivery and Lync life', () => {
@@ -16,8 +23,160 @@ test('a world-action turn binds one exact mind input through terminal delivery a
   assert.equal(assessment.binding?.mind.program?.runtime.name, 'ax');
   assert.equal(assessment.binding?.decision.actionName, 'move_direction');
   assert.equal(assessment.status, 'passed');
+  assert.equal(assessment.binding?.worldAction.authority, 'fixture-world');
+  assert.equal(assessment.binding?.worldAction.permissionEventSequence, 8);
   assert.equal(assessment.binding?.worldAction.terminalEvent, 'action_completed');
   assert.equal(assessment.binding?.entity.life.end.turnId, 'life-turn-1');
+});
+
+test('a passed world action becomes distinct, structurally checkable action records', () => {
+  const assessment = createWorldActionRecord(fixture() as any, recordEvidence());
+  assert.equal(assessment.status, 'passed');
+  assert.ok(assessment.binding);
+  assert.ok(assessment.bundle);
+  assert.deepEqual(
+    assessment.bundle?.records.map((record) => record.stage),
+    ['observation', 'proposal', 'decision', 'execution', 'execution', 'observation', 'check'],
+  );
+  assert.equal(assessment.bundle?.records[1].payload.why, null);
+  assert.deepEqual(assessment.bundle?.records[3].author, {
+    kind: 'runtime-engine',
+    id: 'behold.action-engine',
+  });
+  assert.deepEqual(assessment.bundle?.records[4].author, {
+    kind: 'runtime-engine',
+    id: 'behold.action-engine',
+  });
+  assert.ok(assessment.bundle?.records[6].payload.scope.notAssessed.includes('material-effect'));
+});
+
+test('the common action-record verifier rejects reversed time and content drift', () => {
+  const original = createWorldActionRecord(fixture() as any, recordEvidence()).bundle!;
+
+  const reversed = structuredClone(original) as any;
+  reversed.records[1].at = new Date(100).toISOString();
+  reversed.recordsSha256 = actionRecordSha256(reversed.records);
+  const assessment = assessActionRecordBundle(reversed);
+  assert.ok(assessment.core.failed.includes('contentAddressedIds'));
+  assert.ok(assessment.core.failed.includes('causalOrder'));
+});
+
+test('the common action-record verifier rejects duplicate proposals and self-certified checks', () => {
+  const original = createWorldActionRecord(fixture() as any, recordEvidence()).bundle!;
+
+  const duplicate = structuredClone(original) as any;
+  duplicate.records.splice(2, 0, structuredClone(duplicate.records[1]));
+  duplicate.recordsSha256 = actionRecordSha256(duplicate.records);
+  const duplicateAssessment = assessActionRecordBundle(duplicate);
+  assert.ok(duplicateAssessment.core.failed.includes('uniqueIds'));
+
+  const selfCertified = structuredClone(original) as any;
+  selfCertified.records[6].payload.materialSimulationEffect = 'passed';
+  selfCertified.recordsSha256 = actionRecordSha256(selfCertified.records);
+  assert.ok(assessActionRecordBundle(selfCertified).failed.includes('exactCheckPayload'));
+
+  const lyingCheck = structuredClone(original) as any;
+  lyingCheck.records[6].payload.structuralVerdict = 'failed';
+  lyingCheck.recordsSha256 = actionRecordSha256(lyingCheck.records);
+  assert.ok(assessActionRecordBundle(lyingCheck).failed.includes('checkMatchesGraph'));
+});
+
+test('the common graph permits an honest denied proposal with no execution or world fact', () => {
+  const access = {
+    visibility: 'private' as const,
+    audience: ['inhabitant:Scout'],
+    projection: 'fixture-private-reference',
+  };
+  const shared = {
+    worldId: 'other-world',
+    runId: 'other-run',
+    responsible: null,
+    access,
+  };
+  const observation = createActionRecordEnvelope({
+    ...shared,
+    stage: 'observation',
+    at: new Date(10).toISOString(),
+    author: { kind: 'observer', id: 'other-observer' },
+    via: { name: 'other-world', version: '1' },
+    causes: [],
+    localOrder: { domain: 'other.cursor', value: 1 },
+    control: null,
+    payload: {
+      bodyId: 'Scout',
+      sources: [{ name: 'body-view', kind: 'bounded' }],
+      limits: [{ code: 'private', detail: 'Visible only to Scout.' }],
+      asOf: { domain: 'other.cursor', cursor: 1 },
+      dataRef: 'fixture://private-observation',
+      dataSha256: 'a'.repeat(64),
+    },
+  });
+  const proposal = createActionRecordEnvelope({
+    ...shared,
+    stage: 'proposal',
+    at: new Date(11).toISOString(),
+    author: { kind: 'controller', id: 'controller-1' },
+    via: { name: 'script', version: '1' },
+    causes: [observation.id],
+    localOrder: null,
+    control: { controllerInstanceId: 'controller-1', bodyId: 'Scout', leaseEpoch: 1 },
+    payload: {
+      bodyId: 'Scout',
+      basisObservation: observation.id,
+      action: 'open_door',
+      argumentsSha256: 'b'.repeat(64),
+      why: 'The door appears closed.',
+    },
+  });
+  const decision = createActionRecordEnvelope({
+    ...shared,
+    stage: 'decision',
+    at: new Date(12).toISOString(),
+    author: { kind: 'authority', id: 'door-law' },
+    via: { name: 'other-world', version: '1' },
+    causes: [proposal.id],
+    localOrder: { domain: 'other.cursor', value: 2 },
+    control: proposal.control,
+    payload: {
+      proposal: proposal.id,
+      status: 'denied',
+      reasons: ['The body does not hold the key.'],
+      authority: {
+        name: 'door-law',
+        evidence: {
+          domain: 'other.event',
+          cursor: 2,
+          type: 'permission_denied',
+          digest: 'c'.repeat(64),
+          worldId: 'other-world',
+          runId: 'other-run',
+        },
+      },
+    },
+  });
+  const bundle = completeActionRecord([observation, proposal, decision], {
+    checker: { name: 'graph-checker', version: '1', revision: 'fixture' },
+    at: new Date(13).toISOString(),
+    access,
+    evidence: [
+      {
+        kind: 'fixture',
+        ref: 'fixture://denied-trace',
+        sha256: 'd'.repeat(64),
+        access,
+      },
+    ],
+  });
+  const assessment = assessActionRecordBundle(bundle);
+  assert.equal(assessment.status, 'passed');
+  assert.equal(
+    bundle.records.some((record) => record.stage === 'execution'),
+    false,
+  );
+  assert.equal(
+    bundle.records.some((record) => record.stage === 'world_fact'),
+    false,
+  );
 });
 
 test('world-action assessment locates configuration drift, request drift, copied life, and missing delivery', () => {
@@ -147,13 +306,29 @@ test('a pre-world block records the decision without claiming the world edge was
 
 test('a started world action fails verification when terminal delivery is not fresh', () => {
   const stale = fixture();
-  stale.entityTurn.data.nextObservation.events[1].isNew = false;
+  stale.entityTurn.data.nextObservation.events[2].isNew = false;
   stale.lifeTurn = structuredClone(stale.entityTurn.data);
 
   const assessment = assessWorldActionTurn(stale as any);
   assert.equal(assessment.status, 'failed');
   assert.ok(assessment.failed.includes('freshTerminalReobservation'));
   assert.equal(assessment.binding, null);
+});
+
+test('a started world action cannot invent or drift its permission decision', () => {
+  const missing = fixture();
+  missing.entityTurn.data.nextObservation.events.splice(0, 1);
+  missing.lifeTurn = structuredClone(missing.entityTurn.data);
+  const missingAssessment = assessWorldActionTurn(missing as any);
+  assert.equal(missingAssessment.status, 'failed');
+  assert.ok(missingAssessment.failed.includes('worldPermissionDecision'));
+
+  const drifted = fixture();
+  drifted.entityTurn.data.nextObservation.events[1].data.authorization.authority = 'other-world';
+  drifted.lifeTurn = structuredClone(drifted.entityTurn.data);
+  const driftedAssessment = assessWorldActionTurn(drifted as any);
+  assert.equal(driftedAssessment.status, 'failed');
+  assert.ok(driftedAssessment.failed.includes('worldActionStarted'));
 });
 
 function fixture() {
@@ -170,6 +345,14 @@ function fixture() {
     observation: {
       protocol: 'behold.inhabitant.v2',
       sequence: 5,
+      observedAt: 5,
+      eventWindow: {
+        requestedAfterSequence: 0,
+        oldestAvailableSequence: 1,
+        newestAvailableSequence: 5,
+        missingBeforeOldest: 0,
+        complete: true,
+      },
       circle: { id: worldId, managedRunId },
       self: { identity: entityId, position: { x: 0, y: 64, z: 0 } },
       events: [],
@@ -204,10 +387,12 @@ function fixture() {
     source: 'llm',
     tool: 'move_direction',
     input: { direction: 'forward', distance: 2 },
+    decidedAt: 12,
   };
   const nextObservation = {
     protocol: 'behold.inhabitant.v2',
     sequence: 10,
+    observedAt: 21,
     eventWindow: {
       requestedAfterSequence: 5,
       oldestAvailableSequence: 1,
@@ -228,18 +413,32 @@ function fixture() {
     },
     events: [
       {
+        sequence: 8,
+        at: 13,
+        type: 'permission_decision',
+        source: 'event',
+        isNew: true,
+        data: { intent, authorization: { ok: true, authority: 'fixture-world' } },
+      },
+      {
         sequence: 9,
+        at: 14,
         type: 'action_started',
         source: 'event',
         isNew: true,
-        data: { intent },
+        data: { intent, authorization: { ok: true, authority: 'fixture-world' } },
       },
       {
         sequence: 10,
+        at: 20,
         type: 'action_completed',
         source: 'event',
         isNew: true,
-        data: { intent, result: { ok: true, distance: 2 } },
+        data: {
+          intent,
+          authorization: { ok: true, authority: 'fixture-world' },
+          result: { ok: true, distance: 2 },
+        },
       },
     ],
   };
@@ -409,5 +608,18 @@ function fixture() {
     lifecycle,
     runJournalSha256: '3'.repeat(64),
     worldLifecycleSha256: '4'.repeat(64),
+  };
+}
+
+function recordEvidence() {
+  return {
+    assessedAt: new Date(30).toISOString(),
+    checkerRevision: 'fixture-revision',
+    refs: {
+      runJournal: 'fixture://run-journal',
+      worldLifecycle: 'fixture://world-lifecycle',
+      mindRequest: 'fixture://mind-request',
+      lifeTurn: 'lync://life-1/turn/life-turn-1',
+    },
   };
 }

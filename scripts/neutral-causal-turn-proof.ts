@@ -7,12 +7,14 @@ import {
   assessUncoachedDecisionTurn,
   assessWorldActionTurn,
 } from '../src/evaluation/causal-turn';
+import { createWorldActionRecord } from '../src/evaluation/behold-action-record';
 import { createEvaluationEpisode } from '../src/evaluation/episode';
 import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 import { parseRunJournal } from './owned-world-model-evidence';
 import {
   assertCleanRepository,
+  durableWriteJson,
   gitRevision,
   prepareOwnedWorld,
   restoreEnvironment,
@@ -26,7 +28,14 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!process.env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY is required');
   assertCleanRepository();
-  const fixture = await prepareOwnedWorld(args.runId, args.port, 'neutral-turn');
+  const priorUmask = process.umask(0o077);
+  let fixture: Awaited<ReturnType<typeof prepareOwnedWorld>>;
+  try {
+    fixture = await prepareOwnedWorld(args.runId, args.port, 'neutral-turn');
+  } catch (error) {
+    process.umask(priorUmask);
+    throw error;
+  }
   const runRoot = path.join(fixture.evidenceRoot, 'runs');
   const priorRecordModelIo = process.env.BEHOLD_RECORD_MODEL_IO;
   process.env.BEHOLD_RECORD_MODEL_IO = '1';
@@ -117,7 +126,7 @@ async function main() {
         protocol: 'behold.evaluation-episode.v1',
         suite: {
           id: args.claim === 'decision' ? 'neutral-decision-turn' : 'neutral-world-action-turn',
-          version: '3',
+          version: '4',
           caseId: args.claim === 'decision' ? 'first-free-decision' : 'first-free-world-action',
           specificationSha256,
         },
@@ -158,36 +167,38 @@ async function main() {
       selected.modelTurn.data.call.request.mindRequest,
     );
     const requestFile = path.join(fixture.evidenceRoot, 'mind-request.json');
-    fs.writeFileSync(requestFile, `${JSON.stringify(requestArtifact, null, 2)}\n`, {
-      encoding: 'utf8',
-      mode: 0o600,
+    const generatedAt = new Date().toISOString();
+    const repositoryRevision = gitRevision();
+    const actionRecordAssessment = createWorldActionRecord(assessmentInput, {
+      assessedAt: generatedAt,
+      checkerRevision: repositoryRevision,
+      refs: {
+        runJournal: journalFile,
+        worldLifecycle: run.control.journalFile,
+        mindRequest: requestFile,
+        lifeTurn: `lync://${life.life.loomId}/turn/${life.end.turnId}`,
+      },
     });
+    durableWriteJson(requestFile, requestArtifact);
     const resultFile = path.join(fixture.evidenceRoot, 'turn-result.json');
-    fs.writeFileSync(
-      resultFile,
-      `${JSON.stringify(
-        {
-          protocol: 'behold.neutral-turn-proof.v3',
-          generatedAt: new Date().toISOString(),
-          repository: { revision: gitRevision() },
-          claim: args.claim,
-          suite: { specificationSha256 },
-          decisionAssessment,
-          uncoachedDecisionAssessment,
-          worldActionAssessment,
-          evidence: {
-            root: fixture.root,
-            journalFile,
-            lifecycleFile: run.control.journalFile,
-            episodeFile: episode.file,
-            requestFile,
-          },
-        },
-        null,
-        2,
-      )}\n`,
-      'utf8',
-    );
+    durableWriteJson(resultFile, {
+      protocol: 'behold.neutral-turn-proof.v4',
+      generatedAt,
+      repository: { revision: repositoryRevision },
+      claim: args.claim,
+      suite: { specificationSha256 },
+      decisionAssessment,
+      uncoachedDecisionAssessment,
+      worldActionAssessment,
+      actionRecordAssessment,
+      evidence: {
+        root: fixture.root,
+        journalFile,
+        lifecycleFile: run.control.journalFile,
+        episodeFile: episode.file,
+        requestFile,
+      },
+    });
     process.stdout.write(
       `${JSON.stringify(
         {
@@ -196,6 +207,7 @@ async function main() {
           failed: selectedAssessment.failed,
           decisionBinding: uncoachedDecisionAssessment.binding,
           worldActionBinding: worldActionAssessment.binding,
+          actionRecordBinding: actionRecordAssessment.binding,
           evidence: resultFile,
         },
         null,
@@ -210,12 +222,21 @@ async function main() {
         ].join(', ')}`,
       );
     }
+    if (args.claim === 'world-action' && actionRecordAssessment.status !== 'passed') {
+      throw new Error(
+        `neutral world-action record ${actionRecordAssessment.status}: ${[
+          ...actionRecordAssessment.failed,
+          ...actionRecordAssessment.notExercised,
+        ].join(', ')}`,
+      );
+    }
   } catch (error) {
     if (run) await run.stop(`neutral_${args.claim}_turn_failed`).catch(() => {});
     throw error;
   } finally {
     episode?.close();
     restoreEnvironment('BEHOLD_RECORD_MODEL_IO', priorRecordModelIo);
+    process.umask(priorUmask);
   }
 }
 
@@ -237,7 +258,7 @@ function parseArgs(argv: string[]) {
   let runId = '';
   let port = 25_641;
   let entityId = 'CausalWren';
-  let model = 'openai/gpt-5.4-mini';
+  let model = 'google/gemini-3.5-flash';
   let mind: 'direct' | 'ax' = 'ax';
   let claim: 'decision' | 'world-action' = 'world-action';
   let timeoutMs = 120_000;
@@ -275,7 +296,7 @@ function parseArgs(argv: string[]) {
 
 function suiteSpecification(claim: 'decision' | 'world-action') {
   return [
-    'neutral-turn-v3',
+    'neutral-turn-v4',
     `Claim: ${claim}`,
     'Start one disposable authoritative Minecraft epoch from a verified baseline.',
     'Admit one untasked resident with neutral-benchmark-v1, minecraft-player-v1, and vanilla-player-v1.',
@@ -284,6 +305,7 @@ function suiteSpecification(claim: 'decision' | 'world-action') {
       : 'Wait for the first freely selected world action without turning action into a prompt requirement.',
     'Close the life, authenticate the exact Lync turn, and create a separate evaluator episode reference.',
     'Report decision-boundary and world-action verdicts separately.',
+    'Project a passed world action into distinct observation, proposal, authentic permission, execution, and structural-check records without fabricating a world fact.',
   ].join('\n');
 }
 

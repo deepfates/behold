@@ -15,11 +15,22 @@ export function createRunJournal(
   agentName: string,
   directory = process.env.BEHOLD_RUN_DIR || path.resolve(process.cwd(), '.behold-runs'),
 ): Journal {
-  fs.mkdirSync(directory, { recursive: true });
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(directory, 0o700);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const safeName = sanitizeName(agentName);
   const id = `${stamp}-${safeName}`;
   const file = path.join(directory, `${id}.jsonl`);
+  const createDescriptor = fs.openSync(
+    file,
+    fs.constants.O_CREAT |
+      fs.constants.O_EXCL |
+      fs.constants.O_APPEND |
+      fs.constants.O_WRONLY |
+      fs.constants.O_NOFOLLOW,
+    0o600,
+  );
+  fs.closeSync(createDescriptor);
   let sequence = 0;
 
   function append(type: string, data: unknown = {}, source: JournalSource = {}) {
@@ -31,7 +42,16 @@ export function createRunJournal(
       type,
       data,
     };
-    fs.appendFileSync(file, `${JSON.stringify(event)}\n`, 'utf8');
+    const descriptor = fs.openSync(
+      file,
+      fs.constants.O_APPEND | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW,
+    );
+    try {
+      fs.writeFileSync(descriptor, `${JSON.stringify(event)}\n`, 'utf8');
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
   }
 
   return { id, file, append };
