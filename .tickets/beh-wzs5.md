@@ -1,6 +1,6 @@
 ---
 id: beh-wzs5
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-07-13T23:48:30Z
@@ -21,3 +21,9 @@ Place owns recipes, immutable artifacts, runtime profiles, geographic/presentati
 ## Acceptance Criteria
 
 SF and Manhattan measurably improve without weakening v1; a third place is accepted without compiler-specific code; route/sightline/tour, survival, accelerated-time, active-region, controlled entity/population, and resource evidence are honest and packaged; packaged place launches through a Behold-owned epoch adapter; superseded duplication/cruft is removed or versioned; deterministic release, full gates, closed children, clean worktrees.
+
+## Notes
+
+**2026-07-14T12:12:00Z**
+
+Completed across commits `50daea7` through `81895e2`. San Francisco, lower Manhattan, and Venice share one place-data-driven compiler and evidence contract. Venice crosses the package-plus-profile boundary into two verified Behold-owned epochs without making Place depend on identities or minds. The canonical release and independent rebuild are byte-identical, all 228 gates pass, and remaining geometry, ecology, rendering, and population limits are explicit rather than presented as green claims.
