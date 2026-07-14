@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "berkeley-living-city-v1",
+  "query": "Berkeley, California, United States",
+  "purpose": "Create a recognizable, traversable living Berkeley that a human can enter and inhabitants can share.",
+  "creativeDirection": "Reveal the relationship among the city grid, university, hills, civic life, and the Bay rather than producing an anonymous street extract.",
+  "requiredQualities": [
+    "recognizable civic and university anchors",
+    "safe grounded arrival",
+    "meaningful pedestrian traversal",
+    "terrain-scale reveal",
+    "native Minecraft ecology",
+    "optional Behold inhabitant attachment"
+  ],
+  "budget": {
+    "targetAreaKm2": 16,
+    "maximumAreaKm2": 20,
+    "maximumSideBlocks": 5200,
+    "scaleBlocksPerMeter": 1,
+    "maximumGenerationMinutes": 120,
+    "maximumDiskGiB": 20
+  }
+}

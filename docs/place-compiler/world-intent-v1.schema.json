@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/deepfates/behold/docs/place-compiler/world-intent-v1.schema.json",
+  "title": "Earth-to-Living-World Intent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "query",
+    "purpose",
+    "creativeDirection",
+    "requiredQualities",
+    "budget"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "query": { "type": "string", "minLength": 3 },
+    "purpose": { "type": "string", "minLength": 10 },
+    "creativeDirection": { "type": "string", "minLength": 10 },
+    "requiredQualities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetAreaKm2",
+        "maximumAreaKm2",
+        "maximumSideBlocks",
+        "scaleBlocksPerMeter",
+        "maximumGenerationMinutes",
+        "maximumDiskGiB"
+      ],
+      "properties": {
+        "targetAreaKm2": { "type": "number", "exclusiveMinimum": 0 },
+        "maximumAreaKm2": { "type": "number", "exclusiveMinimum": 0 },
+        "maximumSideBlocks": { "type": "integer", "minimum": 256 },
+        "scaleBlocksPerMeter": { "type": "number", "exclusiveMinimum": 0 },
+        "maximumGenerationMinutes": { "type": "integer", "minimum": 1 },
+        "maximumDiskGiB": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    }
+  }
+}

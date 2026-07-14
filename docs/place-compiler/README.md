@@ -4,6 +4,45 @@ The Place Compiler turns a small, reviewable geographic recipe into a recorded M
 
 The interface is place-data driven: add recipe and experience contracts, then run the same generator, inspection, visit, ecology, and performance tools. San Francisco is an example and regression fixture, not a code path.
 
+## Earth-to-living-world bootstrap
+
+The autonomous front door begins from world intent rather than a hand-authored place recipe:
+
+```bash
+npm run place:resolve -- \
+  --intent docs/place-compiler/intents/berkeley-living-city-v1.json \
+  --output .behold-artifacts/place-foundry/berkeley-living-city-v1-resolution-v1
+npm run place:bootstrap -- \
+  --root .behold-artifacts/place-foundry/berkeley-living-city-v1-resolution-v1 \
+  --attempt bootstrap-v1
+```
+
+Resolution freezes the provider response, derives budgeted physical bounds, records attribution and
+cost, and creates a content-addressed `PlaceSeed`. Bootstrap freezes one exact OSM slice, profiles
+its coverage, derives landmark and open-arrival candidates, and proposes a valid place recipe. It
+may reuse that frozen source for later policy revisions without another network request.
+
+Every compilation owns a Lync loom. Lync is authoritative for the append-only history of intent,
+observations, semantic proposals, judgments, and revisions; a small manifest selects the active
+tip without deleting alternative branches. Minecraft saves and Behold inhabitant looms remain
+separate authority domains.
+
+Semantic interpretation is optional and proposal-only:
+
+```bash
+node --env-file=.env scripts/place-compiler/semantic-place.mjs \
+  --root .behold-artifacts/place-foundry/berkeley-living-city-v1-resolution-v1 \
+  --attempt bootstrap-v2
+npm run place:review-interpretation -- \
+  --root .behold-artifacts/place-foundry/berkeley-living-city-v1-resolution-v1 \
+  --attempt bootstrap-v2
+```
+
+Ax receives only bounded, frozen candidates and must return exact supplied IDs. Its model, typed
+signature, input, output, usage, and cost are recorded. A separate deterministic representation
+gate may reject a fluent but narrow proposal; even an accepted semantic representation remains
+physically unverified until generation and embodied Minecraft inspection.
+
 ## Generate
 
 Preview either command without writing an artifact:

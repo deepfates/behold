@@ -20,6 +20,10 @@
     "play": "ts-node --transpile-only scripts/play.ts",
     "world": "npm run build && node dist/scripts/world-runner.js",
     "place:epoch": "npm run build && node dist/scripts/place-epoch.js",
+    "place:resolve": "node scripts/place-compiler/resolve-place.mjs",
+    "place:bootstrap": "node scripts/place-compiler/bootstrap-place.mjs",
+    "place:interpret": "node scripts/place-compiler/semantic-place.mjs",
+    "place:review-interpretation": "node scripts/place-compiler/review-semantic-place.mjs",
     "proof:owned-world": "npm run build && node dist/scripts/owned-world-proof.js",
     "proof:verify-owned-world": "npm run build && node dist/scripts/verify-owned-world-proof.js",
     "place:visit": "node scripts/place-compiler/visit.mjs",
@@ -38,6 +42,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@ax-llm/ax": "23.0.0",
     "@deepfates/lync": "^0.3.0",
     "canvas": "^2.11.2",
     "dotenv": "^16.4.5",
