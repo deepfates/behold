@@ -8,6 +8,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   digestTree,
+  loadWorldLabConfig,
   SESSION_LOCK,
   TREE_DIGEST_PROFILE,
   type WorldLabDefinition,
@@ -17,13 +18,16 @@ import {
   isMinecraftSaveAcknowledgement,
   startManagedWorld,
 } from './world-runner';
+import { verifyAdmittedPlaceEpoch } from './place-epoch';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 
 const PROTOCOL = 'behold.owned-world-proof.v1' as const;
 const WORLD_ID = 'behold-owned-flat-v1';
 const ENTITY_ID = 'ProofResident';
 const LEVEL_SEED = '424242';
-const TARGET = Object.freeze({ x: 3, y: -60, z: 0, item: 'apple', count: 1 });
+type ProofTarget = Readonly<{ x: number; y: number; z: number; item: 'apple'; count: 1 }>;
+const TARGET: ProofTarget = Object.freeze({ x: 3, y: -60, z: 0, item: 'apple', count: 1 });
+const SPAWN = Object.freeze({ x: 0, y: -60, z: 0 });
 
 async function main() {
   const parsed = parseArgs({
@@ -31,12 +35,16 @@ async function main() {
     options: {
       run: { type: 'string' },
       port: { type: 'string' },
+      'place-epoch': { type: 'string' },
+      arrival: { type: 'string' },
       help: { type: 'boolean', default: false },
     },
   });
   if (parsed.values.help) {
     process.stdout.write(
-      'Usage: owned-world-proof [--run <safe-id>] [--port <unused-loopback-port>]\n',
+      'Usage:\n' +
+        '  owned-world-proof [--run <safe-id>] [--port <unused-loopback-port>]\n' +
+        '  owned-world-proof --place-epoch <admitted-dir> --arrival <x,y,z> [--run <safe-id>]\n',
     );
     return;
   }
@@ -44,25 +52,46 @@ async function main() {
   const runId = safeSegment(
     String(parsed.values.run || `run-${new Date().toISOString().replace(/[:.]/g, '-')}`),
   );
-  const port = Number(parsed.values.port || 25575);
+  const admittedRoot = parsed.values['place-epoch']
+    ? path.resolve(String(parsed.values['place-epoch']))
+    : null;
+  const admitted = admittedRoot ? verifyAdmittedPlaceEpoch(admittedRoot) : null;
+  const admittedConfig = admitted
+    ? loadWorldLabConfig(path.join(admittedRoot!, 'world-definition.json'))
+    : null;
+  const admittedWorld = admittedConfig?.worlds[admitted?.worldId ?? ''] ?? null;
+  if (admitted && !admittedWorld) throw new Error('admitted Place epoch has no world definition');
+  const configuredPort = admittedWorld?.server.port ?? 25575;
+  const port = Number(parsed.values.port || configuredPort);
+  if (admittedWorld && port !== configuredPort) {
+    throw new Error(`admitted Place epoch requires port ${configuredPort}`);
+  }
   if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
     throw new Error(`invalid proof port: ${parsed.values.port}`);
   }
   await assertPortAvailable(port);
 
   const repository = process.cwd();
-  const root = path.resolve('.behold-runtime', 'owned-world-proofs', runId);
+  const root = path.resolve(
+    '.behold-runtime',
+    admitted ? 'place-epoch-proofs' : 'owned-world-proofs',
+    runId,
+  );
   if (fs.existsSync(root)) throw new Error(`proof run already exists: ${root}`);
-  const serverDirectory = path.join(root, 'server');
-  const runtime = path.join(serverDirectory, 'world');
-  const source = path.join(root, 'source');
-  const baseline = path.join(root, 'baseline');
-  const archiveRoot = path.join(root, 'archive');
+  const serverDirectory = admitted ? admitted.paths.serverDirectory : path.join(root, 'server');
+  const runtime = admitted ? admitted.paths.runtime : path.join(serverDirectory, 'world');
+  const source = admitted ? admitted.paths.source : path.join(root, 'source');
+  const baseline = admitted ? admitted.paths.baseline : path.join(root, 'baseline');
+  const archiveRoot = admitted ? admitted.paths.archiveRoot : path.join(root, 'archive');
   const entityRoot = path.join(root, 'entities');
   const controlRoot = path.join(root, 'control');
   const evidenceRoot = path.join(root, 'evidence');
-  for (const directory of [serverDirectory, archiveRoot, entityRoot, controlRoot, evidenceRoot]) {
+  for (const directory of [entityRoot, controlRoot, evidenceRoot]) {
     fs.mkdirSync(directory, { recursive: true });
+  }
+  if (!admitted) {
+    fs.mkdirSync(serverDirectory, { recursive: true });
+    fs.mkdirSync(archiveRoot, { recursive: true });
   }
 
   const toolLock = JSON.parse(fs.readFileSync('docs/sf-world/tool-lock.json', 'utf8'));
@@ -73,51 +102,89 @@ async function main() {
     throw new Error(`pinned server jar digest mismatch: ${actualServerJarSha256}`);
   }
   const java = bundledJava();
-  writeServerConfiguration(serverDirectory, port);
-
   const startedAt = new Date().toISOString();
-  process.stdout.write(`[owned-world] generating deterministic flat world in ${root}\n`);
-  const generation = await generatePreparedWorld({
-    java,
-    serverJar,
-    serverDirectory,
-    transcriptFile: path.join(evidenceRoot, 'generation.log'),
-  });
-  copyWorld(runtime, source);
-  copyWorld(runtime, baseline);
-  const sourceTree = digestTree(source);
-  const baselineTree = digestTree(baseline);
-  const initialRuntimeTree = digestTree(runtime);
-  if (
-    sourceTree.digest !== baselineTree.digest ||
-    baselineTree.digest !== initialRuntimeTree.digest
-  ) {
-    throw new Error('captured source, baseline, and initial runtime are not identical');
+  let worldId = WORLD_ID;
+  let world: WorldLabDefinition;
+  let sourceTree: ReturnType<typeof digestTree>;
+  let baselineTree: ReturnType<typeof digestTree>;
+  let admittedRuntimeTree: ReturnType<typeof digestTree> | null = null;
+  let preparation: Awaited<ReturnType<typeof prepareWorld>>;
+  let target: ProofTarget = TARGET;
+  if (admitted && admittedWorld) {
+    if (!parsed.values.arrival)
+      throw new Error('--arrival x,y,z is required for a Place epoch proof');
+    const arrival = parsePoint(String(parsed.values.arrival));
+    target = Object.freeze({
+      x: arrival.x + 2,
+      y: arrival.y,
+      z: arrival.z,
+      item: 'apple',
+      count: 1,
+    });
+    worldId = admitted.worldId;
+    world = admittedWorld;
+    sourceTree = digestTree(source);
+    baselineTree = digestTree(baseline);
+    admittedRuntimeTree = digestTree(runtime);
+    if (
+      sourceTree.digest !== admitted.behold.sourceTree.digest ||
+      baselineTree.digest !== admitted.behold.baselineTree.digest ||
+      admittedRuntimeTree.digest !== baselineTree.digest
+    ) {
+      throw new Error('admitted Place epoch drifted before continuity proof');
+    }
+    process.stdout.write(`[owned-world] preparing packaged Place epoch ${worldId}\n`);
+    preparation = await prepareWorld({
+      java,
+      serverJar,
+      serverDirectory,
+      transcriptFile: path.join(evidenceRoot, 'preparation.log'),
+      spawn: arrival,
+      target,
+    });
+  } else {
+    writeServerConfiguration(serverDirectory, port);
+    process.stdout.write(`[owned-world] generating deterministic flat world in ${root}\n`);
+    preparation = await prepareWorld({
+      java,
+      serverJar,
+      serverDirectory,
+      transcriptFile: path.join(evidenceRoot, 'generation.log'),
+      spawn: SPAWN,
+      target,
+    });
+    copyWorld(runtime, source);
+    copyWorld(runtime, baseline);
+    sourceTree = digestTree(source);
+    baselineTree = digestTree(baseline);
+    if (sourceTree.digest !== baselineTree.digest) {
+      throw new Error('captured source and baseline are not identical');
+    }
+    world = {
+      label: 'Behold-owned deterministic flat proof world',
+      source: {
+        path: source,
+        digestProfile: TREE_DIGEST_PROFILE,
+        expectedDigest: sourceTree.digest,
+      },
+      preparedBaseline: {
+        path: baseline,
+        digestProfile: TREE_DIGEST_PROFILE,
+        expectedDigest: baselineTree.digest,
+      },
+      runtime: { worldPath: runtime, archiveRoot },
+      server: { host: '127.0.0.1', port },
+      notes: [
+        `Generated by Minecraft 1.21.4 with level seed ${LEVEL_SEED}.`,
+        `One dropped ${target.item} affordance is prepared at ${target.x},${target.y},${target.z}.`,
+      ],
+    };
+    durableWriteJson(path.join(root, 'world-definition.json'), {
+      schemaVersion: 2,
+      worlds: { [worldId]: world },
+    });
   }
-
-  const world: WorldLabDefinition = {
-    label: 'Behold-owned deterministic flat proof world',
-    source: {
-      path: source,
-      digestProfile: TREE_DIGEST_PROFILE,
-      expectedDigest: sourceTree.digest,
-    },
-    preparedBaseline: {
-      path: baseline,
-      digestProfile: TREE_DIGEST_PROFILE,
-      expectedDigest: baselineTree.digest,
-    },
-    runtime: { worldPath: runtime, archiveRoot },
-    server: { host: '127.0.0.1', port },
-    notes: [
-      `Generated by Minecraft 1.21.4 with level seed ${LEVEL_SEED}.`,
-      `One dropped ${TARGET.item} affordance is prepared at ${TARGET.x},${TARGET.y},${TARGET.z}.`,
-    ],
-  };
-  durableWriteJson(path.join(root, 'world-definition.json'), {
-    schemaVersion: 2,
-    worlds: { [WORLD_ID]: world },
-  });
+  const initialRuntimeTree = digestTree(runtime);
 
   const transcript: string[] = [];
   const runPhase = async (phase: 'act' | 'resume') => {
@@ -132,7 +199,7 @@ async function main() {
     try {
       run = await startManagedWorld(
         {
-          worldId: WORLD_ID,
+          worldId,
           world,
           controlRoot,
           serverDirectory,
@@ -171,7 +238,7 @@ async function main() {
         proofWait.abort();
       }
       const proof = readJson(proofFile);
-      validateInhabitantProof(proof, phase);
+      validateInhabitantProof(proof, phase, worldId);
       await run.stop(`owned_world_${phase}_complete`);
       await run.finished;
       const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
@@ -206,20 +273,20 @@ async function main() {
     throw new Error(`expected one authoritative Lync log, found ${loomFiles.length}`);
   const assertions = {
     initialAffordanceObserved:
-      act.proof.initialDroppedItems?.filter((item: any) => item?.name === TARGET.item).length === 1,
+      act.proof.initialDroppedItems?.filter((item: any) => item?.name === target.item).length === 1,
     collectionConfirmedByMinecraft:
       act.proof.collection?.result?.ok === true &&
-      act.proof.collection?.result?.item === TARGET.item &&
+      act.proof.collection?.result?.item === target.item &&
       act.proof.collection?.result?.confirmation === 'mineflayer:playerCollect',
     independentConsequenceObserved:
       act.proof.independentWitness?.source === 'fresh_minecraft_connection' &&
-      !act.proof.independentWitness?.droppedItems?.some((item: any) => item?.name === TARGET.item),
+      !act.proof.independentWitness?.droppedItems?.some((item: any) => item?.name === target.item),
     firstLifePersistedOneTurn: act.proof.resultingTurns === 1,
     restartLoadedPriorLife: resume.proof.priorTurns === 1,
     consequencePersistedAcrossRestart:
       resume.proof.initialObservation?.self?.inventory?.some(
-        (item: any) => item?.name === TARGET.item && item?.count === TARGET.count,
-      ) && !resume.proof.initialDroppedItems?.some((item: any) => item?.name === TARGET.item),
+        (item: any) => item?.name === target.item && item?.count === target.count,
+      ) && !resume.proof.initialDroppedItems?.some((item: any) => item?.name === target.item),
     restartDidNotRepeatCollection: resume.proof.collectionAttempts === 0,
     restartExtendedSameLoom: resume.proof.resultingTurns === 2,
     lifecycleOwnedBothRuns: act.lifecycleEvents > 0 && resume.lifecycleEvents > 0,
@@ -234,7 +301,7 @@ async function main() {
   durableWriteJson(reportFile, {
     protocol: PROTOCOL,
     runId,
-    worldId: WORLD_ID,
+    worldId,
     entityId: ENTITY_ID,
     startedAt,
     completedAt: new Date().toISOString(),
@@ -248,14 +315,16 @@ async function main() {
       sha256: actualServerJarSha256,
       java,
       port,
-      generation,
-      seed: LEVEL_SEED,
+      preparation,
+      seed: admitted ? null : LEVEL_SEED,
     },
-    target: TARGET,
+    placeEpoch: admitted,
+    target,
     artifacts: {
       root,
       sourceTree,
       baselineTree,
+      admittedRuntimeTree,
       initialRuntimeTree,
       afterActTree,
       afterResumeTree,
@@ -279,11 +348,13 @@ async function main() {
   process.stdout.write(`[owned-world] PASS ${reportFile}\n`);
 }
 
-async function generatePreparedWorld(input: {
+async function prepareWorld(input: {
   java: string;
   serverJar: string;
   serverDirectory: string;
   transcriptFile: string;
+  spawn: Readonly<{ x: number; y: number; z: number }>;
+  target: Readonly<{ x: number; y: number; z: number; item: string; count: number }>;
 }) {
   const startedAt = Date.now();
   const child = spawn(
@@ -316,8 +387,9 @@ async function generatePreparedWorld(input: {
     'gamerule doDaylightCycle false',
     'time set day',
     'weather clear',
-    'setworldspawn 0 -60 0',
-    `summon minecraft:item ${TARGET.x} ${TARGET.y} ${TARGET.z} {Item:{id:"minecraft:${TARGET.item}",count:${TARGET.count}}}`,
+    `setworldspawn ${input.spawn.x} ${input.spawn.y} ${input.spawn.z}`,
+    `kill @e[type=minecraft:item,x=${input.target.x},y=${input.target.y},z=${input.target.z},distance=..8]`,
+    `summon minecraft:item ${input.target.x} ${input.target.y} ${input.target.z} {Item:{id:"minecraft:${input.target.item}",count:${input.target.count}}}`,
   ]) {
     child.stdin.write(`${command}\n`);
   }
@@ -386,12 +458,12 @@ function copyWorld(from: string, to: string) {
   });
 }
 
-function validateInhabitantProof(value: any, phase: 'act' | 'resume') {
+function validateInhabitantProof(value: any, phase: 'act' | 'resume', worldId: string) {
   if (
     value?.protocol !== 'behold.owned-world-inhabitant-proof.v1' ||
     value?.phase !== phase ||
     value?.entityId !== ENTITY_ID ||
-    value?.circleId !== WORLD_ID ||
+    value?.circleId !== worldId ||
     !Array.isArray(value?.engineEvents)
   ) {
     throw new Error(`invalid ${phase} inhabitant proof`);
@@ -528,6 +600,17 @@ function durableWriteJson(file: string, value: unknown) {
 function safeSegment(value: string) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value)) throw new Error(`unsafe run id: ${value}`);
   return value;
+}
+
+function parsePoint(value: string) {
+  const coordinates = value.split(',').map(Number);
+  if (
+    coordinates.length !== 3 ||
+    coordinates.some((coordinate) => !Number.isSafeInteger(coordinate))
+  ) {
+    throw new Error(`invalid arrival point: ${value}`);
+  }
+  return { x: coordinates[0], y: coordinates[1], z: coordinates[2] };
 }
 
 function restoreEnvironment(name: string, value: string | undefined) {

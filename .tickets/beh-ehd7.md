@@ -24,3 +24,7 @@ Place Compiler imports no Behold identity/lifecycle code; Behold binds release/a
 **2026-07-13T23:50:57Z**
 
 Boundary audit: Behold canonical input is WorldLabDefinition source+preparedBaseline with behold-tree-v2; launch is startManagedWorld and world-control epoch ownership. Place package currently exposes archive/place digest and profile names only; Behold reads neither release nor runtime manifest. Minimum adapter belongs entirely in Behold: verify/extract Place release, verify per-file tree, materialize profile, derive Behold baseline digest, launch unchanged owner, bind both digest domains in epoch evidence.
+
+**2026-07-14T03:48:00Z**
+
+Implemented the Behold-side `place-epoch` admission adapter and exercised it against the real Venice v1 release. It independently closed the release checksums, recomputed the declared Place tree `5f8805…b56b`, materialized `living`, and derived Behold source `f2d996…95cb`, baseline `10ce53…4bee`, server, profile, and world-definition digests under world `venice-core-9a802c78123ffd46`. Focused tamper/drift refusal and lifecycle gates are green. The real two-epoch inhabitant continuity run remains before closure.

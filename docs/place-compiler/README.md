@@ -56,6 +56,25 @@ node scripts/place-compiler/materialize-runtime.mjs \
 
 The materializer APFS-clones the immutable source, writes the selected server properties, and installs a tiny datapack that applies the profile's daylight, weather, spawning, and difficulty settings through ordinary Minecraft gamerules.
 
+### Behold-owned admission
+
+The repository's Behold side can admit an accepted release without adding lifecycle or identity concepts to the Place Compiler. Admission independently verifies checksum closure, archive paths and entry types, the embedded generation record, and the portable Place world-tree digest. It then materializes the selected profile into a separate Behold baseline and derives a world identity that binds the release, archive, Place tree, profile, server JAR, and Behold baseline digests:
+
+```bash
+npm run build
+node dist/scripts/place-epoch.js admit \
+  --release .behold-artifacts/places/PLACE/releases/RUN_ID \
+  --profile living \
+  --destination .behold-runtime/place-epochs/RUN_ID-living \
+  --server-jar .behold-runtime/server/server.jar \
+  --server-sha256 PINNED_SHA256 \
+  --port 25585
+node dist/scripts/place-epoch.js verify \
+  --root .behold-runtime/place-epochs/RUN_ID-living
+```
+
+Structured progress is written to stderr; the final descriptor is written to stdout. The admitted directory contains `place-epoch.json` plus an ordinary schema-v2 `world-definition.json` consumed by the unchanged Behold world owner. Source, baseline, and runtime are separate trees. Place identities remain provenance inputs rather than Behold inhabitant or epoch identities.
+
 ## Living Places Benchmark
 
 The versioned benchmark contract binds accepted San Francisco and Lower Manhattan world-tree identities to six independent dimensions: correspondence, legibility, habitability, ecology, experience, and capacity. It never collapses them into one synthetic score.
