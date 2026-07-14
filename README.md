@@ -109,7 +109,7 @@ Setup
    npm i canvas
    ```
 
-If you don’t provide an OpenRouter key, the agent uses a tiny rule-based fallback so the bot is still runnable.
+If you don’t provide an OpenRouter key, the interactive bot remains runnable but LLM autopilot is disabled.
 
 Environment Variables
 
@@ -128,11 +128,12 @@ Environment Variables
 - `OPENROUTER_REFERER` — Optional Referer header for OpenRouter
 - `OPENROUTER_TITLE` — Optional X-Title header for OpenRouter
 - `LLM_MODEL` — exact OpenRouter model slug (default `openai/gpt-5.6-luna`)
+- `BEHOLD_MIND` — bounded decision adapter: `direct` (default) or `ax`
 
 LLM Autopilot (optional)
 
 - Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `openai/gpt-5.6-luna`).
-- The console starts a function‑calling “policy” that proposes one tool per tick using the same command registry you use as a human.
+- The console starts a resident policy that proposes one admitted action at a time using the same command registry you use as a human. `BEHOLD_MIND=ax` uses Ax structured generation; Behold still validates and executes every proposal.
 
 Command registry and tools
 

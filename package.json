@@ -23,6 +23,7 @@
     "proof:owned-world-model": "npm run build && node dist/scripts/owned-world-model-proof.js",
     "proof:owned-world-project": "npm run build && node dist/scripts/owned-world-project-proof.js",
     "proof:owned-world-portfolio": "npm run build && node dist/scripts/owned-world-portfolio.js",
+    "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "lint": "tsc -p tsconfig.json --noEmit && eslint .",
@@ -35,6 +36,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@ax-llm/ax": "23.0.0",
     "@deepfates/lync": "^0.3.0",
     "canvas": "^2.11.2",
     "dotenv": "^16.4.5",
@@ -42,7 +44,8 @@
     "mineflayer": "^4.20.0",
     "mineflayer-pathfinder": "^2.4.5",
     "prismarine-viewer": "^1.33.0",
-    "vec3": "^0.1.10"
+    "vec3": "^0.1.10",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.4.0",

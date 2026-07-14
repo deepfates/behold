@@ -1,0 +1,50 @@
+export type ModelCallEvidence = {
+  protocol: 'behold.model-call.v1';
+  requestId: string;
+  endpoint: string;
+  startedAt: number;
+  completedAt: number;
+  latencyMs: number;
+  adapter?: {
+    name: string;
+    version?: string;
+  };
+  request: {
+    model: string;
+    messageCount: number;
+    toolCount: number;
+    toolChoice: unknown;
+    bodySha256: string;
+    messagesSha256: string;
+    toolsSha256: string;
+    /** `provider_request` is exact wire input; `mind_input` is adapter input. */
+    kind?: 'provider_request' | 'mind_input';
+    body?: unknown;
+  };
+  response: {
+    id: string | null;
+    model: string | null;
+    provider: string | null;
+    finishReason: string | null;
+    nativeFinishReason: string | null;
+    usage: unknown;
+    raw?: unknown;
+  };
+};
+
+export type ModelCallFailureEvidence = Omit<ModelCallEvidence, 'response'> & {
+  response: {
+    status: number | null;
+    bodyPreview: string | null;
+  };
+};
+
+export class ResidentMindCallError extends Error {
+  constructor(
+    message: string,
+    readonly call: ModelCallFailureEvidence,
+  ) {
+    super(message);
+    this.name = 'ResidentMindCallError';
+  }
+}

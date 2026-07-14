@@ -11,10 +11,18 @@ import {
   type LoomFoldRequest,
   type LoomFoldSummarizer,
 } from '../entity/folding';
+import type { ResidentMind, ResidentMindDecision, ResidentMindRequest } from '../mind/interface';
+import {
+  ResidentMindCallError,
+  type ModelCallEvidence,
+  type ModelCallFailureEvidence,
+} from '../mind/evidence';
+
+export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
 type ToolSpec = InhabitantActionSpec;
 
-type Options = {
+export type Options = {
   apiKey: string;
   model: string;
   endpoint?: string;
@@ -30,6 +38,8 @@ type Options = {
   summarizeLoom?: LoomFoldSummarizer;
   now?: () => number;
   recordModelIO?: boolean;
+  /** Alternate bounded decision implementation. Behold still owns the resident loop. */
+  mind?: ResidentMind;
   log?: (s: string) => void;
   /** Accept only lifecycle objects minted by the engine that owns attempt(). */
   acceptEngineEvent: (event: EngineEvent) => boolean;
@@ -45,7 +55,7 @@ type Options = {
     at: number;
     model: string;
     error: string;
-    call: ModelCallFailureEvidence | null;
+    call: ModelCallFailureEvidence | ModelCallEvidence | null;
   }) => void;
   onAuxiliaryModelCall?: (turn: {
     at: number;
@@ -83,41 +93,6 @@ type ModelDecision = {
   call: ModelCallEvidence;
 };
 
-export type ModelCallEvidence = {
-  protocol: 'behold.model-call.v1';
-  requestId: string;
-  endpoint: string;
-  startedAt: number;
-  completedAt: number;
-  latencyMs: number;
-  request: {
-    model: string;
-    messageCount: number;
-    toolCount: number;
-    toolChoice: unknown;
-    bodySha256: string;
-    messagesSha256: string;
-    toolsSha256: string;
-    body?: unknown;
-  };
-  response: {
-    id: string | null;
-    model: string | null;
-    provider: string | null;
-    finishReason: string | null;
-    nativeFinishReason: string | null;
-    usage: unknown;
-    raw?: unknown;
-  };
-};
-
-export type ModelCallFailureEvidence = Omit<ModelCallEvidence, 'response'> & {
-  response: {
-    status: number | null;
-    bodyPreview: string | null;
-  };
-};
-
 class ModelCallError extends Error {
   constructor(
     message: string,
@@ -125,6 +100,16 @@ class ModelCallError extends Error {
   ) {
     super(message);
     this.name = 'ModelCallError';
+  }
+}
+
+class MindDecisionError extends Error {
+  constructor(
+    message: string,
+    readonly call: ModelCallEvidence,
+  ) {
+    super(message);
+    this.name = 'MindDecisionError';
   }
 }
 
@@ -196,6 +181,24 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const modelTools = executableTools.some((spec) => spec.function.name === WAIT_TOOL)
     ? executableTools
     : [...executableTools, WAIT_TOOL_SPEC];
+  const mind: ResidentMind =
+    opts.mind ||
+    createDirectResidentMind((request, signal) =>
+      callLLM(
+        request.actions.map((action) => ({
+          type: 'function' as const,
+          function: {
+            name: action.name,
+            description: action.description,
+            parameters: action.inputSchema,
+          },
+        })),
+        request.conversation as any[],
+        opts,
+        request.requiredAction,
+        signal,
+      ),
+    );
   let activeModelRequest: AbortController | null = null;
   let stopped = false;
   let stopPromise: Promise<void> | null = null;
@@ -340,9 +343,28 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         allow,
         blockedUrgentTool,
       );
-      const decision = await withModelRequest((signal) =>
-        abortable(callLLM(availableTools, messages, opts, requiredTool, signal), signal),
-      );
+      const decision = await withModelRequest(async (signal) => {
+        const request: ResidentMindRequest = {
+          protocol: 'behold.mind-request.v1',
+          entityId,
+          model: opts.model,
+          observation: cloneJson(currentObservation),
+          conversation: cloneJson(messages),
+          actions: cloneJson(
+            availableTools.map((action) => ({
+              name: action.function.name,
+              description: action.function.description,
+              inputSchema: action.function.parameters ?? {
+                type: 'object',
+                properties: {},
+              },
+            })),
+          ),
+          requiredAction: requiredTool,
+        };
+        const proposed = await abortable(mind.decide(request, { signal }), signal);
+        return validateMindDecision(proposed, availableTools, requiredTool);
+      });
       if (stopped || suspended) {
         turnActive = false;
         turnSteps = 0;
@@ -542,7 +564,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           at: now(),
           model: opts.model,
           error: e?.message || String(e),
-          call: e instanceof ModelCallError ? e.call : null,
+          call:
+            e instanceof ModelCallError ||
+            e instanceof MindDecisionError ||
+            e instanceof ResidentMindCallError
+              ? e.call
+              : null,
         });
       }
       turnActive = false;
@@ -1120,6 +1147,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     bodySha256: sha256(requestBody),
     messagesSha256: sha256(stableJson(messages)),
     toolsSha256: sha256(stableJson([])),
+    kind: 'provider_request' as const,
     ...(opts.recordModelIO ? { body: JSON.parse(requestBody) } : {}),
   };
   let response: Response;
@@ -1129,6 +1157,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     const completedAt = opts.now ? opts.now() : Date.now();
     const call: ModelCallFailureEvidence = {
       protocol: 'behold.model-call.v1',
+      adapter: { name: 'direct-openrouter' },
       requestId,
       endpoint: safeEndpoint(endpoint),
       startedAt,
@@ -1153,6 +1182,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     const completedAt = opts.now ? opts.now() : Date.now();
     const call: ModelCallFailureEvidence = {
       protocol: 'behold.model-call.v1',
+      adapter: { name: 'direct-openrouter' },
       requestId,
       endpoint: safeEndpoint(endpoint),
       startedAt,
@@ -1174,6 +1204,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
   const completedAt = opts.now ? opts.now() : Date.now();
   const call: ModelCallEvidence = {
     protocol: 'behold.model-call.v1',
+    adapter: { name: 'direct-openrouter' },
     requestId,
     endpoint: safeEndpoint(endpoint),
     startedAt,
@@ -1201,6 +1232,149 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     throw new Error('loom fold returned no summary text');
   }
   return content.trim();
+}
+
+function createDirectResidentMind(
+  decide: (request: ResidentMindRequest, signal: AbortSignal) => Promise<ModelDecision>,
+): ResidentMind {
+  return {
+    id: 'direct-openrouter',
+    async decide(request, { signal }) {
+      const decision = await decide(request, signal);
+      const utterance =
+        typeof decision.assistant?.content === 'string' ? decision.assistant.content : null;
+      if (decision.wait) {
+        return {
+          protocol: 'behold.mind-decision.v1',
+          disposition: 'wait',
+          utterance,
+          action: {
+            name: WAIT_TOOL,
+            input: toolArguments(decision.assistant),
+            callId: decision.toolCallId,
+          },
+          adapterRecord: decision.assistant,
+          call: decision.call,
+        };
+      }
+      if (!decision.intent) {
+        return {
+          protocol: 'behold.mind-decision.v1',
+          disposition: 'no_action',
+          utterance,
+          action: null,
+          adapterRecord: decision.assistant,
+          call: decision.call,
+        };
+      }
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'act',
+        utterance,
+        action: {
+          name: decision.intent.tool,
+          input: decision.intent.input ?? {},
+          callId: decision.toolCallId,
+        },
+        adapterRecord: decision.assistant,
+        call: decision.call,
+      };
+    },
+  };
+}
+
+/**
+ * Convert a framework-neutral proposal into the existing resident coroutine's
+ * internal form. This is deliberately the last trust boundary before an
+ * Intent can be minted.
+ */
+function validateMindDecision(
+  decision: ResidentMindDecision,
+  admittedActions: readonly ToolSpec[],
+  requiredAction: string | null,
+): ModelDecision {
+  if (decision?.protocol !== 'behold.mind-decision.v1') {
+    throw new Error('mind returned an unsupported decision protocol');
+  }
+  if (decision.call?.protocol !== 'behold.model-call.v1') {
+    throw new Error('mind returned no inspectable model-call evidence');
+  }
+
+  const admitted = new Set(admittedActions.map((spec) => spec.function.name));
+  const fail = (message: string): never => {
+    throw new MindDecisionError(message, decision.call);
+  };
+  const content = typeof decision.utterance === 'string' ? decision.utterance : null;
+
+  if (decision.disposition === 'no_action') {
+    if (requiredAction) fail(`mind yielded no action while ${requiredAction} was required`);
+    if (decision.action) fail('mind attached an action to a no_action decision');
+    return {
+      assistant: canonicalAssistant(decision, content, null),
+      intent: null,
+      toolCallId: null,
+      wait: false,
+      call: decision.call,
+    };
+  }
+
+  if (decision.disposition !== 'act' && decision.disposition !== 'wait') {
+    fail(`mind returned unknown disposition ${String(decision.disposition)}`);
+  }
+  const proposed = decision.action;
+  const name = decision.disposition === 'wait' ? WAIT_TOOL : String(proposed?.name || '');
+  if (!name) fail('mind proposed an action without a name');
+  if (decision.disposition === 'act' && proposed?.name !== name) {
+    fail('mind proposed a malformed action name');
+  }
+  if (!admitted.has(name)) fail(`mind proposed unadmitted action ${name}`);
+  if (requiredAction && name !== requiredAction) {
+    fail(`mind proposed ${name} while ${requiredAction} was required`);
+  }
+
+  const input = proposed?.input ?? {};
+  if (input == null || typeof input !== 'object' || Array.isArray(input)) {
+    fail(`mind proposed non-object input for ${name}`);
+  }
+  const toolCallId = String(proposed?.callId || rid('mind'));
+  const assistant = canonicalAssistant(decision, content, {
+    id: toolCallId,
+    type: 'function',
+    function: { name, arguments: JSON.stringify(input) },
+  });
+  if (name === WAIT_TOOL) {
+    return {
+      assistant,
+      intent: null,
+      toolCallId,
+      wait: true,
+      call: decision.call,
+    };
+  }
+  return {
+    assistant,
+    intent: toIntent(name, input),
+    toolCallId,
+    wait: false,
+    call: decision.call,
+  };
+}
+
+function canonicalAssistant(
+  decision: ResidentMindDecision,
+  content: string | null,
+  toolCall: unknown | null,
+) {
+  const record =
+    decision.adapterRecord &&
+    typeof decision.adapterRecord === 'object' &&
+    !Array.isArray(decision.adapterRecord)
+      ? cloneJson(decision.adapterRecord)
+      : {};
+  const assistant: any = { ...record, role: 'assistant', content };
+  if (toolCall) assistant.tool_calls = [toolCall];
+  else delete assistant.tool_calls;
+  return assistant;
 }
 
 async function callLLM(
@@ -1239,6 +1413,7 @@ async function callLLM(
     bodySha256: sha256(requestBody),
     messagesSha256: sha256(stableJson(messages)),
     toolsSha256: sha256(stableJson(specs)),
+    kind: 'provider_request' as const,
     ...(opts.recordModelIO ? { body: JSON.parse(requestBody) } : {}),
   };
   let res: Response;
@@ -1248,6 +1423,7 @@ async function callLLM(
     const completedAt = opts.now ? opts.now() : Date.now();
     throw new ModelCallError(`llm network error: ${error?.message || String(error)}`, {
       protocol: 'behold.model-call.v1',
+      adapter: { name: 'direct-openrouter' },
       requestId,
       endpoint: safeEndpoint(endpoint),
       startedAt,
@@ -1262,6 +1438,7 @@ async function callLLM(
     const completedAt = opts.now ? opts.now() : Date.now();
     throw new ModelCallError(`llm ${res.status}: ${text.slice(0, 200)}`, {
       protocol: 'behold.model-call.v1',
+      adapter: { name: 'direct-openrouter' },
       requestId,
       endpoint: safeEndpoint(endpoint),
       startedAt,
@@ -1275,6 +1452,7 @@ async function callLLM(
   const completedAt = opts.now ? opts.now() : Date.now();
   const call: ModelCallEvidence = {
     protocol: 'behold.model-call.v1',
+    adapter: { name: 'direct-openrouter' },
     requestId,
     endpoint: safeEndpoint(endpoint),
     startedAt,

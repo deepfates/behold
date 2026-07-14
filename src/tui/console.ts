@@ -7,6 +7,7 @@ import { buildFrame, renderFrame } from './render';
 import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
 import { startLLMPolicy } from '../policy/llm';
+import { createAxResidentMind } from '../mind/ax';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
 import { createProjectMemory } from '../entity/projects';
@@ -34,6 +35,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
 
   const cfg = getConfig();
   const name = cfg.auth.username || 'Agent';
+  const mindAdapter = residentMindAdapter(process.env.BEHOLD_MIND);
   const entityLoom = await openEntityLoom(name, undefined, cfg.circle.id);
   const projects = createProjectMemory(name, entityLoom.turns());
   const places = createPlaceMemory(name, entityLoom.turns());
@@ -63,6 +65,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     model: cfg.llm.model,
     controller: {
       kind: cfg.llm.apiKey && !opts.paused ? 'llm' : 'operator',
+      mindAdapter,
       tickMs: Number(process.env.AGENT_TICK_MS || 3000),
       paused: Boolean(opts.paused),
       allowTools: opts.allowTools ?? null,
@@ -305,6 +308,15 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         apiKey,
         model,
         endpoint: process.env.OPENROUTER_BASE_URL || undefined,
+        mind:
+          mindAdapter === 'ax'
+            ? createAxResidentMind({
+                apiKey,
+                model,
+                apiURL: openAICompatibleBaseURL(process.env.OPENROUTER_BASE_URL),
+                recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+              })
+            : undefined,
         recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
         tickMs: Number(process.env.AGENT_TICK_MS || 3000),
         maxTurnSteps: task ? 8 : 16,
@@ -334,7 +346,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       },
     );
     policy.start();
-    console.error(`[console] LLM policy enabled (model ${model})`);
+    console.error(`[console] LLM policy enabled (model ${model}, mind ${mindAdapter})`);
   } else if (!apiKey) {
     console.error('[console] No OPENROUTER_API_KEY; LLM autopilot disabled.');
   } else {
@@ -474,6 +486,19 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   } finally {
     for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
   }
+}
+
+function residentMindAdapter(value: string | undefined): 'direct' | 'ax' {
+  const normalized = String(value || 'direct')
+    .trim()
+    .toLowerCase();
+  if (normalized === 'direct' || normalized === 'ax') return normalized;
+  throw new Error(`Unsupported BEHOLD_MIND ${JSON.stringify(value)}; expected direct or ax`);
+}
+
+function openAICompatibleBaseURL(value: string | undefined) {
+  const normalized = String(value || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+  return normalized.replace(/\/chat\/completions$/, '');
 }
 
 function resolveTask(taskName?: string, targetName?: string): TaskBrief | null {
