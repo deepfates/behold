@@ -510,7 +510,7 @@ function corridorSetup(
   preposition: Record<string, unknown>,
 ) {
   const blockName = (position: { x: number; y: number; z: number }) =>
-    String((bot as any).blockAt?.(position)?.name || 'unknown');
+    String((bot as any).blockAt?.(new Vec3(position.x, position.y, position.z))?.name || 'unknown');
   return {
     kind: 'underwater_corridor_before_recorded_action',
     preposition,
