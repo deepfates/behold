@@ -11,7 +11,6 @@
     "spawn": { "name": "Civic Center", "lat": 37.7793, "lon": -122.4193 }
   },
   "generation": {
-    "cartographyPolicy": "minecraft-legible-v1",
     "terrain": true,
     "interiors": true,
     "overture": true,

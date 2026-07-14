@@ -10,6 +10,14 @@ export function overpassQueryForBounds(bounds) {
   return `[out:json][timeout:600];(nwr(${box}););out body;>;out skel qt;`;
 }
 
+export function acquisitionMatchesPlaceRequest(acquisition, recipe) {
+  return (
+    acquisition?.kind === 'place-osm-snapshot-acquisition' &&
+    acquisition.placeId === recipe.id &&
+    acquisition.query === overpassQueryForBounds(recipe.geography.bounds)
+  );
+}
+
 function parse(argv) {
   const options = {
     place: null,

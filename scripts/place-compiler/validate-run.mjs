@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlaceRecipe, sha256 } from './core.mjs';
-import { overpassQueryForBounds } from './fetch-osm-snapshot.mjs';
+import { acquisitionMatchesPlaceRequest } from './fetch-osm-snapshot.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const fail = (message) => {
@@ -66,10 +66,7 @@ if (manifest.inputs.acquisition) {
     fail('OSM acquisition manifest missing, escaped, or changed');
   const acquisition = JSON.parse(readFileSync(acquisitionPath, 'utf8'));
   if (
-    acquisition.kind !== 'place-osm-snapshot-acquisition' ||
-    acquisition.placeId !== recipe.id ||
-    acquisition.recipeSha256 !== manifest.place.recipeSha256 ||
-    acquisition.query !== overpassQueryForBounds(recipe.geography.bounds) ||
+    !acquisitionMatchesPlaceRequest(acquisition, recipe) ||
     acquisition.payload?.sha256 !== manifest.inputs.sha256 ||
     acquisition.payload?.sizeBytes !== statSync(manifest.inputs.osmJson).size
   )
