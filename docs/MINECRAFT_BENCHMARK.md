@@ -356,9 +356,11 @@ Before another open-ended paid life run:
 2. Finish auditing action descriptions and observation fields for remaining
    strategic language or privileged information; profile selection alone does
    not prove the entire request is neutral.
-3. Make Ax instruction and optimization artifacts first-class instead of
-   overwriting them per request.
-4. Run direct and Ax minds through identical captured-frame replays.
+3. Keep Ax instruction/demo artifacts content-addressed and runtime policy
+   guidance request-scoped; never apply optimizer metadata or signature changes
+   as if they were an inference program.
+4. Run direct and Ax minds through identical captured-frame replays using their
+   exact program identities.
 5. Add one resettable real Minecraft episode with outcome-only scoring and a
    held-out variation.
 

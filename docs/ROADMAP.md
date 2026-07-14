@@ -38,6 +38,17 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   risk through `vanilla-player-v1`. The continuing `resident-v1` behavior
   remains a separately testable product profile
 - Tool-calling LLM policy through OpenRouter
+- Ax mind programs are now immutable, strict instruction/demo artifacts with a
+  canonical signature digest and a content identity on both successful and
+  failed calls. Runtime policy guidance remains request input, and optimizer
+  output is narrowed before it can change the inference contract
+- A closed resident life can now expose an exact inclusive Lync turn range
+  without taking body authority or changing its files. Evaluator-owned episode
+  looms preserve that range independently of later body activity or branch-tip
+  selection and never copy it into resident memory. Runtime, profile, mind, and
+  budget bindings are omitted until call and lifecycle evidence can authenticate
+  them; assessments, world-lineage references, and a durable dataset index remain
+  deliberately unclaimed
 - Managed multi-resident epochs with conjunctive readiness, exact per-entity
   leases, isolated journals/Lync lives, bounded process/model concurrency, and
   all-resident drain before one Minecraft save/stop
@@ -172,9 +183,8 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    policy, and resident coaching independently versioned; distinguish exact
    request replay from current-code reconstruction by hash. See
    [the neutral benchmark design](MINECRAFT_BENCHMARK.md).
-2. Give Ax program artifacts and Lync episode references immutable identities.
-   Run direct and Ax minds against identical captured requests, then use held-out
-   real Minecraft episodes for outcome selection.
+2. Run direct and content-addressed Ax minds against identical captured
+   requests, then use held-out real Minecraft episodes for outcome selection.
 3. Prove one honest observation-action-consequence turn and one continuation in
    a contrasting real world. Extract shared code only after that integration
    shows which semantics actually repeat.
