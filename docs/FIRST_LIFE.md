@@ -57,8 +57,8 @@ restart. It does not yet prove a long, robust life.
 
 ## The architecture we actually need
 
-The implementation has six boundaries. They are useful because each corresponds
-to a different fact about an inhabitant, not because six layers are inherently
+The implementation has seven boundaries. They are useful because each corresponds
+to a different fact about an inhabitant, not because seven layers are inherently
 good.
 
 1. **The world adapter** is Mineflayer. It owns the Minecraft connection and raw
@@ -71,13 +71,64 @@ good.
    deduplicates equivalent pending actions, and lets a human suspend the model.
    The active adapter command still runs to a terminal result; acknowledged
    in-flight cancellation is not yet proved.
-5. **The controller** chooses one action, sees the verified result, and chooses
-   again. A controller episode is bounded even though the life continues.
-6. **The entity loom** is the append-only autobiography that survives process and
+5. **The controller** owns the resident episode, bounded attention, policy, and
+   lifecycle. It asks for one proposal, validates it, sees the terminal result,
+   and observes the world again. An episode is bounded even though the life
+   continues.
+6. **The mind** makes one bounded proposal from the admitted actions and lived
+   context. The direct OpenRouter implementation and the Ax implementation are
+   interchangeable here. A mind has no body capability and cannot execute or
+   certify an action.
+7. **The entity loom** is the append-only autobiography that survives process and
    model changes. Run journals remain separate operational evidence.
 
 These boundaries let us replace a model, add an action, improve sensing, or move
 the history store without changing what an observation-action consequence means.
+
+### The irreducible loop
+
+The portable abstraction is a causal loop, not a particular prompt framework:
+
+```text
+world events -> observation -> mind proposal -> authority decision
+             -> serialized action -> terminal result -> fresh observation
+             -> entity trajectory -> next proposal
+```
+
+Each arrow crosses an ownership boundary. Minecraft owns live world truth.
+Experience owns the bounded report and its cursor. The mind owns only its
+proposal. The controller and engine own admission, ordering, budgets, and
+lifecycle. The adapter owns execution and its terminal result. A later
+observation establishes the independently witnessed consequence. The entity
+loom owns the durable causal autobiography. An external verifier owns any claim
+that a trajectory satisfied an evaluation.
+
+This is why a successful tool response cannot silently become memory of a world
+fact, and why model-generated text cannot silently become an action. Results,
+consequences, memories, and evaluation claims are related records with different
+authorities.
+
+### Libraries are implementations, not the waist
+
+- Minecraft and Mineflayer implement the world and body boundary.
+- Behold owns the embodied observation, proposal admission, action, consequence,
+  and resident-lifecycle contracts.
+- Ax implements one DSPy-style typed mind. Direct OpenRouter tool calling is
+  another. A Python DSPy program or a local model can implement the same mind
+  request and decision without changing the resident loop.
+- Lync supplies append-only event integrity, causal topology, and portable
+  storage. Behold supplies the entity-turn meaning and bounded memory views.
+- Zod validates untrusted structured output at adapter boundaries. It does not
+  define the domain model.
+
+The neighboring projects support the same pattern without needing the same
+package. Cantrip's circles, gates, wards, and looms correspond to environment,
+affordances, enforced policy, and continuity. World Instrument's
+Proposal/Law/Outcome/Event path corresponds to proposal, authority, result, and
+evidence. ALMO exercises an observe/provider/action loop in Evennia. Those are
+useful translations, not a reason to import their world objects or controller
+internals. We extract a shared package only after two live integrations need the
+same semantics and the shared part is smaller than their adapters.
 
 ### Where behavior belongs
 
