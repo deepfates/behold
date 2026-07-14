@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,25 +29,17 @@ const gameDir = path.join(runtimeHome, 'game');
 const nativesDir = path.join(runtimeHome, 'natives', version);
 const manifestPath = path.join(minecraftHome, 'versions', version, `${version}.json`);
 const clientJar = path.join(minecraftHome, 'versions', version, `${version}.jar`);
-const java = path.join(
-  minecraftHome,
-  'runtime',
-  'java-runtime-delta',
-  'mac-os-arm64',
-  'java-runtime-delta',
-  'jre.bundle',
-  'Contents',
-  'Home',
-  'bin',
-  'java',
-);
-
-for (const required of [manifestPath, clientJar, java]) {
+const renderDistance = integerSetting('NATIVE_MC_RENDER_DISTANCE', 32, 2, 32);
+const simulationDistance = integerSetting('NATIVE_MC_SIMULATION_DISTANCE', 10, 5, 32);
+const hideGui = booleanSetting('NATIVE_MC_HIDE_GUI', false);
+for (const required of [manifestPath, clientJar]) {
   if (!fs.existsSync(required))
     throw new Error(`Missing installed Minecraft component: ${required}`);
 }
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as VersionManifest;
+const java = resolveJava();
+if (path.isAbsolute(java) && !fs.existsSync(java)) throw new Error(`Missing Java runtime: ${java}`);
 const classpath: string[] = [];
 const nativeJars: string[] = [];
 const missing: string[] = [];
@@ -84,10 +77,10 @@ classpath.push(clientJar);
 
 fs.mkdirSync(gameDir, { recursive: true });
 extractNatives(nativeJars, nativesDir);
-writeDefaultOptions(gameDir);
+writeDefaultOptions(gameDir, { renderDistance, simulationDistance, hideGui });
 
-const username = process.env.NATIVE_MC_USERNAME || 'importdf';
-const uuid = process.env.NATIVE_MC_UUID || '5eb983c0afc14163a97e19c2a5206f36';
+const username = process.env.NATIVE_MC_USERNAME || 'Visitor';
+const uuid = process.env.NATIVE_MC_UUID || offlineUuid(username);
 const server = process.env.NATIVE_MC_SERVER || '127.0.0.1:25565';
 const maxMemory = process.env.NATIVE_MC_MEMORY || '4G';
 
@@ -145,6 +138,11 @@ if (process.argv.includes('--dry-run')) {
 }
 
 const child = spawn(java, args, { cwd: gameDir, stdio: 'inherit' });
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+  });
+}
 child.on('error', (error) => {
   console.error('[native] Failed to launch:', error);
   process.exitCode = 1;
@@ -165,6 +163,48 @@ function allowsMac(rules: Library['rules']) {
   return allowed;
 }
 
+function resolveJava() {
+  if (process.env.NATIVE_MC_JAVA) return path.resolve(process.env.NATIVE_MC_JAVA);
+  const executable = process.platform === 'win32' ? 'java.exe' : 'java';
+  const candidates =
+    process.platform === 'darwin'
+      ? [
+          path.join(
+            minecraftHome,
+            'runtime',
+            'java-runtime-delta',
+            process.arch === 'arm64' ? 'mac-os-arm64' : 'mac-os',
+            'java-runtime-delta',
+            'jre.bundle',
+            'Contents',
+            'Home',
+            'bin',
+            executable,
+          ),
+        ]
+      : process.platform === 'linux'
+        ? [
+            path.join(
+              minecraftHome,
+              'runtime',
+              'java-runtime-delta',
+              process.arch === 'arm64' ? 'linux-arm64' : 'linux',
+              'java-runtime-delta',
+              'bin',
+              executable,
+            ),
+          ]
+        : [];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? executable;
+}
+
+function offlineUuid(name: string) {
+  const bytes = createHash('md5').update(`OfflinePlayer:${name}`).digest();
+  bytes[6] = (bytes[6] & 0x0f) | 0x30;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  return bytes.toString('hex');
+}
+
 function extractNatives(jars: string[], target: string) {
   const marker = path.join(target, '.ready');
   const signature = jars.map((file) => `${file}:${fs.statSync(file).mtimeMs}`).join('\n');
@@ -180,12 +220,32 @@ function extractNatives(jars: string[], target: string) {
   fs.writeFileSync(marker, signature);
 }
 
-function writeDefaultOptions(targetGameDir: string) {
+function integerSetting(name: string, fallback: number, minimum: number, maximum: number) {
+  const raw = process.env[name];
+  const value = raw == null ? fallback : Number(raw);
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${name} must be an integer from ${minimum} through ${maximum}`);
+  }
+  return value;
+}
+
+function booleanSetting(name: string, fallback: boolean) {
+  const raw = process.env[name];
+  if (raw == null) return fallback;
+  if (raw !== 'true' && raw !== 'false') throw new Error(`${name} must be true or false`);
+  return raw === 'true';
+}
+
+function writeDefaultOptions(
+  targetGameDir: string,
+  visual: { renderDistance: number; simulationDistance: number; hideGui: boolean },
+) {
   const options = path.join(targetGameDir, 'options.txt');
   const defaults = [
     'version:4189',
     'autoJump:false',
     'fullscreen:false',
+    `hideGui:${visual.hideGui}`,
     'invertYMouse:false',
     'joinedFirstServer:true',
     'key_key.back:key.keyboard.s',
@@ -198,18 +258,20 @@ function writeDefaultOptions(targetGameDir: string) {
     'mouseSensitivity:0.5',
     'onboardAccessibility:false',
     'pauseOnLostFocus:false',
+    'perspective:0',
     'rawMouseInput:true',
-    'renderDistance:8',
-    'simulationDistance:6',
+    `renderDistance:${visual.renderDistance}`,
+    `simulationDistance:${visual.simulationDistance}`,
     'skipMultiplayerWarning:true',
     'tutorialStep:none',
   ];
 
-  const existing = fs.existsSync(options) ? fs.readFileSync(options, 'utf8') : '';
-  const known = new Set(existing.split('\n').map((line) => line.slice(0, line.indexOf(':'))));
-  const missingDefaults = defaults.filter((line) => !known.has(line.slice(0, line.indexOf(':'))));
-  if (!missingDefaults.length) return;
-
-  const separator = existing && !existing.endsWith('\n') ? '\n' : '';
-  fs.writeFileSync(options, `${existing}${separator}${missingDefaults.join('\n')}\n`);
+  const managed = new Map(defaults.map((line) => [line.slice(0, line.indexOf(':')), line]));
+  const existing = fs.existsSync(options) ? fs.readFileSync(options, 'utf8').split('\n') : [];
+  const output = existing
+    .filter(Boolean)
+    .map((line) => managed.get(line.slice(0, line.indexOf(':'))) ?? line);
+  const present = new Set(output.map((line) => line.slice(0, line.indexOf(':'))));
+  for (const [key, line] of managed) if (!present.has(key)) output.push(line);
+  fs.writeFileSync(options, `${output.join('\n')}\n`);
 }

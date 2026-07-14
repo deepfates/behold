@@ -91,7 +91,7 @@ node dist/scripts/verify-owned-world-proof.js verify-package \
 
 ## Living Places Benchmark
 
-The versioned benchmark contract binds accepted San Francisco and Lower Manhattan world-tree identities to six independent dimensions: correspondence, legibility, habitability, ecology, experience, and capacity. It never collapses them into one synthetic score.
+The versioned benchmark contract binds accepted San Francisco, Lower Manhattan, and Venice world-tree identities to six independent dimensions: correspondence, legibility, habitability, ecology, experience, and capacity. It never collapses them into one synthetic score.
 
 Validate the immutable fixtures, runtime profiles, geographic checkpoints, refusal rules, and execution budgets, then print the hardware-specific ready plan:
 
@@ -176,6 +176,32 @@ node scripts/place-compiler/inspect-sightlines.mjs \
 ```
 
 This proves physical block visibility only. Client render distance, Distant Horizons LOD reach, and actively simulated regions remain separate claims and require separate evidence.
+
+### Human visit
+
+The production visit flow derives safe arrival, a bounded collision-audited ground leg, and a measured reveal from accepted evidence rather than fixed coordinates. It materializes the selected profile, installs ordinary `/trigger place_visit` controls for a human, runs the same stages with a deterministic proof observer, records structured progress, and saves and stops cleanly. A native client and ScreenCaptureKit movie are optional; no agent or personal username is required:
+
+```bash
+npm run place:visit -- --verify
+npm run place:visit -- \
+  --place san-francisco --profile cinematic \
+  --run-id NEW_VISIT_ID --port 25574
+npm run place:visit -- \
+  --place san-francisco --profile cinematic \
+  --run-id NEW_CAPTURE_ID --port 25574 \
+  --launch-client --visitor-name Visitor --capture-seconds 18
+```
+
+Independently verify one report or an exact three-place set. `--require-capture` requires at least one checksummed native-client movie in a complete set:
+
+```bash
+npm run proof:verify-visit -- --require-capture \
+  --report path/to/san-francisco/visit-report.json \
+  --report path/to/lower-manhattan/visit-report.json \
+  --report path/to/venice/visit-report.json
+```
+
+The managed native client defaults to 32 render / 10 simulation chunks for the cinematic profile. That is vanilla render reach, not proof of Distant Horizons coverage or active simulation at city scale.
 
 Generate a loopback-only BlueMap configuration for any accepted place from its recipe, exact world bounds, and generated landmark surfaces:
 

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "id": "living-places-human-visit-v1",
+  "benchmark": "docs/place-compiler/benchmarks/living-places-v3.json",
+  "purpose": "A short, honest human visit assembled from accepted arrival, route, sightline, and map evidence without changing immutable place generation.",
+  "places": {
+    "san-francisco": {
+      "inspection": {
+        "path": ".behold-artifacts/place-benchmarks/living-places-v2/foundry-v2-quality-loop-inspection-v1/inspections/san-francisco.json",
+        "sha256": "53266ed5be81e0fa8ea014bc32741200c65187a06fd414d1b11d7cf7b75ddb34"
+      },
+      "map": {
+        "path": ".behold-artifacts/place-benchmarks/living-places-v2/foundry-v2-quality-loop-inspection-v1/inspections/san-francisco-checkpoint-map.png",
+        "sha256": "e147c26952cb472c892d4584cde16b88755e205e1ebb80aca95d125e584158bf"
+      },
+      "route": {
+        "path": ".behold-artifacts/place-routes/san-francisco/san-francisco-windmill-route-v2/route-report.json",
+        "sha256": "af238deaded98656ab488db8fa6e79dceb2de20b69ae4a36bb3c107b9014aabb"
+      },
+      "sightline": {
+        "path": ".behold-artifacts/place-sightlines/san-francisco/san-francisco-sightlines-v2/sightline-report.json",
+        "sha256": "bac1f7a2becc2e8cae3733433fa442ea007be2e10c9323a1574879f69c3cf342"
+      }
+    },
+    "lower-manhattan": {
+      "inspection": {
+        "path": ".behold-artifacts/place-benchmarks/living-places-v2/foundry-v2-quality-loop-inspection-v1/inspections/lower-manhattan.json",
+        "sha256": "364aad039e8cdcc04515c919e751812f0109e81356a3f7129c377dc10132729d"
+      },
+      "map": {
+        "path": ".behold-artifacts/place-benchmarks/living-places-v2/foundry-v2-quality-loop-inspection-v1/inspections/lower-manhattan-checkpoint-map.png",
+        "sha256": "b94fbdd82bf5637584a1ecedd8baaf519b5821e6832e5f9b99cea6789efb4860"
+      },
+      "route": {
+        "path": ".behold-artifacts/place-routes/lower-manhattan/lower-manhattan-harbor-route-v2/route-report.json",
+        "sha256": "327eb6478e9aef55fee8a128689f9f147aab1caa990c8b7e4b05eecbd0fdfedb"
+      },
+      "sightline": {
+        "path": ".behold-artifacts/place-sightlines/lower-manhattan/lower-manhattan-sightlines-v1/sightline-report.json",
+        "sha256": "e11da99accf5b641c117a7a867d3fdad378d18ccdfd0a2a1e17acb21fa9f18b4"
+      }
+    },
+    "venice-core": {
+      "inspection": {
+        "path": ".behold-artifacts/place-benchmarks/living-places-v3/foundry-v3-venice-inspection-v2/inspections/venice-core.json",
+        "sha256": "af3103cd2531217fe18300eb82ac76302b900dd53037ea12574808d3eff9994d"
+      },
+      "map": {
+        "path": ".behold-artifacts/place-benchmarks/living-places-v3/foundry-v3-venice-inspection-v2/inspections/venice-core-checkpoint-map.png",
+        "sha256": "5f75bc0a3481edd87e6a0ffcff91c41a347a63f08c46b47787660e35516fc944"
+      },
+      "route": {
+        "path": ".behold-artifacts/place-routes/venice-core/foundry-v3-venice-route-v1/route-report.json",
+        "sha256": "1a99ac0a3830b86b0cf61ef80416e0730265eb99fd6f19adf8cbce1e0cfa6201"
+      },
+      "sightline": {
+        "path": ".behold-artifacts/place-sightlines/venice-core/foundry-v3-venice-sightlines-v1/sightline-report.json",
+        "sha256": "e85def89dd1105da6b2d45aeacb3dceaa8ec4f871d36318ebee193e9aafe7053"
+      }
+    }
+  },
+  "selection": {
+    "arrival": "experience policy checkpoint plus inspection representative ground",
+    "groundLeg": "longest consecutive route-sample interval whose endpoints resolve and whose swept one-block segment has no defect",
+    "reveal": "lowest clear declared sightline lift, otherwise the highest measured lift with the limitation retained",
+    "map": "checksummed accepted checkpoint map"
+  }
+}

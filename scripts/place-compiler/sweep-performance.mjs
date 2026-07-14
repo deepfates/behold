@@ -119,6 +119,7 @@ async function runCase(loaded, fixture, profileId, repetition, root, port, progr
     };
     measurement = {
       caseId,
+      benchmarkId: loaded.benchmark.id,
       placeId: fixture.placeId,
       runId: fixture.runId,
       worldTreeSha256: fixture.worldTreeSha256,

@@ -22,6 +22,8 @@
     "place:epoch": "npm run build && node dist/scripts/place-epoch.js",
     "proof:owned-world": "npm run build && node dist/scripts/owned-world-proof.js",
     "proof:verify-owned-world": "npm run build && node dist/scripts/verify-owned-world-proof.js",
+    "place:visit": "node scripts/place-compiler/visit.mjs",
+    "proof:verify-visit": "node scripts/place-compiler/verify-visit.mjs",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "lint": "tsc -p tsconfig.json --noEmit && eslint .",
