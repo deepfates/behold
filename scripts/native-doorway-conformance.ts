@@ -10,6 +10,7 @@ import { getConfig } from '../src/config';
 import { InhabitantExperience } from '../src/agent/experience';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { openEntityLoom } from '../src/entity/loom';
+import { createPlaceMemory } from '../src/entity/places';
 import { createEngine, type EngineEvent } from '../src/loop/engine';
 import {
   inspectEntityLeaseFence,
@@ -25,28 +26,48 @@ import {
   sha256File,
   waitFor,
 } from './owned-world-fixture';
-import { observeFromFreshMinecraftBody, observedBlocks } from './owned-world-model-harness';
+import { observeFromFreshMinecraftBody } from './owned-world-model-harness';
 import {
-  assessNativeBodyConformance,
-  NATIVE_BODY_CONFORMANCE_PROTOCOL,
-  NATIVE_BODY_PHASE_PROTOCOL,
-} from './native-body-conformance-evidence';
+  assessNativeDoorwayConformance,
+  NATIVE_DOORWAY_CONFORMANCE_PROTOCOL,
+  NATIVE_DOORWAY_PHASE_PROTOCOL,
+} from './native-doorway-conformance-evidence';
 import { executeScriptedInhabitantTurn } from './scripted-inhabitant-turn';
+import { startManagedWorld } from './world-runner';
+import { statusWorld } from './world-lab';
 import {
   disconnectMinecraftBot,
-  positionDistance,
   requiredEnvironment,
   waitForLocalWorld,
   waitForManagerStop,
 } from './native-conformance-harness';
-import { startManagedWorld } from './world-runner';
-import { statusWorld } from './world-lab';
 
-const ENTITY_ID = 'BodyResident';
-const WITNESS_ID = 'BodyWitness';
-const MODEL = 'script/native-body-conformance-v1';
-const TARGET_ITEM = Object.freeze({ x: 0, y: -60, z: 0, item: 'dirt', count: 1 });
-const PREPARED_BODY_POSITION = Object.freeze({ x: 24, y: -60, z: 0 });
+const ENTITY_ID = 'DoorResident';
+const WITNESS_ID = 'DoorWitness';
+const MODEL = 'script/native-doorway-conformance-v1';
+const LOWER = Object.freeze({ x: 3, y: -60, z: 0 });
+const SOUTH = Object.freeze({ x: 3, y: -60, z: 1 });
+const FIXTURE_ITEM = Object.freeze({ x: -3, y: -60, z: 0, item: 'apple', count: 1 });
+const FIXTURE_BLOCKS = Object.freeze([
+  {
+    ...LOWER,
+    block: 'oak_door[facing=north,half=lower,hinge=left,open=false,powered=false]',
+  },
+  {
+    x: LOWER.x,
+    y: LOWER.y + 1,
+    z: LOWER.z,
+    block: 'oak_door[facing=north,half=upper,hinge=left,open=false,powered=false]',
+  },
+  ...[-1, 1].flatMap((dx) =>
+    [0, 1].map((dy) => ({
+      x: LOWER.x + dx,
+      y: LOWER.y + dy,
+      z: LOWER.z,
+      block: 'stone',
+    })),
+  ),
+]);
 
 async function runProof() {
   const parsed = parseArgs({
@@ -59,20 +80,22 @@ async function runProof() {
   });
   if (parsed.values.help) {
     process.stdout.write(
-      'Usage: native-body-conformance [--run <safe-id>] [--port <unused-loopback-port>]\n',
+      'Usage: native-doorway-conformance [--run <safe-id>] [--port <unused-loopback-port>]\n',
     );
     return;
   }
   const runId = String(
-    parsed.values.run || `body-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+    parsed.values.run || `door-${new Date().toISOString().replace(/[:.]/g, '-')}`,
   );
   const fixture = await prepareOwnedWorld(
     runId,
-    Number(parsed.values.port || 25579),
-    'native-body',
-    TARGET_ITEM,
+    Number(parsed.values.port || 25580),
+    'native-doorway',
+    FIXTURE_ITEM,
+    [],
+    FIXTURE_BLOCKS,
   );
-  const reportFile = path.join(fixture.evidenceRoot, 'native-body-conformance.json');
+  const reportFile = path.join(fixture.evidenceRoot, 'native-doorway-conformance.json');
   let run: Awaited<ReturnType<typeof startManagedWorld>> | null = null;
   try {
     run = await startManagedWorld(
@@ -84,15 +107,15 @@ async function runProof() {
         serverJar: fixture.serverJar,
         expectedServerJarSha256: fixture.expectedServerJarSha256,
         java: fixture.java,
-        controllerEntry: path.resolve('dist/scripts/native-body-conformance.js'),
+        controllerEntry: path.resolve('dist/scripts/native-doorway-conformance.js'),
         entityRoot: fixture.entityRoot,
         runRoot: path.join(fixture.evidenceRoot, 'runs'),
         residents: [
           {
             entityId: ENTITY_ID,
             model: MODEL,
-            task: 'native-body-conformance',
-            allowTools: ['place_block'],
+            task: 'native-doorway-conformance',
+            allowTools: ['cross_visible_door', 'cross_place_door'],
           },
         ],
         startupTimeoutMs: 90_000,
@@ -105,16 +128,15 @@ async function runProof() {
     );
     const phaseFile = path.join(
       run.residents[0].journalDirectory,
-      'native-body-conformance-phase.json',
+      'native-doorway-conformance-phase.json',
     );
     await Promise.race([
-      waitFor(() => fs.existsSync(phaseFile), 60_000, 'native body phase evidence'),
+      waitFor(() => fs.existsSync(phaseFile), 60_000, 'native doorway phase evidence'),
       run.finished.then(() => {
-        throw new Error('managed world ended before native body phase evidence');
+        throw new Error('managed world ended before native doorway phase evidence');
       }),
     ]);
     const phase = readJson(phaseFile);
-    await run.quiesceResidents('native_body_before_independent_witness');
     const independentWitness = await observeFromFreshMinecraftBody({
       run,
       worldId: fixture.worldId,
@@ -123,9 +145,37 @@ async function runProof() {
       port: fixture.port,
       model: MODEL,
       witnessId: WITNESS_ID,
-      observe: (bot) => ({ blocks: observedBlocks(bot, [phase.target]) }),
+      settleMs: 1000,
+      observe: async (bot) => {
+        let resident: any = null;
+        let door: any = null;
+        await waitFor(
+          () => {
+            resident = Object.values((bot as any).entities || {}).find(
+              (entity: any) => entity?.username === ENTITY_ID && entity?.position,
+            );
+            door = (bot as any).blockAt?.(new Vec3(LOWER.x, LOWER.y, LOWER.z));
+            return !!resident && String(door?.name || '') === 'oak_door';
+          },
+          15_000,
+          'fresh doorway witness',
+        );
+        return {
+          resident: {
+            username: resident.username,
+            position: positionRecord(resident.position),
+          },
+          door: {
+            name: String(door.name),
+            position: positionRecord(door.position),
+            open: door.getProperties?.().open ?? null,
+            half: door.getProperties?.().half ?? null,
+            facing: door.getProperties?.().facing ?? null,
+          },
+        };
+      },
     });
-    await run.stop('native_body_conformance_complete');
+    await run.stop('native_doorway_conformance_complete');
     await run.finished;
     const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
     const runtime = await statusWorld(fixture.worldId, fixture.world);
@@ -135,10 +185,10 @@ async function runProof() {
       file.endsWith('.lync'),
     );
     if (loomFiles.length !== 1) {
-      throw new Error(`expected one body-resident Lync, found ${loomFiles.length}`);
+      throw new Error(`expected one door-resident Lync, found ${loomFiles.length}`);
     }
     const draft = {
-      protocol: NATIVE_BODY_CONFORMANCE_PROTOCOL,
+      protocol: NATIVE_DOORWAY_CONFORMANCE_PROTOCOL,
       repositoryRevision: gitRevision(),
       runId: fixture.runId,
       worldId: fixture.worldId,
@@ -162,21 +212,21 @@ async function runProof() {
       },
       completedAt: new Date().toISOString(),
     };
-    const assessment = assessNativeBodyConformance(draft);
+    const assessment = assessNativeDoorwayConformance(draft);
     durableWriteJson(reportFile, { ...draft, assessment });
     if (!assessment.pass) {
       throw new Error(
-        `native body conformance failed: ${Object.entries(assessment.assertions)
+        `native doorway conformance failed: ${Object.entries(assessment.assertions)
           .filter(([, value]) => !value)
           .map(([name]) => name)
           .join(', ')}`,
       );
     }
     process.stdout.write(
-      `[native-body] PASS ${reportFile}\n[native-body] sha256 ${sha256File(reportFile)}\n`,
+      `[native-doorway] PASS ${reportFile}\n[native-doorway] sha256 ${sha256File(reportFile)}\n`,
     );
   } catch (error) {
-    if (run) await run.stop('native_body_conformance_failed').catch(() => {});
+    if (run) await run.stop('native_doorway_conformance_failed').catch(() => {});
     throw error;
   }
 }
@@ -197,7 +247,7 @@ async function runResident() {
     allowPositionals: true,
   });
   const entityId = args.positionals[0];
-  if (entityId !== ENTITY_ID) throw new Error(`native body proof expected ${ENTITY_ID}`);
+  if (entityId !== ENTITY_ID) throw new Error(`native doorway proof expected ${ENTITY_ID}`);
   if (args.values.server) process.env.SERVER_HOST = String(args.values.server);
   if (args.values.port) process.env.SERVER_PORT = String(args.values.port);
   if (args.values.world) process.env.BEHOLD_WORLD_ID = String(args.values.world);
@@ -207,11 +257,12 @@ async function runResident() {
 
   const phaseFile = path.join(
     path.resolve(requiredEnvironment('BEHOLD_RUN_DIR')),
-    'native-body-conformance-phase.json',
+    'native-doorway-conformance-phase.json',
   );
   const cfg = getConfig();
   const loom = await openEntityLoom(entityId, undefined, cfg.circle.id);
   const priorTurns = loom.turns().length;
+  let memory = createPlaceMemory(entityId, loom.turns());
   let bot: ReturnType<typeof createBot> | null = null;
   let experience: InhabitantExperience | null = null;
   let engine: ReturnType<typeof createEngine> | null = null;
@@ -220,81 +271,88 @@ async function runResident() {
     experience = new InhabitantExperience(bot as any, {
       circleId: cfg.circle.id,
       managedRunId: process.env.BEHOLD_RUN_ID || null,
+      places: () => memory.snapshot(),
       eventHistory: 40,
     });
     const interpreter = buildInterpreter(bot as any, {
       observe: () => experience!.observe(),
+      places: () => memory.snapshot(),
       changeConfirmationTimeoutMs: 10_000,
       changeStabilityWindowMs: 150,
-      worldCommandTimeoutMs: 30_000,
     });
     const events: EngineEvent[] = [];
     engine = createEngine(
       {
         authorize: async (name, _input, intent) => ({
           ok: true,
-          authority: 'native-body-conformance',
+          authority: 'native-doorway-conformance',
           evidence: { entityId, intentId: intent.id, tool: name },
         }),
         run: (name, input, _intent, execution) => interpreter.run(name, input, execution),
         list: () => interpreter.list('inhabitant'),
       },
       {
-        allowTools: ['place_block'],
+        allowTools: ['cross_visible_door', 'cross_place_door'],
         onEvent: (event) => {
           events.push(event);
           experience!.recordEngineEvent(event);
         },
       },
     );
-    await waitForLocalWorld(bot, 45_000);
-    await waitFor(
-      () => inventoryCount(experience!.observe(), 'dirt') >= 1,
-      10_000,
-      'body resident dirt inventory',
-    );
-    await (bot as any).pathfinder.goto(
-      new (goals as any).GoalBlock(
-        PREPARED_BODY_POSITION.x,
-        PREPARED_BODY_POSITION.y,
-        PREPARED_BODY_POSITION.z,
-      ),
-    );
-    await waitFor(
-      () => positionDistance((bot as any).entity?.position, PREPARED_BODY_POSITION) <= 1.25,
-      10_000,
-      'body resident prepared position',
-    );
+    await waitForLocalWorld(bot, 45_000, 'native doorway local world');
     if (priorTurns !== 0)
-      throw new Error(`body proof expected no prior turns, found ${priorTurns}`);
+      throw new Error(`doorway proof expected no prior turns, found ${priorTurns}`);
+    await (bot as any).pathfinder.goto(new (goals as any).GoalBlock(SOUTH.x, SOUTH.y, SOUTH.z));
+    await (bot as any).lookAt(new Vec3(LOWER.x + 0.5, LOWER.y + 0.2, LOWER.z + 0.5), false);
+    await waitFor(
+      () => {
+        const focus = experience!.observe().scene.focus;
+        return (
+          focus?.name === 'oak_door' &&
+          focus?.source === 'cursor' &&
+          focus?.reachable === true &&
+          focus?.position?.x === LOWER.x &&
+          focus?.position?.z === LOWER.z
+        );
+      },
+      10_000,
+      'resident first-person door focus',
+    );
     const initialObservation = experience.observe();
-    const position = (bot as any).entity?.position;
-    if (!position) throw new Error('body resident has no position');
-    const bodyBefore = { x: Number(position.x), y: Number(position.y), z: Number(position.z) };
-    const target = {
-      x: Math.floor(position.x),
-      y: Math.floor(position.y),
-      z: Math.floor(position.z),
-    };
-    const before = (bot as any).blockAt?.(new Vec3(target.x, target.y, target.z));
-    if (String(before?.name || '') !== 'air') {
-      throw new Error(
-        `body target must begin as air, observed ${String(before?.name || 'unknown')}`,
-      );
-    }
-    const turn = await executeScriptedInhabitantTurn({
+    const firstCrossing = await executeScriptedInhabitantTurn({
       entityId,
       loom,
       experience,
       engine,
       events,
-      name: 'place_block',
-      input: { ...target, name: 'dirt' },
+      name: 'cross_visible_door',
+      input: {
+        focus: initialObservation.scene.focus!.id,
+        closeAfter: true,
+        rememberAs: { label: 'Proof doorway', purpose: 'A route I crossed' },
+      },
       model: MODEL,
+      onEntityTurn: (turn) => memory.record(turn),
+    });
+    const memoryAfterFirst = memory.snapshot();
+    memory = createPlaceMemory(entityId, loom.turns());
+    const memoryAfterRestart = memory.snapshot();
+    const remembered = memoryAfterRestart[0];
+    if (!remembered) throw new Error('first crossing produced no restart memory');
+    const reusedCrossing = await executeScriptedInhabitantTurn({
+      entityId,
+      loom,
+      experience,
+      engine,
+      events,
+      name: 'cross_place_door',
+      input: { id: remembered.id, closeAfter: true },
+      model: MODEL,
+      onEntityTurn: (turn) => memory.record(turn),
     });
     const finalObservation = experience.observe();
     durableWriteJson(phaseFile, {
-      protocol: NATIVE_BODY_PHASE_PROTOCOL,
+      protocol: NATIVE_DOORWAY_PHASE_PROTOCOL,
       repositoryRevision: gitRevision(),
       entityId,
       model: MODEL,
@@ -303,20 +361,22 @@ async function runResident() {
       priorTurns,
       resultingTurns: loom.turns().length,
       fixtureSetup: {
-        kind: 'pathfinder_preposition_before_recorded_action',
-        destination: PREPARED_BODY_POSITION,
+        kind: 'pathfinder_preposition_and_first_person_look_before_recorded_action',
+        destination: SOUTH,
+        door: LOWER,
       },
-      bodyBefore,
-      target,
       initialObservation,
-      turn,
+      firstCrossing,
+      memoryAfterFirst,
+      memoryAfterRestart,
+      reusedCrossing,
       finalObservation,
       completedAt: new Date().toISOString(),
     });
-    process.stdout.write(`[native-body] phase complete: ${phaseFile}\n`);
-    await waitForManagerStop(bot);
+    process.stdout.write(`[native-doorway] phase complete: ${phaseFile}\n`);
+    await waitForManagerStop(bot, 'native doorway');
     const drain = await engine.shutdown('managed_stdin_closed');
-    if (!drain.drained) throw new Error('native body proof engine did not drain');
+    if (!drain.drained) throw new Error('native doorway engine did not drain');
     experience.destroy();
     experience = null;
     await disconnectMinecraftBot(bot);
@@ -324,7 +384,7 @@ async function runResident() {
     await loom.close();
   } catch (error) {
     try {
-      if (engine) await engine.shutdown('native_body_proof_failed');
+      if (engine) await engine.shutdown('native_doorway_proof_failed');
     } catch {}
     experience?.destroy();
     if (bot) await disconnectMinecraftBot(bot).catch(() => {});
@@ -333,22 +393,20 @@ async function runResident() {
   }
 }
 
-function inventoryCount(observation: any, name: string) {
-  return (Array.isArray(observation?.self?.inventory) ? observation.self.inventory : [])
-    .filter((item: any) => String(item?.name) === name)
-    .reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.count) || 0), 0);
+function positionRecord(position: any) {
+  return position ? { x: Number(position.x), y: Number(position.y), z: Number(position.z) } : null;
 }
 
 if (process.argv.slice(2).includes('--server')) {
   void runResident().catch((error) => {
     process.stderr.write(
-      `[native-body:resident] ${error instanceof Error ? error.stack : error}\n`,
+      `[native-doorway:resident] ${error instanceof Error ? error.stack : error}\n`,
     );
     process.exitCode = 1;
   });
 } else {
   void runProof().catch((error) => {
-    process.stderr.write(`[native-body] ${error instanceof Error ? error.stack : error}\n`);
+    process.stderr.write(`[native-doorway] ${error instanceof Error ? error.stack : error}\n`);
     process.exitCode = 1;
   });
 }

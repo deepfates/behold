@@ -626,7 +626,9 @@ function assertOwnedWorldBlock(block: OwnedWorldBlock) {
   if (![block.x, block.y, block.z].every(Number.isSafeInteger)) {
     throw new Error(`owned-world block requires integer coordinates: ${JSON.stringify(block)}`);
   }
-  if (!/^[a-z0-9_]+$/.test(block.block)) {
+  // Prepared proof fixtures may pin an exact vanilla block state, but never
+  // accept whitespace, commands, NBT, namespaces, or selector syntax.
+  if (!/^[a-z0-9_]+(?:\[[a-z0-9_]+=[a-z0-9_]+(?:,[a-z0-9_]+=[a-z0-9_]+)*\])?$/.test(block.block)) {
     throw new Error(`owned-world block has an invalid Minecraft block name: ${block.block}`);
   }
 }
