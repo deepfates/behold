@@ -45,7 +45,38 @@ export type RecentActionContinuity = {
       result?: any;
       resultOmittedFromWorkingContinuity?: true;
     };
+    glimpse?: {
+      protocol: 'behold.first-person-glimpse.v1';
+      observationSequence: number | null;
+      observedAt: number | null;
+      orientation: { facing: string; vertical: string } | null;
+      focus: {
+        id: string;
+        kind: string;
+        name: string;
+        distance: number | null;
+        reachable: boolean | null;
+      } | null;
+      visualField: HistoricalFirstPersonVisualField;
+      provenance: 'historical_next_observation';
+      currency: 'historical_current_observation_wins';
+    };
   }>;
+};
+
+type HistoricalFirstPersonVisualField = {
+  protocol: 'behold.visual-field.v1';
+  available: boolean;
+  dimensions: { rows: number | null; columns: number | null };
+  rowOrder: string;
+  columnOrder: string;
+  materialRows: string[];
+  depthRows: string[];
+  materialLegend: Array<{ symbol: string; name: string }>;
+  depthLegend: Array<{ symbol: string; label: string; maxDistance: number | null }>;
+  noHitSymbol: string;
+  unavailableSymbol: string;
+  center: { row: number | null; column: number | null; alignedWith: 'historical_view' };
 };
 
 /**
@@ -54,8 +85,9 @@ export type RecentActionContinuity = {
  * Urgent cognition cannot afford the whole recent conversation, but it still
  * needs to know what this body just tried and what the world actually did.
  * This projection contains only the inhabitant's own committed action/outcome
- * pairs. It carries no historical scene, hidden coordinate, provider reasoning,
- * or controller scratch state, and explicitly yields to the current observation.
+ * pairs plus a tiny allowlisted first-person glimpse after each action. It
+ * carries no loaded-volume scene, hidden coordinate, provider reasoning, or
+ * controller scratch state, and explicitly yields to the current observation.
  */
 export function projectRecentActionContinuity(
   turns: readonly EntityTurn[],
@@ -86,7 +118,11 @@ export function projectRecentActionContinuity(
         'utf8',
       ) > boundedBytes
     ) {
-      if (selected.length === 0) selected = [projectContinuityTurnFallback(turns.at(-1)!)];
+      if (selected.length === 0) {
+        selected = [
+          continuityTurnWithinEnvelopeBudget(turns.at(-1)!, entityId, boundedTurns, boundedBytes),
+        ];
+      }
       break;
     }
     selected = proposed;
@@ -134,6 +170,7 @@ function projectContinuityTurn(turn: EntityTurn): RecentActionContinuity['turns'
       ...(turn.outcome.error ? { error: boundedContinuityText(turn.outcome.error, 400) } : {}),
       result: compactContinuityValue(projectResidentVisibleValue(turn.outcome.result)),
     },
+    ...firstPersonGlimpse(turn),
   };
   if (Buffer.byteLength(JSON.stringify(projected), 'utf8') <= RECENT_ACTION_TURN_BYTE_LIMIT) {
     return projected;
@@ -142,7 +179,7 @@ function projectContinuityTurn(turn: EntityTurn): RecentActionContinuity['turns'
 }
 
 function projectContinuityTurnFallback(turn: EntityTurn): RecentActionContinuity['turns'][number] {
-  return {
+  const projected: RecentActionContinuity['turns'][number] = {
     turn: turn.sequence,
     completedAt: turn.completedAt,
     controller: String(turn.action.source),
@@ -155,6 +192,46 @@ function projectContinuityTurnFallback(turn: EntityTurn): RecentActionContinuity
       ok: turn.outcome.ok === true,
       eventType: String(turn.outcome.eventType || ''),
       ...(turn.outcome.error ? { error: boundedContinuityText(turn.outcome.error, 400) } : {}),
+      resultOmittedFromWorkingContinuity: true,
+    },
+    ...firstPersonGlimpse(turn),
+  };
+  if (Buffer.byteLength(JSON.stringify(projected), 'utf8') <= RECENT_ACTION_TURN_BYTE_LIMIT) {
+    return projected;
+  }
+  return projectMinimalContinuityTurn(turn);
+}
+
+function continuityTurnWithinEnvelopeBudget(
+  turn: EntityTurn,
+  entityId: string,
+  turnLimit: number,
+  byteLimit: number,
+) {
+  const withGlimpse = projectContinuityTurnFallback(turn);
+  if (
+    Buffer.byteLength(
+      JSON.stringify(continuityEnvelope(entityId, [withGlimpse], turnLimit, byteLimit)),
+      'utf8',
+    ) <= byteLimit
+  ) {
+    return withGlimpse;
+  }
+  return projectMinimalContinuityTurn(turn);
+}
+
+function projectMinimalContinuityTurn(turn: EntityTurn): RecentActionContinuity['turns'][number] {
+  return {
+    turn: turn.sequence,
+    completedAt: turn.completedAt,
+    controller: boundedContinuityText(turn.action.source, 80),
+    action: {
+      name: boundedContinuityText(turn.action.name, 80),
+      inputOmittedFromWorkingContinuity: true,
+    },
+    outcome: {
+      ok: turn.outcome.ok === true,
+      eventType: boundedContinuityText(turn.outcome.eventType, 80),
       resultOmittedFromWorkingContinuity: true,
     },
   };
@@ -181,6 +258,96 @@ function publicIntention(turn: EntityTurn, limit = 600) {
   const content = turn.utterance?.assistant?.content;
   if (typeof content !== 'string' || !content.trim()) return {};
   return { publicIntention: boundedContinuityText(content.trim(), limit) };
+}
+
+function firstPersonGlimpse(turn: EntityTurn) {
+  const observation = turn.nextObservation;
+  const visualField = observation?.scene?.terrain?.visualField;
+  if (visualField?.protocol !== 'behold.visual-field.v1') return {};
+  const orientation = observationOrientation(observation?.self?.pose);
+  const focus = observation?.scene?.focus;
+  return {
+    glimpse: {
+      protocol: 'behold.first-person-glimpse.v1' as const,
+      observationSequence: finiteOrNull(observation?.sequence),
+      observedAt: finiteOrNull(observation?.observedAt),
+      orientation:
+        typeof orientation?.facing === 'string' && typeof orientation?.vertical === 'string'
+          ? {
+              facing: boundedContinuityText(orientation.facing, 32),
+              vertical: boundedContinuityText(orientation.vertical, 32),
+            }
+          : null,
+      focus:
+        focus && typeof focus === 'object'
+          ? {
+              id: boundedContinuityText(focus.id, 160),
+              kind: boundedContinuityText(focus.kind, 40),
+              name: boundedContinuityText(focus.name, 120),
+              distance: finiteOrNull(focus.distance),
+              reachable: typeof focus.reachable === 'boolean' ? focus.reachable : null,
+            }
+          : null,
+      visualField: projectVisualField(visualField),
+      provenance: 'historical_next_observation' as const,
+      currency: 'historical_current_observation_wins' as const,
+    },
+  };
+}
+
+function observationOrientation(pose: any) {
+  if (
+    typeof pose?.orientation?.facing === 'string' &&
+    typeof pose?.orientation?.vertical === 'string'
+  ) {
+    return pose.orientation;
+  }
+  return projectCurrentPose(pose)?.orientation;
+}
+
+function projectVisualField(field: any): HistoricalFirstPersonVisualField {
+  return {
+    protocol: 'behold.visual-field.v1',
+    available: field.available === true,
+    dimensions: {
+      rows: finiteOrNull(field?.dimensions?.rows),
+      columns: finiteOrNull(field?.dimensions?.columns),
+    },
+    rowOrder: boundedContinuityText(field.rowOrder, 32),
+    columnOrder: boundedContinuityText(field.columnOrder, 32),
+    materialRows: boundedRows(field.materialRows),
+    depthRows: boundedRows(field.depthRows),
+    materialLegend: Array.isArray(field.materialLegend)
+      ? field.materialLegend.slice(0, 32).map((entry: any) => ({
+          symbol: boundedContinuityText(entry?.symbol, 4),
+          name: boundedContinuityText(entry?.name, 120),
+        }))
+      : [],
+    depthLegend: Array.isArray(field.depthLegend)
+      ? field.depthLegend.slice(0, 8).map((entry: any) => ({
+          symbol: boundedContinuityText(entry?.symbol, 4),
+          label: boundedContinuityText(entry?.label, 80),
+          maxDistance: finiteOrNull(entry?.maxDistance),
+        }))
+      : [],
+    noHitSymbol: boundedContinuityText(field.noHitSymbol, 4),
+    unavailableSymbol: boundedContinuityText(field.unavailableSymbol, 4),
+    center: {
+      row: finiteOrNull(field?.center?.row),
+      column: finiteOrNull(field?.center?.column),
+      alignedWith: 'historical_view',
+    },
+  };
+}
+
+function boundedRows(value: any) {
+  return Array.isArray(value) ? value.slice(0, 9).map((row) => boundedContinuityText(row, 32)) : [];
+}
+
+function finiteOrNull(value: unknown) {
+  if (value == null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function compactContinuityValue(value: any, depth = 0): any {

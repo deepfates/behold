@@ -263,7 +263,7 @@ test('failed current actions remain visible instead of being compacted into succ
   assert.equal(JSON.stringify(projected).includes('secretDebugState'), false);
 });
 
-test('fast attention receives bounded own-loom actions and exact world outcomes without historical scenes', () => {
+test('fast attention receives bounded outcomes and allowlisted first-person working memory', () => {
   const placed = continuityTurn(
     1,
     'Scout',
@@ -295,6 +295,46 @@ test('fast attention receives bounded own-loom actions and exact world outcomes 
     },
   );
   placed.observation = { scene: { privilegedLoadedVolume: 'must not enter working memory' } };
+  placed.nextObservation = {
+    protocol: 'behold.inhabitant.v2',
+    sequence: 3,
+    observedAt: 30,
+    self: { pose: { yaw: Math.PI / 2, pitch: 0 } },
+    scene: {
+      focus: {
+        id: 'block:overworld:4:64:8',
+        kind: 'block',
+        name: 'oak_planks',
+        distance: 2.5,
+        reachable: true,
+        privilegedBlockState: 'must not enter working memory',
+      },
+      terrain: {
+        privilegedLoadedVolume: 'must not enter working memory',
+        visualField: {
+          protocol: 'behold.visual-field.v1',
+          available: true,
+          dimensions: { rows: 5, columns: 9 },
+          rowOrder: 'top_to_bottom',
+          columnOrder: 'left_to_right',
+          materialRows: ['.........', '....a....', '....a....', '....b....', 'bbbbbbbbb'],
+          depthRows: ['.........', '....2....', '....2....', '....1....', '111111111'],
+          materialLegend: [
+            { symbol: 'a', name: 'oak_planks' },
+            { symbol: 'b', name: 'grass_block' },
+          ],
+          depthLegend: [
+            { symbol: '1', label: 'interaction', maxDistance: 4.5 },
+            { symbol: '2', label: 'near', maxDistance: 8 },
+          ],
+          noHitSymbol: '.',
+          unavailableSymbol: '?',
+          center: { row: 2, column: 4, alignedWith: 'current_view' },
+          secretRayEndpoints: 'must not enter working memory',
+        },
+      },
+    },
+  };
   placed.utterance.assistant.content =
     'I will place the lower wall block that anchors the next upper block.';
   placed.utterance.assistant.reasoning = 'provider-private chain of thought';
@@ -318,8 +358,21 @@ test('fast attention receives bounded own-loom actions and exact world outcomes 
     'I will place the lower wall block that anchors the next upper block.',
   );
   assert.equal(projected?.turns[1].outcome.result.error, 'placement_support_not_found');
+  assert.equal(projected?.turns[0].glimpse?.orientation?.facing, 'west');
+  assert.equal(projected?.turns[0].glimpse?.focus?.name, 'oak_planks');
+  assert.deepEqual(projected?.turns[0].glimpse?.visualField.materialRows, [
+    '.........',
+    '....a....',
+    '....a....',
+    '....b....',
+    'bbbbbbbbb',
+  ]);
+  assert.equal(projected?.turns[0].glimpse?.visualField.center.alignedWith, 'historical_view');
+  assert.equal(projected?.turns[0].glimpse?.visualField.depthLegend[1].label, 'near');
   const serialized = JSON.stringify(projected);
   assert.equal(serialized.includes('privilegedLoadedVolume'), false);
+  assert.equal(serialized.includes('privilegedBlockState'), false);
+  assert.equal(serialized.includes('secretRayEndpoints'), false);
   assert.equal(serialized.includes('provider-private chain of thought'), false);
 
   const laterWindow = projectRecentActionContinuity([
@@ -351,6 +404,36 @@ test('recent action continuity is byte bounded and rejects mixed inhabitant hist
   assert.equal(projected?.turns.at(-1)?.turn, 10);
   assert.equal(projected?.turns.at(-1)?.outcome.resultOmittedFromWorkingContinuity, true);
   assert.equal(projected?.source.omittedOlderTurns, 10 - Number(projected?.turns.length));
+
+  turns.at(-1)!.nextObservation = {
+    sequence: 11,
+    observedAt: 40,
+    self: { pose: { yaw: 0, pitch: 0 } },
+    scene: {
+      terrain: {
+        visualField: {
+          protocol: 'behold.visual-field.v1',
+          available: true,
+          dimensions: { rows: 5, columns: 9 },
+          rowOrder: 'top_to_bottom',
+          columnOrder: 'left_to_right',
+          materialRows: Array(5).fill('aaaaaaaaa'),
+          depthRows: Array(5).fill('111111111'),
+          materialLegend: Array.from({ length: 32 }, (_, index) => ({
+            symbol: String.fromCharCode(65 + index),
+            name: `material-${index}-${'x'.repeat(120)}`,
+          })),
+          depthLegend: [],
+          noHitSymbol: '.',
+          unavailableSymbol: '?',
+          center: { row: 2, column: 4 },
+        },
+      },
+    },
+  };
+  const projectedWithLargeGlimpse = projectRecentActionContinuity(turns, 6, 1_000);
+  assert.ok(Buffer.byteLength(JSON.stringify(projectedWithLargeGlimpse), 'utf8') <= 1_000);
+  assert.equal(projectedWithLargeGlimpse?.turns.at(-1)?.glimpse, undefined);
 
   const foreign = continuityTurn(11, 'Builder', 'status', {}, { ok: true });
   assert.throws(

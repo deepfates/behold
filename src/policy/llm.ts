@@ -1501,6 +1501,7 @@ function conversationForAttention(
         role: 'system',
         content: [
           'Recent lived action continuity from your own entity loom. This is bounded historical evidence; the current observation wins whenever state has changed.',
+          'Any first-person glimpses are past camera views retained as perceptual working memory. Compare their orientations, but do not treat them as current geometry, a panorama, or proof of safety.',
           JSON.stringify(recentActionContinuity),
         ].join('\n'),
       }
