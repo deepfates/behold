@@ -93,7 +93,7 @@ ordinary examples but have not covered the whole native family.
 | ------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
 | Seeing, hearing, HUD, and events           | Partial                    | exact-camera visual evidence; more legible obstruction and interaction feedback                   |
 | Looking and facing                         | Live-proven basic coverage | decide when images are worth their cost; face selected visible targets consistently               |
-| Walking and exploration                    | Partial                    | egocentric steps; intentional sneak/sprint when semantically relevant; swimming/climbing feedback |
+| Walking and exploration                    | Basic relative walk added  | live model selection; intentional sneak/sprint when meaningful; swimming/climbing feedback        |
 | Breaking, placing, and ordinary use        | Partial                    | one consistent visible-target language; held-item use rather than block-specific controller verbs |
 | Inventory, equipment, pickup, and drop     | Strong basic coverage      | offhand and inventory arrangement only when gameplay makes them meaningful                        |
 | Crafting and storage                       | Partial                    | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions            |
@@ -131,13 +131,16 @@ What remains red, in priority order:
    changing after both turns. We still need to decide, with evidence, whether
    structured rays are sufficient or an on-demand first-person image is
    necessary for architecture and visual culture.
-2. **Egocentric local movement.** `move_to` accepts exact feet coordinates,
-   which is useful for known places but poor for exploration. We need a bounded
-   player-grain way to walk forward/left/right/back or approach a selected
-   visible surface without asking the mind to solve coordinate geometry.
-3. **Legible obstruction.** `no_path` currently says too little. The body should
-   report the immediate player-scale obstruction or missing support it actually
-   encountered, without revealing a hidden route or loaded-volume map.
+2. **Egocentric local movement.** `move_direction` now supplies bounded
+   forward/back/left/right walking relative to the resident's view, while
+   `move_to` remains for visible, communicated, or remembered coordinates. Its
+   first natural admission did not select the new action: the resident already
+   saw an exact oak-log target and appropriately used `move_to`. Preserve that
+   trajectory and seek real-server selection through later life, not retries.
+3. **Legible obstruction.** Failed relative walking now reports only the
+   adjacent feet, head, and support cells. Coordinate `move_to` failures still
+   need equally useful body-scale evidence without revealing a hidden route or
+   loaded-volume map.
 4. **Visible-target interaction.** Crosshair block/entity references should be
    usable consistently for mine, use, place, and approach. Coordinates remain
    valid remembered-place evidence, not the only language of embodied action.
