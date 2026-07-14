@@ -27,6 +27,9 @@ test('the inhabitant action space excludes raw motor controls and privileged sur
   assert.ok(inhabitantActions.includes('inspect_volume'));
   assert.ok(inhabitantActions.includes('craft_item'));
   assert.ok(inhabitantActions.includes('attack_entity'));
+  const fight = interpreter.describe('attack_entity');
+  assert.deepEqual(fight?.parameters.required, ['target']);
+  assert.deepEqual(Object.keys(fight?.parameters.properties || {}), ['target']);
   assert.equal(inhabitantActions.includes('set_control'), false);
   assert.equal(inhabitantActions.includes('clear_controls'), false);
   assert.equal(inhabitantActions.includes('survey_area'), false);
@@ -930,7 +933,7 @@ test('sleep and a chosen fight return observed body/world consequences', async (
   assert.equal(slept.ok, true);
   assert.equal(slept.bed.name, 'red_bed');
 
-  const attacked = await interpreter.run('attack_entity', { name: 'zombie' });
+  const attacked = await interpreter.run('attack_entity', { target: 'entity:2' });
   assert.equal(attacked.ok, true);
   assert.equal(attacked.status, 'target_defeated');
   assert.equal(attacked.attacksAttempted, 1);
@@ -956,9 +959,8 @@ test('one chosen fight sustains legal-paced attacks until the exact target dies'
     });
   };
 
-  const result = await buildInterpreter(bot).run('attack_entity', {
-    name: 'zombie',
-    timeoutMs: 3000,
+  const result = await buildInterpreter(bot, { fightTimeoutMs: 3000 }).run('attack_entity', {
+    target: 'entity:2',
   });
 
   assert.equal(result.ok, true);
@@ -981,9 +983,8 @@ test('hurt events without exact target death do not claim victory', async () => 
   bot.entities[2] = zombie;
   bot.attack = () => setImmediate(() => bot.emit('entityHurt', zombie, bot.entity));
 
-  const result = await buildInterpreter(bot).run('attack_entity', {
-    name: 'zombie',
-    timeoutMs: 100,
+  const result = await buildInterpreter(bot, { fightTimeoutMs: 100 }).run('attack_entity', {
+    target: 'entity:2',
   });
 
   assert.equal(result.ok, false);
@@ -1015,9 +1016,8 @@ test('another entity dying and the target disappearing cannot confirm a fight', 
       delete bot.entities[2];
     });
 
-  const result = await buildInterpreter(bot).run('attack_entity', {
-    name: 'zombie',
-    timeoutMs: 1000,
+  const result = await buildInterpreter(bot, { fightTimeoutMs: 1000 }).run('attack_entity', {
+    target: 'entity:2',
   });
 
   assert.equal(result.ok, false);
@@ -1036,19 +1036,18 @@ test('a selected target escaping the pursuit boundary ends the fight', async () 
   };
   bot.entities[2] = zombie;
   bot.attack = () => {
-    zombie.position = new Vec3(10, 64, 0);
+    zombie.position = new Vec3(20, 64, 0);
   };
 
-  const result = await buildInterpreter(bot).run('attack_entity', {
-    name: 'zombie',
-    maxDistance: 4,
-    timeoutMs: 1500,
-  });
+  const result = await buildInterpreter(bot, {
+    fightPursuitDistance: 4,
+    fightTimeoutMs: 1500,
+  }).run('attack_entity', { target: 'entity:2' });
 
   assert.equal(result.ok, false);
   assert.equal(result.error, 'target_escaped');
   assert.equal(result.attacksAttempted, 1);
-  assert.equal(result.finalDistance, 10);
+  assert.equal(result.finalDistance, 20);
   assert.equal(result.confirmation, null);
 });
 
@@ -1063,9 +1062,8 @@ test('body death is a world-confirmed terminal fight outcome', async () => {
   bot.entities[2] = zombie;
   bot.attack = () => setImmediate(() => bot.emit('death'));
 
-  const result = await buildInterpreter(bot).run('attack_entity', {
-    name: 'zombie',
-    timeoutMs: 1000,
+  const result = await buildInterpreter(bot, { fightTimeoutMs: 1000 }).run('attack_entity', {
+    target: 'entity:2',
   });
 
   assert.equal(result.ok, false);
@@ -1088,7 +1086,7 @@ test('a simultaneous kill and body death is not reported as clean victory', asyn
       bot.emit('death');
     });
 
-  const result = await buildInterpreter(bot).run('attack_entity', { name: 'zombie' });
+  const result = await buildInterpreter(bot).run('attack_entity', { target: 'entity:2' });
 
   assert.equal(result.ok, false);
   assert.equal(result.error, 'mutual_defeat');
@@ -1119,7 +1117,7 @@ test('human interruption stops active combat pursuit before it is acknowledged',
   const controller = new AbortController();
   const pending = buildInterpreter(bot).run(
     'attack_entity',
-    { name: 'zombie', maxDistance: 8 },
+    { target: 'entity:2' },
     { signal: controller.signal },
   );
 
@@ -1159,7 +1157,7 @@ test('combat does not fabricate cancellation acknowledgement when pursuit cannot
   const controller = new AbortController();
   const pending = buildInterpreter(bot).run(
     'attack_entity',
-    { name: 'zombie', maxDistance: 8 },
+    { target: 'entity:2' },
     { signal: controller.signal },
   );
 

@@ -49,6 +49,8 @@ type InterpreterOptions = {
   projects?: ProjectMemory;
   places?: () => InhabitantPlace[];
   observe?: () => any;
+  fightPursuitDistance?: number;
+  fightTimeoutMs?: number;
 };
 
 export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
@@ -351,49 +353,46 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'attack_entity',
     description:
-      'Fight one observed nearby entity. This body follows, faces, and attacks that exact entity until Minecraft confirms its death, it escapes, this bounded attempt expires, this body dies, or a human interrupts.',
+      'Fight one particular nearby creature from scene.entities. Choose its exact observed id; this body owns bounded pursuit, facing, legal attack timing, and the terminal result.',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string' },
-        maxDistance: {
-          type: 'number',
-          minimum: 1,
-          maximum: 16,
-          description: 'Stop rather than pursuing the selected entity beyond this distance.',
-        },
-        timeoutMs: {
-          type: 'number',
-          minimum: 1000,
-          maximum: 30000,
-          description: 'Maximum duration of this one chosen fight.',
+        target: {
+          type: 'string',
+          description: 'Exact id from scene.entities, such as entity:71',
         },
       },
-      required: ['name'],
+      required: ['target'],
     },
-    run: async ({ name, maxDistance = 8, timeoutMs = 15_000 }, execution) => {
-      const targetName = String(name).toLowerCase();
+    run: async ({ target: requestedTarget }, execution) => {
+      const targetReference = String(requestedTarget || '');
       const me = (bot as any).entity?.position;
-      const pursuitLimit = clamp(Number(maxDistance), 1, 16);
-      const target = (Object.values((bot as any).entities || {}) as any[])
-        .filter((entity) => entity?.position && entity?.id !== (bot as any).entity?.id)
-        .map((entity) => ({ entity, distance: me?.distanceTo(entity.position) ?? Infinity }))
-        .filter(({ entity, distance }) => {
-          const candidate = String(
-            entity?.username || entity?.displayName || entity?.name || entity?.type || '',
-          ).toLowerCase();
-          return candidate.includes(targetName) && distance <= pursuitLimit;
-        })
-        .sort((a, b) => a.distance - b.distance)[0];
-      if (!target) {
-        return { ok: false, error: 'entity_not_in_reach', target: String(name) };
+      const pursuitLimit = clamp(Number(opts.fightPursuitDistance ?? 16), 1, 16);
+      const selectedTarget = (Object.values((bot as any).entities || {}) as any[]).find(
+        (entity) =>
+          entity?.position &&
+          entity?.id !== (bot as any).entity?.id &&
+          sceneEntityReference(entity) === targetReference,
+      );
+      if (!selectedTarget) {
+        return { ok: false, error: 'target_not_observed', target: targetReference };
+      }
+      const startedDistance = me?.distanceTo(selectedTarget.position) ?? Infinity;
+      if (startedDistance > pursuitLimit) {
+        return {
+          ok: false,
+          error: 'target_not_in_reach',
+          target: targetReference,
+          distance: round(startedDistance),
+          pursuitLimit,
+        };
       }
 
-      return runBoundedFight(bot, target.entity, {
-        targetAtStart: summarizeEntity(target.entity),
-        startedDistance: target.distance,
+      return runBoundedFight(bot, selectedTarget, {
+        targetAtStart: summarizeEntity(selectedTarget),
+        startedDistance,
         maxDistance: pursuitLimit,
-        timeoutMs: clamp(Number(timeoutMs), 100, 30_000),
+        timeoutMs: clamp(Number(opts.fightTimeoutMs ?? 15_000), 100, 30_000),
         signal: execution?.signal,
       });
     },
@@ -2131,6 +2130,12 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       position: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
       distance: dist,
     };
+  }
+
+  function sceneEntityReference(entity: any) {
+    return entity?.username
+      ? `player:${String(entity.username)}`
+      : `entity:${String(entity?.id ?? '')}`;
   }
 
   return {

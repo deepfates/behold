@@ -361,6 +361,10 @@ The useful architecture came from concrete failures:
   look situationally safe even beside a hostile creature. The observation now
   reports `pickupGround` as supported, unsupported, hazardous, or unknown; the
   resident must judge threats, distance, body condition, and purpose itself.
+- A name-only combat call with model-selected pursuit and timeout knobs let a
+  moving zombie slip across the acquisition boundary during deliberation and
+  could bind the wrong same-named creature. Combat now takes one exact perceived
+  scene entity; the body, not the mind, owns bounded pursuit and attack timing.
 - The first policy decision once raced ahead of local entity synchronization.
   Initial world sync and later live appearances now have distinct provenance,
   and the mind does not start until a bounded synchronization window completes.
