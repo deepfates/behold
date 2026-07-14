@@ -244,9 +244,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     model: opts.model,
     cacheFile: opts.foldCacheFile,
     readOnly: opts.foldReadOnly,
-    recentTurns: opts.foldRecentTurns ?? 8,
+    recentTurns: opts.foldRecentTurns ?? 6,
     foldBatchTurns: opts.foldBatchTurns ?? 24,
-    foldTriggerTurns: opts.foldTriggerTurns ?? 8,
+    foldTriggerTurns: opts.foldTriggerTurns ?? 6,
     now,
     summarize: opts.summarizeLoom
       ? (request) => withModelRequest((signal) => abortable(opts.summarizeLoom!(request), signal))
@@ -460,14 +460,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               messages,
               attention,
               availableTools,
-              attention.context === 'current_body_and_continuity'
-                ? projectRecentActionContinuity(
-                    loomContext.view().turns,
-                    undefined,
-                    undefined,
-                    residentTurnMayReplay,
-                  )
-                : null,
+              projectRecentActionContinuity(
+                loomContext.view().turns,
+                attention.context === 'bounded_loom' ? 12 : undefined,
+                attention.context === 'bounded_loom' ? 16_000 : undefined,
+                residentTurnMayReplay,
+              ),
             ),
           ),
           actions: cloneJson(
@@ -1452,7 +1450,6 @@ function conversationForAttention(
   availableTools?: readonly ToolSpec[],
   recentActionContinuity?: RecentActionContinuity | null,
 ) {
-  if (attention.context === 'bounded_loom') return messages;
   const bodilyUrgency = hasBodilyUrgency(attention);
   const continuingBodyPressure = attention.continuingCondition === 'critical_body_condition';
   const system = availableTools
@@ -1508,6 +1505,11 @@ function conversationForAttention(
       }
     : null;
   const current = messages.at(-1);
+  if (attention.context === 'bounded_loom') {
+    return [system, ...(foldedContinuity ? [foldedContinuity] : []), recentActions, current].filter(
+      Boolean,
+    );
+  }
   return [
     system,
     ...(foldedContinuity ? [foldedContinuity] : []),

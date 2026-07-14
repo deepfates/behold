@@ -231,7 +231,8 @@ test('urgent attention preserves resident choice while fresh perception updates 
     assert.deepEqual(requests[1].attention.triggers, [
       { sequence: 2, type: 'self_hurt', salience: 'urgent' },
     ]);
-    assert.ok(requests[1].conversation.length < requests[0].conversation.length);
+    assert.ok(requests[0].conversation.length <= 4);
+    assert.ok(requests[1].conversation.length <= 5);
     assert.match(
       requests[1].conversation.map((message: any) => String(message.content || '')).join('\n'),
       /Urgent attention handoff[\s\S]*self_hurt@2/,
@@ -1701,14 +1702,13 @@ test('controller receives real action results and continues the same bounded tur
     assert.equal(entityTurns[0].utterance.assistant.reasoning, 'private provider audit evidence');
     assert.equal(enqueued[1].tool, 'chat');
     assert.equal(requests.length, 2);
-    assert.ok(
-      requests[1].messages.some(
-        (message: any) =>
-          message.role === 'tool' &&
-          message.tool_call_id === 'call-approach' &&
-          JSON.parse(message.content).result.finalDistance === 2.1,
-      ),
-      'resolved world result was not returned to the controller',
+    const continuity = recentContinuity(requests[1].messages);
+    assert.equal(continuity.turns.at(-1).action.name, 'approach_entity');
+    assert.equal(continuity.turns.at(-1).outcome.result.finalDistance, 2.1);
+    assert.equal(
+      requests[1].messages.some((message: any) => message.role === 'tool'),
+      false,
+      'resident continuity must not depend on provider-specific tool transcript replay',
     );
 
     currentAction = {
@@ -2228,7 +2228,7 @@ test('system guidance follows the admitted affordances instead of describing abs
       /ordering, preconditions, and prohibitions.*take precedence over the generic action heuristics/i,
     );
     assert.match(system, /self\.projects is your bounded/i);
-    assert.match(system, /dropped inventory expires/i);
+    assert.doesNotMatch(system, /dropped inventory expires/i);
     assert.match(system, /bodyFeet.*occupied by bodies/i);
     assert.doesNotMatch(system, /Minecraft chat is narrow/i);
     assert.doesNotMatch(system, /descend_step/i);
@@ -2831,14 +2831,13 @@ test('a restarted controller continues the same entity trajectory from loom turn
   try {
     await policy.tick();
     assert.equal(requests.length, 1);
-    assert.ok(
-      requests[0].messages.some(
-        (message: any) =>
-          message.role === 'tool' &&
-          message.tool_call_id === 'call-old-status' &&
-          JSON.parse(message.content).result.position.x === 4,
-      ),
-      'the prior action observation was not restored into the model context',
+    const continuity = recentContinuity(requests[0].messages);
+    assert.equal(continuity.turns[0].action.name, 'status');
+    assert.equal(continuity.turns[0].outcome.result.position.x, 4);
+    assert.equal(
+      requests[0].messages.some((message: any) => message.role === 'tool'),
+      false,
+      'restart memory must remain portable across model protocol adapters',
     );
     assert.equal(turns[0]?.sequence, 2);
     assert.equal(turns[0]?.parentId, 'Scout:turn:1');
@@ -2904,8 +2903,8 @@ test('controller context remains bounded across a continuing life', async () => 
     }
     await until(() => policy.state().turnActive === false && requests.length === actionCount + 1);
     assert.ok(
-      Math.max(...requests.map((request) => request.messages.length)) <= 48,
-      'working context should contain only the bounded recent trajectory',
+      Math.max(...requests.map((request) => request.messages.length)) <= 4,
+      'deliberative working context should remain independent of trajectory length',
     );
     assert.ok(policy.state().loomContext.foldedThrough >= 8);
   } finally {
@@ -3129,6 +3128,14 @@ function tool(name: string) {
       parameters: { type: 'object', properties: {} },
     },
   };
+}
+
+function recentContinuity(messages: any[]) {
+  const message = messages.find((candidate: any) =>
+    String(candidate?.content || '').includes('behold.recent-action-continuity.v1'),
+  );
+  assert.ok(message, 'recent lived continuity was not supplied');
+  return JSON.parse(String(message.content).split('\n').at(-1)!);
 }
 
 function assistantTool(id: string, name: string, args: any) {
