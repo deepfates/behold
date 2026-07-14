@@ -42,6 +42,12 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   canonical signature digest and a content identity on both successful and
   failed calls. Runtime policy guidance remains request input, and optimizer
   output is narrowed before it can change the inference contract
+- Direct OpenRouter is now a replaceable mind adapter rather than private policy
+  code. Every completed mind boundary records the controller-computed identity
+  of its exact `ResidentMindRequest`. One live GPT-5.4 Mini comparison passed
+  direct and Ax the same neutral request artifact; their provider projections
+  and legal choices differed without changing the admitted experience. See
+  `docs/reports/2026-07-14-matched-mind-input.md`
 - A closed resident life can now expose an exact inclusive Lync turn range
   without taking body authority or changing its files. Evaluator-owned episode
   looms preserve that range independently of later body activity or branch-tip
