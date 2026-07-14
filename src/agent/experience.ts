@@ -473,18 +473,14 @@ export class InhabitantExperience {
         oxygen: finiteOrNull((this.bot as any).oxygenLevel),
       };
       const previous = this.lastCondition;
-      if (
-        next.health === previous.health &&
-        next.food === previous.food &&
-        next.oxygen === previous.oxygen
-      ) {
-        return;
-      }
       this.lastCondition = next;
+      if (!conditionMeaningfullyChanged(previous, next)) return;
       const worsened =
         (previous.health != null && next.health != null && next.health < previous.health) ||
         (previous.food != null && next.food != null && next.food < previous.food) ||
-        (previous.oxygen != null && next.oxygen != null && next.oxygen < previous.oxygen);
+        (previous.oxygen != null &&
+          next.oxygen != null &&
+          oxygenDisplayBand(next.oxygen) < oxygenDisplayBand(previous.oxygen));
       const urgent = bodyConditionBecameOrWorsenedCritical(previous, next);
       this.record(
         'condition_changed',
@@ -887,6 +883,29 @@ function normalizeAngle(angle: number) {
 function finiteOrNull(value: any) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Mineflayer reports air ticks, while a Minecraft player sees ten breath
+ * bubbles plus a final critical edge. Keep the exact value in the current body
+ * observation, but admit only those player-visible transitions to lived event
+ * history so a swim cannot crowd every other event out of working memory.
+ */
+function conditionMeaningfullyChanged(
+  previous: { health: number | null; food: number | null; oxygen: number | null },
+  current: { health: number | null; food: number | null; oxygen: number | null },
+) {
+  return (
+    previous.health !== current.health ||
+    previous.food !== current.food ||
+    oxygenDisplayBand(previous.oxygen) !== oxygenDisplayBand(current.oxygen)
+  );
+}
+
+function oxygenDisplayBand(value: number | null) {
+  if (value == null) return Number.POSITIVE_INFINITY;
+  if (value <= 5) return 0;
+  return Math.max(1, Math.min(10, Math.ceil(value / 30)));
 }
 
 function booleanOrNull(value: any) {
