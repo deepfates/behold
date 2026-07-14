@@ -24,6 +24,71 @@ export type ProjectWorldWitness = Readonly<{
   }>[];
 }>;
 
+export type ProjectTreeDigest = Readonly<{
+  profile: string;
+  digest: string;
+  files: number;
+}>;
+
+export type ProjectPlaceBindingEvidence = Readonly<{
+  worldId: string;
+  serverJarSha256: string;
+  descriptor: any;
+  declaredDescriptorSha256: string;
+  actualDescriptorSha256: string;
+  sourceTree: ProjectTreeDigest;
+  baselineTree: ProjectTreeDigest;
+  admittedRuntimeTree: ProjectTreeDigest;
+  initialRuntimeTree: ProjectTreeDigest;
+  afterActTree: ProjectTreeDigest;
+  afterResumeTree: ProjectTreeDigest;
+  finalSourceTree: ProjectTreeDigest;
+  finalBaselineTree: ProjectTreeDigest;
+}>;
+
+export function assessProjectPlaceBinding(input: ProjectPlaceBindingEvidence) {
+  const descriptor = input.descriptor;
+  const assertions = {
+    admittedDescriptorIdentityBound:
+      descriptor?.protocol === 'behold.place-epoch-admission.v1' &&
+      descriptor?.worldId === input.worldId &&
+      isSha256(input.declaredDescriptorSha256) &&
+      input.actualDescriptorSha256 === input.declaredDescriptorSha256,
+    placeReleaseAndProfileDigestsBound:
+      descriptor?.place?.declaredWorldTreeSha256 === descriptor?.place?.verifiedWorldTreeSha256 &&
+      [
+        descriptor?.place?.releaseManifestSha256,
+        descriptor?.place?.releaseChecksumsSha256,
+        descriptor?.place?.worldArchiveSha256,
+        descriptor?.place?.evidenceArchiveSha256,
+        descriptor?.place?.verifiedWorldTreeSha256,
+        descriptor?.profile?.sha256,
+      ].every(isSha256) &&
+      typeof descriptor?.profile?.id === 'string' &&
+      descriptor.profile.id.length > 0,
+    beholdMaterializationBound:
+      descriptor?.behold?.sourceTree?.digest === input.sourceTree.digest &&
+      descriptor?.behold?.baselineTree?.digest === input.baselineTree.digest &&
+      descriptor?.behold?.serverJarSha256 === input.serverJarSha256 &&
+      isSha256(descriptor?.behold?.worldDefinitionSha256),
+    admittedRuntimeStartedFromVerifiedBaseline:
+      input.admittedRuntimeTree.digest === input.baselineTree.digest &&
+      input.admittedRuntimeTree.profile === input.baselineTree.profile,
+    immutableInputsStayedStable:
+      input.finalSourceTree.digest === input.sourceTree.digest &&
+      input.finalBaselineTree.digest === input.baselineTree.digest,
+    runtimeAdvancedThroughBothLives:
+      input.initialRuntimeTree.digest !== input.afterActTree.digest &&
+      input.afterActTree.digest !== input.afterResumeTree.digest,
+  };
+  return {
+    assertions,
+    failed: Object.entries(assertions)
+      .filter(([, passed]) => !passed)
+      .map(([name]) => name),
+  };
+}
+
 export type OwnedWorldProjectExpectation = Readonly<{
   worldId: string;
   entityId: string;
@@ -31,8 +96,8 @@ export type OwnedWorldProjectExpectation = Readonly<{
   task: string;
   projectId: string;
   material: string;
-  worksiteY: number;
-  maxHorizontalCoordinate: number;
+  firstBlock: BlockPosition;
+  secondBlock: BlockPosition;
   actRunId: string;
   resumeRunId: string;
   contextBudget?: Readonly<{
@@ -61,6 +126,7 @@ export function assessOwnedWorldProjectEvidence(
   const resumeAuxiliaryCalls = eventData(resumeEvents, 'model_auxiliary_call');
   const actAuxiliaryFailures = eventData(actEvents, 'model_auxiliary_call_failed');
   const resumeAuxiliaryFailures = eventData(resumeEvents, 'model_auxiliary_call_failed');
+  const actPromptObservation = promptedObservation(actModelTurns[0]?.call?.request?.body);
 
   const startTurn = projectTurn(actEntityTurns, expected.projectId, 'start');
   const collectionTurn = actEntityTurns.find(
@@ -168,7 +234,7 @@ export function assessOwnedWorldProjectEvidence(
     firstLifeBuiltExactlyOneVerifiedBlock:
       actPlacements.length === 1 &&
       firstPlacement?.material === expected.material &&
-      inWorksite(firstPosition, expected),
+      samePosition(firstPosition, expected.firstBlock),
     firstLifeRecordedAnUnfinishedNextStep:
       projectOperation(actUpdateTurn, expected.projectId) === 'update' &&
       meaningfulRemainingStep(nextStep) &&
@@ -194,7 +260,7 @@ export function assessOwnedWorldProjectEvidence(
       activeProject(resumePromptObservation, expected.projectId)?.nextStep === nextStep &&
       inventoryCount(resumePromptObservation, expected.material) === 1,
     restartPromptCarriedThePriorWorldChange:
-      requestNamesContain(resumeRequestBody, ['manage_project', 'place_block', 'inspect_volume']) &&
+      requestNamesContain(resumeRequestBody, ['manage_project', 'place_block']) &&
       resumeRequestText.includes(expected.projectId) &&
       resumeRequestText.includes('mineflayer:blockUpdate') &&
       positionAppears(resumeRequestText, firstPosition),
@@ -207,7 +273,7 @@ export function assessOwnedWorldProjectEvidence(
     restartBuiltOneDistinctAdjacentBlock:
       resumePlacements.length === 1 &&
       secondPlacement?.material === expected.material &&
-      inWorksite(secondPosition, expected) &&
+      samePosition(secondPosition, expected.secondBlock) &&
       distinctAdjacent(firstPosition, secondPosition),
     projectCompletedOnlyAfterSecondBlock:
       projectOperation(completeTurn, expected.projectId) === 'complete' &&
@@ -225,6 +291,14 @@ export function assessOwnedWorldProjectEvidence(
     modelFreelyChoseEveryCriticalStep:
       criticalDecisions.length === criticalTurns.length &&
       criticalDecisions.every((decision) => decision?.call?.request?.toolChoice === 'auto'),
+    firstPersonWithoutLoadedWorldScan:
+      actPromptObservation?.protocol === 'behold.inhabitant.v2' &&
+      resumePromptObservation?.protocol === 'behold.inhabitant.v2' &&
+      actPromptObservation?.scene?.terrain?.source === 'vision' &&
+      resumePromptObservation?.scene?.terrain?.source === 'vision' &&
+      [...actModelTurns, ...resumeModelTurns].every(
+        (turn) => !requestToolNames(turn?.call?.request?.body).includes('inspect_volume'),
+      ),
     noModelCallFailed:
       actFailures.length === 0 &&
       resumeFailures.length === 0 &&
@@ -273,10 +347,17 @@ export function hasInterruptedProjectMilestone(
   events: readonly RunJournalEvent[],
   projectId: string,
   material: string,
+  expectedPosition?: BlockPosition,
 ) {
   const turns = eventData(events, 'entity_turn');
   const placements = turns.map(verifiedPlacement).filter(isPlacement);
-  if (placements.length !== 1 || placements[0].material !== material) return false;
+  if (
+    placements.length !== 1 ||
+    placements[0].material !== material ||
+    (expectedPosition != null && !samePosition(placements[0].position, expectedPosition))
+  ) {
+    return false;
+  }
   const placementIndex = turnIndex(turns, placements[0].turn);
   const startIndex = turns.findIndex((turn) => projectOperation(turn, projectId) === 'start');
   const updateIndex = turns.findIndex(
@@ -299,6 +380,7 @@ export function hasCompletedProjectMilestone(
   projectId: string,
   material: string,
   firstPosition: BlockPosition,
+  expectedPosition?: BlockPosition,
 ) {
   const turns = eventData(events, 'entity_turn');
   if (projectOperation(turns[0], projectId) !== 'update') return false;
@@ -308,6 +390,7 @@ export function hasCompletedProjectMilestone(
   if (
     placements.length !== 1 ||
     placements[0].material !== material ||
+    (expectedPosition != null && !samePosition(placements[0].position, expectedPosition)) ||
     !distinctAdjacent(firstPosition, placements[0].position)
   ) {
     return false;
@@ -407,15 +490,6 @@ function requestNamesContain(body: any, names: readonly string[]) {
   return names.every((name) => available.has(name));
 }
 
-function inWorksite(position: BlockPosition | null, expected: OwnedWorldProjectExpectation) {
-  return (
-    position != null &&
-    position.y === expected.worksiteY &&
-    Math.abs(position.x) <= expected.maxHorizontalCoordinate &&
-    Math.abs(position.z) <= expected.maxHorizontalCoordinate
-  );
-}
-
 function distinctAdjacent(a: BlockPosition | null, b: BlockPosition | null) {
   return (
     a != null &&
@@ -461,4 +535,8 @@ function positionAppears(text: string, position: BlockPosition | null) {
   const raw = JSON.stringify(position);
   const quoted = raw.replaceAll('"', '\\"');
   return text.includes(raw) || text.includes(quoted);
+}
+
+function isSha256(value: unknown) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 }

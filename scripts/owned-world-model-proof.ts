@@ -94,6 +94,7 @@ async function main() {
           ? ({ run }) =>
               observeFromFreshMinecraftBody({
                 run,
+                worldId: fixture.worldId,
                 entityRoot: fixture.entityRoot,
                 controlRoot: fixture.controlRoot,
                 port,

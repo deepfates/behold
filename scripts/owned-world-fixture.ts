@@ -146,6 +146,9 @@ export async function prepareOwnedWorld(
   return {
     worldId: OWNED_WORLD_ID,
     placeEpoch: null,
+    admissionRoot: null,
+    admissionDescriptorFile: null,
+    admissionDescriptorSha256: null,
     admittedRuntimeTree: null,
     runId,
     port,
@@ -250,6 +253,9 @@ export async function prepareAdmittedPlaceWorld(
   return {
     worldId: placeEpoch.worldId,
     placeEpoch,
+    admissionRoot: admittedRoot,
+    admissionDescriptorFile: path.join(admittedRoot, 'place-epoch.json'),
+    admissionDescriptorSha256: sha256File(path.join(admittedRoot, 'place-epoch.json')),
     admittedRuntimeTree,
     runId,
     port,

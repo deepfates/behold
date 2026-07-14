@@ -256,6 +256,7 @@ async function collectPopulationWitnesses(
 ) {
   const independentWitness = await observeFromFreshMinecraftBody({
     run,
+    worldId: fixture.worldId,
     entityRoot: fixture.entityRoot,
     controlRoot: fixture.controlRoot,
     port: fixture.port,
@@ -267,6 +268,7 @@ async function collectPopulationWitnesses(
   for (const resident of residents) {
     const witness = await observeFromFreshMinecraftBody({
       run,
+      worldId: fixture.worldId,
       entityRoot: fixture.entityRoot,
       controlRoot: fixture.controlRoot,
       port: fixture.port,

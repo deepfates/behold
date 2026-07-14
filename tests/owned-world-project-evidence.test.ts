@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assessProjectPlaceBinding,
   assessOwnedWorldProjectEvidence,
   hasCompletedProjectMilestone,
   hasInterruptedProjectMilestone,
@@ -19,8 +20,8 @@ const expected = {
   task: 'build one restart-worthy landmark',
   projectId: 'spawn-landmark',
   material: 'cobblestone',
-  worksiteY: -60,
-  maxHorizontalCoordinate: 8,
+  firstBlock: firstPosition,
+  secondBlock: secondPosition,
   actRunId: 'behold-owned-flat-v1-1',
   resumeRunId: 'behold-owned-flat-v1-2',
   contextBudget: {
@@ -45,9 +46,18 @@ test('project evidence requires an interrupted physical commitment resumed witho
   assert.deepEqual(assessed.secondPosition, secondPosition);
   assert.equal(assessed.usage.callCount, 9);
   assert.equal(assessed.assertions.contextBudgetSatisfied, true);
-  assert.equal(hasInterruptedProjectMilestone(act, expected.projectId, expected.material), true);
   assert.equal(
-    hasCompletedProjectMilestone(resume, expected.projectId, expected.material, firstPosition),
+    hasInterruptedProjectMilestone(act, expected.projectId, expected.material, expected.firstBlock),
+    true,
+  );
+  assert.equal(
+    hasCompletedProjectMilestone(
+      resume,
+      expected.projectId,
+      expected.material,
+      firstPosition,
+      expected.secondBlock,
+    ),
     true,
   );
 });
@@ -148,7 +158,15 @@ test('project evidence rejects early completion and forced model choice', () => 
       expected,
     ).failed.includes('firstLifeDidNotClaimCompletion'),
   );
-  assert.equal(hasInterruptedProjectMilestone(early, expected.projectId, expected.material), false);
+  assert.equal(
+    hasInterruptedProjectMilestone(
+      early,
+      expected.projectId,
+      expected.material,
+      expected.firstBlock,
+    ),
+    false,
+  );
 
   const forced = structuredClone(evidence.act);
   const placementDecision = modelEvent(forced, 'place_block');
@@ -181,7 +199,13 @@ test('project evidence rejects repeated or non-adjacent restart work', () => {
     ).failed.includes('restartDidNotRepeatTheCompletedPlacement'),
   );
   assert.equal(
-    hasCompletedProjectMilestone(repeated, expected.projectId, expected.material, firstPosition),
+    hasCompletedProjectMilestone(
+      repeated,
+      expected.projectId,
+      expected.material,
+      firstPosition,
+      expected.secondBlock,
+    ),
     false,
   );
 
@@ -281,6 +305,98 @@ test('project evidence compares restart memory with the canonical committed proj
       expected,
     ).failed,
     [],
+  );
+});
+
+test('project evidence requires first-person observations and rejects loaded-world scans', () => {
+  const evidence = validEvidence();
+  const scanned = structuredClone(evidence.act);
+  modelEvent(scanned, 'place_block').data.call.request.body.tools.push({
+    function: { name: 'inspect_volume' },
+  });
+  assert.ok(
+    assessOwnedWorldProjectEvidence(
+      scanned,
+      evidence.resume,
+      evidence.firstWitness,
+      evidence.finalWitness,
+      expected,
+    ).failed.includes('firstPersonWithoutLoadedWorldScan'),
+  );
+
+  const legacy = structuredClone(evidence.resume);
+  const firstDecision = legacy.find((event) => event.type === 'model_turn')!;
+  const user = firstDecision.data.call.request.body.messages.find(
+    (message: any) => message.role === 'user',
+  );
+  user.content = user.content.replace('behold.inhabitant.v2', 'behold.inhabitant.v1');
+  assert.ok(
+    assessOwnedWorldProjectEvidence(
+      evidence.act,
+      legacy,
+      evidence.firstWitness,
+      evidence.finalWitness,
+      expected,
+    ).failed.includes('firstPersonWithoutLoadedWorldScan'),
+  );
+});
+
+test('packaged project binding rejects descriptor, baseline, and runtime-chain drift', () => {
+  const digest = (character: string) => character.repeat(64);
+  const tree = (character: string) => ({
+    profile: 'behold-tree-v2',
+    digest: digest(character),
+    files: 10,
+  });
+  const evidence = {
+    worldId: 'venice-core-epoch',
+    serverJarSha256: digest('a'),
+    descriptor: {
+      protocol: 'behold.place-epoch-admission.v1',
+      worldId: 'venice-core-epoch',
+      place: {
+        releaseManifestSha256: digest('b'),
+        releaseChecksumsSha256: digest('c'),
+        worldArchiveSha256: digest('d'),
+        evidenceArchiveSha256: digest('e'),
+        declaredWorldTreeSha256: digest('f'),
+        verifiedWorldTreeSha256: digest('f'),
+      },
+      profile: { id: 'living', sha256: digest('1') },
+      behold: {
+        sourceTree: tree('2'),
+        baselineTree: tree('2'),
+        serverJarSha256: digest('a'),
+        worldDefinitionSha256: digest('3'),
+      },
+    },
+    declaredDescriptorSha256: digest('4'),
+    actualDescriptorSha256: digest('4'),
+    sourceTree: tree('2'),
+    baselineTree: tree('2'),
+    admittedRuntimeTree: tree('2'),
+    initialRuntimeTree: tree('5'),
+    afterActTree: tree('6'),
+    afterResumeTree: tree('7'),
+    finalSourceTree: tree('2'),
+    finalBaselineTree: tree('2'),
+  };
+  assert.deepEqual(assessProjectPlaceBinding(evidence).failed, []);
+
+  const driftedDescriptor = structuredClone(evidence);
+  driftedDescriptor.actualDescriptorSha256 = digest('8');
+  assert.ok(
+    assessProjectPlaceBinding(driftedDescriptor).failed.includes('admittedDescriptorIdentityBound'),
+  );
+  const driftedBaseline = structuredClone(evidence);
+  driftedBaseline.finalBaselineTree = tree('9');
+  assert.ok(
+    assessProjectPlaceBinding(driftedBaseline).failed.includes('immutableInputsStayedStable'),
+  );
+  const flatRuntime = structuredClone(evidence);
+  flatRuntime.afterResumeTree = flatRuntime.afterActTree;
+  assert.ok(
+    assessProjectPlaceBinding(flatRuntime).failed.includes('runtimeAdvancedThroughBothLives'),
   );
 });
 
@@ -395,9 +511,9 @@ function modelTurn(runId: string, turn: any, frame: any, resumed: boolean) {
               content: `New world experience:\n${JSON.stringify(prompt)}\nPrevious action: none`,
             },
           ],
-          tools: ['manage_project', 'collect_nearby_item', 'inspect_volume', 'place_block'].map(
-            (name) => ({ function: { name } }),
-          ),
+          tools: ['manage_project', 'collect_nearby_item', 'place_block'].map((name) => ({
+            function: { name },
+          })),
         },
       },
       response: {
@@ -466,7 +582,7 @@ function placement(callId: string, position: BlockPosition) {
 
 function observation(runId: string, resumed: boolean) {
   return {
-    protocol: 'behold.inhabitant.v1',
+    protocol: 'behold.inhabitant.v2',
     circle: { id: expected.worldId, managedRunId: runId },
     self: {
       identity: expected.entityId,
@@ -483,7 +599,7 @@ function observation(runId: string, resumed: boolean) {
           ]
         : [],
     },
-    scene: { entities: [] },
+    scene: { entities: [], terrain: { source: 'vision', raysCast: 45 } },
     events: [],
     eventWindow: { omittedNewEvents: 0 },
   };

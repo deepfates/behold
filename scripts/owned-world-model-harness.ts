@@ -7,16 +7,18 @@ import { openEntityLoom } from '../src/entity/loom';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 import { parseRunJournal, type RunJournalEvent } from './owned-world-model-evidence';
 import {
-  OWNED_WORLD_ID,
   listFiles,
+  prepareAdmittedPlaceWorld,
+  prepareOwnedWorld,
   restoreEnvironment,
   sha256File,
   waitFor,
-  type prepareOwnedWorld,
 } from './owned-world-fixture';
 import { startManagedWorld, type ManagedWorldRun } from './world-runner';
 
-export type OwnedWorldFixture = Awaited<ReturnType<typeof prepareOwnedWorld>>;
+export type OwnedWorldFixture =
+  | Awaited<ReturnType<typeof prepareOwnedWorld>>
+  | Awaited<ReturnType<typeof prepareAdmittedPlaceWorld>>;
 
 export type ManagedModelPhaseResult<Witness> = Readonly<{
   managedRunId: string;
@@ -62,7 +64,7 @@ export async function runManagedModelPhase<Witness = null>(input: {
   try {
     run = await startManagedWorld(
       {
-        worldId: OWNED_WORLD_ID,
+        worldId: input.fixture.worldId,
         world: input.fixture.world,
         controlRoot: input.fixture.controlRoot,
         serverDirectory: input.fixture.serverDirectory,
@@ -154,6 +156,7 @@ export async function runManagedModelPhase<Witness = null>(input: {
 
 export async function observeFromFreshMinecraftBody<T extends Record<string, unknown>>(input: {
   run: ManagedWorldRun;
+  worldId: string;
   entityRoot: string;
   controlRoot: string;
   port: number;
@@ -175,7 +178,7 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
       MINECRAFT_AUTH: 'offline',
       VIEWER_ENABLED: '0',
       BEHOLD_RUN_ID: input.run.runId,
-      BEHOLD_WORLD_ID: OWNED_WORLD_ID,
+      BEHOLD_WORLD_ID: input.worldId,
       BEHOLD_WORLD_CONTROL_FILE: input.run.control.file,
       BEHOLD_WORLD_CONTROL_ROOT: input.controlRoot,
       BEHOLD_ENTITY_DIR: input.entityRoot,
@@ -183,14 +186,14 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
     async () => {
       const config: Config = {
         server: { host: '127.0.0.1', port: input.port },
-        circle: { id: OWNED_WORLD_ID, source: 'explicit' },
+        circle: { id: input.worldId, source: 'explicit' },
         auth: { username: input.witnessId, mode: 'offline' },
         agent: { tickMs: 1000 },
         viewer: { enabled: false, port: 3007, firstPerson: true, viewDistance: 4 },
         input: { mode: 'hold' },
         llm: { model: input.model },
       };
-      const loom = await openEntityLoom(input.witnessId, input.entityRoot, OWNED_WORLD_ID);
+      const loom = await openEntityLoom(input.witnessId, input.entityRoot, input.worldId);
       let bot: ReturnType<typeof createBot> | null = null;
       try {
         bot = createBot(config, loom.connectionCapability);
@@ -204,7 +207,7 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
         return {
           ...observed,
           entityId: input.witnessId,
-          worldId: OWNED_WORLD_ID,
+          worldId: input.worldId,
           managedRunId: input.run.runId,
           source: 'fresh_minecraft_connection' as const,
           observedAt: Date.now(),

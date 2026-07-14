@@ -2,9 +2,11 @@
 import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseArgs } from 'node:util';
+import { isDeepStrictEqual, parseArgs } from 'node:util';
+import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 import { eventData, parseRunJournal } from './owned-world-model-evidence';
 import {
+  assessProjectPlaceBinding,
   assessOwnedWorldProjectEvidence,
   hasCompletedProjectMilestone,
   hasInterruptedProjectMilestone,
@@ -14,10 +16,10 @@ import {
 } from './owned-world-project-evidence';
 import {
   OWNED_LEVEL_SEED,
-  OWNED_WORLD_ID,
   durableWriteJson,
   gitRevision,
   listFiles,
+  prepareAdmittedPlaceWorld,
   prepareOwnedWorld,
   readJson,
   sha256File,
@@ -30,14 +32,12 @@ import {
 import { digestTree } from './world-lab';
 
 const PROTOCOL = 'behold.owned-world-project-proof.v1' as const;
-const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
+const DEFAULT_MODEL = 'openai/gpt-5.6-luna';
 const ENTITY_ID = 'ProjectResident';
 const ACT_WITNESS_ID = 'ProjWitnessAct';
 const RESUME_WITNESS_ID = 'ProjWitnessDone';
 const PROJECT_ID = 'spawn-landmark';
 const MATERIAL = 'cobblestone';
-const WORKSITE_Y = -60;
-const MAX_HORIZONTAL_COORDINATE = 8;
 const CONTEXT_BASELINE = Object.freeze({
   runId: 'project-v2-deepseek-v4-20260713',
   promptTokens: 227_642,
@@ -50,19 +50,9 @@ const CONTEXT_BUDGET = Object.freeze({
   maxRequestBodyChars: 75_165,
 });
 const TARGET = Object.freeze({ x: 3, y: -60, z: 0, item: MATERIAL, count: 2 });
-const TASK = [
-  'Build a durable two-block cobblestone landmark beside spawn as one restart-worthy project.',
-  `Use the stable project id "${PROJECT_ID}". Its doneWhen is that two adjacent cobblestone blocks at feet level form the landmark, and its evidence channel is world_change.`,
-  `Keep both blocks at y=${WORKSITE_Y} and within x/z -${MAX_HORIZONTAL_COORDINATE}..${MAX_HORIZONTAL_COORDINATE}. Inspect the local volume before choosing empty cells. Never place at the same coordinate twice.`,
-  'This proof deliberately spans two lives. In the first life, secure the nearby two-cobblestone stack before it expires, start the project before construction, place exactly one block, and wait for Minecraft confirmation. Then update the project so nextStep explicitly says to place the remaining second block adjacent to the first marker block, and choose wait_for_event. Do not place the second block or complete the project in the first life.',
-  'In the later life, use your active project and prior consequence. Before any physical action, use manage_project update to restate that the remaining second block must be placed adjacent to the first marker block. Then place exactly one distinct adjacent block, complete the project only after Minecraft confirms it, and choose wait_for_event.',
-].join(' ');
-const ALLOW_TOOLS = Object.freeze([
-  'manage_project',
-  'collect_nearby_item',
-  'inspect_volume',
-  'place_block',
-]);
+const DEFAULT_FIRST_BLOCK = Object.freeze({ x: 2, y: -60, z: 2 });
+const DEFAULT_SECOND_BLOCK = Object.freeze({ x: 3, y: -60, z: 2 });
+const ALLOW_TOOLS = Object.freeze(['manage_project', 'collect_nearby_item', 'place_block']);
 
 async function main() {
   const parsed = parseArgs({
@@ -73,12 +63,20 @@ async function main() {
       model: { type: 'string' },
       timeout: { type: 'string' },
       reassess: { type: 'string' },
+      'place-epoch': { type: 'string' },
+      arrival: { type: 'string' },
+      affordance: { type: 'string' },
+      'first-block': { type: 'string' },
+      'second-block': { type: 'string' },
       help: { type: 'boolean', default: false },
     },
   });
   if (parsed.values.help) {
     process.stdout.write(
-      'Usage: owned-world-project-proof [--run <safe-id>] [--port <unused-loopback-port>] [--model <OpenRouter-slug>] [--timeout <seconds>] [--reassess <project-report.json>]\n',
+      'Usage:\n' +
+        '  owned-world-project-proof [--run <safe-id>] [--port <unused-loopback-port>] [--model <OpenRouter-slug>] [--timeout <seconds>]\n' +
+        '  owned-world-project-proof --place-epoch <admitted-dir> --arrival <x,y,z> --affordance <x,y,z> --first-block <x,y,z> --second-block <x,y,z> [--run <safe-id>] [--model <OpenRouter-slug>]\n' +
+        '  owned-world-project-proof --reassess <project-report.json>\n',
     );
     return;
   }
@@ -93,7 +91,9 @@ async function main() {
       'OPENROUTER_API_KEY is required for the real project proof; no world was generated and no model call was attempted',
     );
   }
-  const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_MODEL).trim();
+  const model = String(
+    parsed.values.model || process.env.BEHOLD_PROJECT_MODEL || DEFAULT_MODEL,
+  ).trim();
   if (!model) throw new Error('a non-empty model slug is required');
   const timeoutMs = Number(parsed.values.timeout || 360) * 1000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 60_000 || timeoutMs > 1_200_000) {
@@ -102,8 +102,50 @@ async function main() {
   const requestedRunId = String(
     parsed.values.run || `project-${new Date().toISOString().replace(/[:.]/g, '-')}`,
   );
-  const port = Number(parsed.values.port || 25587);
-  const fixture = await prepareOwnedWorld(requestedRunId, port, 'owned-world-project', TARGET);
+  const admittedRoot = parsed.values['place-epoch']
+    ? path.resolve(String(parsed.values['place-epoch']))
+    : null;
+  if (admittedRoot && parsed.values.port) {
+    throw new Error('a Place epoch owns its configured port; do not pass --port');
+  }
+  if (
+    !admittedRoot &&
+    (parsed.values.arrival ||
+      parsed.values.affordance ||
+      parsed.values['first-block'] ||
+      parsed.values['second-block'])
+  ) {
+    throw new Error('Place worksite coordinates require --place-epoch');
+  }
+  const firstBlock = admittedRoot
+    ? parsePoint(requiredOption(parsed.values['first-block'], '--first-block'))
+    : DEFAULT_FIRST_BLOCK;
+  const secondBlock = admittedRoot
+    ? parsePoint(requiredOption(parsed.values['second-block'], '--second-block'))
+    : DEFAULT_SECOND_BLOCK;
+  assertAdjacent(firstBlock, secondBlock);
+  const target = admittedRoot
+    ? {
+        ...parsePoint(requiredOption(parsed.values.affordance, '--affordance')),
+        item: MATERIAL,
+        count: 2,
+      }
+    : TARGET;
+  const fixture = admittedRoot
+    ? await prepareAdmittedPlaceWorld(
+        requestedRunId,
+        admittedRoot,
+        parsePoint(requiredOption(parsed.values.arrival, '--arrival')),
+        target,
+      )
+    : await prepareOwnedWorld(
+        requestedRunId,
+        Number(parsed.values.port || 25587),
+        'owned-world-project',
+        target,
+      );
+  const port = fixture.port;
+  const task = projectTask(firstBlock, secondBlock);
   const transcript: string[] = [];
 
   process.stdout.write(`[owned-world-project] first life with ${model}\n`);
@@ -112,16 +154,17 @@ async function main() {
     fixture,
     entityId: ENTITY_ID,
     model,
-    task: TASK,
+    task,
     allowTools: ALLOW_TOOLS,
     timeoutMs,
     agentTickMs: 5000,
     transcript,
-    milestone: (events) => hasInterruptedProjectMilestone(events, PROJECT_ID, MATERIAL),
+    milestone: (events) => hasInterruptedProjectMilestone(events, PROJECT_ID, MATERIAL, firstBlock),
     witness: ({ run, events }) => {
       const firstPosition = requireOnePlacement(events, 'first-life');
       return observeFromFreshMinecraftBody({
         run,
+        worldId: fixture.worldId,
         entityRoot: fixture.entityRoot,
         controlRoot: fixture.controlRoot,
         port,
@@ -143,17 +186,18 @@ async function main() {
     fixture,
     entityId: ENTITY_ID,
     model,
-    task: TASK,
+    task,
     allowTools: ALLOW_TOOLS,
     timeoutMs,
     agentTickMs: 5000,
     transcript,
     milestone: (events) =>
-      hasCompletedProjectMilestone(events, PROJECT_ID, MATERIAL, firstPosition),
+      hasCompletedProjectMilestone(events, PROJECT_ID, MATERIAL, firstPosition, secondBlock),
     witness: ({ run, events }) => {
       const secondPosition = requireOnePlacement(events, 'restart');
       return observeFromFreshMinecraftBody({
         run,
+        worldId: fixture.worldId,
         entityRoot: fixture.entityRoot,
         controlRoot: fixture.controlRoot,
         port,
@@ -169,16 +213,18 @@ async function main() {
   });
   if (!resume.witness) throw new Error('resume phase did not produce an independent witness');
   const afterResumeTree = digestTree(fixture.runtime);
+  const finalSourceTree = digestTree(fixture.source);
+  const finalBaselineTree = digestTree(fixture.baseline);
 
   const expectation = {
-    worldId: OWNED_WORLD_ID,
+    worldId: fixture.worldId,
     entityId: ENTITY_ID,
     model,
-    task: TASK,
+    task,
     projectId: PROJECT_ID,
     material: MATERIAL,
-    worksiteY: WORKSITE_Y,
-    maxHorizontalCoordinate: MAX_HORIZONTAL_COORDINATE,
+    firstBlock,
+    secondBlock,
     actRunId: act.managedRunId,
     resumeRunId: resume.managedRunId,
     contextBudget: CONTEXT_BUDGET,
@@ -190,6 +236,24 @@ async function main() {
     resume.witness,
     expectation,
   );
+  const placeAssessment = fixture.placeEpoch
+    ? assessProjectPlaceBinding({
+        worldId: fixture.worldId,
+        serverJarSha256: fixture.actualServerJarSha256,
+        descriptor: fixture.placeEpoch,
+        declaredDescriptorSha256: fixture.admissionDescriptorSha256,
+        actualDescriptorSha256: sha256File(fixture.admissionDescriptorFile),
+        sourceTree: fixture.sourceTree,
+        baselineTree: fixture.baselineTree,
+        admittedRuntimeTree: fixture.admittedRuntimeTree,
+        initialRuntimeTree: fixture.initialRuntimeTree,
+        afterActTree,
+        afterResumeTree,
+        finalSourceTree,
+        finalBaselineTree,
+      })
+    : null;
+  const failed = [...assessment.failed, ...(placeAssessment?.failed ?? [])];
   const loomFiles = listFiles(path.join(fixture.entityRoot, ENTITY_ID, 'lync')).filter((file) =>
     file.endsWith('.lync'),
   );
@@ -201,12 +265,12 @@ async function main() {
   const reportFile = path.join(fixture.evidenceRoot, 'project-report.json');
   durableWriteJson(reportFile, {
     protocol: PROTOCOL,
-    status: assessment.failed.length === 0 ? 'passed' : 'failed',
+    status: failed.length === 0 ? 'passed' : 'failed',
     runId: fixture.runId,
-    worldId: OWNED_WORLD_ID,
+    worldId: fixture.worldId,
     entityId: ENTITY_ID,
     model,
-    task: TASK,
+    task,
     projectId: PROJECT_ID,
     startedAt: fixture.startedAt,
     completedAt: new Date().toISOString(),
@@ -217,16 +281,27 @@ async function main() {
       sha256: fixture.actualServerJarSha256,
       java: fixture.java,
       port,
-      seed: OWNED_LEVEL_SEED,
+      seed: fixture.placeEpoch ? null : OWNED_LEVEL_SEED,
       generation: fixture.generation,
-      preparedResource: TARGET,
+      preparedResource: target,
     },
+    placeEpoch: fixture.placeEpoch,
+    admission: fixture.placeEpoch
+      ? {
+          root: fixture.admissionRoot,
+          descriptorFile: fixture.admissionDescriptorFile,
+          descriptorSha256: fixture.admissionDescriptorSha256,
+        }
+      : null,
     evidence: {
       sourceTree: fixture.sourceTree,
       baselineTree: fixture.baselineTree,
+      admittedRuntimeTree: fixture.admittedRuntimeTree,
       initialRuntimeTree: fixture.initialRuntimeTree,
       afterActTree,
       afterResumeTree,
+      finalSourceTree,
+      finalBaselineTree,
       firstWitness: act.witness,
       finalWitness: resume.witness,
       loomFile: loomFiles[0],
@@ -253,18 +328,59 @@ async function main() {
       ),
     },
     assessment,
+    placeAssessment,
   });
   fs.writeFileSync(
     path.join(fixture.evidenceRoot, 'managed-project-transcript.log'),
     transcript.join(''),
     'utf8',
   );
-  if (assessment.failed.length > 0) {
+  if (failed.length > 0) {
     throw new Error(
-      `persistent project proof failed (${assessment.failed.join(', ')}); evidence: ${reportFile}`,
+      `persistent project proof failed (${failed.join(', ')}); evidence: ${reportFile}`,
     );
   }
   process.stdout.write(`[owned-world-project] PASS ${reportFile}\n`);
+}
+
+function projectTask(firstBlock: BlockPosition, secondBlock: BlockPosition) {
+  const first = formatPoint(firstBlock);
+  const second = formatPoint(secondBlock);
+  return [
+    'Build a durable two-block cobblestone landmark beside spawn as one restart-worthy project.',
+    `Use the stable project id "${PROJECT_ID}". Its doneWhen is that cobblestone blocks at ${first} and ${second} form the landmark, and its evidence channel is world_change.`,
+    `Those two cells are adjacent, empty, and supported in this prepared evaluation. Use your ordinary first-person observation; no loaded-world scan is available. Never place at any other coordinate and never place at the same coordinate twice.`,
+    `This proof deliberately spans two lives. In the first life, secure the nearby two-cobblestone stack before it expires, start the project before construction, place exactly one block at ${first}, and wait for Minecraft confirmation. Then update the project so nextStep explicitly says to place the remaining second block at ${second} adjacent to the first marker block, and choose wait_for_event. Do not place the second block or complete the project in the first life.`,
+    `In the later life, use your active project and prior consequence. Before any physical action, use manage_project update to restate that the remaining second block must be placed at ${second} adjacent to the first marker block. Then place exactly one block at ${second}, complete the project only after Minecraft confirms it, and choose wait_for_event.`,
+  ].join(' ');
+}
+
+function requiredOption(value: string | undefined, name: string) {
+  if (!value) throw new Error(`${name} is required with --place-epoch`);
+  return value;
+}
+
+function parsePoint(value: string): BlockPosition {
+  const parts = value.split(',').map((part) => Number(part.trim()));
+  if (parts.length !== 3 || !parts.every(Number.isSafeInteger)) {
+    throw new Error(`expected integer x,y,z point, received ${value}`);
+  }
+  return { x: parts[0], y: parts[1], z: parts[2] };
+}
+
+function assertAdjacent(first: BlockPosition, second: BlockPosition) {
+  if (
+    Math.abs(first.x - second.x) + Math.abs(first.y - second.y) + Math.abs(first.z - second.z) !==
+    1
+  ) {
+    throw new Error(
+      `project blocks must be distinct face-adjacent cells: ${formatPoint(first)} and ${formatPoint(second)}`,
+    );
+  }
+}
+
+function formatPoint(point: BlockPosition) {
+  return `${point.x},${point.y},${point.z}`;
 }
 
 function reduction(baseline: number, measured: number) {
@@ -308,15 +424,50 @@ function reassessExistingProof(inputFile: string) {
   const actJournalFile = path.resolve(String(source?.evidence?.act?.journalFile || ''));
   const resumeJournalFile = path.resolve(String(source?.evidence?.resume?.journalFile || ''));
   const loomFile = path.resolve(String(source?.evidence?.loomFile || ''));
+  const actLifecycleFile = path.resolve(String(source?.evidence?.act?.lifecycleFile || ''));
+  const resumeLifecycleFile = path.resolve(String(source?.evidence?.resume?.lifecycleFile || ''));
+  const actEvents = parseRunJournal(fs.readFileSync(actJournalFile, 'utf8'));
+  const resumeEvents = parseRunJournal(fs.readFileSync(resumeJournalFile, 'utf8'));
+  const actLifecycle = verifyWorldLifecycleJournal(actLifecycleFile);
+  const resumeLifecycle = verifyWorldLifecycleJournal(resumeLifecycleFile);
+  const placeAssessment = source.placeEpoch
+    ? assessProjectPlaceBinding({
+        worldId: source.worldId,
+        serverJarSha256: source.server.sha256,
+        descriptor: source.placeEpoch,
+        declaredDescriptorSha256: source.admission.descriptorSha256,
+        actualDescriptorSha256: sha256File(path.resolve(source.admission.descriptorFile)),
+        sourceTree: source.evidence.sourceTree,
+        baselineTree: source.evidence.baselineTree,
+        admittedRuntimeTree: source.evidence.admittedRuntimeTree,
+        initialRuntimeTree: source.evidence.initialRuntimeTree,
+        afterActTree: source.evidence.afterActTree,
+        afterResumeTree: source.evidence.afterResumeTree,
+        finalSourceTree: digestTree(path.resolve(source.placeEpoch.paths.source)),
+        finalBaselineTree: digestTree(path.resolve(source.placeEpoch.paths.baseline)),
+      })
+    : null;
   const integrity = {
+    sourceReportPassed: source.status === 'passed',
     actJournal: sha256File(actJournalFile) === String(source?.evidence?.act?.journalSha256 || ''),
     resumeJournal:
       sha256File(resumeJournalFile) === String(source?.evidence?.resume?.journalSha256 || ''),
     loom: sha256File(loomFile) === String(source?.evidence?.loomSha256 || ''),
+    lyncTrajectory: verifyProjectLyncTrajectory(loomFile, source, actEvents, resumeEvents),
+    actLifecycle:
+      actLifecycle.tipDigest === source?.evidence?.act?.lifecycleTipDigest &&
+      actLifecycle.events.length === source?.evidence?.act?.lifecycleEvents,
+    resumeLifecycle:
+      resumeLifecycle.tipDigest === source?.evidence?.resume?.lifecycleTipDigest &&
+      resumeLifecycle.events.length === source?.evidence?.resume?.lifecycleEvents,
+    lifecycleSeparation:
+      actLifecycleFile !== resumeLifecycleFile &&
+      source?.evidence?.act?.managedRunId !== source?.evidence?.resume?.managedRunId,
+    placeBinding: placeAssessment == null || placeAssessment.failed.length === 0,
   };
   const assessment = assessOwnedWorldProjectEvidence(
-    parseRunJournal(fs.readFileSync(actJournalFile, 'utf8')),
-    parseRunJournal(fs.readFileSync(resumeJournalFile, 'utf8')),
+    actEvents,
+    resumeEvents,
     source.evidence.firstWitness,
     source.evidence.finalWitness,
     source.expectation,
@@ -341,6 +492,7 @@ function reassessExistingProof(inputFile: string) {
     integrity,
     failedIntegrity,
     assessment,
+    placeAssessment,
   });
   if (!passed) {
     throw new Error(
@@ -351,6 +503,56 @@ function reassessExistingProof(inputFile: string) {
     );
   }
   process.stdout.write(`[owned-world-project] REASSESSED PASS ${outputFile}\n`);
+}
+
+function verifyProjectLyncTrajectory(
+  file: string,
+  report: any,
+  actEvents: readonly any[],
+  resumeEvents: readonly any[],
+) {
+  try {
+    const records = fs
+      .readFileSync(file, 'utf8')
+      .split(/\r?\n/)
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line));
+    const roots = records.filter((record) => record?.kind === 'lync/loom');
+    const links = records.filter((record) => record?.kind === 'lync/turn');
+    const turns = [
+      ...eventData(actEvents, 'entity_turn'),
+      ...eventData(resumeEvents, 'entity_turn'),
+    ];
+    if (
+      records.length !== roots.length + links.length ||
+      roots.length !== 1 ||
+      links.length !== turns.length ||
+      roots[0]?.payload?.meta?.protocol !== 'behold.entity-loom.v1' ||
+      roots[0]?.payload?.meta?.entityId !== report.entityId ||
+      roots[0]?.payload?.meta?.circleId !== report.worldId
+    ) {
+      return false;
+    }
+    return links.every((link, index) => {
+      const sequence = index + 1;
+      const turn = link?.payload?.payload;
+      const meta = link?.payload?.meta;
+      return (
+        meta?.protocol === 'behold.entity-turn-link.v1' &&
+        meta?.entityId === report.entityId &&
+        meta?.sequence === sequence &&
+        meta?.legacyId === `${report.entityId}:turn:${sequence}` &&
+        turn?.protocol === 'behold.entity-turn.v1' &&
+        turn?.circleId === report.worldId &&
+        turn?.entityId === report.entityId &&
+        turn?.sequence === sequence &&
+        turn?.parentId === (sequence === 1 ? null : `${report.entityId}:turn:${sequence - 1}`) &&
+        isDeepStrictEqual(turn, turns[index])
+      );
+    });
+  } catch {
+    return false;
+  }
 }
 
 void main().catch((error) => {
