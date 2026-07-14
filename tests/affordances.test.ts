@@ -142,7 +142,7 @@ test('current inventory uses and cursor focus produce exact native action inputs
     schemaTool('drop_item', { name: { type: 'string' } }),
     schemaTool('equip_item', { name: { type: 'string' } }),
     schemaTool('consume', { name: { type: 'string' } }),
-    schemaTool('dig_block', coordinateProperties()),
+    schemaTool('dig_block', coordinateProperties({ target: { type: 'string' } })),
     schemaTool('place_against', {
       on: {
         type: 'object',
@@ -172,7 +172,9 @@ test('current inventory uses and cursor focus produce exact native action inputs
         position: { x: 3, y: 65, z: -2 },
       },
       entities: [],
-      terrain: { targets: [] },
+      terrain: {
+        targets: [visibleBlock('block:overworld:3:65:-2', 'oak_log', 3, 65, -2)],
+      },
     },
   };
 
@@ -193,10 +195,33 @@ test('current inventory uses and cursor focus produce exact native action inputs
   assert.deepEqual([against.y.minimum, against.y.maximum], [65, 65]);
   assert.deepEqual([against.z.minimum, against.z.maximum], [-2, -2]);
   const dig = offered.get('dig_block')?.function.parameters.properties;
-  assert.deepEqual([dig.x.minimum, dig.x.maximum], [3, 3]);
-  assert.deepEqual([dig.y.minimum, dig.y.maximum], [65, 65]);
-  assert.deepEqual([dig.z.minimum, dig.z.maximum], [-2, -2]);
-  assert.equal(JSON.stringify(dig).includes('"enum"'), false);
+  assert.deepEqual(Object.keys(dig), ['target']);
+  assert.deepEqual(dig.target.enum, ['block:overworld:3:65:-2']);
+  assert.deepEqual(offered.get('dig_block')?.function.parameters.required, ['target']);
+});
+
+test('visual mining selects exact bounded first-hit surfaces without requiring cursor focus', () => {
+  const action = schemaTool('dig_block', coordinateProperties({ target: { type: 'string' } }));
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    self: { inventory: [], condition: {} },
+    scene: {
+      focus: null,
+      entities: [],
+      terrain: {
+        targets: [
+          { ...visibleBlock('block:overworld:1:64:0', 'oak_leaves', 1, 64, 0), distance: 2 },
+          { ...visibleBlock('block:overworld:20:64:0', 'stone', 20, 64, 0), distance: 20 },
+        ],
+      },
+    },
+  };
+
+  const [dig] = minecraftInhabitantActionsFor([action], observation);
+
+  assert.deepEqual(Object.keys(dig.function.parameters.properties), ['target']);
+  assert.deepEqual(dig.function.parameters.properties.target.enum, ['block:overworld:1:64:0']);
+  assert.deepEqual(dig.function.parameters.required, ['target']);
 });
 
 test('consumption follows Mineflayer hunger and always-consumable semantics', () => {

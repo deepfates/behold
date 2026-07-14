@@ -123,7 +123,18 @@ export function minecraftInhabitantActionsFor(
         : [];
     }
     if (name === 'dig_block') {
-      return focus?.position ? [withExactBlockPosition(spec, focus.position)] : [];
+      const targets = visibleBlocks.filter(
+        (target: any) => Number.isFinite(Number(target?.distance)) && Number(target.distance) <= 16,
+      );
+      return targets.length > 0
+        ? [
+            withOnlyExactStringEnum(
+              spec,
+              'target',
+              targets.map((target: any) => String(target.id)),
+            ),
+          ]
+        : [];
     }
     if (name === 'toggle_block') {
       return focus?.position && isPlayerToggle(focusName)
@@ -175,6 +186,29 @@ export function withExactStringEnum(
       ...properties,
       [property]: { ...current, type: 'string', enum: [...values] },
     },
+  };
+  return copy;
+}
+
+/**
+ * Replace a mixed internal command schema with the one exact reference
+ * language published to a current inhabitant. Operator and remembered-position
+ * callers may retain other inputs without making them part of visual play.
+ */
+function withOnlyExactStringEnum(
+  spec: InhabitantActionSpec,
+  property: string,
+  values: readonly string[],
+): InhabitantActionSpec {
+  const copy = cloneJson(spec) as InhabitantActionSpec;
+  const current = (copy.function.parameters as any)?.properties?.[property];
+  if (!current) return copy;
+  copy.function.parameters = {
+    type: 'object',
+    properties: {
+      [property]: { ...current, type: 'string', enum: [...values] },
+    },
+    required: [property],
   };
   return copy;
 }

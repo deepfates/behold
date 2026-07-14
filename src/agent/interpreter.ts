@@ -875,16 +875,51 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'dig_block',
     description:
-      'Break or mine one solid block. The body first walks within survival reach and faces it, then succeeds only after Minecraft confirms the block changed. If that exact change opens adjacent body-sized space, the terminal names the newly enterable direction relative to your current view.',
+      'Break or mine one solid block, selected either as an exact current first-person target or an internal remembered position. The body turns and walks within survival reach, then succeeds only after Minecraft confirms the block changed. If that exact change opens adjacent body-sized space, the terminal names the newly enterable direction relative to your current view.',
     parameters: {
       type: 'object',
-      properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } },
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Exact current id from scene.terrain.targets',
+        },
+        x: { type: 'number' },
+        y: { type: 'number' },
+        z: { type: 'number' },
+      },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z }, execution) => {
+    run: async ({ target, x, y, z }, execution) => {
+      const targetReference = typeof target === 'string' ? target.trim() : '';
+      let selectedTarget: ReturnType<typeof currentVisibleBlockTarget> = null;
+      if (targetReference) {
+        const observation = opts.observe?.();
+        if (!observation) return { ok: false, error: 'current_observation_unavailable' };
+        selectedTarget = currentVisibleBlockTarget(observation, targetReference);
+        if (!selectedTarget) {
+          return {
+            ok: false,
+            error: 'visible_target_not_current',
+            target: targetReference,
+          };
+        }
+        ({ x, y, z } = selectedTarget.position);
+      } else if (![x, y, z].every((value) => Number.isFinite(Number(value)))) {
+        return { ok: false, error: 'incomplete_dig_target' };
+      }
       let b = (bot as any).blockAt(new Vec3(x, y, z));
       if (!b) return { ok: false, error: 'no_block' };
       const position = { x: b.position.x, y: b.position.y, z: b.position.z };
+      if (selectedTarget && String(b.name || '') !== selectedTarget.name) {
+        return {
+          ok: false,
+          error: 'visible_target_identity_changed',
+          target: selectedTarget.id,
+          expectedName: selectedTarget.name,
+          observedName: String(b.name || 'unknown'),
+          position,
+        };
+      }
       if (isAirBlock(b)) {
         return { ok: false, error: 'no_solid_block', block: summarizeBlock(b), position };
       }
@@ -961,6 +996,23 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
             navigation,
           };
         }
+        if (selectedTarget && String(b.name || '') !== selectedTarget.name) {
+          return {
+            ok: false,
+            error: 'visible_target_identity_changed',
+            target: selectedTarget.id,
+            expectedName: selectedTarget.name,
+            observedName: String(b.name || 'unknown'),
+            position,
+            navigation,
+          };
+        }
+      } else if (selectedTarget && typeof (bot as any).lookAt === 'function') {
+        await (bot as any).lookAt(
+          new Vec3(Number(position.x) + 0.5, Number(position.y) + 0.5, Number(position.z) + 0.5),
+          true,
+        );
+        if (execution?.signal?.aborted) return cancelledAction('visible-target-dig');
       }
       const passagesBefore = adjacentBodyPassages(bot);
       const result = await executeConfirmedWorldChange({
@@ -982,6 +1034,17 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return {
         ...result,
         navigation,
+        ...(selectedTarget
+          ? {
+              selectedTarget: {
+                id: selectedTarget.id,
+                name: selectedTarget.name,
+                position: { ...selectedTarget.position },
+                source: 'vision',
+                selectedRay: selectedTarget.ray,
+              },
+            }
+          : {}),
         ...(result.ok
           ? {
               adjacentBlocks,

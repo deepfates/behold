@@ -1201,6 +1201,111 @@ test('digging a distant loaded block approaches into reach before the confirmed 
   assert.equal(result.changes[0].verified, true);
 });
 
+test('digging one peripheral first-person target owns orientation and confirmed mining', async () => {
+  const bot = baseBot();
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  const position = new Vec3(1, 64, 0);
+  let block: any = {
+    name: 'oak_leaves',
+    type: 18,
+    stateId: 18,
+    boundingBox: 'block',
+    position,
+  };
+  let lookedAt: Vec3 | null = null;
+  bot.blockAt = () => block;
+  bot.canSeeBlock = () => true;
+  bot.lookAt = async (target: Vec3) => {
+    lookedAt = target;
+  };
+  bot.dig = async () => {
+    const previous = block;
+    block = {
+      name: 'air',
+      type: 0,
+      stateId: 0,
+      boundingBox: 'empty',
+      position,
+    };
+    bot.emit('blockUpdate', previous, block);
+  };
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      terrain: {
+        targets: [
+          {
+            id: 'block:overworld:1:64:0',
+            kind: 'block',
+            name: 'oak_leaves',
+            source: 'vision',
+            visibility: 'visible',
+            position: { x: 1, y: 64, z: 0 },
+            ray: { row: 2, column: 7 },
+          },
+        ],
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot, {
+    observe: () => observation,
+    changeStabilityWindowMs: 1,
+  }).run('dig_block', { target: 'block:overworld:1:64:0' });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(lookedAt, new Vec3(1.5, 64.5, 0.5));
+  assert.deepEqual(result.selectedTarget, {
+    id: 'block:overworld:1:64:0',
+    name: 'oak_leaves',
+    position: { x: 1, y: 64, z: 0 },
+    source: 'vision',
+    selectedRay: { row: 2, column: 7 },
+  });
+  assert.equal(result.changes[0].verified, true);
+});
+
+test('visual mining fails before mutation when the selected surface identity changed', async () => {
+  const bot = baseBot();
+  const position = new Vec3(1, 64, 0);
+  bot.blockAt = () => ({
+    name: 'stone',
+    type: 1,
+    stateId: 1,
+    boundingBox: 'block',
+    position,
+  });
+  let digCalls = 0;
+  bot.dig = async () => {
+    digCalls += 1;
+  };
+  const result = await buildInterpreter(bot, {
+    observe: () => ({
+      protocol: 'behold.inhabitant.v2',
+      scene: {
+        terrain: {
+          targets: [
+            {
+              id: 'block:overworld:1:64:0',
+              kind: 'block',
+              name: 'oak_leaves',
+              source: 'vision',
+              visibility: 'visible',
+              position: { x: 1, y: 64, z: 0 },
+            },
+          ],
+        },
+      },
+    }),
+  }).run('dig_block', { target: 'block:overworld:1:64:0' });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'visible_target_identity_changed');
+  assert.equal(result.expectedName, 'oak_leaves');
+  assert.equal(result.observedName, 'stone');
+  assert.equal(digCalls, 0);
+});
+
 test('digging reports only a body passage causally opened by that exact block change', async () => {
   const bot = baseBot();
   bot.entity.position = new Vec3(0.5, 64, 0.5);
