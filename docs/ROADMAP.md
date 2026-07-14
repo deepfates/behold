@@ -92,7 +92,10 @@ test, not the organizing purpose of the system.
   bytes and 16 grounded actions instead of 42,390 bytes and 26 actions, and a
   late proposal cannot be admitted after its five-second controller deadline;
   noncooperative adapter compute remains owned until it actually settles. No
-  live result yet proves survival or acceptable p95 latency under that boundary
+  live result yet proves survival or acceptable p95 latency under that boundary.
+  Run 41 put all three urgent calls under the ceiling but exposed a separate
+  19.239-second active-action delay; bodily urgency now requests cancellation
+  of model-owned actions without overlapping their terminal settlement
 - Ordinary place learning: new residents cannot yet learn a trustworthy door,
   interior, or shelter affordance from looking, walking, and using it without a
   privileged topology scan

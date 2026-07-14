@@ -82,6 +82,39 @@ support.
 Provider-free profile:
 `.behold-runs/first-life-v1-39/WrenLife/request-profile-affordance-temporal-v4.json`.
 
+## Corrected live episode
+
+Run `first-life-v1-41` crossed the full live provider boundary after the numeric
+schema fix. Seven resident decisions completed without a model-call failure:
+four Gemini 3.5 Flash deliberative calls and three Luna urgent calls. The urgent
+latencies were 3.910, 2.849, and 3.380 seconds, all inside the five-second
+decision boundary. The seven decisions consumed 63,854 tokens and
+`$0.09376825`; an eighth accepted auxiliary fold was cancelled and settled as
+the capped runner drained. Peak cognition concurrency remained one.
+
+The life still failed. Wren chose a remembered trip toward the shelter, but the
+bounded `move_to` leg retained the body for 19.239 seconds and ended in a
+pathfinder failure after health fell from 20 to 11.17. Only then could urgent
+cognition choose a lateral escape. That adjacent direction was blocked by oak
+leaves and health fell to 3.17. A second urgent choice was correctly invalidated
+across death and respawn; a third post-respawn dig was legal and independently
+verified, but was not recovery from the lost life.
+
+This isolates an architectural requirement rather than another action verb:
+new bodily urgency must be able to ask an active model-owned body action to
+yield. The engine now terminalizes queued model actions before dispatch and
+sends a cancellation request to an action already in flight. It retains
+exclusive action ownership until the adapter's terminal acknowledgement, and
+then gives the resident a fresh observation. It never chooses an escape and
+never interrupts a human-owned action.
+
+Authoritative run-41 evidence:
+
+- resident journal:
+  `.behold-runs/first-life-v1-41/WrenLife/2026-07-14T17-06-57-017Z-WrenLife.jsonl`
+- cognition journal:
+  `.behold-runs/first-life-v1-41/_cognition/broker.jsonl`
+
 ## What this does not prove
 
 The five-second ceiling is a bounded failure contract, not a claim that five
@@ -90,8 +123,9 @@ door, survive an attack, identify a hostile behind the camera, or recover after
 death. No latency, token, or cost improvement is claimed from a provider-free
 byte profile alone.
 
-The next live gate should compare the newly grounded exact frame across the
-current fast-model frontier, then run one capped persistent episode. If no
-provider closes reliably inside the body's danger horizon, the next foundation
-is a transparent resident-side reaction mind or standing disposition—not a
+The next live gate is not another model comparison. It should prove that the
+first urgent sound or injury ends a long model-owned movement leg, produces one
+acknowledged terminal, and gives the resident a fresh urgent choice without
+overlap. If that still cannot preserve a life, the next foundation is a
+transparent resident-side reaction mind or standing disposition—not a
 world-side scripted rescue.

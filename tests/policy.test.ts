@@ -5,6 +5,7 @@ import {
   controllerSystemPrompt,
   hasDecisionRelevantEvent,
   isActionSchemaNarrowing,
+  isBodilyUrgencyEvent,
   isImmediateAttentionEvent,
   modelDecisionInvalidation,
   startLLMPolicy,
@@ -79,6 +80,13 @@ test('only high and urgent lived events demand immediate attention', () => {
   assert.equal(isImmediateAttentionEvent({ salience: 'normal' }), false);
   assert.equal(isImmediateAttentionEvent({ salience: 'high' }), true);
   assert.equal(isImmediateAttentionEvent({ salience: 'urgent' }), true);
+});
+
+test('only bodily urgent events can reclaim a model-owned body action', () => {
+  assert.equal(isBodilyUrgencyEvent({ type: 'self_hurt', salience: 'urgent' }), true);
+  assert.equal(isBodilyUrgencyEvent({ type: 'sound_heard', salience: 'urgent' }), true);
+  assert.equal(isBodilyUrgencyEvent({ type: 'self_hurt', salience: 'high' }), false);
+  assert.equal(isBodilyUrgencyEvent({ type: 'chat_received', salience: 'urgent' }), false);
 });
 
 test('only a newly urgent lived event selects compact urgent cognition', () => {

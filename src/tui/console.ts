@@ -9,6 +9,7 @@ import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
 import {
   boundedUrgentDecisionTimeoutMs,
+  isBodilyUrgencyEvent,
   isImmediateAttentionEvent,
   startLLMPolicy,
 } from '../policy/llm';
@@ -121,7 +122,15 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     projects: () => projects.snapshot(),
     places: () => places.snapshot(),
     onEvent: (event) => {
-      if (localWorldReady && isImmediateAttentionEvent(event)) policy?.wake();
+      if (!localWorldReady) return;
+      if (isBodilyUrgencyEvent(event)) {
+        engine?.requestModelActionCancellation('bodily_urgent_attention', {
+          eventSequence: event.sequence,
+          eventType: event.type,
+          eventSource: event.source,
+        });
+      }
+      if (isImmediateAttentionEvent(event)) policy?.wake();
     },
     onEventError: (error, event) =>
       console.error(

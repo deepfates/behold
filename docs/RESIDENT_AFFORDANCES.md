@@ -118,6 +118,15 @@ That is a failure boundary, not yet a fast survival constitution: live evidence
 must still determine whether model routing can close in time or whether the mind
 needs a transparent local reaction layer.
 
+Run 41 showed the other half of closing time. A 19.239-second `move_to` leg kept
+the body while Wren was attacked, so urgent cognition did not begin until the
+action failed and health had fallen from 20 to 11.17. The engine now lets a
+newly bodily-urgent lived event terminalize a queued model-owned action before
+dispatch or request cancellation of one already in flight. An in-flight action
+still owns the body until its adapter's acknowledged terminal, then the resident
+reobserves. The world does not choose the response, and human-owned actions are
+never seized by this rule.
+
 ## Primitive versus body skill
 
 The model should not choose every keyboard tick, but a body skill must not

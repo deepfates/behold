@@ -1505,6 +1505,10 @@ export function isImmediateAttentionEvent(event: { salience?: unknown }) {
   return event?.salience === 'high' || event?.salience === 'urgent';
 }
 
+export function isBodilyUrgencyEvent(event: { type?: unknown; salience?: unknown }) {
+  return event?.salience === 'urgent' && BODILY_URGENCY_EVENT_TYPES.has(String(event?.type || ''));
+}
+
 export function attentionForObservation(frame: any): ResidentAttention {
   const triggers = urgentEventTriggers(frame, -1);
   return triggers.length > 0
@@ -1612,10 +1616,7 @@ function conversationForAttention(
 }
 
 function hasBodilyUrgency(attention: ResidentAttention) {
-  return (
-    attention.mode === 'urgent' &&
-    attention.triggers.some((trigger) => BODILY_URGENCY_EVENT_TYPES.has(trigger.type))
-  );
+  return attention.mode === 'urgent' && attention.triggers.some(isBodilyUrgencyEvent);
 }
 
 export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {

@@ -91,6 +91,14 @@ still current. The next wake reobserves the world. This makes slow cognition a
 bounded visible failure; it does not itself choose a survival response or prove
 that five seconds is fast enough.
 
+A newly bodily-urgent lived event also reclaims model-owned action admission. A
+queued action terminalizes before dispatch. An action already in flight keeps
+execution ownership until its adapter returns one terminal result and
+acknowledges cancellation; no urgent action overlaps it. Human-owned actions are
+outside this mechanism. After the terminal, the resident receives the newly
+committed observation and chooses again. This is attention reclaiming its own
+body, not a world-side escape policy.
+
 Visibility admission does not grant continuing hidden tracking. A moving
 approach updates its destination only while the target is perceived. After
 sight is lost it can reach only the last-seen position, where it must reacquire

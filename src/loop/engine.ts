@@ -365,6 +365,41 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
     return true;
   }
 
+  function requestModelActionCancellation(
+    reason: string,
+    evidence: Readonly<Record<string, unknown>> = {},
+  ) {
+    if (shuttingDown) return false;
+    const requestedBy = {
+      id: `system-${reason}-${now()}`,
+      source: 'system' as const,
+      tool: 'yield_model_action_to_world_attention',
+      input: evidence,
+    };
+    let requested = false;
+    for (const intent of arbiter.cancelQueued((candidate) => candidate.source === 'llm')) {
+      requested = true;
+      emit('intent_blocked', {
+        intent,
+        requestedBy,
+        reason,
+        error: reason,
+        result: { ok: false, error: reason, cancellation: { requested: true } },
+      });
+    }
+    const active = inFlight;
+    if (active && active.intent.source === 'llm' && !active.controller.signal.aborted) {
+      requested = true;
+      emit('cancellation_requested', {
+        intent: active.intent,
+        requestedBy,
+        reason,
+      });
+      active.controller.abort(reason);
+    }
+    return requested;
+  }
+
   function muteLLM(mute: boolean, reason = 'llm_muted') {
     mutedLLM = !!mute;
     if (!mutedLLM) return;
@@ -388,6 +423,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
     tick,
     enqueueHumanIntent,
     enqueueIntent,
+    requestModelActionCancellation,
     arbiter, // exposed for wiring other drivers
     muteLLM,
     acceptsEvent: (event: unknown) =>

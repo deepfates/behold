@@ -290,6 +290,99 @@ test('human preemption never overlaps the active world action', async () => {
   );
 });
 
+test('bodily urgency cancels a model-owned action and waits for its acknowledged terminal', async () => {
+  let started!: () => void;
+  const actionStarted = new Promise<void>((resolve) => (started = resolve));
+  const events: any[] = [];
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async (_name, _args, _intent, execution) => {
+        started();
+        return await new Promise((resolve) => {
+          execution?.signal.addEventListener(
+            'abort',
+            () =>
+              resolve({
+                ok: false,
+                error: 'action_interrupted',
+                cancellation: { acknowledged: true, adapter: 'test-body' },
+              }),
+            { once: true },
+          );
+        });
+      },
+    },
+    { onEvent: (event) => events.push(event) },
+  );
+  engine.enqueueIntent({ id: 'long-walk', source: 'llm', tool: 'move_to' });
+  const action = engine.tick();
+  await actionStarted;
+
+  assert.equal(
+    engine.requestModelActionCancellation('bodily_urgent_attention', {
+      eventSequence: 42,
+      eventType: 'self_hurt',
+    }),
+    true,
+  );
+  assert.equal(
+    engine.requestModelActionCancellation('bodily_urgent_attention', {
+      eventSequence: 43,
+      eventType: 'self_hurt',
+    }),
+    false,
+    'one active action receives one cancellation request',
+  );
+  await action;
+
+  const requested = events.find((event) => event.type === 'cancellation_requested');
+  assert.equal(requested.data.intent.id, 'long-walk');
+  assert.equal(requested.data.requestedBy.source, 'system');
+  assert.deepEqual(requested.data.requestedBy.input, {
+    eventSequence: 42,
+    eventType: 'self_hurt',
+  });
+  const terminal = events.find((event) => event.type === 'action_failed');
+  assert.equal(terminal.data.cancellation.reason, 'bodily_urgent_attention');
+  assert.equal(terminal.data.cancellation.acknowledged, true);
+  assert.equal(engine.state().inFlightIntent, null);
+});
+
+test('bodily urgency terminalizes a queued model intent before registry dispatch', async () => {
+  const events: any[] = [];
+  let dispatches = 0;
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async () => {
+        dispatches += 1;
+        return { ok: true };
+      },
+    },
+    { onEvent: (event) => events.push(event) },
+  );
+  engine.enqueueIntent({ id: 'not-yet-walking', source: 'llm', tool: 'move_to' });
+
+  assert.equal(
+    engine.requestModelActionCancellation('bodily_urgent_attention', {
+      eventSequence: 17,
+      eventType: 'self_hurt',
+    }),
+    true,
+  );
+  await engine.tick();
+
+  assert.equal(dispatches, 0);
+  const terminal = events.find(
+    (event) => event.type === 'intent_blocked' && event.data.intent.id === 'not-yet-walking',
+  );
+  assert.equal(terminal.data.reason, 'bodily_urgent_attention');
+  assert.equal(terminal.data.requestedBy.source, 'system');
+  assert.equal(terminal.data.result.cancellation.requested, true);
+  assert.equal(engine.state().queuedLease, null);
+});
+
 test('a registry exception emits exactly one terminal action event', async () => {
   const events: string[] = [];
   const engine = createEngine(

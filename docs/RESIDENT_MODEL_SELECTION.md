@@ -87,3 +87,11 @@ actions/42,390 bytes to 16 actions/32,447 bytes. Luna remains provisional: the
 smaller current workload needs a new matched frontier comparison and live proof
 before any model is called adequate for survival. See the
 [affordance closing-time report](reports/2026-07-14-affordance-closing-time.md).
+
+Run `first-life-v1-41` crossed the corrected Gemini tool boundary with no model
+call failure. Four Gemini 3.5 Flash decisions took 1.188–2.044 seconds. Three
+Luna urgent decisions took 3.910, 2.849, and 3.380 seconds, all inside the
+five-second admission boundary. Wren still died: urgent cognition was waiting
+behind a 19.239-second movement action, and the first escape choice was
+physically blocked. These latencies keep both models in the experiment; they do
+not make either model a demonstrated survival controller.
