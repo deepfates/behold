@@ -65,6 +65,35 @@ test('loom folding advances in batches and keeps a bounded verbatim frontier', a
   assert.equal(summaries, 3);
 });
 
+test('a read-only loom view never fabricates or writes a fold needed for replay', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-read-only-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cacheFile = path.join(root, 'fold.json');
+  let summarizerCalls = 0;
+  const view = createLoomContextView(
+    [entityTurn(1, 'Scout'), entityTurn(2, 'Scout'), entityTurn(3, 'Scout')],
+    {
+      entityId: 'Scout',
+      model: 'test/model',
+      cacheFile,
+      readOnly: true,
+      recentTurns: 1,
+      foldTriggerTurns: 1,
+      summarize: async () => {
+        summarizerCalls += 1;
+        return 'must not be called';
+      },
+    },
+  );
+
+  await assert.rejects(
+    view.prepare(),
+    /read-only loom context requires a current fold.*"foldTarget":2/,
+  );
+  assert.equal(summarizerCalls, 0);
+  assert.equal(fs.existsSync(cacheFile), false);
+});
+
 test('a validated fold cache is disposable acceleration, not another source of truth', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-'));
   const cacheFile = path.join(root, 'fold.json');

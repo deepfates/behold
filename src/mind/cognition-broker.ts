@@ -106,7 +106,14 @@ export type CognitionBroker = Readonly<{
 export type CognitionBrokerOptions = Readonly<{
   upstreamEndpoint: string;
   upstreamApiKey: string;
-  clients: readonly Readonly<{ bearer: string; residentKey: string; model: string }>[];
+  clients: readonly Readonly<{
+    bearer: string;
+    residentKey: string;
+    /** Default model retained for backwards-compatible configuration evidence. */
+    model: string;
+    /** Exact additional models this resident transport may request. */
+    models?: readonly string[];
+  }>[];
   maxConcurrent: number;
   maxAccepted?: number;
   maxQueued?: number;
@@ -123,13 +130,19 @@ export type CognitionBrokerOptions = Readonly<{
   onEvent?: (event: CognitionBrokerEvent) => void;
 }>;
 
-type Client = Readonly<{ bearer: string; residentKey: string; model: string }>;
+type Client = Readonly<{
+  bearer: string;
+  residentKey: string;
+  model: string;
+  models: readonly string[];
+}>;
 
 type Job = {
   state: 'queued' | 'active' | 'cancelling' | 'completed' | 'cancelled';
   brokerRequestId: string;
   clientRequestId: string;
   client: Client;
+  model: string;
   priority: CognitionPriority;
   purpose: CognitionPurpose;
   urgentTriggerSequence: number | null;
@@ -277,7 +290,7 @@ export async function startCognitionBroker(
             priority: job.priority,
             purpose: job.purpose,
             urgentTriggerSequence: job.urgentTriggerSequence,
-            model: job.client.model,
+            model: job.model,
             bodySha256: job.bodySha256,
             bodyBytes: job.body.byteLength,
           })
@@ -355,10 +368,11 @@ export async function startCognitionBroker(
       return reject(response, 400, 'scheduling_headers_invalid', 'scheduling headers are invalid');
     }
     let body: Buffer;
+    let model: string;
     try {
       body = await readBody(request, maxBodyBytes);
-      const model = validateRequestBody(body);
-      if (model !== client.model) {
+      model = validateRequestBody(body);
+      if (!client.models.includes(model)) {
         throw codedError('request_model_not_admitted', 'resident requested an unbound model');
       }
     } catch (error: any) {
@@ -390,6 +404,7 @@ export async function startCognitionBroker(
       brokerRequestId: `broker-${randomUUID()}`,
       clientRequestId,
       client,
+      model,
       priority,
       purpose,
       urgentTriggerSequence,
@@ -496,7 +511,7 @@ export async function startCognitionBroker(
         brokerRequestId: job.brokerRequestId,
         clientRequestId: job.clientRequestId,
         residentKey: job.client.residentKey,
-        model: job.client.model,
+        model: job.model,
         bodySha256: job.bodySha256,
         priority: job.priority,
         purpose: job.purpose,
@@ -936,12 +951,17 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       const bearer = String(value?.bearer || '');
       const residentKey = String(value?.residentKey || '');
       const model = String(value?.model || '').trim();
+      const models = [
+        ...new Set([model, ...(value?.models ?? []).map((item) => String(item).trim())]),
+      ];
       if (
         bearer.length < 32 ||
         bearer.length > 512 ||
         !/^[a-f0-9]{64}$/.test(residentKey) ||
         !model ||
-        model.length > 300
+        model.length > 300 ||
+        models.length > 16 ||
+        models.some((item) => !item || item.length > 300)
       ) {
         throw new Error(`invalid cognition client at index ${index}`);
       }
@@ -950,7 +970,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       }
       bearers.add(bearer);
       residents.add(residentKey);
-      return Object.freeze({ bearer, residentKey, model });
+      return Object.freeze({ bearer, residentKey, model, models: Object.freeze(models) });
     }),
   );
 }

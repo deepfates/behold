@@ -112,6 +112,7 @@ async function main() {
         history,
         actions,
         foldCacheFile: loom.foldFile,
+        timeoutMs: args.timeoutMs,
         source: {
           journal: path.resolve(args.journal),
           modelTurnJournalSequence: Number(baselineRecord.sequence),
@@ -309,6 +310,7 @@ async function runAttentionPair(options: {
   history: any[];
   actions: any[];
   foldCacheFile: string;
+  timeoutMs: number;
   source: Record<string, unknown>;
 }) {
   const control = deliberativeControlObservation(options.observation);
@@ -351,8 +353,14 @@ async function runAttentionPair(options: {
   };
   const endpoint = chatCompletionEndpoint(process.env.OPENROUTER_BASE_URL);
   const [deliberativeCall, urgentCall] = await Promise.all([
-    measuredProviderCall('deliberative', measuredDeliberative, options.apiKey, endpoint),
-    measuredProviderCall('urgent', measuredUrgent, options.apiKey, endpoint),
+    measuredProviderCall(
+      'deliberative',
+      measuredDeliberative,
+      options.apiKey,
+      endpoint,
+      options.timeoutMs,
+    ),
+    measuredProviderCall('urgent', measuredUrgent, options.apiKey, endpoint, options.timeoutMs),
   ]);
   const arms = [
     attentionArm('deliberative', measuredDeliberative, deliberativeCall),
@@ -368,6 +376,7 @@ async function runAttentionPair(options: {
       worldMutationEnabled: false,
       executableFunctionsExposedToProvider: false,
       proposalAdmissionEnabled: false,
+      providerDeadlineMs: options.timeoutMs,
       note: 'Both arms send the same current observation and action schemas; provider tool calls are recorded but never admitted.',
       cacheControl:
         'The same unique non-semantic suffix is added to both system prompts so prior provider prompt-cache state cannot favor either arm.',
@@ -405,6 +414,7 @@ async function captureMindRequest(options: {
   foldCacheFile: string;
 }) {
   let captured: ResidentMindRequest | null = null;
+  const captureLogs: string[] = [];
   const mind: ResidentMind = {
     id: 'attention-request-capture',
     decide: async (request) => {
@@ -433,8 +443,10 @@ async function captureMindRequest(options: {
       mind,
       history: options.history,
       foldCacheFile: options.foldCacheFile,
+      foldReadOnly: true,
       maxTurnSteps: 1,
       acceptEngineEvent: () => true,
+      log: (message) => captureLogs.push(message),
     },
   );
   try {
@@ -442,7 +454,11 @@ async function captureMindRequest(options: {
   } finally {
     await policy.stop();
   }
-  if (!captured) throw new Error('policy produced no mind request for attention comparison');
+  if (!captured) {
+    throw new Error(
+      captureLogs.at(-1) || 'policy produced no mind request for attention comparison',
+    );
+  }
   return captured as ResidentMindRequest;
 }
 
@@ -497,6 +513,7 @@ async function measuredProviderCall(
   request: ResidentMindRequest,
   apiKey: string,
   endpoint: string,
+  timeoutMs: number,
 ) {
   const tools = request.actions.map((action) => ({
     type: 'function',
@@ -525,7 +542,12 @@ async function measuredProviderCall(
   if (process.env.OPENROUTER_REFERER) headers['HTTP-Referer'] = process.env.OPENROUTER_REFERER;
   if (process.env.OPENROUTER_TITLE) headers['X-Title'] = process.env.OPENROUTER_TITLE;
   try {
-    const response = await fetch(endpoint, { method: 'POST', headers, body: requestBody });
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: requestBody,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     const text = await response.text();
     const completedAt = Date.now();
     let data: any = null;

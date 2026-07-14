@@ -37,7 +37,10 @@ type ToolSpec = InhabitantActionSpec;
 
 export type Options = {
   apiKey: string;
+  /** Default model for ordinary deliberation, social attention, and loom folding. */
   model: string;
+  /** Optional model used only for newly urgent bodily/world evidence. */
+  urgentModel?: string;
   endpoint?: string;
   tickMs?: number;
   maxTurnSteps?: number;
@@ -45,6 +48,8 @@ export type Options = {
   allowTools?: string[] | null;
   history?: EntityTurn[];
   foldCacheFile?: string | null;
+  /** Evidence replay may read an existing fold but must not create or update one. */
+  foldReadOnly?: boolean;
   foldRecentTurns?: number;
   foldBatchTurns?: number;
   foldTriggerTurns?: number;
@@ -97,6 +102,7 @@ type PendingAction = {
 };
 
 type TurnDraft = {
+  model: string;
   startedAt: number;
   observation: any;
   assistant: any;
@@ -112,6 +118,7 @@ type ModelDecision = {
 };
 
 type ActiveDecision = {
+  model: string;
   attention: ResidentAttention;
   startedAt: number;
   observationSequence: number;
@@ -227,6 +234,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     entityId,
     model: opts.model,
     cacheFile: opts.foldCacheFile,
+    readOnly: opts.foldReadOnly,
     recentTurns: opts.foldRecentTurns ?? 8,
     foldBatchTurns: opts.foldBatchTurns ?? 24,
     foldTriggerTurns: opts.foldTriggerTurns ?? 8,
@@ -398,7 +406,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const modelObservation =
         currentModelObservation ?? projectCurrentModelObservation(currentObservation);
       const attention = attentionForObservation(modelObservation);
+      const decisionModel = hasBodilyUrgency(attention)
+        ? opts.urgentModel || opts.model
+        : opts.model;
       activeDecision = {
+        model: decisionModel,
         attention,
         startedAt,
         observationSequence: Number(currentObservation?.sequence) || lastSequence,
@@ -410,7 +422,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         const request: ResidentMindRequest = {
           protocol: 'behold.mind-request.v1',
           entityId,
-          model: opts.model,
+          model: decisionModel,
           observation: cloneJson(modelObservation),
           conversation: cloneJson(conversationForAttention(messages, attention, availableTools)),
           actions: cloneJson(
@@ -430,7 +442,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         // with a synthetic rejection: aggregate compute remains occupied until
         // the adapter promise actually settles.
         const proposed = await mind.decide(request, { signal });
-        return validateMindDecision(proposed, availableTools, requiredTool);
+        return validateMindDecision(proposed, availableTools, requiredTool, decisionModel);
       });
       if (stopped || suspended) {
         turnActive = false;
@@ -447,6 +459,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         };
       }
       const draft: TurnDraft = {
+        model: decisionModel,
         startedAt,
         observation: currentObservation,
         assistant,
@@ -455,7 +468,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       messages.push(assistant);
       opts.onModelTurn?.({
         at: decidedAt,
-        model: opts.model,
+        model: decisionModel,
         observation: modelObservation,
         assistant,
         intent: decision.intent,
@@ -665,12 +678,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               .map((trigger) => `${trigger.type}@${trigger.sequence}`)
               .join(', ')}`,
           );
-          opts.onModelInterrupted?.({ ...interruption, model: opts.model });
+          opts.onModelInterrupted?.({
+            ...interruption,
+            model: activeDecision?.model || opts.model,
+          });
         } else {
           log(`[policy] error: ${e?.message || String(e)}`);
           opts.onModelError?.({
             at: now(),
-            model: opts.model,
+            model: activeDecision?.model || opts.model,
             error: e?.message || String(e),
             call:
               e instanceof ModelCallError ||
@@ -818,7 +834,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       entityId,
       sequence,
       parentId: parentTurnId,
-      model: opts.model,
+      model: draft.model,
       attention: draft.attention,
       startedAt: draft.startedAt,
       completedAt,
@@ -1604,6 +1620,7 @@ function validateMindDecision(
   decision: ResidentMindDecision,
   admittedActions: readonly ToolSpec[],
   requiredAction: string | null,
+  expectedModel: string,
 ): ModelDecision {
   if (decision?.protocol !== 'behold.mind-decision.v1') {
     throw new Error('mind returned an unsupported decision protocol');
@@ -1616,6 +1633,11 @@ function validateMindDecision(
   const fail = (message: string): never => {
     throw new MindDecisionError(message, decision.call);
   };
+  if (decision.call.request?.model !== expectedModel) {
+    fail(
+      `mind call evidence model ${String(decision.call.request?.model)} does not match requested model ${expectedModel}`,
+    );
+  }
   const content = typeof decision.utterance === 'string' ? decision.utterance : null;
 
   if (decision.disposition === 'no_action') {
@@ -1737,7 +1759,7 @@ async function callLLM(
   const startedAt = opts.now ? opts.now() : Date.now();
   const requestBody = JSON.stringify(body);
   const request = {
-    model: opts.model,
+    model: residentRequest.model,
     messageCount: messages.length,
     toolCount: specs.length,
     toolChoice: body.tool_choice,

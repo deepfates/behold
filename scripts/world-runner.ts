@@ -142,6 +142,7 @@ type RuntimeInspection = RuntimeEvidence & {
 export type ManagedResidentSpec = Readonly<{
   entityId: string;
   model: string;
+  urgentModel?: string;
   mind?: 'direct' | 'ax';
   tickMs?: number;
   task?: string;
@@ -194,6 +195,7 @@ export type ManagedWorldRun = Readonly<{
   residents: readonly Readonly<{
     entityId: string;
     model: string;
+    urgentModel: string | null;
     mind: 'direct' | 'ax';
     tickMs: number;
     pid: number;
@@ -258,6 +260,7 @@ type ManagedResetTestDependencies = Omit<
 type NormalizedManagedResident = Readonly<{
   entityId: string;
   model: string;
+  urgentModel?: string;
   mind: 'direct' | 'ax';
   tickMs: number;
   task?: string;
@@ -276,7 +279,10 @@ type ManagedResidentProcess = Readonly<{
 
 type ManagedCognition = Readonly<{
   broker: CognitionBroker;
-  clients: ReadonlyMap<string, Readonly<{ bearer: string; residentKey: string; model: string }>>;
+  clients: ReadonlyMap<
+    string,
+    Readonly<{ bearer: string; residentKey: string; model: string; models?: readonly string[] }>
+  >;
   concurrencyLimit: number;
   maxTotalModelCalls: number | null;
 }>;
@@ -332,11 +338,22 @@ function normalizeManagedResidents(
     options.residents.map((candidate, index) => {
       const entityId = optionalText(candidate?.entityId);
       const model = optionalText(candidate?.model);
-      if (!entityId || !model) {
+      const urgentModel = optionalText(candidate?.urgentModel);
+      if (
+        !entityId ||
+        !model ||
+        model.length > 300 ||
+        (urgentModel != null && urgentModel.length > 300)
+      ) {
         throw new WorldRunnerError(
-          'Every resident requires a nonempty entityId and model',
+          'Every resident requires a nonempty bounded entityId and model configuration',
           'resident_identity_invalid',
-          { index, entityId: candidate?.entityId, model: candidate?.model },
+          {
+            index,
+            entityId: candidate?.entityId,
+            model: candidate?.model,
+            urgentModel: candidate?.urgentModel,
+          },
         );
       }
       const safeEntityId = sanitizeName(entityId);
@@ -391,6 +408,7 @@ function normalizeManagedResidents(
       return Object.freeze({
         entityId,
         model,
+        ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
         mind,
         tickMs,
         ...(candidate.task ? { task: String(candidate.task) } : {}),
@@ -428,6 +446,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
       Object.freeze({
         entityId: entry.resident.entityId,
         model: entry.resident.model,
+        urgentModel: entry.resident.urgentModel ?? null,
         mind: entry.resident.mind,
         tickMs: entry.resident.tickMs,
         pid: entry.child.pid!,
@@ -607,6 +626,7 @@ export async function startManagedWorld(
             bearer: randomBytes(32).toString('base64url'),
             residentKey: cognitionResidentKey(managedRunId, resident.entityId),
             model: resident.model,
+            ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
           }),
         ]),
       );
@@ -633,6 +653,7 @@ export async function startManagedWorld(
         residents: residents.map((resident) => ({
           entityId: resident.entityId,
           model: resident.model,
+          urgentModel: resident.urgentModel ?? null,
           mind: resident.mind,
           tickMs: resident.tickMs,
           task: resident.task ?? null,
@@ -751,6 +772,7 @@ export async function startManagedWorld(
         pid: controller.pid,
         entityId: resident.entityId,
         model: resident.model,
+        urgentModel: resident.urgentModel ?? null,
         mind: resident.mind,
         tickMs: resident.tickMs,
         leasePath: resident.leasePath,
@@ -1371,6 +1393,7 @@ function spawnDefaultController(
     '--tickMs',
     String(resident.tickMs),
   ];
+  if (resident.urgentModel) args.push('--urgentModel', resident.urgentModel);
   if (resident.task) args.push('--task', resident.task);
   if (resident.target) args.push('--target', resident.target);
   if (resident.allowTools?.length) args.push('--allowTools', resident.allowTools.join(','));
@@ -1965,6 +1988,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       config: { type: 'string' },
       world: { type: 'string' },
       model: { type: 'string' },
+      urgentModel: { type: 'string' },
       controller: { type: 'string', multiple: true },
       mind: { type: 'string' },
       tickMs: { type: 'string' },
@@ -2041,6 +2065,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     : ['ScoutLife'];
   const controllerProfile = managedControllerProfile(parsed.values.task, parsed.values.target);
   const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL);
+  const urgentModel = optionalText(parsed.values.urgentModel || process.env.LLM_URGENT_MODEL);
   const mind = String(parsed.values.mind || process.env.BEHOLD_MIND || 'direct') as 'direct' | 'ax';
   const tickMs = Number(parsed.values.tickMs || process.env.AGENT_TICK_MS || 4000);
   const maxResidents = Number(parsed.values.maxResidents || 16);
@@ -2063,6 +2088,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     residents: controllerEntityIds.map((entityId) => ({
       entityId,
       model,
+      ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
       mind,
       tickMs,
       ...controllerProfile,
@@ -2132,12 +2158,13 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Without --task, the foreground runner starts untasked residents with the full safe inhabitant action surface.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',
+    'With --urgentModel, only newly urgent bodily/world evidence uses that model; ordinary and social decisions retain --model.',
     'Come-See-Do-Report remains available explicitly with --task come-see-do-report.',
     'Recovery releases only an exact same-host abandoned epoch after durable evidence and stopped-world verification.',
     'The foreground runner refuses foreign-owned ports, session locks, and owner records.',

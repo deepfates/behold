@@ -28,7 +28,9 @@ const DEFAULT_OPENROUTER_URL = 'https://openrouter.ai/api/v1';
 
 export type AxResidentMindOptions = {
   apiKey: string;
+  /** Default model. Resident requests may select another explicitly allowed model. */
   model: string;
+  allowedModels?: readonly string[];
   apiURL?: string;
   maxRetries?: number;
   recordModelIO?: boolean;
@@ -46,6 +48,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
   const now = options.now || Date.now;
   const apiURL = options.apiURL || DEFAULT_OPENROUTER_URL;
   const baseFetch = options.fetch || globalThis.fetch;
+  const allowedModels = new Set([options.model, ...(options.allowedModels ?? [])]);
   let activeProviderResponses: unknown[] | null = null;
   let activeAdmissions: CognitionAdmissionEvidence[] | null = null;
   let activeTransportRequest: {
@@ -86,13 +89,24 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
     }
     return response;
   };
-  const llm = ai({
-    name: 'openai',
-    apiKey: options.apiKey,
-    apiURL,
-    config: { model: options.model },
-    options: { stream: false, fetch: instrumentedFetch },
-  });
+  const llms = new Map<string, any>();
+  const llmFor = (model: string) => {
+    if (!allowedModels.has(model)) {
+      throw new Error(`Ax resident mind was not configured for model ${model}`);
+    }
+    let llm = llms.get(model);
+    if (!llm) {
+      llm = ai({
+        name: 'openai',
+        apiKey: options.apiKey,
+        apiURL,
+        config: { model },
+        options: { stream: false, fetch: instrumentedFetch },
+      });
+      llms.set(model, llm);
+    }
+    return llm;
+  };
   const program = ax(`
     "Choose exactly one next action for a persistent embodied resident from bounded lived evidence. Propose only; never claim the action happened and never execute tools."
     livedContext:json,
@@ -144,7 +158,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
       program.setInstruction(residentInstruction(request));
       program.resetUsage();
       try {
-        const output: any = await program.forward(llm, input as any, {
+        const output: any = await program.forward(llmFor(request.model), input as any, {
           abortSignal: signal,
           stream: false,
           maxRetries: Math.max(0, options.maxRetries ?? 1),
@@ -166,7 +180,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           ...(admissions.length ? { admissions: cloneJson(admissions) } : {}),
           adapter: { name: 'ax', version: AX_VERSION },
           request: {
-            model: options.model,
+            model: request.model,
             messageCount: request.conversation.length,
             toolCount: request.actions.length,
             toolChoice: request.requiredAction,
@@ -179,7 +193,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           },
           response: {
             id: stringOrNull(providerResponse?.id),
-            model: stringOrNull(providerResponse?.model) || options.model,
+            model: stringOrNull(providerResponse?.model) || request.model,
             provider: stringOrNull(providerResponse?.provider) || 'Ax/OpenAI-compatible',
             finishReason:
               stringOrNull(providerResponse?.choices?.[0]?.finish_reason) || 'structured_output',
@@ -214,7 +228,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           ...(admissions.length ? { admissions: cloneJson(admissions) } : {}),
           adapter: { name: 'ax', version: AX_VERSION },
           request: {
-            model: options.model,
+            model: request.model,
             messageCount: request.conversation.length,
             toolCount: request.actions.length,
             toolChoice: request.requiredAction,

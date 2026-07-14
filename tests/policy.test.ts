@@ -124,7 +124,7 @@ test('urgent attention preserves resident choice while fresh perception updates 
         disposition: 'wait',
         utterance: 'I reobserved my body before choosing.',
         action: null,
-        call: modelCallEvidence('temporal-mind'),
+        call: modelCallEvidence('temporal-mind', request.model),
       };
     },
   };
@@ -193,6 +193,7 @@ test('urgent attention preserves resident choice while fresh perception updates 
     {
       apiKey: 'unused',
       model: 'test/model',
+      urgentModel: 'test/urgent-model',
       mind,
       history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to'), failedTurn(3, 'move_to')],
       acceptEngineEvent: () => true,
@@ -207,6 +208,7 @@ test('urgent attention preserves resident choice while fresh perception updates 
     const firstTick = policy.tick();
     await firstRequestStarted;
     assert.equal(requests[0].attention.mode, 'deliberative');
+    assert.equal(requests[0].model, 'test/model');
 
     worldSequence = 2;
     policy.wake();
@@ -225,6 +227,7 @@ test('urgent attention preserves resident choice while fresh perception updates 
     ]);
     assert.equal(interruptions[0].observationSequence, 1);
     assert.equal(requests[1].attention.mode, 'urgent');
+    assert.equal(requests[1].model, 'test/urgent-model');
     assert.deepEqual(requests[1].attention.triggers, [
       { sequence: 2, type: 'self_hurt', salience: 'urgent' },
     ]);
@@ -254,7 +257,9 @@ test('urgent attention preserves resident choice while fresh perception updates 
     assert.doesNotMatch(urgentGuidance, /Use manage_project|with manage_project/);
     assert.equal(requests[1].requiredAction, null);
     assert.equal(modelTurns[0].attention.mode, 'urgent');
+    assert.equal(modelTurns[0].model, 'test/urgent-model');
     assert.equal(entityTurns[0].attention?.mode, 'urgent');
+    assert.equal(entityTurns[0].model, 'test/urgent-model');
   } finally {
     await policy.stop();
   }
@@ -271,7 +276,7 @@ test('social urgency keeps ordinary projects available without bodily-danger fra
         disposition: 'wait',
         utterance: 'I noticed the message and retain my ordinary choices.',
         action: null,
-        call: modelCallEvidence('social-attention-mind'),
+        call: modelCallEvidence('social-attention-mind', request.model),
       };
     },
   };
@@ -315,6 +320,7 @@ test('social urgency keeps ordinary projects available without bodily-danger fra
     {
       apiKey: 'unused',
       model: 'test/model',
+      urgentModel: 'test/urgent-model',
       mind,
       acceptEngineEvent: () => true,
     },
@@ -324,6 +330,7 @@ test('social urgency keeps ordinary projects available without bodily-danger fra
     await policy.tick();
     assert.equal(requests.length, 1);
     assert.equal(requests[0].attention?.mode, 'urgent');
+    assert.equal(requests[0].model, 'test/model');
     assert.deepEqual(
       requests[0].actions.map((action) => action.name),
       ['manage_project', 'move_to', 'chat', 'wait_for_event'],
@@ -997,6 +1004,64 @@ test('the resident boundary rejects an unadmitted action even when a mind mutate
     assert.equal(errors.length, 1);
     assert.match(errors[0].error, /unadmitted action teleport/);
     assert.equal(errors[0].call.adapter.name, 'adversarial-mind');
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('the resident boundary rejects mind evidence for a model other than the requested attention tier', async () => {
+  const errors: any[] = [];
+  const requests: ResidentMindRequest[] = [];
+  const mind: ResidentMind = {
+    id: 'model-drift-mind',
+    decide: async (request) => {
+      requests.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I claim to have used the ordinary model.',
+        action: null,
+        call: modelCallEvidence('model-drift-mind', 'test/model'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_direction')],
+      attempt: () => assert.fail('model drift cannot reach the world'),
+      observe: () => ({
+        protocol: 'behold.inhabitant.v2',
+        sequence: 4,
+        self: { condition: { health: 5, food: 20, oxygen: 20 } },
+        scene: { entities: [] },
+        events: [
+          {
+            sequence: 4,
+            type: 'self_hurt',
+            salience: 'urgent',
+            isNew: true,
+            data: {},
+          },
+        ],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      urgentModel: 'test/urgent-model',
+      mind,
+      acceptEngineEvent: () => true,
+      onModelError: (error) => errors.push(error),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(requests[0].model, 'test/urgent-model');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /does not match requested model test\/urgent-model/);
+    assert.equal(errors[0].model, 'test/urgent-model');
   } finally {
     await policy.stop();
   }
@@ -2677,7 +2742,7 @@ function assistantTool(id: string, name: string, args: any) {
   };
 }
 
-function modelCallEvidence(adapter: string) {
+function modelCallEvidence(adapter: string, model = 'test/model') {
   return {
     protocol: 'behold.model-call.v1' as const,
     requestId: `${adapter}-call`,
@@ -2687,7 +2752,7 @@ function modelCallEvidence(adapter: string) {
     latencyMs: 1,
     adapter: { name: adapter },
     request: {
-      model: 'test/model',
+      model,
       messageCount: 1,
       toolCount: 1,
       toolChoice: null,
@@ -2698,7 +2763,7 @@ function modelCallEvidence(adapter: string) {
     },
     response: {
       id: null,
-      model: 'test/model',
+      model,
       provider: adapter,
       finishReason: 'test',
       nativeFinishReason: null,

@@ -16,6 +16,7 @@ test('Ax proposes a typed decision without receiving executable world functions'
         bearer: localBearer,
         residentKey: cognitionResidentKey('fixture-run', 'ax-scout'),
         model: 'test/model',
+        models: ['test/urgent-model'],
       },
     ],
     maxConcurrent: 1,
@@ -27,7 +28,7 @@ test('Ax proposes a typed decision without receiving executable world functions'
           id: 'ax-test-generation',
           object: 'chat.completion',
           created: 1,
-          model: 'test/model',
+          model: 'test/urgent-model',
           choices: [
             {
               index: 0,
@@ -53,6 +54,7 @@ test('Ax proposes a typed decision without receiving executable world functions'
   const mind = createAxResidentMind({
     apiKey: localBearer,
     model: 'test/model',
+    allowedModels: ['test/urgent-model'],
     apiURL: broker.endpoint.replace(/\/chat\/completions$/, ''),
     maxRetries: 1,
     cognitionTransport: true,
@@ -67,7 +69,7 @@ test('Ax proposes a typed decision without receiving executable world functions'
       {
         protocol: 'behold.mind-request.v1',
         entityId: 'Scout',
-        model: 'test/model',
+        model: 'test/urgent-model',
         observation: { inventory: [{ name: 'oak_log', count: 1 }] },
         conversation: [
           { role: 'system', content: 'Live carefully.' },
@@ -106,6 +108,8 @@ test('Ax proposes a typed decision without receiving executable world functions'
     assert.equal(decision.action?.name, 'craft_item');
     assert.deepEqual(decision.action?.input, { item: 'oak_planks' });
     assert.equal(decision.call.adapter?.name, 'ax');
+    assert.equal(decision.call.request.model, 'test/urgent-model');
+    assert.ok(requests.every((request) => request.model === 'test/urgent-model'));
     assert.equal(decision.call.request.kind, 'mind_input');
     assert.equal((decision.call.response.usage as any).ax[0].tokens.totalTokens, 240);
     assert.equal((decision.call.response.usage as any).provider.total_tokens, 240);

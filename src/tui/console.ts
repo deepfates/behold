@@ -26,6 +26,7 @@ if (process.env.BEHOLD_LOAD_DOTENV !== '0') loadDotenv();
 export type ConsoleOptions = {
   agentName?: string;
   model?: string;
+  urgentModel?: string;
   tickMs?: number;
   paused?: boolean;
   allowTools?: string[] | null;
@@ -40,6 +41,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
 
   const cfg = getConfig();
   const name = cfg.auth.username || 'Agent';
+  const urgentModel = opts.urgentModel?.trim() || undefined;
   const mindAdapter = residentMindAdapter(process.env.BEHOLD_MIND);
   const cognitionTransport = isCognitionTransportEnabled(process.env.BEHOLD_COGNITION_TRANSPORT);
   const entityLoom = await openEntityLoom(name, undefined, cfg.circle.id);
@@ -69,9 +71,11 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     circle: cfg.circle,
     authMode: cfg.auth.mode,
     model: cfg.llm.model,
+    urgentModel: urgentModel ?? null,
     controller: {
       kind: cfg.llm.apiKey && !opts.paused ? 'llm' : 'operator',
       mindAdapter,
+      urgentModel: urgentModel ?? null,
       tickMs: Number(process.env.AGENT_TICK_MS || 3000),
       paused: Boolean(opts.paused),
       allowTools: opts.allowTools ?? null,
@@ -343,12 +347,14 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       {
         apiKey,
         model,
+        urgentModel,
         endpoint: process.env.OPENROUTER_BASE_URL || undefined,
         mind:
           mindAdapter === 'ax'
             ? createAxResidentMind({
                 apiKey,
                 model,
+                allowedModels: urgentModel ? [urgentModel] : [],
                 apiURL: openAICompatibleBaseURL(process.env.OPENROUTER_BASE_URL),
                 recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
                 cognitionTransport,
@@ -385,7 +391,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       },
     );
     startPolicyIfReady();
-    console.error(`[console] LLM policy enabled (model ${model}, mind ${mindAdapter})`);
+    console.error(
+      `[console] LLM policy enabled (model ${model}${urgentModel ? `, bodily urgency ${urgentModel}` : ''}, mind ${mindAdapter})`,
+    );
   } else if (!apiKey) {
     console.error('[console] No OPENROUTER_API_KEY; LLM autopilot disabled.');
   } else {

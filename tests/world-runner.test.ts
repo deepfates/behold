@@ -269,6 +269,10 @@ test('managed cognition keeps the provider key in the runner and drains before M
       controllerEntry,
       maxConcurrentModelCalls: 1,
       maxTotalModelCalls: 4,
+      residents: fixture.options.residents.map((resident) => ({
+        ...resident,
+        urgentModel: 'fixture/urgent-model',
+      })),
     },
     {
       spawnServer,
@@ -301,6 +305,7 @@ test('managed cognition keeps the provider key in the runner and drains before M
   const configured: any = lifecycle.find((event) => event.type === 'run_configured');
   const brokerReady: any = lifecycle.find((event) => event.type === 'cognition_broker_ready');
   assert.equal(configured?.data?.population?.maxTotalModelCalls, 4);
+  assert.equal(configured?.data?.population?.residents?.[0]?.urgentModel, 'fixture/urgent-model');
   assert.equal(brokerReady?.data?.maxTotalModelCalls, 4);
   const drained = lifecycle.findIndex((event) => event.type === 'cognition_broker_drained');
   const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');

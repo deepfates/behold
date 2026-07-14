@@ -46,6 +46,8 @@ type LoomContextOptions = {
   model: string;
   summarize: LoomFoldSummarizer;
   cacheFile?: string | null;
+  /** Refuse to synthesize or write a missing fold. Useful for evidence replay. */
+  readOnly?: boolean;
   recentTurns?: number;
   foldBatchTurns?: number;
   foldTriggerTurns?: number;
@@ -95,6 +97,14 @@ export function createLoomContextView(
 
   async function prepare() {
     if (!shouldPrepare()) return false;
+    if (options.readOnly) {
+      const state = {
+        totalTurns: turns.length,
+        foldedThrough: foldedThrough(),
+        foldTarget: foldTarget(),
+      };
+      throw new Error(`read-only loom context requires a current fold (${JSON.stringify(state)})`);
+    }
     if (preparing) return preparing;
     preparing = performFold().finally(() => {
       preparing = null;

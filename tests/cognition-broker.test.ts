@@ -485,6 +485,50 @@ test('the transport gate rejects foreign credentials, model drift, and streaming
   }
 });
 
+test('the transport gate admits only an exact configured resident model set', async () => {
+  const events: CognitionBrokerEvent[] = [];
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [{ ...client('a'), models: ['fixture/urgent-model'] }],
+    maxConcurrent: 1,
+    onEvent: (event) => events.push(event),
+    fetch: async () => jsonResponse({ id: 'urgent-model-call' }),
+  });
+
+  try {
+    const admitted = await brokerRequest(
+      broker,
+      'a',
+      requestBody('fixture/urgent-model', 'urgent'),
+      'urgent',
+      'urgent-model',
+    );
+    assert.equal(admitted.status, 200);
+    await admitted.text();
+    const rejected = await brokerRequest(
+      broker,
+      'a',
+      requestBody('fixture/unconfigured-model', 'drift'),
+      'urgent',
+      'unconfigured-model',
+    );
+    assert.equal(rejected.status, 400);
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === 'admitted' &&
+          event.request?.clientRequestId === 'urgent-model' &&
+          event.request.model === 'fixture/urgent-model' &&
+          (event.data as any).model === 'fixture/urgent-model',
+      ),
+    );
+  } finally {
+    await broker.close();
+  }
+});
+
 test('the transport gate bounds an upstream response while preserving terminal evidence', async () => {
   const events: CognitionBrokerEvent[] = [];
   let cancelled = false;
