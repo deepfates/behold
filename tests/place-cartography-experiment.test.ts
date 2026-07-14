@@ -7,6 +7,10 @@ const modulePath = path.resolve(
   __dirname,
   '../../scripts/place-compiler/cartography-experiment.mjs',
 );
+const metricsModulePath = path.resolve(
+  __dirname,
+  '../../scripts/place-compiler/cartography-metrics.mjs',
+);
 
 test('one cartography policy compiles identically across contrasting windows', async () => {
   const { calibrationRecipe, validateExperiment } = await import(pathToFileURL(modulePath).href);
@@ -49,4 +53,39 @@ test('one cartography policy compiles identically across contrasting windows', a
   assert.equal(recipes[1].generation.cartographyPolicy, 'minecraft-legible-v1');
   assert.notDeepEqual(recipes[0].geography.bounds, recipes[1].geography.bounds);
   assert.deepEqual(recipes[0].generation, recipes[1].generation);
+});
+
+test('cartography metrics use a deterministic bounded lattice', async () => {
+  const { sampleLattice } = await import(pathToFileURL(metricsModulePath).href);
+  const metadata = { minMcX: 0, maxMcX: 999, minMcZ: 0, maxMcZ: 99 };
+  const first = sampleLattice(metadata, 100);
+  const second = sampleLattice(metadata, 100);
+  assert.deepEqual(first, second);
+  assert(first.length <= 100);
+  assert(
+    first.every(({ x, z }: { x: number; z: number }) => x >= 0 && x <= 999 && z >= 0 && z <= 99),
+  );
+});
+
+test('cartography metrics distinguish obstructing canopy from exposed surface', async () => {
+  const { classifyTop, summarizeMeasurements } = await import(
+    pathToFileURL(metricsModulePath).href
+  );
+  assert.equal(classifyTop('minecraft:oak_leaves'), 'tree');
+  assert.equal(classifyTop('minecraft:stone_bricks'), 'exposed-solid');
+  const summary = summarizeMeasurements([
+    {
+      topKind: 'tree',
+      top: { y: 90, name: 'minecraft:oak_leaves' },
+      ground: { y: 80, name: 'minecraft:grass_block' },
+    },
+    {
+      topKind: 'exposed-solid',
+      top: { y: 81, name: 'minecraft:stone' },
+      ground: { y: 81, name: 'minecraft:stone' },
+    },
+  ]);
+  assert.equal(summary.obstructingCanopyShare, 0.5);
+  assert.equal(summary.severeCanopyShare, 0.5);
+  assert.equal(summary.topShares['exposed-solid'], 0.5);
 });

@@ -66,12 +66,22 @@ export class AnvilWorldReader {
     return section.block_states.palette[this.paletteIndex(section, x, y, z)]?.Name ?? null;
   }
 
-  async scanColumn(x, z, { minimumY = -64, maximumY = 511, accept = () => false } = {}) {
+  async scanColumn(
+    x,
+    z,
+    {
+      minimumY = -64,
+      maximumY = 511,
+      accept = () => false,
+      transparent = (name) =>
+        /^(?:minecraft:)?(?:air|cave_air|void_air|water|lava)$/.test(name),
+    } = {},
+  ) {
     let top = null;
     let accepted = null;
     for (let y = maximumY; y >= minimumY; y -= 1) {
       const name = await this.blockAt(x, y, z);
-      if (!name || /^(?:minecraft:)?(?:air|cave_air|void_air|water|lava)$/.test(name)) continue;
+      if (!name || transparent(name)) continue;
       top ??= { y, name };
       if (!accepted && accept(name)) accepted = { y, name };
       if (top && accepted && y < accepted.y - 3) break;

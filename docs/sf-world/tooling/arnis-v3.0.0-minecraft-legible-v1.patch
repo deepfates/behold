@@ -151,18 +151,37 @@
      }
 
      /// WorldPainter community density (~10..150) -> fraction of slots that keep a tree.
-@@ -448,7 +455,9 @@
+@@ -424,10 +431,16 @@
+         x: i32,
+         z: i32,
+         hint: Habitat,
+         elev_y: i32,
++        dedicated: bool,
+     ) -> Option<(i32, i32, usize, u8)> {
+-        let s = self.base_spacing();
+-        let (sx, sz) = crate::trees::schematic::trunk_slot_s(x, z, s);
++        // A deliberately mapped natural=tree is source truth: keep its exact
++        // coordinate and exempt it from synthetic grove thinning.
++        let (sx, sz) = if dedicated {
++            (x, z)
++        } else {
++            crate::trees::schematic::trunk_slot_s(x, z, self.base_spacing())
++        };
+         let montane =
+             self.is_montane(elev_y) && crate::ground_generation::value_noise_01(sx, sz, 64) < 0.6;
+         let blend = coord_hash(sx + 7, sz + 13) % 100;
+@@ -448,7 +461,9 @@
          };
          let grove = crate::ground_generation::value_noise_01(sx, sz, Self::GROVE_PERIOD);
          let jitter = (coord_hash(sx ^ 0x71c3, sz ^ 0x2d9b) % 1000) as f64 / 1000.0;
 -        if grove * 0.82 + jitter * 0.18 >= Self::keep_prob(community.density) {
 +        let keep_probability =
 +            (Self::keep_prob(community.density) * self.density_multiplier).clamp(0.0, 1.0);
-+        if grove * 0.82 + jitter * 0.18 >= keep_probability {
++        if !dedicated && grove * 0.82 + jitter * 0.18 >= keep_probability {
              return None;
          }
          let idx = idx?;
-@@ -507,8 +516,10 @@
+@@ -507,8 +522,10 @@
      #[test]
      fn ena_palm_gate_removes_trees() {
          let src = TreePackSource::embedded("ena");
@@ -175,7 +194,7 @@
          assert!(
              excl.total_realm < incl.total_realm,
              "palm gate should drop ena palm trees ({} vs {})",
-@@ -520,8 +531,8 @@
+@@ -520,11 +537,13 @@
      #[test]
      fn embedded_eur_loads_and_picks() {
          let src = TreePackSource::embedded("eur");
@@ -185,7 +204,24 @@
 +            .expect("load eur");
          assert!(lib.total_realm > 0);
          for k in 0..200 {
-             if let Some((_, _, idx, _)) = lib.pick_slot(k * 3, k * 7, Habitat::Lowland, 0) {
+-            if let Some((_, _, idx, _)) = lib.pick_slot(k * 3, k * 7, Habitat::Lowland, 0) {
++            if let Some((_, _, idx, _)) =
++                lib.pick_slot(k * 3, k * 7, Habitat::Lowland, 0, false)
++            {
+                 assert!(idx < lib.entries.len());
+                 return;
+             }
+--- a/src/element_processing/tree.rs
++++ b/src/element_processing/tree.rs
+@@ -564,7 +564,7 @@
+             ];
+             let hint = habitat_for_tree_type(tree_type);
+             let elev_y = editor.terrain_level(x, z).unwrap_or(base_y);
+-            if let Some((sx, sz, idx, rot)) = region.pick_slot(x, z, hint, elev_y) {
++            if let Some((sx, sz, idx, rot)) = region.pick_slot(x, z, hint, elev_y, allow_on_paved) {
+                 // The slot can be a few blocks off (x,z); re-check it isn't road/water/bridge.
+                 if editor.is_lc_water(sx, sz)
+                     || editor.check_for_block(sx, 0, sz, Some(road_water))
 --- a/src/trees/tree_pack.rs
 +++ b/src/trees/tree_pack.rs
 @@ -6,7 +6,6 @@

@@ -17,8 +17,8 @@
     "arnisPatched": {
       "baseVersion": "3.0.0",
       "path": ".behold-artifacts/sf/tools/arnis-v3.0.0-minecraft-legible-v1/arnis-mac-arm64",
-      "sizeBytes": 36854720,
-      "sha256": "4de9f5e8b659a2ae2bd8ad888fd42ab1d6e110d09145c8af9befb1074df1b97a",
+      "sizeBytes": 36853344,
+      "sha256": "4b50682348f6de2f1f63ba1e6be6eade96f5f4a6a9fed9b39dc28dec2bfce853",
       "architecture": "arm64",
       "patchPath": "docs/sf-world/tooling/arnis-v3.0.0-tall-heightmap.patch",
       "patchPaths": [
