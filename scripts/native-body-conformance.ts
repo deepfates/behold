@@ -21,7 +21,6 @@ import {
   listFiles,
   prepareOwnedWorld,
   readJson,
-  restoreEnvironment,
   sha256File,
   waitFor,
 } from './owned-world-fixture';
@@ -38,7 +37,6 @@ import { statusWorld } from './world-lab';
 const ENTITY_ID = 'BodyResident';
 const WITNESS_ID = 'BodyWitness';
 const MODEL = 'script/native-body-conformance-v1';
-const PHASE_FILE_ENV = 'BEHOLD_NATIVE_BODY_PHASE_FILE';
 const TARGET_ITEM = Object.freeze({ x: 0, y: -60, z: 0, item: 'dirt', count: 1 });
 
 async function runProof() {
@@ -65,10 +63,7 @@ async function runProof() {
     'native-body',
     TARGET_ITEM,
   );
-  const phaseFile = path.join(fixture.evidenceRoot, 'placement-step-aside-phase.json');
   const reportFile = path.join(fixture.evidenceRoot, 'native-body-conformance.json');
-  const previousPhaseFile = process.env[PHASE_FILE_ENV];
-  process.env[PHASE_FILE_ENV] = phaseFile;
   let run: Awaited<ReturnType<typeof startManagedWorld>> | null = null;
   try {
     run = await startManagedWorld(
@@ -98,6 +93,10 @@ async function runProof() {
         stdout: (text) => process.stdout.write(text),
         stderr: (text) => process.stderr.write(text),
       },
+    );
+    const phaseFile = path.join(
+      run.residents[0].journalDirectory,
+      'native-body-conformance-phase.json',
     );
     await Promise.race([
       waitFor(() => fs.existsSync(phaseFile), 60_000, 'native body phase evidence'),
@@ -170,8 +169,6 @@ async function runProof() {
   } catch (error) {
     if (run) await run.stop('native_body_conformance_failed').catch(() => {});
     throw error;
-  } finally {
-    restoreEnvironment(PHASE_FILE_ENV, previousPhaseFile);
   }
 }
 
@@ -199,7 +196,10 @@ async function runResident() {
   process.env.MINECRAFT_AUTH = 'offline';
   process.env.VIEWER_ENABLED = '0';
 
-  const phaseFile = path.resolve(requiredEnvironment(PHASE_FILE_ENV));
+  const phaseFile = path.join(
+    path.resolve(requiredEnvironment('BEHOLD_RUN_DIR')),
+    'native-body-conformance-phase.json',
+  );
   const cfg = getConfig();
   const loom = await openEntityLoom(entityId, undefined, cfg.circle.id);
   const priorTurns = loom.turns().length;
@@ -370,7 +370,7 @@ function requiredEnvironment(name: string) {
   return value;
 }
 
-if (process.env[PHASE_FILE_ENV]) {
+if (process.argv.slice(2).includes('--server')) {
   void runResident().catch((error) => {
     process.stderr.write(
       `[native-body:resident] ${error instanceof Error ? error.stack : error}\n`,
