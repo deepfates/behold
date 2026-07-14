@@ -44,7 +44,7 @@ import { DEFAULT_RESIDENT_MODEL, residentModelSelection } from './resident-model
 const WITNESS_ID = 'PopWitness';
 const POPULATION_TRAJECTORY_PROTOCOL = 'behold.population-resident-trajectory.v1';
 const SECOND_TARGET = Object.freeze({ x: -3, y: -60, z: 0, item: 'carrot', count: 1 });
-const ALLOW_TOOLS = Object.freeze(['collect_nearby_item', 'inspect_volume']);
+const ALLOW_TOOLS = Object.freeze(['look_direction', 'collect_nearby_item', 'inspect_volume']);
 const DEFAULT_BUDGETS: PopulationProofBudgets = Object.freeze({
   maxResidents: 2,
   maxConcurrentModelCalls: 1,
