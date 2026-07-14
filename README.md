@@ -72,8 +72,7 @@ Key files
 - `src/tui/*` — Console REPL (preview)
 - `src/input/keyboard.ts` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
 - `src/tools/index.ts` — Registry of callable tools the reasoner can invoke
-- `scripts/swarm.ts` — Multi-bot launcher for local/offline testing
-- `scripts/world-runner.ts` — Foreground server/controller lifecycle and refusal gates
+- `scripts/world-runner.ts` — Foreground server/resident lifecycle, population budgets, and refusal gates
 - `.env.example` — Example environment variables to copy into `.env`
 
 Prerequisites
@@ -152,13 +151,13 @@ Running Tips
 - Online servers (Microsoft): set `MINECRAFT_AUTH=microsoft` and provide username/email + password as required by your setup
 - You can tune `AGENT_TICK_MS` to slow down or speed up the agent loop
 
-Swarm (multi-bot)
+Managed population
 
-- Copy `bots.example.json` to `bots.json` and edit usernames (use offline mode).
-- Run `npm run swarm` to launch all bots as child processes.
-- Each child disables terminal keyboard by default (`KEYBOARD=0`).
-- Optional: set `spawnDelayMs` in `bots.json` (default 5000ms), or pass `--delay 5000` to CLI.
-- Auto-retry: if a bot exits quickly or is throttled, the launcher retries with backoff (defaults: `maxRetries=5`, `retryBaseMs=3000`). You may add these to `bots.json`.
+- `npm run swarm -- --config .behold-worlds.example.json --world sf-csdr --controller Scout --controller Builder` is an alias for the canonical managed-world runner.
+- Repeating `--controller` admits independently leased residents into one exact world epoch. They keep distinct observations, journals, Lync autobiographies, models, and body authority.
+- `--model`, `--mind direct|ax`, and `--tickMs` currently apply to every named resident on the CLI. Programmatic callers may configure them per resident.
+- `--maxResidents` is an explicit process and concurrent-model-call budget. The default is 16.
+- Readiness requires every named resident's exact PID/entity/run lease. Any unexpected resident exit makes the shared run unhealthy; the owner drains every resident before saving and stopping Minecraft.
 
 If you see "Connection throttled! Please wait before reconnecting."
 
@@ -234,7 +233,7 @@ Development
 - Run: `npm start` (builds then runs `node dist/src/index.js`)
 - Dev (ts-node): `npm run dev` (runs `src/index.ts` directly)
 - CLI chat: `npm run cli` (ts-node)
-- Swarm: `npm run swarm` (builds then runs `dist/scripts/swarm.js`)
+- Managed population: `npm run swarm -- --controller Scout --controller Builder`
 - Lint: `npm run lint` (ESLint)
 - Format: `npm run format` (Prettier)
 - Check: `npm run check` (ESLint + Prettier check)

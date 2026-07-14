@@ -70,11 +70,17 @@ export async function runManagedModelPhase<Witness = null>(input: {
         expectedServerJarSha256: input.fixture.expectedServerJarSha256,
         java: input.fixture.java,
         controllerEntry: path.resolve('dist/src/cli/behold.js'),
-        controllerEntityId: input.entityId,
-        controllerLeasePath: path.join(input.fixture.entityRoot, input.entityId, 'runtime.lock'),
-        model: input.model,
-        task: input.task,
-        allowTools: input.allowTools,
+        entityRoot: input.fixture.entityRoot,
+        runRoot: journalDirectory,
+        residents: [
+          {
+            entityId: input.entityId,
+            model: input.model,
+            tickMs: Math.max(500, input.agentTickMs ?? 1000),
+            task: input.task,
+            allowTools: input.allowTools,
+          },
+        ],
         startupTimeoutMs: 90_000,
         shutdownTimeoutMs: 90_000,
       },
@@ -89,7 +95,7 @@ export async function runManagedModelPhase<Witness = null>(input: {
         },
       },
     );
-    const journalFile = await waitForJournal(journalDirectory, 30_000);
+    const journalFile = await waitForJournal(run.residents[0].journalDirectory, 30_000);
     const wait = new AbortController();
     let events: RunJournalEvent[] = [];
     try {
@@ -119,7 +125,7 @@ export async function runManagedModelPhase<Witness = null>(input: {
 
     let witness: Witness | null = null;
     if (input.witness) {
-      await run.quiesceController(`${prefix}_${input.phase}_before_witness`);
+      await run.quiesceResidents(`${prefix}_${input.phase}_before_witness`);
       witness = await input.witness({ run, events, journalFile });
     }
     await run.stop(`${prefix}_${input.phase}_complete`);

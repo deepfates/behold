@@ -70,14 +70,67 @@ test('Come-See-Do-Report is an explicit managed evaluation profile', () => {
   });
 });
 
+test('resident configuration rejects canonical identity collisions and process-budget overflow before inspecting or mutating the world', async (t) => {
+  const fixture = makeFixture(t);
+  let inspections = 0;
+  const dependencies = {
+    inspectRuntime: async () => {
+      inspections += 1;
+      return runtimeEvidence(null);
+    },
+    verifyArtifacts: async () => ARTIFACTS_OK,
+  };
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          residents: [
+            { entityId: 'Scout Life', model: 'fixture/model' },
+            { entityId: 'Scout-Life', model: 'fixture/model' },
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_identity_collision',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          maxResidents: 1,
+          residents: [
+            { entityId: 'Scout', model: 'fixture/model' },
+            { entityId: 'Builder', model: 'fixture/model' },
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_limit_exceeded',
+  );
+  assert.equal(inspections, 0);
+  assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
+});
+
 test('recovery preserves evidence before releasing an exact dead same-host epoch', async (t) => {
   const fixture = makeFixture(t);
   const entityRoot = path.dirname(path.dirname(fixture.lease));
+  const builderLease = path.join(entityRoot, 'Builder', 'runtime.lock');
+  fs.mkdirSync(path.dirname(builderLease), { recursive: true });
   fs.writeFileSync(
     path.join(path.dirname(fixture.lease), 'circle.json'),
     JSON.stringify({
       protocol: 'behold.entity-circle-binding.v1',
       entityId: 'Scout',
+      circleId: 'fixture',
+    }),
+  );
+  fs.writeFileSync(
+    path.join(path.dirname(builderLease), 'circle.json'),
+    JSON.stringify({
+      protocol: 'behold.entity-circle-binding.v1',
+      entityId: 'Builder',
       circleId: 'fixture',
     }),
   );
@@ -92,19 +145,28 @@ test('recovery preserves evidence before releasing an exact dead same-host epoch
         const { acquireWorldControl } = require(process.argv[1]);
         const controlRoot = process.argv[2];
         const runtime = process.argv[3];
-        const lease = process.argv[4];
+        const scoutLease = process.argv[4];
+        const builderLease = process.argv[5];
         const control = acquireWorldControl({
           controlRoot, world: 'fixture', runtimePath: runtime,
           pid: process.pid, hostname: os.hostname()
         });
-        fs.writeFileSync(lease, JSON.stringify({
+        fs.writeFileSync(scoutLease, JSON.stringify({
           protocol: 'behold.entity-runtime-lease.v1', entityId: 'Scout',
           pid: process.pid, hostname: os.hostname(), managedRunId: 'fixture-1',
           startedAt: Date.now(), token: 'fixture-token'
         }));
+        fs.writeFileSync(builderLease, JSON.stringify({
+          protocol: 'behold.entity-runtime-lease.v1', entityId: 'Builder',
+          pid: process.pid, hostname: os.hostname(), managedRunId: 'fixture-1',
+          startedAt: Date.now(), token: 'builder-token'
+        }));
         control.update('starting', {
           server: { pid: process.pid, jarSha256: 'abc' },
-          controllers: [{ entityId: 'Scout', pid: process.pid, leasePath: lease }]
+          controllers: [
+            { entityId: 'Scout', pid: process.pid, leasePath: scoutLease },
+            { entityId: 'Builder', pid: process.pid, leasePath: builderLease }
+          ]
         });
         control.update('recovery_required');
       `,
@@ -112,6 +174,7 @@ test('recovery preserves evidence before releasing an exact dead same-host epoch
       fixture.controlRoot,
       fixture.options.world.runtime.worldPath,
       fixture.lease,
+      builderLease,
     ],
     { encoding: 'utf8' },
   );
@@ -139,13 +202,21 @@ test('recovery preserves evidence before releasing an exact dead same-host epoch
   assert.equal(recovered.classification, 'abandoned_unclean_shutdown');
   assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
   assert.equal(fs.existsSync(fixture.lease), false);
+  assert.equal(fs.existsSync(builderLease), false);
   assert.equal(fs.existsSync(recovered.preparedEvidence), true);
   assert.equal(fs.existsSync(recovered.completedEvidence), true);
   const prepared = JSON.parse(fs.readFileSync(recovered.preparedEvidence, 'utf8'));
   const completed = JSON.parse(fs.readFileSync(recovered.completedEvidence, 'utf8'));
   assert.equal(prepared.lifecycle.tipDigest, lifecycleTip);
   assert.equal(prepared.lifecycle.saveAcknowledged, false);
-  assert.equal(prepared.controllerLeases[0].record.managedRunId, 'fixture-1');
+  assert.equal(prepared.controllerLeases.length, 2);
+  assert.deepEqual(prepared.controllerLeases.map((lease: any) => lease.record.entityId).sort(), [
+    'Builder',
+    'Scout',
+  ]);
+  assert.ok(
+    prepared.controllerLeases.every((lease: any) => lease.record.managedRunId === 'fixture-1'),
+  );
   assert.equal(completed.preparedSha256.length, 64);
   assert.equal(verifyWorldLifecycleJournal(lifecycleFile).tipDigest, lifecycleTip);
 
@@ -158,8 +229,21 @@ test('recovery preserves evidence before releasing an exact dead same-host epoch
   next.release();
 });
 
-test('managed world runner owns readiness, controller lease, save, stop, and durable evidence', async (t) => {
+test('managed world runner owns conjunctive readiness, distinct leases, drain, save, and stop for two residents', async (t) => {
   const fixture = makeFixture(t);
+  const builderLease = path.join(fixture.options.entityRoot, 'Builder', 'runtime.lock');
+  const options = {
+    ...fixture.options,
+    residents: [
+      ...fixture.options.residents,
+      {
+        entityId: 'Builder',
+        model: 'fixture/alternate-model',
+        mind: 'ax' as const,
+        tickMs: 1500,
+      },
+    ],
+  };
   const commandLog = path.join(fixture.root, 'server-commands.log');
   let serverPid: number | null = null;
   let serverAlive = false;
@@ -187,13 +271,14 @@ test('managed world runner owns readiness, controller lease, save, stop, and dur
     });
     return child;
   };
-  const spawnController = ({ runId }: { runId: string }) => {
+  const spawnController = ({ runId, resident, leasePath }: any) => {
     const script = `
       const fs = require('node:fs');
       const os = require('node:os');
       const lease = process.argv[1];
       const entityId = process.argv[2];
       const managedRunId = process.argv[3];
+      fs.mkdirSync(require('node:path').dirname(lease), { recursive: true });
       fs.writeFileSync(lease, JSON.stringify({
         protocol: 'behold.entity-runtime-lease.v1',
         entityId,
@@ -208,12 +293,12 @@ test('managed world runner owns readiness, controller lease, save, stop, and dur
         process.exit(0);
       });
     `;
-    return spawn(process.execPath, ['-e', script, fixture.lease, 'Scout', runId], {
+    return spawn(process.execPath, ['-e', script, leasePath, resident.entityId, runId], {
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ChildProcessWithoutNullStreams;
   };
 
-  const run = await startManagedWorld(fixture.options, {
+  const run = await startManagedWorld(options, {
     spawnServer,
     spawnController,
     verifyArtifacts: async () => ARTIFACTS_OK,
@@ -224,10 +309,19 @@ test('managed world runner owns readiness, controller lease, save, stop, and dur
   assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'held');
   assert.equal(run.runId, 'fixture-1');
   assert.equal(fs.existsSync(fixture.lease), true);
+  assert.equal(fs.existsSync(builderLease), true);
   assert.equal(run.control.record().state, 'running');
+  assert.deepEqual(
+    run.residents.map((resident) => resident.entityId),
+    ['Scout', 'Builder'],
+  );
+  assert.equal(new Set(run.residents.map((resident) => resident.leasePath)).size, 2);
+  assert.equal(new Set(run.residents.map((resident) => resident.journalDirectory)).size, 2);
+  assert.equal(run.control.record().controllers.length, 2);
 
-  await run.quiesceController('fixture_witness');
+  await run.quiesceResidents('fixture_witness');
   assert.equal(fs.existsSync(fixture.lease), false);
+  assert.equal(fs.existsSync(builderLease), false);
   assert.equal(run.control.record().state, 'running');
   assert.deepEqual(run.control.record().controllers, []);
   assert.equal(serverAlive, true);
@@ -237,6 +331,7 @@ test('managed world runner owns readiness, controller lease, save, stop, and dur
 
   assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
   assert.equal(fs.existsSync(fixture.lease), false);
+  assert.equal(fs.existsSync(builderLease), false);
   assert.deepEqual(fs.readFileSync(commandLog, 'utf8').trim().split('\n'), [
     'save-all flush',
     'stop',
@@ -248,7 +343,8 @@ test('managed world runner owns readiness, controller lease, save, stop, and dur
     .map((line) => JSON.parse(line));
   assert.ok(events.some((event) => event.type === 'server_ready'));
   assert.ok(events.some((event) => event.type === 'run_ready'));
-  assert.ok(events.some((event) => event.type === 'controller_quiesced'));
+  assert.equal(events.filter((event) => event.type === 'controller_ready').length, 2);
+  assert.ok(events.some((event) => event.type === 'residents_quiesced'));
   assert.ok(events.some((event) => event.type === 'server_save_acknowledged'));
   assert.ok(events.some((event) => event.type === 'run_stopped'));
   assert.equal(events.at(-1).type, 'control_released');
@@ -577,6 +673,201 @@ test('an early child exit is recorded and releases control when OS evidence is c
   assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
 });
 
+test('one resident exiting makes the shared epoch unhealthy and drains every remaining child', async (t) => {
+  const fixture = makeFixture(t);
+  let serverPid: number | null = null;
+  let serverAlive = false;
+  const spawnServer = () => {
+    const script = `
+      const readline = require('node:readline');
+      console.log('[Server thread/INFO]: Done (0.1s)! For help, type "help"');
+      const rl = readline.createInterface({ input: process.stdin });
+      rl.on('line', (line) => {
+        if (line === 'save-all flush') console.log('[Server thread/INFO]: Saved the game');
+        if (line === 'stop') process.exit(0);
+      });
+    `;
+    const child = spawn(process.execPath, ['-e', script], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }) as ChildProcessWithoutNullStreams;
+    serverPid = child.pid!;
+    serverAlive = true;
+    child.once('exit', () => {
+      serverAlive = false;
+    });
+    return child;
+  };
+  const spawnController = ({ runId, resident, leasePath }: any) => {
+    const script = `
+      const fs = require('node:fs');
+      const os = require('node:os');
+      const path = require('node:path');
+      const lease = process.argv[1];
+      const entityId = process.argv[2];
+      const managedRunId = process.argv[3];
+      const fail = process.argv[4] === 'fail';
+      fs.mkdirSync(path.dirname(lease), { recursive: true });
+      fs.writeFileSync(lease, JSON.stringify({
+        protocol: 'behold.entity-runtime-lease.v1', entityId,
+        pid: process.pid, hostname: os.hostname(), managedRunId
+      }));
+      console.log('[bot] Local world loaded.');
+      process.stdin.resume();
+      process.stdin.on('end', () => {
+        if (fs.existsSync(lease)) fs.unlinkSync(lease);
+        process.exit(0);
+      });
+      if (fail) setTimeout(() => {
+        if (fs.existsSync(lease)) fs.unlinkSync(lease);
+        process.exit(7);
+      }, 500);
+    `;
+    return spawn(
+      process.execPath,
+      [
+        '-e',
+        script,
+        leasePath,
+        resident.entityId,
+        runId,
+        resident.entityId === 'Builder' ? 'fail' : 'live',
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    ) as ChildProcessWithoutNullStreams;
+  };
+  const run = await startManagedWorld(
+    {
+      ...fixture.options,
+      residents: [
+        { entityId: 'Scout', model: 'fixture/model' },
+        { entityId: 'Builder', model: 'fixture/model' },
+      ],
+    },
+    {
+      spawnServer,
+      spawnController,
+      verifyArtifacts: async () => ARTIFACTS_OK,
+      inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+      stdout: () => {},
+      stderr: () => {},
+    },
+  );
+
+  await assert.rejects(
+    run.finished,
+    (error: any) =>
+      error?.code === 'managed_child_exited' && error?.evidence?.name === 'controller:Builder',
+  );
+  await assert.rejects(
+    () => run.stop('resident_failed'),
+    (error: any) =>
+      error?.code === 'managed_child_exit_abnormal' &&
+      error.evidence.some((exit: any) => exit.name === 'controller:Builder' && exit.code === 7),
+  );
+  assert.equal(serverAlive, false);
+  assert.equal(fs.existsSync(fixture.lease), false);
+  assert.equal(
+    fs.existsSync(path.join(fixture.options.entityRoot, 'Builder', 'runtime.lock')),
+    false,
+  );
+  const inspection = inspectWorldControl(fixture.controlRoot, 'fixture');
+  assert.equal(inspection.state, 'held');
+  assert.equal(inspection.state === 'held' ? inspection.record.state : null, 'recovery_required');
+});
+
+test('world ownership is never released while any resident lease remains', async (t) => {
+  const fixture = makeFixture(t);
+  let server: ChildProcessWithoutNullStreams | null = null;
+  let serverAlive = false;
+  const spawnServer = () => {
+    const script = `
+      const readline = require('node:readline');
+      console.log('[Server thread/INFO]: Done (0.1s)! For help, type "help"');
+      const rl = readline.createInterface({ input: process.stdin });
+      rl.on('line', (line) => {
+        if (line === 'save-all flush') console.log('[Server thread/INFO]: Saved the game');
+        if (line === 'stop') process.exit(0);
+      });
+    `;
+    server = spawn(process.execPath, ['-e', script], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }) as ChildProcessWithoutNullStreams;
+    serverAlive = true;
+    server.once('exit', () => {
+      serverAlive = false;
+    });
+    return server;
+  };
+  const spawnController = ({ runId, resident, leasePath }: any) => {
+    const script = `
+      const fs = require('node:fs');
+      const os = require('node:os');
+      const path = require('node:path');
+      const lease = process.argv[1];
+      const entityId = process.argv[2];
+      const managedRunId = process.argv[3];
+      const retain = process.argv[4] === 'retain';
+      fs.mkdirSync(path.dirname(lease), { recursive: true });
+      fs.writeFileSync(lease, JSON.stringify({
+        protocol: 'behold.entity-runtime-lease.v1', entityId,
+        pid: process.pid, hostname: os.hostname(), managedRunId
+      }));
+      console.log('[bot] Local world loaded.');
+      process.stdin.resume();
+      process.stdin.on('end', () => {
+        if (!retain && fs.existsSync(lease)) fs.unlinkSync(lease);
+        process.exit(0);
+      });
+    `;
+    return spawn(
+      process.execPath,
+      [
+        '-e',
+        script,
+        leasePath,
+        resident.entityId,
+        runId,
+        resident.entityId === 'Builder' ? 'retain' : 'release',
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    ) as ChildProcessWithoutNullStreams;
+  };
+  const run = await startManagedWorld(
+    {
+      ...fixture.options,
+      residents: [
+        { entityId: 'Scout', model: 'fixture/model' },
+        { entityId: 'Builder', model: 'fixture/model' },
+      ],
+      shutdownTimeoutMs: 200,
+    },
+    {
+      spawnServer,
+      spawnController,
+      verifyArtifacts: async () => ARTIFACTS_OK,
+      inspectRuntime: async () => runtimeEvidence(serverAlive && server?.pid ? server.pid : null),
+      stdout: () => {},
+      stderr: () => {},
+    },
+  );
+  const retainedLease = path.join(fixture.options.entityRoot, 'Builder', 'runtime.lock');
+
+  await assert.rejects(
+    () => run.stop('retained_lease_fixture'),
+    (error: any) =>
+      error?.code === 'runner_timeout' && String(error?.evidence?.label).includes('Builder'),
+  );
+  assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'held');
+  assert.equal(fs.existsSync(fixture.lease), false);
+  assert.equal(fs.existsSync(retainedLease), true);
+
+  if (server && server.exitCode === null && server.signalCode === null) {
+    server.stdin.write('stop\n');
+    server.stdin.end();
+    await new Promise<void>((resolve) => server!.once('exit', () => resolve()));
+  }
+});
+
 test('abnormal child exits can clear OS resources but never release successful control', async (t) => {
   const fixture = makeFixture(t);
   let serverPid: number | null = null;
@@ -601,21 +892,22 @@ test('abnormal child exits can clear OS resources but never release successful c
     });
     return child;
   };
-  const spawnController = ({ runId }: { runId: string }) => {
+  const spawnController = ({ runId, resident, leasePath }: any) => {
     const script = `
       const fs = require('node:fs');
       const os = require('node:os');
       const lease = process.argv[1];
-      const managedRunId = process.argv[2];
+      const entityId = process.argv[2];
+      const managedRunId = process.argv[3];
       fs.writeFileSync(lease, JSON.stringify({
-        protocol: 'behold.entity-runtime-lease.v1', entityId: 'Scout',
+        protocol: 'behold.entity-runtime-lease.v1', entityId,
         pid: process.pid, hostname: os.hostname(), managedRunId
       }));
       console.log('[bot] Local world loaded.');
       process.stdin.resume();
       process.stdin.on('end', () => { fs.unlinkSync(lease); process.exit(7); });
     `;
-    return spawn(process.execPath, ['-e', script, fixture.lease, runId], {
+    return spawn(process.execPath, ['-e', script, leasePath, resident.entityId, runId], {
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ChildProcessWithoutNullStreams;
   };
@@ -654,7 +946,9 @@ function makeFixture(t: test.TestContext) {
   const runtime = path.join(root, 'server', 'world');
   const archive = path.join(root, 'archive');
   const controlRoot = path.join(root, 'control');
-  const lease = path.join(root, 'entities', 'Scout', 'runtime.lock');
+  const entityRoot = path.join(root, 'entities');
+  const runRoot = path.join(root, 'runs');
+  const lease = path.join(entityRoot, 'Scout', 'runtime.lock');
   const jar = path.join(root, 'server', 'server.jar');
   for (const directory of [source, baseline, runtime, archive, path.dirname(lease)]) {
     fs.mkdirSync(directory, { recursive: true });
@@ -684,12 +978,17 @@ function makeFixture(t: test.TestContext) {
       expectedServerJarSha256: digest,
       java: process.execPath,
       controllerEntry: '/fixture/controller.js',
-      controllerEntityId: 'Scout',
-      controllerLeasePath: lease,
-      model: 'fixture/model',
-      task: 'come-see-do-report',
-      target: 'human',
-      allowTools: ['chat', 'approach_entity'],
+      entityRoot,
+      runRoot,
+      residents: [
+        {
+          entityId: 'Scout',
+          model: 'fixture/model',
+          task: 'come-see-do-report',
+          target: 'human',
+          allowTools: ['chat', 'approach_entity'],
+        },
+      ],
       startupTimeoutMs: 3000,
       shutdownTimeoutMs: 3000,
     },

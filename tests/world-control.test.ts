@@ -50,6 +50,26 @@ test('world control is exclusive, durable, sequenced, and releases only when sto
 
   control.update('starting', { server: { pid: 43, jarSha256: 'abc' } });
   assert.throws(() => control.release(), /cannot release from state starting/);
+  assert.throws(
+    () =>
+      control.update('running', {
+        controllers: [
+          { entityId: 'Scout', pid: 44, leasePath: '/tmp/scout.lock' },
+          { entityId: 'scout', pid: 45, leasePath: '/tmp/other.lock' },
+        ],
+      }),
+    /duplicate world controller entity/,
+  );
+  assert.throws(
+    () =>
+      control.update('running', {
+        controllers: [
+          { entityId: 'Scout', pid: 44, leasePath: '/tmp/scout.lock' },
+          { entityId: 'Builder', pid: 44, leasePath: '/tmp/scout.lock' },
+        ],
+      }),
+    /duplicate world controller lease/,
+  );
   control.update('running', {
     controllers: [{ entityId: 'Scout', pid: 44, leasePath: '/tmp/scout.lock' }],
   });

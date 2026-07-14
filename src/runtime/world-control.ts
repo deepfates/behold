@@ -6,12 +6,7 @@ import path from 'node:path';
 export const WORLD_OWNER_PROTOCOL = 'behold.world-owner.v1' as const;
 
 export type WorldControlState =
-  | 'stopped_verified'
-  | 'resetting'
-  | 'starting'
-  | 'running'
-  | 'stopping'
-  | 'recovery_required';
+  'stopped_verified' | 'resetting' | 'starting' | 'running' | 'stopping' | 'recovery_required';
 
 export type WorldOwnerRecord = Readonly<{
   protocol: typeof WORLD_OWNER_PROTOCOL;
@@ -889,6 +884,7 @@ function assertWorldControlTransition(
   server: WorldOwnerRecord['server'],
   controllers: WorldOwnerRecord['controllers'],
 ) {
+  assertControllerOwnershipSet(controllers);
   const allowed: Record<WorldControlState, readonly WorldControlState[]> = {
     stopped_verified: [
       'stopped_verified',
@@ -946,7 +942,36 @@ function parseOwnerRecord(raw: string): WorldOwnerRecord {
   ) {
     throw new Error('invalid behold.world-owner.v1 record');
   }
+  assertControllerOwnershipSet(value.controllers);
   return value as WorldOwnerRecord;
+}
+
+function assertControllerOwnershipSet(controllers: WorldOwnerRecord['controllers']) {
+  const entities = new Set<string>();
+  const leases = new Set<string>();
+  for (const controller of controllers) {
+    if (
+      !controller.entityId.trim() ||
+      controller.pid < 1 ||
+      !path.isAbsolute(controller.leasePath)
+    ) {
+      throw new Error('invalid world controller ownership record');
+    }
+    const entityKey = controller.entityId.normalize('NFKC').toLowerCase();
+    if (entities.has(entityKey)) {
+      throw new Error(`duplicate world controller entity: ${controller.entityId}`);
+    }
+    entities.add(entityKey);
+    const resolvedLease = path.resolve(controller.leasePath);
+    const leaseKey =
+      process.platform === 'win32' || process.platform === 'darwin'
+        ? resolvedLease.normalize('NFKC').toLowerCase()
+        : resolvedLease;
+    if (leases.has(leaseKey)) {
+      throw new Error(`duplicate world controller lease: ${controller.leasePath}`);
+    }
+    leases.add(leaseKey);
+  }
 }
 
 function readManagedControllerOwner(controlFile: string) {

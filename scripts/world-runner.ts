@@ -32,6 +32,7 @@ import {
   type WorldOwnerRecord,
 } from '../src/runtime/world-control';
 import { DEFAULT_LLM_MODEL } from '../src/config';
+import { sanitizeName } from '../src/observability/journal';
 
 export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'chat',
@@ -96,6 +97,16 @@ type RuntimeInspection = RuntimeEvidence & {
   sourceExists?: boolean;
 };
 
+export type ManagedResidentSpec = Readonly<{
+  entityId: string;
+  model: string;
+  mind?: 'direct' | 'ax';
+  tickMs?: number;
+  task?: string;
+  target?: string;
+  allowTools?: readonly string[];
+}>;
+
 export type ManagedWorldRunOptions = Readonly<{
   worldId: string;
   world: WorldLabDefinition;
@@ -105,12 +116,10 @@ export type ManagedWorldRunOptions = Readonly<{
   expectedServerJarSha256: string;
   java: string;
   controllerEntry: string;
-  controllerEntityId: string;
-  controllerLeasePath: string;
-  model: string;
-  task?: string;
-  target?: string;
-  allowTools?: readonly string[];
+  entityRoot: string;
+  runRoot: string;
+  residents: readonly ManagedResidentSpec[];
+  maxResidents?: number;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
 }>;
@@ -119,7 +128,13 @@ export type WorldRunnerDependencies = Readonly<{
   inspectRuntime?: () => Promise<RuntimeInspection>;
   verifyArtifacts?: () => Promise<{ artifactIntegrityOk: boolean; artifacts: unknown }>;
   spawnServer?: () => ChildProcessWithoutNullStreams;
-  spawnController?: (context: { runId: string }) => ChildProcessWithoutNullStreams;
+  spawnController?: (context: {
+    runId: string;
+    resident: ManagedResidentSpec;
+    index: number;
+    leasePath: string;
+    journalDirectory: string;
+  }) => ChildProcessWithoutNullStreams;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
   stdout?: (text: string) => void;
@@ -130,9 +145,17 @@ export type ManagedWorldRun = Readonly<{
   runId: string;
   control: HeldWorldControl;
   serverPid: number;
-  controllerPid: number;
+  residents: readonly Readonly<{
+    entityId: string;
+    model: string;
+    mind: 'direct' | 'ax';
+    tickMs: number;
+    pid: number;
+    leasePath: string;
+    journalDirectory: string;
+  }>[];
   finished: Promise<void>;
-  quiesceController(reason?: string): Promise<void>;
+  quiesceResidents(reason?: string): Promise<void>;
   stop(reason?: string): Promise<void>;
 }>;
 
@@ -177,6 +200,158 @@ type ManagedResetTestDependencies = Omit<
 > & {
   fixtureExecutionCapability: FixtureExecutionCapability;
 };
+
+type NormalizedManagedResident = Readonly<{
+  entityId: string;
+  model: string;
+  mind: 'direct' | 'ax';
+  tickMs: number;
+  task?: string;
+  target?: string;
+  allowTools?: readonly string[];
+  leasePath: string;
+}>;
+
+type ManagedResidentProcess = Readonly<{
+  resident: NormalizedManagedResident;
+  journalDirectory: string;
+  child: ChildProcessWithoutNullStreams;
+  exit: Promise<ProcessExit>;
+  output: OutputCapture;
+}>;
+
+function normalizeManagedResidents(
+  options: ManagedWorldRunOptions,
+): readonly NormalizedManagedResident[] {
+  if (!path.isAbsolute(options.entityRoot) || !path.isAbsolute(options.runRoot)) {
+    throw new WorldRunnerError(
+      'Managed entity and run roots must be absolute',
+      'resident_root_not_absolute',
+      { entityRoot: options.entityRoot, runRoot: options.runRoot },
+    );
+  }
+  const maxResidents = options.maxResidents ?? 16;
+  if (!Number.isSafeInteger(maxResidents) || maxResidents < 1) {
+    throw new WorldRunnerError(
+      'maxResidents must be a positive safe integer',
+      'resident_limit_invalid',
+      { maxResidents },
+    );
+  }
+  if (!Array.isArray(options.residents) || options.residents.length === 0) {
+    throw new WorldRunnerError(
+      'A managed world requires at least one resident',
+      'resident_set_empty',
+    );
+  }
+  if (options.residents.length > maxResidents) {
+    throw new WorldRunnerError(
+      `Configured ${options.residents.length} residents exceeds the process budget ${maxResidents}`,
+      'resident_limit_exceeded',
+      { residentCount: options.residents.length, maxResidents },
+    );
+  }
+
+  const entityRoot = path.resolve(options.entityRoot);
+  const identities = new Map<string, string>();
+  const leasePaths = new Map<string, string>();
+  return Object.freeze(
+    options.residents.map((candidate, index) => {
+      const entityId = optionalText(candidate?.entityId);
+      const model = optionalText(candidate?.model);
+      if (!entityId || !model) {
+        throw new WorldRunnerError(
+          'Every resident requires a nonempty entityId and model',
+          'resident_identity_invalid',
+          { index, entityId: candidate?.entityId, model: candidate?.model },
+        );
+      }
+      const safeEntityId = sanitizeName(entityId);
+      const identityKey = safeEntityId.normalize('NFKC').toLowerCase();
+      const priorIdentity = identities.get(identityKey);
+      if (priorIdentity) {
+        throw new WorldRunnerError(
+          `Resident identities ${priorIdentity} and ${entityId} share one canonical body path`,
+          'resident_identity_collision',
+          { index, entityId, priorIdentity, canonical: safeEntityId },
+        );
+      }
+      identities.set(identityKey, entityId);
+
+      const mind = candidate.mind ?? 'direct';
+      if (mind !== 'direct' && mind !== 'ax') {
+        throw new WorldRunnerError(
+          `Unsupported mind adapter for ${entityId}: ${String(mind)}`,
+          'resident_mind_invalid',
+          { index, entityId, mind },
+        );
+      }
+      const tickMs = candidate.tickMs ?? 4000;
+      if (!Number.isSafeInteger(tickMs) || tickMs < 500) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} tickMs must be an integer of at least 500ms`,
+          'resident_tick_budget_invalid',
+          { index, entityId, tickMs },
+        );
+      }
+      if (candidate.target && !candidate.task) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} has a target without a task`,
+          'controller_target_without_task',
+          { index, entityId, target: candidate.target },
+        );
+      }
+      const leasePath = path.join(entityRoot, safeEntityId, 'runtime.lock');
+      const leaseKey =
+        process.platform === 'win32' || process.platform === 'darwin'
+          ? leasePath.normalize('NFKC').toLowerCase()
+          : leasePath;
+      const priorLease = leasePaths.get(leaseKey);
+      if (priorLease) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} shares a lease path with ${priorLease}`,
+          'resident_lease_collision',
+          { index, entityId, priorIdentity: priorLease, leasePath },
+        );
+      }
+      leasePaths.set(leaseKey, entityId);
+      return Object.freeze({
+        entityId,
+        model,
+        mind,
+        tickMs,
+        ...(candidate.task ? { task: String(candidate.task) } : {}),
+        ...(candidate.target ? { target: String(candidate.target) } : {}),
+        ...(candidate.allowTools ? { allowTools: Object.freeze([...candidate.allowTools]) } : {}),
+        leasePath,
+      });
+    }),
+  );
+}
+
+function controllerRecords(residents: readonly ManagedResidentProcess[]) {
+  return residents.map((entry) => ({
+    entityId: entry.resident.entityId,
+    pid: entry.child.pid!,
+    leasePath: entry.resident.leasePath,
+  }));
+}
+
+function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
+  return Object.freeze(
+    residents.map((entry) =>
+      Object.freeze({
+        entityId: entry.resident.entityId,
+        model: entry.resident.model,
+        mind: entry.resident.mind,
+        tickMs: entry.resident.tickMs,
+        pid: entry.child.pid!,
+        leasePath: entry.resident.leasePath,
+        journalDirectory: entry.journalDirectory,
+      }),
+    ),
+  );
+}
 
 /**
  * Runs the canonical world-lab transaction beneath an already-held lifecycle
@@ -262,6 +437,7 @@ export async function startManagedWorld(
   options: ManagedWorldRunOptions,
   dependencies: WorldRunnerDependencies = {},
 ): Promise<ManagedWorldRun> {
+  const residents = normalizeManagedResidents(options);
   const inspectRuntime =
     dependencies.inspectRuntime ?? (() => statusWorld(options.worldId, options.world));
   const verifyArtifacts =
@@ -272,7 +448,8 @@ export async function startManagedWorld(
   const stderr = dependencies.stderr ?? ((text) => process.stderr.write(text));
   const startupTimeoutMs = Math.max(100, options.startupTimeoutMs ?? 60_000);
   const shutdownTimeoutMs = Math.max(100, options.shutdownTimeoutMs ?? 60_000);
-  const entityRoot = path.dirname(path.dirname(options.controllerLeasePath));
+  const entityRoot = path.resolve(options.entityRoot);
+  const runRoot = path.resolve(options.runRoot);
   const circleIds = worldCircleIds(options.worldId, options.world);
 
   const existingControl = inspectWorldControl(options.controlRoot, options.worldId);
@@ -293,7 +470,7 @@ export async function startManagedWorld(
   }
   const before = await inspectRuntime();
   assertStoppedEvidence(before, 'before_control_acquisition');
-  assertNoWorldControllerLeases(options, 'before_control_acquisition');
+  assertNoWorldControllerLeases(entityRoot, residents, circleIds, 'before_control_acquisition');
   const jarSha256 = sha256File(options.serverJar);
   if (jarSha256 !== options.expectedServerJarSha256.toLowerCase()) {
     throw new WorldRunnerError(
@@ -315,17 +492,16 @@ export async function startManagedWorld(
   });
   const managedRunId = `${options.worldId}-${control.record().epoch}`;
   let server: ChildProcessWithoutNullStreams | null = null;
-  let controller: ChildProcessWithoutNullStreams | null = null;
   let serverExit: Promise<ProcessExit> | null = null;
-  let controllerExit: Promise<ProcessExit> | null = null;
   let serverOutput: OutputCapture | null = null;
+  const controllerProcesses: ManagedResidentProcess[] = [];
   let stopping = false;
-  let controllerQuiescing = false;
+  let residentsQuiescing = false;
 
   try {
     const fenced = await inspectRuntime();
     assertStoppedEvidence(fenced, 'after_control_acquisition');
-    assertNoWorldControllerLeases(options, 'after_control_acquisition');
+    assertNoWorldControllerLeases(entityRoot, residents, circleIds, 'after_control_acquisition');
     const launchJarSha256 = sha256File(options.serverJar);
     if (launchJarSha256 !== jarSha256) {
       throw new WorldRunnerError(
@@ -337,10 +513,21 @@ export async function startManagedWorld(
     const sourceRevision = gitProvenance();
     control.append('run_configured', {
       runId: managedRunId,
-      model: options.model,
-      task: options.task ?? null,
-      target: options.target ?? null,
-      allowTools: options.allowTools ?? null,
+      population: {
+        residents: residents.map((resident) => ({
+          entityId: resident.entityId,
+          model: resident.model,
+          mind: resident.mind,
+          tickMs: resident.tickMs,
+          task: resident.task ?? null,
+          target: resident.target ?? null,
+          allowTools: resident.allowTools ?? null,
+          leasePath: resident.leasePath,
+        })),
+        residentCount: residents.length,
+        maxResidentProcesses: Math.max(1, Math.floor(options.maxResidents ?? 16)),
+        maxConcurrentModelCalls: residents.length,
+      },
       world: {
         id: options.worldId,
         sourceDigest: options.world.source.expectedDigest,
@@ -352,7 +539,7 @@ export async function startManagedWorld(
       contracts: {
         observation: 'behold.inhabitant.v1',
         controller: 'behold.llm-policy.v1',
-        task: options.task === 'come-see-do-report' ? 'behold.task.come-see-do-report.v1' : null,
+        mind: 'behold.mind-request.v1 / behold.mind-decision.v1',
         owner: 'behold.world-owner.v1',
       },
     });
@@ -365,7 +552,7 @@ export async function startManagedWorld(
     control.update('starting', { server: { pid: server.pid, jarSha256 }, controllers: [] });
     control.append('server_started', { pid: server.pid });
 
-    await raceProcessExit(
+    await raceProcessExits(
       (signal) =>
         waitForCondition(
           'Minecraft server readiness',
@@ -381,55 +568,78 @@ export async function startManagedWorld(
           },
           signal,
         ),
-      serverExit,
+      [serverExit],
     );
     control.append('server_ready', { pid: server.pid });
 
-    controller =
-      dependencies.spawnController?.({ runId: managedRunId }) ??
-      spawnDefaultController(options, managedRunId, control.file);
-    if (!controller.pid) {
-      throw new WorldRunnerError('Controller process has no PID', 'controller_pid_missing');
+    for (const [index, resident] of residents.entries()) {
+      const journalDirectory = path.join(runRoot, managedRunId, sanitizeName(resident.entityId));
+      const controller =
+        dependencies.spawnController?.({
+          runId: managedRunId,
+          resident,
+          index,
+          leasePath: resident.leasePath,
+          journalDirectory,
+        }) ??
+        spawnDefaultController(options, resident, managedRunId, control.file, journalDirectory);
+      if (!controller.pid) {
+        throw new WorldRunnerError(
+          `Controller process for ${resident.entityId} has no PID`,
+          'controller_pid_missing',
+          { entityId: resident.entityId, index },
+        );
+      }
+      const processRecord: ManagedResidentProcess = {
+        resident,
+        journalDirectory,
+        child: controller,
+        exit: waitForExit(controller, `controller:${resident.entityId}`),
+        output: captureOutput(controller, stdout, stderr),
+      };
+      controllerProcesses.push(processRecord);
+      control.update('starting', { controllers: controllerRecords(controllerProcesses) });
+      control.append('controller_started', {
+        index,
+        pid: controller.pid,
+        entityId: resident.entityId,
+        model: resident.model,
+        mind: resident.mind,
+        tickMs: resident.tickMs,
+        leasePath: resident.leasePath,
+        journalDirectory,
+      });
+
+      await raceProcessExits(
+        (signal) =>
+          waitForCondition(
+            `controller readiness for ${resident.entityId}`,
+            startupTimeoutMs,
+            sleep,
+            async () =>
+              processRecord.output.lines().some(isControllerReadyLine) &&
+              leaseOwnedBy(resident.leasePath, controller.pid!, resident.entityId, managedRunId),
+            signal,
+          ),
+        [serverExit, ...controllerProcesses.map((entry) => entry.exit)],
+      );
+      control.append('controller_ready', {
+        index,
+        pid: controller.pid,
+        entityId: resident.entityId,
+      });
     }
-    controllerExit = waitForExit(controller, 'controller');
-    const controllerOutput = captureOutput(controller, stdout, stderr);
-    control.update('starting', {
-      controllers: [
-        {
-          entityId: options.controllerEntityId,
-          pid: controller.pid,
-          leasePath: options.controllerLeasePath,
-        },
-      ],
-    });
-    control.append('controller_started', {
-      pid: controller.pid,
-      entityId: options.controllerEntityId,
-    });
-
-    await raceProcessExit(
-      (signal) =>
-        waitForCondition(
-          'controller readiness',
-          startupTimeoutMs,
-          sleep,
-          async () =>
-            controllerOutput.lines().some(isControllerReadyLine) &&
-            leaseOwnedBy(
-              options.controllerLeasePath,
-              controller!.pid!,
-              options.controllerEntityId,
-              managedRunId,
-            ),
-          signal,
-        ),
-      controllerExit,
-    );
     control.update('running');
-    control.append('run_ready', { serverPid: server.pid, controllerPid: controller.pid });
+    control.append('run_ready', {
+      serverPid: server.pid,
+      residents: publicResidentRecords(controllerProcesses),
+    });
 
-    const finished = Promise.race([serverExit, controllerExit]).then((exit) => {
-      if (!stopping && !(exit.name === 'controller' && controllerQuiescing)) {
+    const finished = Promise.race([
+      serverExit,
+      ...controllerProcesses.map((entry) => entry.exit),
+    ]).then((exit) => {
+      if (!stopping && !(exit.name.startsWith('controller:') && residentsQuiescing)) {
         throw new WorldRunnerError(
           `${exit.name} exited while the managed world was running`,
           'managed_child_exited',
@@ -440,22 +650,20 @@ export async function startManagedWorld(
 
     let stopPromise: Promise<void> | null = null;
     let quiescePromise: Promise<void> | null = null;
-    const quiesceController = (reason = 'witness_observation') => {
+    const quiesceResidents = (reason = 'witness_observation') => {
       if (quiescePromise) return quiescePromise;
       if (stopPromise || stopping) {
         return Promise.reject(
           new WorldRunnerError(
-            'Controller cannot be quiesced after managed shutdown begins',
-            'controller_quiesce_after_stop',
+            'Residents cannot be quiesced after managed shutdown begins',
+            'resident_quiesce_after_stop',
           ),
         );
       }
-      controllerQuiescing = true;
-      quiescePromise = quiesceManagedController({
+      residentsQuiescing = true;
+      quiescePromise = quiesceManagedResidents({
         control,
-        controller: controller!,
-        controllerExit: controllerExit!,
-        controllerLeasePath: options.controllerLeasePath,
+        residents: controllerProcesses,
         timeoutMs: shutdownTimeoutMs,
         sleep,
         reason,
@@ -468,12 +676,10 @@ export async function startManagedWorld(
       stopPromise = stopManagedWorld({
         control,
         server: server!,
-        controller: controller!,
         serverExit: serverExit!,
-        controllerExit: controllerExit!,
+        residents: controllerProcesses,
         serverOutput: serverOutput!,
         inspectRuntime,
-        controllerLeasePath: options.controllerLeasePath,
         entityRoot,
         circleIds,
         timeoutMs: shutdownTimeoutMs,
@@ -487,9 +693,9 @@ export async function startManagedWorld(
       runId: managedRunId,
       control,
       serverPid: server.pid,
-      controllerPid: controller.pid,
+      residents: publicResidentRecords(controllerProcesses),
       finished,
-      quiesceController,
+      quiesceResidents,
       stop,
     });
   } catch (error: any) {
@@ -500,12 +706,10 @@ export async function startManagedWorld(
     const cleaned = await cleanupFailedStart({
       control,
       server,
-      controller,
       serverExit,
-      controllerExit,
+      residents: controllerProcesses,
       serverOutput,
       inspectRuntime,
-      controllerLeasePath: options.controllerLeasePath,
       entityRoot,
       circleIds,
       timeoutMs: shutdownTimeoutMs,
@@ -515,16 +719,7 @@ export async function startManagedWorld(
       try {
         control.update('recovery_required', {
           server: server?.pid ? { pid: server.pid, jarSha256 } : null,
-          controllers:
-            controller?.pid == null
-              ? []
-              : [
-                  {
-                    entityId: options.controllerEntityId,
-                    pid: controller.pid,
-                    leasePath: options.controllerLeasePath,
-                  },
-                ],
+          controllers: controllerRecords(controllerProcesses),
         });
       } catch {}
     }
@@ -670,44 +865,54 @@ export async function recoverAbandonedManagedWorld(
   });
 }
 
-async function quiesceManagedController(input: {
+async function quiesceManagedResidents(input: {
   control: HeldWorldControl;
-  controller: ChildProcessWithoutNullStreams;
-  controllerExit: Promise<ProcessExit>;
-  controllerLeasePath: string;
+  residents: readonly ManagedResidentProcess[];
   timeoutMs: number;
   sleep: (milliseconds: number) => Promise<void>;
   reason: string;
 }) {
-  input.control.append('controller_quiescing', { reason: input.reason });
-  if (!processExited(input.controller)) input.controller.stdin.end();
-  const exit = await withTimeout(input.controllerExit, input.timeoutMs, 'controller quiescence');
-  if (!cleanExit(exit)) {
+  input.control.append('residents_quiescing', {
+    reason: input.reason,
+    residents: input.residents.map((entry) => entry.resident.entityId),
+  });
+  for (const entry of input.residents) {
+    if (!processExited(entry.child)) entry.child.stdin.end();
+  }
+  const exits = await Promise.all(
+    input.residents.map((entry) =>
+      withTimeout(entry.exit, input.timeoutMs, `resident ${entry.resident.entityId} quiescence`),
+    ),
+  );
+  const abnormalExits = exits.filter((exit) => !cleanExit(exit));
+  if (abnormalExits.length > 0) {
     throw new WorldRunnerError(
-      'Controller exited abnormally while entering witness quiescence',
-      'controller_quiesce_exit_abnormal',
-      exit,
+      'One or more residents exited abnormally while entering witness quiescence',
+      'resident_quiesce_exit_abnormal',
+      abnormalExits,
     );
   }
-  await waitForCondition(
-    'controller lease release before witness',
-    input.timeoutMs,
-    input.sleep,
-    async () => !fs.existsSync(input.controllerLeasePath),
+  await Promise.all(
+    input.residents.map((entry) =>
+      waitForCondition(
+        `resident lease release before witness for ${entry.resident.entityId}`,
+        input.timeoutMs,
+        input.sleep,
+        async () => !fs.existsSync(entry.resident.leasePath),
+      ),
+    ),
   );
   input.control.update('running', { controllers: [] });
-  input.control.append('controller_quiesced', { reason: input.reason, exit });
+  input.control.append('residents_quiesced', { reason: input.reason, exits });
 }
 
 async function cleanupFailedStart(input: {
   control: HeldWorldControl;
   server: ChildProcessWithoutNullStreams | null;
-  controller: ChildProcessWithoutNullStreams | null;
   serverExit: Promise<ProcessExit> | null;
-  controllerExit: Promise<ProcessExit> | null;
+  residents: readonly ManagedResidentProcess[];
   serverOutput: OutputCapture | null;
   inspectRuntime: () => Promise<RuntimeInspection>;
-  controllerLeasePath: string;
   entityRoot: string;
   circleIds: readonly string[];
   timeoutMs: number;
@@ -716,14 +921,28 @@ async function cleanupFailedStart(input: {
   try {
     input.control.update('stopping');
     input.control.append('failed_start_cleanup_started');
-    if (input.controller && input.controllerExit) {
-      if (!processExited(input.controller)) input.controller.stdin.end();
-      await withTimeout(input.controllerExit, input.timeoutMs, 'failed controller cleanup');
-      await waitForCondition(
-        'failed controller lease cleanup',
-        input.timeoutMs,
-        input.sleep,
-        async () => !fs.existsSync(input.controllerLeasePath),
+    if (input.residents.length > 0) {
+      for (const entry of input.residents) {
+        if (!processExited(entry.child)) entry.child.stdin.end();
+      }
+      await Promise.all(
+        input.residents.map((entry) =>
+          withTimeout(
+            entry.exit,
+            input.timeoutMs,
+            `failed resident cleanup for ${entry.resident.entityId}`,
+          ),
+        ),
+      );
+      await Promise.all(
+        input.residents.map((entry) =>
+          waitForCondition(
+            `failed resident lease cleanup for ${entry.resident.entityId}`,
+            input.timeoutMs,
+            input.sleep,
+            async () => !fs.existsSync(entry.resident.leasePath),
+          ),
+        ),
       );
       input.control.update('stopping', { controllers: [] });
     }
@@ -764,38 +983,49 @@ async function cleanupFailedStart(input: {
 async function stopManagedWorld(input: {
   control: HeldWorldControl;
   server: ChildProcessWithoutNullStreams;
-  controller: ChildProcessWithoutNullStreams;
   serverExit: Promise<ProcessExit>;
-  controllerExit: Promise<ProcessExit>;
+  residents: readonly ManagedResidentProcess[];
   serverOutput: OutputCapture;
   inspectRuntime: () => Promise<RuntimeInspection>;
-  controllerLeasePath: string;
   entityRoot: string;
   circleIds: readonly string[];
   timeoutMs: number;
   sleep: (milliseconds: number) => Promise<void>;
   reason: string;
 }) {
-  const { control, server, controller } = input;
+  const { control, server } = input;
   control.update('stopping');
   control.append('run_stopping', { reason: input.reason });
   try {
     const abnormalExits: ProcessExit[] = [];
-    if (!processExited(controller)) controller.stdin.end();
-    const controllerExit = await withTimeout(
-      input.controllerExit,
-      input.timeoutMs,
-      'controller graceful shutdown',
+    for (const entry of input.residents) {
+      if (!processExited(entry.child)) entry.child.stdin.end();
+    }
+    const residentExits = await Promise.all(
+      input.residents.map((entry) =>
+        withTimeout(
+          entry.exit,
+          input.timeoutMs,
+          `resident ${entry.resident.entityId} graceful shutdown`,
+        ),
+      ),
     );
-    if (!cleanExit(controllerExit)) abnormalExits.push(controllerExit);
-    await waitForCondition(
-      'controller lease release',
-      input.timeoutMs,
-      input.sleep,
-      async () => !fs.existsSync(input.controllerLeasePath),
+    abnormalExits.push(...residentExits.filter((exit) => !cleanExit(exit)));
+    await Promise.all(
+      input.residents.map((entry) =>
+        waitForCondition(
+          `resident lease release for ${entry.resident.entityId}`,
+          input.timeoutMs,
+          input.sleep,
+          async () => !fs.existsSync(entry.resident.leasePath),
+        ),
+      ),
     );
     control.update('stopping', { controllers: [] });
-    control.append('controller_stopped', controllerExit);
+    control.append('residents_stopped', {
+      residentCount: input.residents.length,
+      exits: residentExits,
+    });
 
     if (!processExited(server)) {
       const outputMarker = input.serverOutput.mark();
@@ -860,12 +1090,14 @@ function spawnDefaultServer(options: ManagedWorldRunOptions) {
 
 function spawnDefaultController(
   options: ManagedWorldRunOptions,
+  resident: NormalizedManagedResident,
   runId: string,
   controlFile: string,
+  journalDirectory: string,
 ) {
   const args = [
     options.controllerEntry,
-    options.controllerEntityId,
+    resident.entityId,
     '--server',
     options.world.server.host,
     '--port',
@@ -873,11 +1105,13 @@ function spawnDefaultController(
     '--world',
     options.worldId,
     '--model',
-    options.model,
+    resident.model,
+    '--tickMs',
+    String(resident.tickMs),
   ];
-  if (options.task) args.push('--task', options.task);
-  if (options.target) args.push('--target', options.target);
-  if (options.allowTools?.length) args.push('--allowTools', options.allowTools.join(','));
+  if (resident.task) args.push('--task', resident.task);
+  if (resident.target) args.push('--target', resident.target);
+  if (resident.allowTools?.length) args.push('--allowTools', resident.allowTools.join(','));
   return spawn(process.execPath, args, {
     cwd: process.cwd(),
     env: {
@@ -887,7 +1121,9 @@ function spawnDefaultController(
       BEHOLD_WORLD_ID: options.worldId,
       BEHOLD_WORLD_CONTROL_FILE: controlFile,
       BEHOLD_WORLD_CONTROL_ROOT: path.dirname(path.dirname(controlFile)),
-      BEHOLD_ENTITY_DIR: path.dirname(path.dirname(options.controllerLeasePath)),
+      BEHOLD_ENTITY_DIR: path.resolve(options.entityRoot),
+      BEHOLD_RUN_DIR: journalDirectory,
+      BEHOLD_MIND: resident.mind,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
@@ -964,21 +1200,23 @@ export function isMinecraftSaveAcknowledgement(line: string) {
   return /^(?:\[[^\]\r\n]+\] )?\[Server thread\/INFO\]: Saved the game$/.test(line.trim());
 }
 
-async function raceProcessExit<T>(
+async function raceProcessExits<T>(
   operation: (signal: AbortSignal) => Promise<T>,
-  exit: Promise<ProcessExit>,
+  exits: readonly Promise<ProcessExit>[],
 ) {
   const cancellation = new AbortController();
   try {
     return await Promise.race([
       operation(cancellation.signal),
-      exit.then((e) => {
-        throw new WorldRunnerError(
-          `${e.name} exited before readiness`,
-          'child_exited_before_ready',
-          e,
-        );
-      }),
+      ...exits.map((exit) =>
+        exit.then((e) => {
+          throw new WorldRunnerError(
+            `${e.name} exited before readiness`,
+            'child_exited_before_ready',
+            e,
+          );
+        }),
+      ),
     ]);
   } finally {
     cancellation.abort();
@@ -1062,19 +1300,21 @@ function worldCircleIds(worldId: string, world: WorldLabDefinition) {
   ]);
 }
 
-function assertNoWorldControllerLeases(options: ManagedWorldRunOptions, phase: string) {
-  if (fs.existsSync(options.controllerLeasePath)) {
+function assertNoWorldControllerLeases(
+  entityRoot: string,
+  residents: readonly NormalizedManagedResident[],
+  circleIds: readonly string[],
+  phase: string,
+) {
+  for (const resident of residents) {
+    if (!fs.existsSync(resident.leasePath)) continue;
     throw new WorldRunnerError(
-      `Configured controller lease already exists during ${phase}`,
+      `Configured resident lease already exists during ${phase}: ${resident.entityId}`,
       'configured_controller_lease_present',
-      { phase, leasePath: options.controllerLeasePath },
+      { phase, entityId: resident.entityId, leasePath: resident.leasePath },
     );
   }
-  return assertNoControllerLeasesAtRoot(
-    path.dirname(path.dirname(options.controllerLeasePath)),
-    worldCircleIds(options.worldId, options.world),
-    phase,
-  );
+  return assertNoControllerLeasesAtRoot(entityRoot, circleIds, phase);
 }
 
 function assertNoControllerLeasesAtRoot(
@@ -1421,7 +1661,10 @@ export async function runCli(argv = process.argv.slice(2)) {
       config: { type: 'string' },
       world: { type: 'string' },
       model: { type: 'string' },
-      controller: { type: 'string' },
+      controller: { type: 'string', multiple: true },
+      mind: { type: 'string' },
+      tickMs: { type: 'string' },
+      maxResidents: { type: 'string' },
       task: { type: 'string' },
       target: { type: 'string' },
       help: { type: 'boolean', default: false },
@@ -1486,8 +1729,14 @@ export async function runCli(argv = process.argv.slice(2)) {
   );
   const serverDirectory = path.dirname(world.runtime.worldPath);
   const serverJar = path.resolve(String(toolLock.tools.minecraftServer.path));
-  const controllerEntityId = String(parsed.values.controller || 'ScoutLife');
+  const controllerEntityIds = parsed.values.controller?.length
+    ? parsed.values.controller.map(String)
+    : ['ScoutLife'];
   const controllerProfile = managedControllerProfile(parsed.values.task, parsed.values.target);
+  const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL);
+  const mind = String(parsed.values.mind || process.env.BEHOLD_MIND || 'direct') as 'direct' | 'ax';
+  const tickMs = Number(parsed.values.tickMs || process.env.AGENT_TICK_MS || 4000);
+  const maxResidents = Number(parsed.values.maxResidents || 16);
   const run = await startManagedWorld({
     worldId,
     world,
@@ -1497,13 +1746,21 @@ export async function runCli(argv = process.argv.slice(2)) {
     expectedServerJarSha256: String(toolLock.tools.minecraftServer.sha256),
     java: bundledJava(),
     controllerEntry: path.resolve('dist/src/cli/behold.js'),
-    controllerEntityId,
-    controllerLeasePath: path.resolve('.behold-entities', controllerEntityId, 'runtime.lock'),
-    model: String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL),
-    ...controllerProfile,
+    entityRoot: path.resolve('.behold-entities'),
+    runRoot: path.resolve('.behold-runs'),
+    residents: controllerEntityIds.map((entityId) => ({
+      entityId,
+      model,
+      mind,
+      tickMs,
+      ...controllerProfile,
+    })),
+    maxResidents,
   });
   process.stdout.write(
-    `[world-runner] ready: ${worldId}, server ${run.serverPid}, controller ${run.controllerPid}\n`,
+    `[world-runner] ready: ${worldId}, server ${run.serverPid}, residents ${run.residents
+      .map((resident) => `${resident.entityId}:${resident.pid}`)
+      .join(', ')}\n`,
   );
   let requestStop!: (reason: string) => void;
   const stopRequested = new Promise<string>((resolve) => {
@@ -1532,9 +1789,10 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--model <slug>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--task <name>] [--target <player>]',
     '',
-    'Without --task, the foreground runner starts an untasked resident with the full safe inhabitant action surface.',
+    'Repeat --controller to start independently leased residents in one exact managed epoch.',
+    'Without --task, the foreground runner starts untasked residents with the full safe inhabitant action surface.',
     'Come-See-Do-Report remains available explicitly with --task come-see-do-report.',
     'Recovery releases only an exact same-host abandoned epoch after durable evidence and stopped-world verification.',
     'The foreground runner refuses foreign-owned ports, session locks, and owner records.',
