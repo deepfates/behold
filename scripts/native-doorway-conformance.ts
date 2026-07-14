@@ -303,7 +303,7 @@ async function runResident() {
       throw new Error(`doorway proof expected no prior turns, found ${priorTurns}`);
     (bot as any).pathfinder.stop();
     (bot as any).clearControlStates?.();
-    await (bot as any).waitForTicks(20);
+    await (bot as any).waitForTicks(60);
     await waitFor(
       () => sameFeetCell((bot as any).entity?.position, ORIGIN_SIDE),
       10_000,
