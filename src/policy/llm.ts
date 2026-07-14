@@ -337,13 +337,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       turnSteps += 1;
       const startedAt = now();
       const availableTools = availableModelTools(modelTools, currentObservation);
-      const blockedUrgentTool = failedEmbodiedCount >= 3 ? failedEmbodiedTool : null;
-      const requiredTool = requiredSelfDirectionTool(
-        currentObservation,
-        availableTools,
-        allow,
-        blockedUrgentTool,
-      );
+      const requiredTool = requiredSelfDirectionTool(currentObservation, availableTools, allow);
       const decision = await withModelRequest(async (signal) => {
         const request: ResidentMindRequest = {
           protocol: 'behold.mind-request.v1',
@@ -982,12 +976,7 @@ function trailingFailedEmbodiedActions(turns: EntityTurn[]) {
   return { tool: last.action.name, count };
 }
 
-function requiredSelfDirectionTool(
-  frame: any,
-  specs: ToolSpec[],
-  allow: Set<string> | null,
-  blockedUrgentTool: string | null,
-) {
+function requiredSelfDirectionTool(frame: any, specs: ToolSpec[], allow: Set<string> | null) {
   const falling =
     frame?.self?.pose?.onGround === false &&
     Number.isFinite(Number(frame?.self?.pose?.velocity?.y)) &&
@@ -999,20 +988,6 @@ function requiredSelfDirectionTool(
   if (finiteAtMost(condition.health, 10)) return null;
   if (finiteAtMost(condition.food, 6)) return null;
   if (finiteAtMost(condition.oxygen, 8)) return null;
-  const safeDrop = (frame?.scene?.entities || []).some(
-    (entity: any) =>
-      String(entity?.kind || '').toLowerCase() === 'item' &&
-      Number(entity?.distance) <= 16 &&
-      entity?.pickupSafety?.ok === true,
-  );
-  if (
-    safeDrop &&
-    blockedUrgentTool !== COLLECT_TOOL &&
-    specs.some((spec) => spec.function.name === COLLECT_TOOL) &&
-    (!allow || allow.has(COLLECT_TOOL))
-  ) {
-    return COLLECT_TOOL;
-  }
   const projects = frame?.self?.projects;
   if (!Array.isArray(projects)) return null;
   if (

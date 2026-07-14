@@ -1280,7 +1280,7 @@ test('a remembered-place conflict must be resolved before more embodied construc
   }
 });
 
-test('a safe dropped stack outranks new project selection while empty-server chat is unavailable', async () => {
+test('a safe dropped stack stays available without becoming a controller-required goal', async () => {
   const originalFetch = globalThis.fetch;
   let request: any = null;
   globalThis.fetch = (async (_url: any, init: any) => {
@@ -1340,13 +1340,14 @@ test('a safe dropped stack outranks new project selection while empty-server cha
 
   try {
     await policy.tick();
-    assert.deepEqual(request.tool_choice, {
-      type: 'function',
-      function: { name: 'collect_nearby_item' },
-    });
+    assert.equal(request.tool_choice, 'auto');
     assert.equal(
       request.tools.some((spec: any) => spec.function.name === 'chat'),
       false,
+    );
+    assert.equal(
+      request.tools.some((spec: any) => spec.function.name === 'collect_nearby_item'),
+      true,
     );
     assert.equal(enqueued[0]?.tool, 'collect_nearby_item');
   } finally {
