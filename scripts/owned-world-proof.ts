@@ -37,6 +37,7 @@ async function main() {
       port: { type: 'string' },
       'place-epoch': { type: 'string' },
       arrival: { type: 'string' },
+      affordance: { type: 'string' },
       help: { type: 'boolean', default: false },
     },
   });
@@ -44,7 +45,7 @@ async function main() {
     process.stdout.write(
       'Usage:\n' +
         '  owned-world-proof [--run <safe-id>] [--port <unused-loopback-port>]\n' +
-        '  owned-world-proof --place-epoch <admitted-dir> --arrival <x,y,z> [--run <safe-id>]\n',
+        '  owned-world-proof --place-epoch <admitted-dir> --arrival <x,y,z> [--affordance <x,y,z>] [--run <safe-id>]\n',
     );
     return;
   }
@@ -114,10 +115,13 @@ async function main() {
     if (!parsed.values.arrival)
       throw new Error('--arrival x,y,z is required for a Place epoch proof');
     const arrival = parsePoint(String(parsed.values.arrival));
+    const affordance = parsed.values.affordance
+      ? parsePoint(String(parsed.values.affordance))
+      : { x: arrival.x + 2, y: arrival.y, z: arrival.z };
     target = Object.freeze({
-      x: arrival.x + 2,
-      y: arrival.y,
-      z: arrival.z,
+      x: affordance.x,
+      y: affordance.y,
+      z: affordance.z,
       item: 'apple',
       count: 1,
     });
