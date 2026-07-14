@@ -183,6 +183,7 @@ async function main() {
       act.proof.collection?.result?.item === TARGET.item &&
       act.proof.collection?.result?.confirmation === 'mineflayer:playerCollect' &&
       /^entity:\d+$/.test(String(act.proof.collection?.result?.target || '')) &&
+      act.proof.collection?.result?.targetAtStart?.distance > 0 &&
       Object.keys(act.proof.collection?.action?.input || {}).join(',') === 'target',
     independentConsequenceObserved:
       act.proof.independentWitness?.source === 'fresh_minecraft_connection' &&

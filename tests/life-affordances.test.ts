@@ -1397,6 +1397,8 @@ test('item collection binds one exact perceived stack even when another stack ha
   assert.equal(result.ok, true);
   assert.equal(result.target, 'entity:4');
   assert.equal(result.targetEntityId, 4);
+  assert.deepEqual(result.targetAtStart.position, { x: 3, y: 64.125, z: 0 });
+  assert.ok(result.targetAtStart.distance > 3 && result.targetAtStart.distance < 3.1);
   assert.equal(result.item, 'apple');
   assert.equal(result.confirmation, 'mineflayer:playerCollect');
 });

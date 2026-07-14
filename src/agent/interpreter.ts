@@ -404,6 +404,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         item: droppedItemName(entity),
         distance: me?.distanceTo(entity.position) ?? Infinity,
       };
+      const targetAtStart = summarizeEntity(entity);
       const pursuitLimit = clamp(Number(opts.pickupPursuitDistance ?? 16), 1, 32);
       if (target.distance > pursuitLimit) {
         return {
@@ -462,7 +463,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         ...(collected ? {} : { error: 'collection_unconfirmed' }),
         target: targetReference,
         targetEntityId: target.entity.id,
-        targetAtStart: summarizeEntity(target.entity),
+        targetAtStart,
         item: target.item,
         navigation,
         pickupRecovery,
