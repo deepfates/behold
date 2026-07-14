@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   attentionForObservation,
+  controllerSystemPrompt,
   hasDecisionRelevantEvent,
   isImmediateAttentionEvent,
   modelDecisionInvalidation,
@@ -1525,6 +1526,57 @@ test('system guidance follows the admitted affordances instead of describing abs
     policy.stop();
     globalThis.fetch = originalFetch;
   }
+});
+
+test('the complete controller guidance stays bounded without losing causal invariants', () => {
+  const names = [
+    'manage_project',
+    'chat',
+    'whisper',
+    'look_at',
+    'look_direction',
+    'move_to',
+    'move_direction',
+    'approach_entity',
+    'collect_nearby_item',
+    'drop_item',
+    'stop',
+    'find_blocks',
+    'dig_block',
+    'descend_step',
+    'ascend_step',
+    'inspect_volume',
+    'inspect_reachable_space',
+    'place_against',
+    'place_block',
+    'toggle_block',
+    'enter_place',
+    'leave_place',
+    'craft_item',
+    'equip_item',
+    'inspect_container',
+    'deposit_in_container',
+    'withdraw_from_container',
+    'sleep_in_bed',
+    'wake_up',
+    'consume',
+    'attack_entity',
+    'block_at_cursor',
+    'entity_at_cursor',
+    'status',
+    'survey_area',
+    'wait_for_event',
+  ];
+  const system = controllerSystemPrompt(names.map(tool));
+
+  assert.ok(system.length < 5600, `complete controller prompt was ${system.length} characters`);
+  assert.match(system, /real result becomes your next observation/i);
+  assert.match(system, /ordering, preconditions, and prohibitions.*take precedence/i);
+  assert.match(system, /complete only after a matching post-start witness/i);
+  assert.match(system, /successful action proves only its reported consequence/i);
+  assert.match(system, /bodyFeet.*occupied by bodies/i);
+  assert.match(system, /survey_area is privileged symbolic sensing/i);
+  assert.match(system, /repeat no failed action without new evidence/i);
 });
 
 test('a failed model call is visible once with request provenance and no credential', async () => {

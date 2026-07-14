@@ -736,25 +736,52 @@ export function readEntityLoom(file: string) {
 
 export function historyMessages(
   turns: EntityTurn[],
-  projectObservation: (observation: any) => any = (observation) => observation,
+  projectObservation: (
+    observation: any,
+    context: {
+      index: number;
+      turn: EntityTurn;
+      previousTurn: EntityTurn | null;
+      phase: 'observation' | 'nextObservation';
+    },
+  ) => any = (observation) => observation,
 ) {
   const messages: any[] = [];
-  for (const turn of turns) {
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index];
+    const previousTurn = turns[index - 1] ?? null;
     if (turn.action.source !== 'llm') {
       messages.push({
         role: 'user',
         content: `Historical ${turn.action.source} controller turn:\n${JSON.stringify({
-          observation: projectObservation(turn.observation),
+          observation: projectObservation(turn.observation, {
+            index,
+            turn,
+            previousTurn,
+            phase: 'observation',
+          }),
           action: turn.action,
           outcome: turn.outcome,
-          nextObservation: projectObservation(turn.nextObservation),
+          nextObservation: projectObservation(turn.nextObservation, {
+            index,
+            turn,
+            previousTurn,
+            phase: 'nextObservation',
+          }),
         })}`,
       });
       continue;
     }
     messages.push({
       role: 'user',
-      content: `World observation:\n${JSON.stringify(projectObservation(turn.observation))}`,
+      content: `World observation:\n${JSON.stringify(
+        projectObservation(turn.observation, {
+          index,
+          turn,
+          previousTurn,
+          phase: 'observation',
+        }),
+      )}`,
     });
     messages.push(replayAssistantMessage(turn.utterance.assistant));
     const content = JSON.stringify(turn.outcome);

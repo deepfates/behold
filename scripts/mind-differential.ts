@@ -17,6 +17,7 @@ type Args = {
   journal: string;
   out?: string;
   modelTurn?: number;
+  model?: string;
   candidate: CandidateAdapter;
   attentionPair: boolean;
   profileOnly: boolean;
@@ -77,7 +78,8 @@ async function main() {
         parameters: spec.parameters || { type: 'object', properties: {} },
       },
     }));
-    const model = String(baselineRecord.data.model);
+    const baselineModel = String(baselineRecord.data.model);
+    const model = args.model || baselineModel;
     if (args.profileOnly) {
       const request = await captureMindRequest({
         apiKey: apiKey || 'offline-profile',
@@ -186,7 +188,7 @@ async function main() {
       },
       baseline: {
         adapter: baseline.call.adapter?.name || 'direct-openrouter',
-        model,
+        model: baselineModel,
         intent: baseline.intent,
         utterance: baseline.assistant?.content ?? null,
         call: baseline.call,
@@ -203,7 +205,8 @@ async function main() {
       candidateError,
       matchedEpisode: candidateCall
         ? {
-            model: model === candidateCall.request.model,
+            requestedModel: model === candidateCall.request.model,
+            sameModelAsBaseline: model === baselineModel,
             observation: replay.migrations.length === 0,
             actionSet: baseline.call.request.toolsSha256 === candidateCall.request.toolsSha256,
             contextProjection: {
@@ -231,12 +234,14 @@ function parseArgs(argv: string[]): Args {
   let journal = '';
   let out: string | undefined;
   let modelTurn: number | undefined;
+  let model: string | undefined;
   let candidate: CandidateAdapter = 'ax';
   let attentionPair = false;
   let profileOnly = false;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--journal') journal = String(argv[++index] || '');
     else if (argv[index] === '--out') out = String(argv[++index] || '');
+    else if (argv[index] === '--model') model = String(argv[++index] || '');
     else if (argv[index] === '--model-turn') {
       modelTurn = Number(argv[++index]);
       if (!Number.isSafeInteger(modelTurn) || modelTurn < 1) {
@@ -256,7 +261,7 @@ function parseArgs(argv: string[]): Args {
   }
   if (!journal) {
     throw new Error(
-      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
+      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
     );
   }
   return {
@@ -264,6 +269,7 @@ function parseArgs(argv: string[]): Args {
     candidate,
     attentionPair,
     profileOnly,
+    ...(model ? { model } : {}),
     ...(modelTurn == null ? {} : { modelTurn }),
     ...(out ? { out } : {}),
   };

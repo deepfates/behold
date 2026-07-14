@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 const MODEL_EVENT_BATCH = 12;
 const REDUNDANT_OWN_LIFECYCLE_EVENTS = new Set([
   'intent_enqueued',
@@ -70,16 +72,31 @@ function projectTask(task: any) {
  * current task. The authoritative turn retains it and the latest observation
  * supplies the task presently governing the controller.
  */
-export function projectHistoricalModelObservation(frame: any) {
+export function projectHistoricalModelObservation(
+  frame: any,
+  previousFrame?: any,
+  previousSource:
+    'previous_turn_next_observation' | 'same_turn_observation' = 'previous_turn_next_observation',
+) {
   const projected = projectCurrentModelObservation(frame);
   if (!projected || typeof projected !== 'object') return projected;
+  const self = projectHistoricalSelf(projected.self);
+  const previousSelf = previousFrame ? projectHistoricalSelf(previousFrame.self) : null;
   return {
     protocol: projected.protocol,
     circle: projected.circle,
     sequence: projected.sequence,
     observedAt: projected.observedAt,
     eventWindow: projected.eventWindow,
-    self: projectHistoricalSelf(projected.self),
+    self: previousSelf ? projectHistoricalSelfDelta(self, previousSelf) : self,
+    ...(previousSelf
+      ? {
+          selfReference: {
+            source: previousSource,
+            unchangedFieldsOmitted: true,
+          },
+        }
+      : {}),
     events: projected.events,
     taskReference: {
       source: 'authoritative_entity_turn',
@@ -97,6 +114,29 @@ export function projectHistoricalModelObservation(frame: any) {
       ],
     },
   };
+}
+
+function projectHistoricalSelfDelta(self: any, previous: any) {
+  if (!self || typeof self !== 'object' || !previous || typeof previous !== 'object') return self;
+  const delta: Record<string, any> = { identity: self.identity };
+  if (!isDeepStrictEqual(self.pose, previous.pose)) {
+    if (!self.pose || typeof self.pose !== 'object' || !previous.pose) {
+      delta.pose = self.pose ?? null;
+    } else {
+      const pose: Record<string, any> = {};
+      if (!isDeepStrictEqual(self.pose.position, previous.pose.position)) {
+        pose.position = self.pose.position ?? null;
+      }
+      if (!isDeepStrictEqual(self.pose.onGround, previous.pose.onGround)) {
+        pose.onGround = self.pose.onGround ?? null;
+      }
+      delta.pose = pose;
+    }
+  }
+  for (const key of ['condition', 'heldItem', 'inventory', 'projects']) {
+    if (!isDeepStrictEqual(self[key], previous[key])) delta[key] = self[key] ?? null;
+  }
+  return delta;
 }
 
 function projectHistoricalSelf(self: any) {

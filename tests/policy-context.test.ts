@@ -87,6 +87,38 @@ test('historical frames retain causal state and events without replaying whole w
   assert.equal(projected.eventWindow.omittedNewEvents, 2);
 });
 
+test('later historical frames retain self changes and omit only state identical to the prior result', () => {
+  const previous: any = observation();
+  previous.self.pose = {
+    position: { x: 0, y: 64, z: 0 },
+    onGround: true,
+    velocity: { x: 0, y: 0, z: 0 },
+  };
+  previous.self.condition = { health: 20, food: 18 };
+  previous.self.heldItem = null;
+
+  const current = structuredClone(previous);
+  current.sequence = 15;
+  current.self.pose.position = { x: 3, y: 64, z: 0 };
+  current.self.heldItem = { name: 'wooden_pickaxe', count: 1 };
+  current.events = [event(15, 'inventory_changed', { added: ['wooden_pickaxe'] })];
+
+  const projected = projectHistoricalModelObservation(current, previous);
+  assert.deepEqual(projected.self, {
+    identity: 'Scout',
+    pose: { position: { x: 3, y: 64, z: 0 } },
+    heldItem: { name: 'wooden_pickaxe', count: 1 },
+  });
+  assert.equal(projected.self.condition, undefined);
+  assert.equal(projected.self.inventory, undefined);
+  assert.equal(projected.self.projects, undefined);
+  assert.deepEqual(projected.selfReference, {
+    source: 'previous_turn_next_observation',
+    unchangedFieldsOmitted: true,
+  });
+  assert.equal(projected.events[0].type, 'inventory_changed');
+});
+
 test('current task projection removes only exact duplicate and empty envelope fields', () => {
   const frame: any = observation();
   frame.task = {
