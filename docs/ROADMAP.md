@@ -24,8 +24,19 @@ Minecraft inhabitant. The San Francisco world is valuable terrain for that life,
 not the product goal by itself. Come–See–Do–Report remains a useful regression
 test, not the organizing purpose of the system.
 
+Progress is tracked through the [verification ladder](VERIFICATION_LADDER.md).
+Minecraft life and survival are one world competence pack beside the foundation
+scoreboard; they do not define whether the portable inhabitant loop is complete.
+
 ### Working
 
+- A versioned neutral evaluation configuration now crosses the CLI, managed
+  runner, run journal, mind request, affordance projection, and interpreter:
+  `neutral-benchmark-v1` emits only protocol guidance, does not force project
+  work or repair repetition/speech choices, defaults to the
+  `minecraft-player-v1` action surface, and exposes vanilla-permitted player
+  risk through `vanilla-player-v1`. The continuing `resident-v1` behavior
+  remains a separately testable product profile
 - Tool-calling LLM policy through OpenRouter
 - Managed multi-resident epochs with conjunctive readiness, exact per-entity
   leases, isolated journals/Lync lives, bounded process/model concurrency, and
@@ -157,30 +168,30 @@ test, not the organizing purpose of the system.
 
 ## Immediate priorities
 
-1. Separate the neutral Minecraft environment and benchmark from resident
-   coaching: minimal protocol prompt, no forced project action, no hidden
-   anti-loop policy, named action/safety profiles, and Ax-owned optimizable
-   instruction artifacts. See
+1. Finish the neutral request boundary: keep protocol, action semantics, safety
+   policy, and resident coaching independently versioned; distinguish exact
+   request replay from current-code reconstruction by hash. See
    [the neutral benchmark design](MINECRAFT_BENCHMARK.md).
-2. Give the endangered resident a short native-player recovery trajectory:
-   descend safely, reduce exposure, find food or shelter from first-person
-   evidence, and survive—with bounded body skills and exact consequences.
-3. Compress and measure the ordinary recent-turn frontier without mutating its
-   authoritative Lync source, then keep the hard aggregate call ceiling above
-   expected episode demand as a safety boundary.
-4. Extend the player-grain body conformance gate from the now-proved compound
-   placement case to the smallest representative set of movement, interaction,
-   self-care, and interruption semantics; do not create one runner per story.
-5. Move continuing projects beyond prepared exact cells: let a resident orient,
-   choose an ordinary site, and resume recognizable work through native looking,
-   movement, and first-person evidence.
-6. Stop multiplying scripted exchange scenarios: compress the repeated proof
-   machinery, then run a minimally scripted household with a human and several
-   continuing residents maintaining one shared place.
-7. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
-   autobiography growth.
-8. Extend relationship and project memory only where lived tests show that the
-   bounded recent trajectory and continuity projection are insufficient.
+2. Give Ax program artifacts and Lync episode references immutable identities.
+   Run direct and Ax minds against identical captured requests, then use held-out
+   real Minecraft episodes for outcome selection.
+3. Prove one honest observation-action-consequence turn and one continuation in
+   a contrasting real world. Extract shared code only after that integration
+   shows which semantics actually repeat.
+4. Extend the player-grain conformance gate across representative movement,
+   interaction, self-care, and interruption semantics without creating one
+   runner per story.
+5. Compress and measure the ordinary recent-turn frontier without mutating its
+   authoritative Lync source. Keep exact per-episode and population budgets for
+   latency, prompt bytes, tokens, cost, and provider admissions.
+6. Treat survival, ordinary place learning, continuing construction, and social
+   life as Minecraft competence suites with outcome-only scoring. Promote a
+   result into foundation work only when it exposes a reusable missing boundary.
+7. Run a minimally scripted household and a multi-hour soak after the
+   single-life conformance and budget gates pass.
+8. Build Minecraft world-history checkpoints, forks, and crossings using the
+   live Armok Lab pattern while keeping history, life, and episode identities
+   separate.
 
 ## Useful world work
 
