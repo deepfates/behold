@@ -43,7 +43,7 @@ function report() {
       },
     },
     lifecycle: { verified: true },
-    finalOwnership: { control: 'clear', port: 'closed', leases: 'clear' },
+    finalOwnership: { control: 'clear', port: 'clear', leases: 'clear' },
   };
 }
 

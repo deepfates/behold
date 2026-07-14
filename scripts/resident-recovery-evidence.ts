@@ -43,7 +43,7 @@ export function assessResidentRecoveryWitness(report: any) {
     managedLifecycleVerified: report?.lifecycle?.verified === true,
     finalAuthorityReleased:
       report?.finalOwnership?.control === 'clear' &&
-      report?.finalOwnership?.port === 'closed' &&
+      report?.finalOwnership?.port === 'clear' &&
       report?.finalOwnership?.leases === 'clear',
     independentlyObservedRecovery: healthImproved || foodImproved || defensibleCover,
   });
