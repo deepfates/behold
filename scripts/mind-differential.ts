@@ -9,6 +9,7 @@ import { createPlaceMemory } from '../src/entity/places';
 import { createProjectMemory } from '../src/entity/projects';
 import { createAxResidentMind } from '../src/mind/ax';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
+import { profileDirectResidentRequest } from '../src/mind/request-profile';
 import { startLLMPolicy } from '../src/policy/llm';
 
 type CandidateAdapter = 'ax' | 'direct';
@@ -18,12 +19,13 @@ type Args = {
   modelTurn?: number;
   candidate: CandidateAdapter;
   attentionPair: boolean;
+  profileOnly: boolean;
 };
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error('OPENROUTER_API_KEY is required');
+  if (!apiKey && !args.profileOnly) throw new Error('OPENROUTER_API_KEY is required');
   const records = readJsonl(args.journal);
   const baselineRecord = records.find(
     (record) =>
@@ -76,6 +78,28 @@ async function main() {
       },
     }));
     const model = String(baselineRecord.data.model);
+    if (args.profileOnly) {
+      const request = await captureMindRequest({
+        apiKey: apiKey || 'offline-profile',
+        model,
+        entityId,
+        observation,
+        history,
+        actions,
+        foldCacheFile: loom.foldFile,
+      });
+      const profile = profileDirectResidentRequest(request, {
+        journal: path.resolve(args.journal),
+        modelTurnJournalSequence: Number(baselineRecord.sequence),
+        entityId,
+        priorTurnCount,
+        observationSha256: sha256(stableJson(observation)),
+        capturedObservationSha256: sha256(stableJson(capturedObservation)),
+        observationMigrations: replay.migrations,
+      });
+      await writeOutput(profile, args.out);
+      return;
+    }
     if (args.attentionPair) {
       const comparison = await runAttentionPair({
         apiKey,
@@ -209,6 +233,7 @@ function parseArgs(argv: string[]): Args {
   let modelTurn: number | undefined;
   let candidate: CandidateAdapter = 'ax';
   let attentionPair = false;
+  let profileOnly = false;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--journal') journal = String(argv[++index] || '');
     else if (argv[index] === '--out') out = String(argv[++index] || '');
@@ -225,17 +250,20 @@ function parseArgs(argv: string[]): Args {
       candidate = value;
     } else if (argv[index] === '--attention-pair') {
       attentionPair = true;
+    } else if (argv[index] === '--profile-only') {
+      profileOnly = true;
     } else throw new Error(`Unknown argument ${argv[index]}`);
   }
   if (!journal) {
     throw new Error(
-      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--candidate ax|direct | --attention-pair] [--out result.json]',
+      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
     );
   }
   return {
     journal,
     candidate,
     attentionPair,
+    profileOnly,
     ...(modelTurn == null ? {} : { modelTurn }),
     ...(out ? { out } : {}),
   };

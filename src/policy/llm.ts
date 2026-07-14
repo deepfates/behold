@@ -18,6 +18,7 @@ import type {
   ResidentMindDecision,
   ResidentMindRequest,
 } from '../mind/interface';
+import { directOpenRouterRequestBody } from '../mind/direct-wire';
 import {
   ResidentMindCallError,
   type ModelCallEvidence,
@@ -202,23 +203,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     ? executableTools
     : [...executableTools, WAIT_TOOL_SPEC];
   const mind: ResidentMind =
-    opts.mind ||
-    createDirectResidentMind((request, signal) =>
-      callLLM(
-        request.actions.map((action) => ({
-          type: 'function' as const,
-          function: {
-            name: action.name,
-            description: action.description,
-            parameters: action.inputSchema,
-          },
-        })),
-        request.conversation as any[],
-        opts,
-        request.requiredAction,
-        signal,
-      ),
-    );
+    opts.mind || createDirectResidentMind((request, signal) => callLLM(request, opts, signal));
   let activeModelRequest: AbortController | null = null;
   let stopped = false;
   let stopPromise: Promise<void> | null = null;
@@ -1625,20 +1610,13 @@ function canonicalAssistant(
 }
 
 async function callLLM(
-  specs: ToolSpec[],
-  messages: any[],
+  residentRequest: ResidentMindRequest,
   opts: Options,
-  requiredTool: string | null = null,
   signal?: AbortSignal,
 ): Promise<ModelDecision> {
-  const body = {
-    model: opts.model,
-    messages,
-    tools: specs,
-    tool_choice: requiredTool ? { type: 'function', function: { name: requiredTool } } : 'auto',
-    parallel_tool_calls: false,
-    ...(opts.model.includes('gpt-5') ? {} : { temperature: 0.2 }),
-  } as any;
+  const body = directOpenRouterRequestBody(residentRequest) as any;
+  const messages = body.messages as any[];
+  const specs = body.tools as ToolSpec[];
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
