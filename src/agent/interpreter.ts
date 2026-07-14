@@ -359,6 +359,104 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   });
 
   add({
+    name: 'move_direction',
+    description:
+      'Walk a short distance relative to your current first-person view. Choose forward, back, left, or right and optionally a distance from 1 to 8 blocks. Use this for local exploration; use move_to for a known world position or remembered place. The body may perform ordinary path corrections but never digs or places, and returns only after confirmed arrival or a legible failure.',
+    parameters: {
+      type: 'object',
+      properties: {
+        direction: {
+          type: 'string',
+          enum: ['forward', 'back', 'left', 'right'],
+        },
+        distance: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 8,
+          description: 'Short walking distance in Minecraft blocks; defaults to 4.',
+        },
+      },
+      required: ['direction'],
+    },
+    run: async ({ direction, distance: requestedDistance = 4 }, execution) => {
+      const body = (bot as any).entity;
+      const yaw = body?.yaw == null ? null : finiteNumber(body.yaw);
+      const pitch = body?.pitch == null ? 0 : finiteNumber(body.pitch);
+      const start = positionOf(bot);
+      if (yaw == null || pitch == null || !start) {
+        return { ok: false, error: 'body_orientation_unavailable' };
+      }
+      const requested = String(direction || '');
+      const vector = relativeHorizontalDirection(yaw, requested);
+      if (!vector) {
+        return { ok: false, error: 'unknown_move_direction', direction: requested };
+      }
+      const pathfinder = (bot as any).pathfinder;
+      if (!pathfinder) return { ok: false, error: 'pathfinder_unavailable' };
+      const distanceValue = finiteNumber(requestedDistance);
+      const distanceBlocks = clamp(Math.round(distanceValue ?? 4), 1, 8);
+      const intendedPosition = {
+        x: start.x + vector.x * distanceBlocks,
+        y: start.y,
+        z: start.z + vector.z * distanceBlocks,
+      };
+      const intendedFeet = {
+        x: Math.floor(intendedPosition.x),
+        y: Math.floor(start.y),
+        z: Math.floor(intendedPosition.z),
+      };
+      const immediatePath = relativeMovementEvidence(bot, start, vector);
+      const navigation = await runPathfinderGoal(
+        bot,
+        new (goals as any).GoalXZ(intendedFeet.x, intendedFeet.z),
+        {
+          destination: intendedPosition,
+          near: 0,
+          timeoutMs: clamp(Number(opts.moveTimeoutMs ?? 45_000), 1000, 120_000),
+          target: `${requested} relative walk`,
+          signal: execution?.signal,
+          horizontalOnly: true,
+        },
+      );
+      const final = positionOf(bot);
+      const finalFeet = (bot as any).entity?.position?.floored?.();
+      const arrivedInIntendedColumn =
+        navigation.ok &&
+        finalFeet != null &&
+        finalFeet.x === intendedFeet.x &&
+        finalFeet.z === intendedFeet.z;
+      const result = arrivedInIntendedColumn
+        ? navigation
+        : navigation.ok
+          ? {
+              ...navigation,
+              ok: false,
+              error: 'relative_arrival_unconfirmed',
+              status: undefined,
+            }
+          : navigation;
+      const displacement = final
+        ? {
+            forward: round((final.x - start.x) * vector.x + (final.z - start.z) * vector.z),
+            lateral: round((final.x - start.x) * -vector.z + (final.z - start.z) * vector.x),
+            vertical: round(final.y - start.y),
+          }
+        : null;
+      return {
+        ...result,
+        direction: requested,
+        distanceBlocks,
+        orientationAtStart: orientationRecord(yaw, pitch),
+        intendedFeet,
+        finalFeet: finalFeet ? { x: finalFeet.x, y: finalFeet.y, z: finalFeet.z } : null,
+        displacement,
+        ...(result.ok ? {} : { obstruction: immediatePath }),
+      };
+    },
+    category: 'move',
+  });
+
+  add({
     name: 'approach_entity',
     description:
       'Approach one particular nearby entity or player from scene.entities. Choose its exact observed id; this body owns pursuit, conversational distance, timing, and arrival evidence.',
@@ -4605,6 +4703,7 @@ async function runPathfinderGoal(
     timeoutMs: number;
     target?: string;
     signal?: AbortSignal;
+    horizontalOnly?: boolean;
   },
 ) {
   const pathfinder = (bot as any).pathfinder;
@@ -4633,7 +4732,11 @@ async function runPathfinderGoal(
       }),
     ]);
     const final = positionOf(bot);
-    const finalDistance = final ? distance(final, options.destination) : null;
+    const finalDistance = final
+      ? options.horizontalOnly
+        ? horizontalDistance(final, options.destination)
+        : distance(final, options.destination)
+      : null;
     const arrivalTolerance = options.near > 0 ? options.near + 0.75 : 1.25;
     if (finalDistance == null || finalDistance > arrivalTolerance) {
       return {
@@ -4681,7 +4784,11 @@ async function runPathfinderGoal(
       near: options.near,
       start,
       final,
-      finalDistance: final ? distance(final, options.destination) : null,
+      finalDistance: final
+        ? options.horizontalOnly
+          ? horizontalDistance(final, options.destination)
+          : distance(final, options.destination)
+        : null,
       durationMs: Date.now() - startedAt,
     };
   } finally {
@@ -4714,6 +4821,10 @@ function distance(a: { x: number; y: number; z: number }, b: { x: number; y: num
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
 }
 
+function horizontalDistance(a: { x: number; z: number }, b: { x: number; z: number }) {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.z - b.z) ** 2);
+}
+
 function navigationError(error: any) {
   const value = String(error?.message || error?.name || error || 'navigation_failed').toLowerCase();
   if (value.includes('no path')) return 'no_path';
@@ -4728,6 +4839,58 @@ function normalizeYaw(value: number) {
   while (angle <= -Math.PI) angle += Math.PI * 2;
   while (angle > Math.PI) angle -= Math.PI * 2;
   return angle;
+}
+
+function relativeHorizontalDirection(yaw: number, direction: string) {
+  const vectors: Record<string, { x: number; z: number }> = {
+    forward: { x: -Math.sin(yaw), z: -Math.cos(yaw) },
+    back: { x: Math.sin(yaw), z: Math.cos(yaw) },
+    left: { x: -Math.cos(yaw), z: Math.sin(yaw) },
+    right: { x: Math.cos(yaw), z: -Math.sin(yaw) },
+  };
+  return vectors[direction] ?? null;
+}
+
+function relativeMovementEvidence(
+  bot: Bot,
+  start: { x: number; y: number; z: number },
+  vector: { x: number; z: number },
+) {
+  const threshold = Math.sin(Math.PI / 8);
+  let dx = Math.abs(vector.x) < threshold ? 0 : Math.sign(vector.x);
+  let dz = Math.abs(vector.z) < threshold ? 0 : Math.sign(vector.z);
+  if (dx === 0 && dz === 0) {
+    if (Math.abs(vector.x) >= Math.abs(vector.z)) dx = Math.sign(vector.x);
+    else dz = Math.sign(vector.z);
+  }
+  const feet = {
+    x: Math.floor(start.x) + dx,
+    y: Math.floor(start.y),
+    z: Math.floor(start.z) + dz,
+  };
+  const space = bodySpaceAt(bot, feet);
+  const issue = !space.feetPassable
+    ? 'feet_blocked'
+    : !space.headPassable
+      ? 'head_blocked'
+      : !space.supportSafe
+        ? 'unsafe_support'
+        : 'immediate_path_clear';
+  return {
+    scope: 'adjacent_body_space',
+    issue,
+    feet: { position: feet, block: space.feet, passable: space.feetPassable },
+    head: {
+      position: { ...feet, y: feet.y + 1 },
+      block: space.head,
+      passable: space.headPassable,
+    },
+    support: {
+      position: { ...feet, y: feet.y - 1 },
+      block: space.support,
+      safe: space.supportSafe,
+    },
+  };
 }
 
 function orientationRecord(yaw: number, pitch: number) {

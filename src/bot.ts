@@ -52,8 +52,7 @@ function bindCoreEvents(bot: Bot, config: Config) {
         const movements = new Movements(bot, mcData);
         // Navigation is locomotion, not permission to modify the world. Explicit
         // dig/place actions pass through the task safety guard and are traced.
-        (movements as any).canDig = false;
-        (movements as any).allow1by1towers = false;
+        restrictNavigationToLocomotion(movements as any);
         (bot as any).pathfinder.setMovements(movements);
       }
     } catch (e: any) {
@@ -127,4 +126,13 @@ function bindCoreEvents(bot: Bot, config: Config) {
     if (username === bot.username) return;
     console.log(`[chat] <${username}> ${message}`);
   });
+}
+
+export function restrictNavigationToLocomotion(movements: any) {
+  movements.canDig = false;
+  movements.allow1by1towers = false;
+  // mineflayer-pathfinder intentionally spells this public field with one f.
+  // An empty list prevents gap bridging and every other scaffold placement.
+  movements.scafoldingBlocks = [];
+  return movements;
 }

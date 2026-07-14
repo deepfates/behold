@@ -22,6 +22,7 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   const allActions = interpreter.list().map((spec) => spec.name);
 
   assert.ok(inhabitantActions.includes('move_to'));
+  assert.ok(inhabitantActions.includes('move_direction'));
   assert.ok(inhabitantActions.includes('look_direction'));
   assert.ok(inhabitantActions.includes('descend_step'));
   assert.ok(inhabitantActions.includes('ascend_step'));
@@ -32,6 +33,18 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   const move = interpreter.describe('move_to');
   assert.deepEqual(move?.parameters.required, ['x', 'y', 'z']);
   assert.deepEqual(Object.keys(move?.parameters.properties || {}), ['x', 'y', 'z', 'near']);
+  const relativeMove = interpreter.describe('move_direction');
+  assert.deepEqual(relativeMove?.parameters.required, ['direction']);
+  assert.deepEqual(Object.keys(relativeMove?.parameters.properties || {}), [
+    'direction',
+    'distance',
+  ]);
+  assert.deepEqual(relativeMove?.parameters.properties.direction.enum, [
+    'forward',
+    'back',
+    'left',
+    'right',
+  ]);
   const approach = interpreter.describe('approach_entity');
   assert.deepEqual(approach?.parameters.required, ['target']);
   assert.deepEqual(Object.keys(approach?.parameters.properties || {}), ['target']);
@@ -413,6 +426,148 @@ test('the body bounds one move_to leg without asking the resident for a travel b
   assert.deepEqual(result.legDestination, { x: 6, y: 64, z: 0 });
   assert.equal(result.remainingDistance, 14);
   assert.equal(result.arrivedAtRequestedDestination, false);
+});
+
+test('move_direction derives all local destinations from the body view without coordinates', async () => {
+  const bot = baseBot();
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.pathfinder = {
+    goto: async (goal: any) => {
+      bot.entity.position = new Vec3(goal.x + 0.5, 64, goal.z + 0.5);
+    },
+    stop: () => {},
+  };
+  bot.blockAt = (position: Vec3) => ({
+    name: position.y === 63 ? 'stone' : 'air',
+    boundingBox: position.y === 63 ? 'block' : 'empty',
+    position,
+  });
+  const interpreter = buildInterpreter(bot);
+
+  const forward = await interpreter.run('move_direction', { direction: 'forward' });
+  assert.equal(forward.ok, true);
+  assert.equal(forward.distanceBlocks, 4);
+  assert.deepEqual(forward.intendedFeet, { x: 0, y: 64, z: -4 });
+  assert.deepEqual(forward.finalFeet, { x: 0, y: 64, z: -4 });
+  assert.equal(forward.orientationAtStart.facing, 'north');
+  assert.ok(forward.displacement.forward > 3);
+
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  const back = await interpreter.run('move_direction', { direction: 'back', distance: 2 });
+  assert.deepEqual(back.intendedFeet, { x: 0, y: 64, z: 2 });
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  const left = await interpreter.run('move_direction', { direction: 'left', distance: 2 });
+  assert.deepEqual(left.intendedFeet, { x: -2, y: 64, z: 0 });
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  const right = await interpreter.run('move_direction', { direction: 'right', distance: 99 });
+  assert.equal(right.distanceBlocks, 8);
+  assert.deepEqual(right.intendedFeet, { x: 8, y: 64, z: 0 });
+});
+
+test('move_direction fails closed and explains only adjacent player-scale obstruction', async () => {
+  const unavailable = baseBot();
+  unavailable.entity.yaw = null;
+  unavailable.entity.pitch = 0;
+  unavailable.pathfinder = { goto: async () => {}, stop: () => {} };
+  assert.deepEqual(
+    await buildInterpreter(unavailable).run('move_direction', { direction: 'forward' }),
+    { ok: false, error: 'body_orientation_unavailable' },
+  );
+
+  const noPathfinder = baseBot();
+  noPathfinder.entity.yaw = 0;
+  noPathfinder.entity.pitch = 0;
+  assert.deepEqual(
+    await buildInterpreter(noPathfinder).run('move_direction', { direction: 'forward' }),
+    { ok: false, error: 'pathfinder_unavailable' },
+  );
+
+  const bot = baseBot();
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.pathfinder = {
+    goto: async () => {
+      throw new Error('No path to goal');
+    },
+    stop: () => {},
+  };
+  bot.blockAt = (position: Vec3) => {
+    const blocked = position.x === 0 && position.y === 64 && position.z === -1;
+    const support = position.x === 0 && position.y === 63 && position.z === -1;
+    return {
+      name: blocked ? 'stone_bricks' : support ? 'stone' : 'air',
+      boundingBox: blocked || support ? 'block' : 'empty',
+      position,
+    };
+  };
+  const interpreter = buildInterpreter(bot);
+  assert.deepEqual(await interpreter.run('move_direction', { direction: 'sideways' }), {
+    ok: false,
+    error: 'unknown_move_direction',
+    direction: 'sideways',
+  });
+  const result = await interpreter.run('move_direction', { direction: 'forward', distance: 3 });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'no_path');
+  assert.deepEqual(result.obstruction, {
+    scope: 'adjacent_body_space',
+    issue: 'feet_blocked',
+    feet: {
+      position: { x: 0, y: 64, z: -1 },
+      block: 'stone_bricks',
+      passable: false,
+    },
+    head: { position: { x: 0, y: 65, z: -1 }, block: 'air', passable: true },
+    support: { position: { x: 0, y: 63, z: -1 }, block: 'stone', safe: true },
+  });
+  assert.equal(Object.hasOwn(result.obstruction, 'alternatives'), false);
+
+  bot.pathfinder.goto = async () => {};
+  const unconfirmed = await interpreter.run('move_direction', {
+    direction: 'back',
+    distance: 3,
+  });
+  assert.equal(unconfirmed.ok, false);
+  assert.equal(unconfirmed.error, 'arrival_unconfirmed');
+});
+
+test('move_direction preserves acknowledged pathfinder cancellation', async () => {
+  const bot = baseBot();
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.blockAt = (position: Vec3) => ({
+    name: position.y === 63 ? 'stone' : 'air',
+    boundingBox: position.y === 63 ? 'block' : 'empty',
+    position,
+  });
+  let rejectPath!: (error: Error) => void;
+  bot.pathfinder = {
+    goto: () => new Promise<void>((_resolve, reject) => (rejectPath = reject)),
+    stop: () => {
+      const error = new Error('Path was stopped before it could be completed');
+      error.name = 'PathStopped';
+      rejectPath(error);
+    },
+  };
+  const controller = new AbortController();
+  const pending = buildInterpreter(bot).run(
+    'move_direction',
+    { direction: 'forward' },
+    { signal: controller.signal },
+  );
+  controller.abort('human_stop');
+  const result = await pending;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'interrupted_by_human');
+  assert.deepEqual(result.cancellation, {
+    acknowledged: true,
+    adapter: 'mineflayer-pathfinder',
+  });
 });
 
 test('move_to reports cancellation only after Mineflayer pathfinding acknowledges stop', async () => {

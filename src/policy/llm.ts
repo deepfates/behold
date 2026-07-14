@@ -158,6 +158,7 @@ const WAIT_TOOL_SPEC: ToolSpec = {
 };
 const EMBODIED_ACTION_TOOLS = new Set<string>([
   'move_to',
+  'move_direction',
   'enter_place',
   'leave_place',
   'approach_entity',
@@ -984,6 +985,11 @@ function controllerSystemPrompt(specs: readonly ToolSpec[]) {
   if (tools.has('look_direction')) {
     lines.push(
       'Your first-person scene contains only the direction you currently face. Use look_direction to reveal unseen directions while orienting or seeking an entrance. Before breaking intact built fabric merely to navigate, look around for an ordinary route unless immediate danger makes that unreasonable.',
+    );
+  }
+  if (tools.has('move_direction')) {
+    lines.push(
+      'Use move_direction for short local exploration relative to your current view; use move_to only for a world position already visible, communicated, or remembered. Looking and relative walking are ordinary embodied actions, not projects.',
     );
   }
   if (hasAny('find_blocks', 'dig_block')) {
