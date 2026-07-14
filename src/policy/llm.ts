@@ -2217,13 +2217,19 @@ function parseToolArguments(value: any) {
 
 function terminalResult(event: EngineEvent) {
   if (event.type === 'action_completed') {
-    return { ok: true, eventType: event.type, result: event.data?.result ?? null };
+    return {
+      ok: true,
+      eventType: event.type,
+      result: event.data?.result ?? null,
+      ...(event.data?.cancellation ? { cancellation: cloneJson(event.data.cancellation) } : {}),
+    };
   }
   return {
     ok: false,
     eventType: event.type,
     result: event.data?.result ?? null,
     error: event.data?.error || event.data?.reason || event.type,
+    ...(event.data?.cancellation ? { cancellation: cloneJson(event.data.cancellation) } : {}),
   };
 }
 

@@ -168,6 +168,74 @@ test('synchronous urgency during enqueue closes the policy turn instead of stran
   }
 });
 
+test('a durable turn preserves the engine-authenticated cancellation cause', async () => {
+  const turns: EntityTurn[] = [];
+  let enqueued: any = null;
+  const mind: ResidentMind = {
+    id: 'cancelled-turn-mind',
+    decide: async (request) => ({
+      protocol: 'behold.mind-decision.v1',
+      disposition: 'act',
+      utterance: 'I begin a bounded walk.',
+      action: { name: 'move_to', input: { x: 8, y: 64, z: 0 } },
+      call: modelCallEvidence('cancelled-turn-mind', request.model),
+    }),
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_to')],
+      attempt: (intent) => {
+        enqueued = intent;
+        return true;
+      },
+      observe: (sinceSequence) => experience(4, null, sinceSequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      maxTurnSteps: 1,
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await policy.onEngineEvent({
+      type: 'action_failed',
+      at: 20,
+      data: {
+        intent: enqueued,
+        result: {
+          ok: false,
+          error: 'interrupted',
+          cancellation: { acknowledged: true, adapter: 'mineflayer-pathfinder' },
+        },
+        error: 'interrupted',
+        cancellation: {
+          requested: true,
+          reason: 'bodily_urgent_attention',
+          acknowledged: true,
+          adapter: 'mineflayer-pathfinder',
+        },
+      },
+    });
+    await until(() => turns.length === 1);
+
+    assert.deepEqual(turns[0].outcome.cancellation, {
+      requested: true,
+      reason: 'bodily_urgent_attention',
+      acknowledged: true,
+      adapter: 'mineflayer-pathfinder',
+    });
+    assert.equal(turns[0].outcome.result.error, 'interrupted');
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('only a newly urgent lived event selects compact urgent cognition', () => {
   assert.equal(
     attentionForObservation({ events: [{ sequence: 1, salience: 'high', isNew: true }] }).mode,

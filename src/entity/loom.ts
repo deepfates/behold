@@ -43,6 +43,13 @@ export type EntityTurn = {
     eventType: string;
     result: any;
     error?: string;
+    /** Engine-authenticated interruption cause; distinct from adapter acknowledgement. */
+    cancellation?: {
+      requested: boolean;
+      reason: string;
+      acknowledged: boolean;
+      adapter: string | null;
+    };
   };
   nextObservation: any;
 };
