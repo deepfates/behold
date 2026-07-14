@@ -258,6 +258,40 @@ export function observedBlocks(
   });
 }
 
+export async function observedContainerContents(
+  bot: ReturnType<typeof createBot>,
+  position: Readonly<{ x: number; y: number; z: number }>,
+) {
+  const block = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
+  if (!block) throw new Error(`fresh witness did not load block at ${formatPosition(position)}`);
+  const name = String(block.name || '');
+  if (!isStorageBlockName(name)) {
+    throw new Error(
+      `fresh witness expected storage at ${formatPosition(position)}, observed ${name || 'unknown'}`,
+    );
+  }
+  const container = await (bot as any).openContainer(block);
+  try {
+    const counts = new Map<string, number>();
+    for (const item of container.containerItems?.() || []) {
+      const itemName = String(item?.name || item?.displayName || 'unknown');
+      counts.set(itemName, (counts.get(itemName) || 0) + Math.max(0, Number(item?.count) || 0));
+    }
+    return {
+      container: {
+        name,
+        position: { ...position },
+      },
+      contents: [...counts.entries()]
+        .map(([itemName, count]) => ({ name: itemName, count }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+      confirmation: 'mineflayer:openContainer' as const,
+    };
+  } finally {
+    container.close?.();
+  }
+}
+
 export function readRunJournal(file: string) {
   const text = fs.readFileSync(file, 'utf8');
   if (text && !text.endsWith('\n')) return [];
@@ -364,4 +398,23 @@ function disconnect(bot: ReturnType<typeof createBot>) {
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isStorageBlockName(value: string) {
+  const name = value.trim().toLowerCase();
+  return (
+    name === 'chest' ||
+    name === 'trapped_chest' ||
+    name === 'barrel' ||
+    name === 'dispenser' ||
+    name === 'dropper' ||
+    name === 'hopper' ||
+    name === 'ender_chest' ||
+    name === 'shulker_box' ||
+    name.endsWith('_shulker_box')
+  );
+}
+
+function formatPosition(position: Readonly<{ x: number; y: number; z: number }>) {
+  return `${position.x},${position.y},${position.z}`;
 }

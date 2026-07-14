@@ -23,6 +23,7 @@
     "proof:owned-world-model": "npm run build && node dist/scripts/owned-world-model-proof.js",
     "proof:owned-world-population": "npm run build && node dist/scripts/owned-world-population-proof.js",
     "proof:owned-world-handoff": "npm run build && node dist/scripts/owned-world-handoff-proof.js",
+    "proof:owned-world-cache": "npm run build && node dist/scripts/owned-world-cache-proof.js",
     "proof:owned-world-project": "npm run build && node dist/scripts/owned-world-project-proof.js",
     "proof:owned-world-portfolio": "npm run build && node dist/scripts/owned-world-portfolio.js",
     "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",
