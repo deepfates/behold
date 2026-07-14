@@ -94,7 +94,7 @@ export type DecisionTurnBinding = Readonly<{
   }>;
 }>;
 
-export type CausalTurnBinding = Readonly<{
+export type WorldActionTurnBinding = Readonly<{
   protocol: 'behold.world-action-turn-binding.v1';
   suite: EvaluationEpisodeDefinition['suite'];
   world: Readonly<{
@@ -314,7 +314,7 @@ export function assessUncoachedDecisionTurn(input: TurnAssessmentInput) {
   });
 }
 
-export function assessCausalTurn(input: TurnAssessmentInput) {
+export function assessWorldActionTurn(input: TurnAssessmentInput) {
   const { expected } = input;
   const decisionAssessment = assessDecisionTurn(input);
   const {

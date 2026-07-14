@@ -52,9 +52,16 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   without taking body authority or changing its files. Evaluator-owned episode
   looms preserve that range independently of later body activity or branch-tip
   selection and never copy it into resident memory. Runtime, profile, mind, and
-  budget bindings are omitted until call and lifecycle evidence can authenticate
-  them; assessments, world-lineage references, and a durable dataset index remain
-  deliberately unclaimed
+  lifecycle identities are now authenticated for one neutral live turn. Budget
+  bindings, material-effect assessments, world-lineage references, and a
+  durable dataset index remain deliberately unclaimed
+- Decision evidence and world-action evidence are separate typed bindings. A
+  neutral live Ax turn authenticated its exact request, content-addressed
+  program, managed epoch, admitted choice, terminal adapter delivery, personal
+  Lync turn, and evaluator episode. Yield and pre-world rejection report the
+  world edge as not exercised; material-world effects still require native or
+  fresh-body evidence. See
+  `docs/reports/2026-07-14-neutral-turn-boundaries.md`
 - Managed multi-resident epochs with conjunctive readiness, exact per-entity
   leases, isolated journals/Lync lives, bounded process/model concurrency, and
   all-resident drain before one Minecraft save/stop
@@ -119,6 +126,12 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Still red
 
+- A machine-operated foundation claim graph. The verification ladder names the
+  intended dependencies, but its current-read cells are maintained prose rather
+  than recomputable verdicts bound to commands, evidence, budgets, and source
+  identities
+- One contrasting live world adapter passing a shared conformance assessment;
+  package extraction before that proof would still be an abstraction guess
 - Persistent world histories above server epochs: exact committed checkpoints,
   isolated writable children, branch-local clocks, separate fork and crossing
   receipts, and honest resident identity behavior when a life crosses or is

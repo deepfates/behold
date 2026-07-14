@@ -3,22 +3,30 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom';
 import {
-  assessCausalTurn,
   assessDecisionTurn,
   assessUncoachedDecisionTurn,
+  assessWorldActionTurn,
 } from '../src/evaluation/causal-turn';
 import { createEvaluationEpisode } from '../src/evaluation/episode';
 import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 import { parseRunJournal } from './owned-world-model-evidence';
-import { prepareOwnedWorld, restoreEnvironment, sha256File, waitFor } from './owned-world-fixture';
+import {
+  assertCleanRepository,
+  gitRevision,
+  prepareOwnedWorld,
+  restoreEnvironment,
+  sha256File,
+  waitFor,
+} from './owned-world-fixture';
 import { waitForRunJournal } from './owned-world-model-harness';
 import { startManagedWorld, type ManagedWorldRun } from './world-runner';
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!process.env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY is required');
-  const fixture = await prepareOwnedWorld(args.runId, args.port, 'neutral-causal-turn');
+  assertCleanRepository();
+  const fixture = await prepareOwnedWorld(args.runId, args.port, 'neutral-turn');
   const runRoot = path.join(fixture.evidenceRoot, 'runs');
   const priorRecordModelIo = process.env.BEHOLD_RECORD_MODEL_IO;
   process.env.BEHOLD_RECORD_MODEL_IO = '1';
@@ -78,7 +86,7 @@ async function main() {
           args.timeoutMs,
           args.claim === 'decision'
             ? 'one neutral recorded decision turn'
-            : 'one neutral causal entity turn',
+            : 'one neutral world-action turn',
           wait.signal,
         ),
         run.finished.then(() => {
@@ -108,14 +116,14 @@ async function main() {
       {
         protocol: 'behold.evaluation-episode.v1',
         suite: {
-          id: args.claim === 'decision' ? 'neutral-decision-turn' : 'neutral-causal-turn',
-          version: '2',
+          id: args.claim === 'decision' ? 'neutral-decision-turn' : 'neutral-world-action-turn',
+          version: '3',
           caseId: args.claim === 'decision' ? 'first-free-decision' : 'first-free-world-action',
           specificationSha256,
         },
         life,
       },
-      'behold-neutral-causal-evaluator',
+      'behold-neutral-turn-evaluator',
     );
     const lifeRead = await readEntityLifeRange(life, fixture.entityRoot);
     if (lifeRead.turns.length !== 1) throw new Error('turn proof expected one exact life turn');
@@ -143,9 +151,9 @@ async function main() {
     } as const;
     const decisionAssessment = assessDecisionTurn(assessmentInput);
     const uncoachedDecisionAssessment = assessUncoachedDecisionTurn(assessmentInput);
-    const causalAssessment = assessCausalTurn(assessmentInput);
+    const worldActionAssessment = assessWorldActionTurn(assessmentInput);
     const selectedAssessment =
-      args.claim === 'decision' ? uncoachedDecisionAssessment : causalAssessment;
+      args.claim === 'decision' ? uncoachedDecisionAssessment : worldActionAssessment;
     const requestArtifact = createResidentMindRequestArtifact(
       selected.modelTurn.data.call.request.mindRequest,
     );
@@ -154,18 +162,19 @@ async function main() {
       encoding: 'utf8',
       mode: 0o600,
     });
-    const resultFile = path.join(fixture.evidenceRoot, 'causal-turn-result.json');
+    const resultFile = path.join(fixture.evidenceRoot, 'turn-result.json');
     fs.writeFileSync(
       resultFile,
       `${JSON.stringify(
         {
-          protocol: 'behold.neutral-turn-proof.v2',
+          protocol: 'behold.neutral-turn-proof.v3',
           generatedAt: new Date().toISOString(),
+          repository: { revision: gitRevision() },
           claim: args.claim,
           suite: { specificationSha256 },
           decisionAssessment,
           uncoachedDecisionAssessment,
-          causalAssessment,
+          worldActionAssessment,
           evidence: {
             root: fixture.root,
             journalFile,
@@ -186,7 +195,7 @@ async function main() {
           proof: selectedAssessment.status,
           failed: selectedAssessment.failed,
           decisionBinding: uncoachedDecisionAssessment.binding,
-          causalBinding: causalAssessment.binding,
+          worldActionBinding: worldActionAssessment.binding,
           evidence: resultFile,
         },
         null,
@@ -210,9 +219,9 @@ async function main() {
   }
 }
 
-function selectTurn(events: readonly any[], claim: 'decision' | 'causal') {
+function selectTurn(events: readonly any[], claim: 'decision' | 'world-action') {
   for (const entityTurn of events.filter((event) => event.type === 'entity_turn')) {
-    if (claim === 'causal' && entityTurn.data?.action?.kind === 'yield') continue;
+    if (claim === 'world-action' && entityTurn.data?.action?.kind === 'yield') continue;
     const modelTurn = events.find(
       (event) =>
         event.type === 'model_turn' &&
@@ -230,7 +239,7 @@ function parseArgs(argv: string[]) {
   let entityId = 'CausalWren';
   let model = 'openai/gpt-5.4-mini';
   let mind: 'direct' | 'ax' = 'ax';
-  let claim: 'decision' | 'causal' = 'causal';
+  let claim: 'decision' | 'world-action' = 'world-action';
   let timeoutMs = 120_000;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--runId') runId = String(argv[++index] || '');
@@ -244,8 +253,8 @@ function parseArgs(argv: string[]) {
     } else if (argv[index] === '--timeoutMs') timeoutMs = Number(argv[++index]);
     else if (argv[index] === '--claim') {
       const value = String(argv[++index] || '');
-      if (value !== 'decision' && value !== 'causal') {
-        throw new Error('--claim must be decision or causal');
+      if (value !== 'decision' && value !== 'world-action') {
+        throw new Error('--claim must be decision or world-action');
       }
       claim = value;
     } else throw new Error(`Unknown argument ${argv[index]}`);
@@ -264,9 +273,9 @@ function parseArgs(argv: string[]) {
   return { runId, port, entityId, model, mind, claim, timeoutMs };
 }
 
-function suiteSpecification(claim: 'decision' | 'causal') {
+function suiteSpecification(claim: 'decision' | 'world-action') {
   return [
-    'neutral-turn-v2',
+    'neutral-turn-v3',
     `Claim: ${claim}`,
     'Start one disposable authoritative Minecraft epoch from a verified baseline.',
     'Admit one untasked resident with neutral-benchmark-v1, minecraft-player-v1, and vanilla-player-v1.',
@@ -274,7 +283,7 @@ function suiteSpecification(claim: 'decision' | 'causal') {
       ? 'Record the first freely selected admitted decision, including an explicit yield.'
       : 'Wait for the first freely selected world action without turning action into a prompt requirement.',
     'Close the life, authenticate the exact Lync turn, and create a separate evaluator episode reference.',
-    'Report decision-boundary and world-causal verdicts separately.',
+    'Report decision-boundary and world-action verdicts separately.',
   ].join('\n');
 }
 

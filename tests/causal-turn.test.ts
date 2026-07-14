@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  assessCausalTurn,
   assessDecisionTurn,
   assessUncoachedDecisionTurn,
+  assessWorldActionTurn,
 } from '../src/evaluation/causal-turn';
 import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
 
-test('a causal turn binds one exact mind input through world consequence and Lync life', () => {
+test('a world-action turn binds one exact mind input through terminal delivery and Lync life', () => {
   const evidence = fixture();
-  const assessment = assessCausalTurn(evidence as any);
+  const assessment = assessWorldActionTurn(evidence as any);
   assert.deepEqual(assessment.failed, []);
   assert.ok(assessment.binding);
   assert.equal(assessment.binding?.mind.requestSha256, evidence.request.requestSha256);
@@ -20,32 +20,32 @@ test('a causal turn binds one exact mind input through world consequence and Lyn
   assert.equal(assessment.binding?.entity.life.end.turnId, 'life-turn-1');
 });
 
-test('causal turn assessment locates configuration drift, request drift, copied life, and missing witness', () => {
+test('world-action assessment locates configuration drift, request drift, copied life, and missing delivery', () => {
   const configurationDrift = fixture();
   configurationDrift.runStarted.data.task = 'Walk forward now';
   assert.ok(
-    assessCausalTurn(configurationDrift as any).failed.includes('authenticatedConfiguration'),
+    assessWorldActionTurn(configurationDrift as any).failed.includes('authenticatedConfiguration'),
   );
 
   const drifted = fixture();
   drifted.modelTurn.data.call.request.mindRequestSha256 = 'f'.repeat(64);
-  assert.ok(assessCausalTurn(drifted as any).failed.includes('exactMindRequest'));
+  assert.ok(assessWorldActionTurn(drifted as any).failed.includes('exactMindRequest'));
 
   const copied = fixture();
   copied.lifeTurn.outcome.result.distance = 99;
-  assert.ok(assessCausalTurn(copied as any).failed.includes('exactLyncTurn'));
+  assert.ok(assessWorldActionTurn(copied as any).failed.includes('exactLyncTurn'));
 
   const unwitnessed = fixture();
   unwitnessed.entityTurn.data.nextObservation.events = [];
   unwitnessed.lifeTurn.nextObservation.events = [];
-  assert.ok(assessCausalTurn(unwitnessed as any).notExercised.includes('worldActionStarted'));
+  assert.ok(assessWorldActionTurn(unwitnessed as any).notExercised.includes('worldActionStarted'));
 });
 
 test('a matching task is authenticated without making tasklessness a framework invariant', () => {
   const tasked = fixture();
   tasked.runStarted.data.task = 'Walk forward now';
   tasked.lifecycle.events[0].data.population.residents[0].task = 'Walk forward now';
-  assert.deepEqual(assessCausalTurn(tasked as any).failed, []);
+  assert.deepEqual(assessWorldActionTurn(tasked as any).failed, []);
   assert.ok(assessUncoachedDecisionTurn(tasked as any).failed.includes('untasked'));
 });
 
@@ -102,15 +102,15 @@ test('an explicit yield is a valid recorded decision but not evidence of a world
   assert.equal(decision.binding?.record.eventType, 'wait_for_event');
   assert.equal(assessUncoachedDecisionTurn(yielded as any).status, 'passed');
 
-  const causal = assessCausalTurn(yielded as any);
-  assert.ok(causal.decisionBinding);
-  assert.equal(causal.status, 'not_exercised');
-  assert.deepEqual(causal.failed, []);
-  assert.ok(causal.notExercised.includes('worldActionProposed'));
-  assert.ok(causal.notExercised.includes('worldActionStarted'));
-  assert.ok(causal.notExercised.includes('terminalWorldResult'));
-  assert.ok(causal.notExercised.includes('freshTerminalReobservation'));
-  assert.equal(causal.binding, null);
+  const worldAction = assessWorldActionTurn(yielded as any);
+  assert.ok(worldAction.decisionBinding);
+  assert.equal(worldAction.status, 'not_exercised');
+  assert.deepEqual(worldAction.failed, []);
+  assert.ok(worldAction.notExercised.includes('worldActionProposed'));
+  assert.ok(worldAction.notExercised.includes('worldActionStarted'));
+  assert.ok(worldAction.notExercised.includes('terminalWorldResult'));
+  assert.ok(worldAction.notExercised.includes('freshTerminalReobservation'));
+  assert.equal(worldAction.binding, null);
 });
 
 test('a pre-world block records the decision without claiming the world edge was exercised', () => {
@@ -138,19 +138,19 @@ test('a pre-world block records the decision without claiming the world edge was
   };
   blocked.lifeTurn = structuredClone(blocked.entityTurn.data);
 
-  const assessment = assessCausalTurn(blocked as any);
+  const assessment = assessWorldActionTurn(blocked as any);
   assert.equal(assessment.status, 'not_exercised');
   assert.ok(assessment.decisionBinding);
   assert.ok(assessment.notExercised.includes('worldActionStarted'));
   assert.equal(assessment.binding, null);
 });
 
-test('a started world action fails causal verification when terminal delivery is not fresh', () => {
+test('a started world action fails verification when terminal delivery is not fresh', () => {
   const stale = fixture();
   stale.entityTurn.data.nextObservation.events[1].isNew = false;
   stale.lifeTurn = structuredClone(stale.entityTurn.data);
 
-  const assessment = assessCausalTurn(stale as any);
+  const assessment = assessWorldActionTurn(stale as any);
   assert.equal(assessment.status, 'failed');
   assert.ok(assessment.failed.includes('freshTerminalReobservation'));
   assert.equal(assessment.binding, null);
@@ -374,7 +374,7 @@ function fixture() {
   const definition = {
     protocol: 'behold.evaluation-episode.v1',
     suite: {
-      id: 'neutral-causal-turn',
+      id: 'neutral-world-action-turn',
       version: '1',
       caseId: 'first-action',
       specificationSha256: '2'.repeat(64),
