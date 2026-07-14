@@ -734,38 +734,41 @@ export class InhabitantExperience {
   private captureStateTransitions() {
     const inventory = inventoryState(this.bot);
     const inventoryChange = inventoryDelta(this.lastInventory, inventory);
+    this.lastInventory = inventory;
     if (inventoryChange.added.length || inventoryChange.removed.length) {
       this.record('inventory_changed', inventoryChange, 'normal', 'body');
-      this.lastInventory = inventory;
     }
 
     const phase = dayPhase(this.bot);
-    if (phase && this.lastDayPhase && phase !== this.lastDayPhase) {
+    const previousPhase = this.lastDayPhase;
+    this.lastDayPhase = phase;
+    if (phase && previousPhase && phase !== previousPhase) {
       this.record(
         'day_phase_changed',
-        { previous: this.lastDayPhase, current: phase },
+        { previous: previousPhase, current: phase },
         phase === 'dusk' || phase === 'night' ? 'high' : 'normal',
         'body',
       );
     }
-    this.lastDayPhase = phase;
 
     const weather = booleanOrNull((this.bot as any).isRaining);
-    if (weather != null && this.lastWeather != null && weather !== this.lastWeather) {
+    const previousWeather = this.lastWeather;
+    this.lastWeather = weather;
+    if (weather != null && previousWeather != null && weather !== previousWeather) {
       this.record('weather_changed', { raining: weather }, 'normal', 'body');
     }
-    this.lastWeather = weather;
 
     const dimension = stringOrNull((this.bot as any).game?.dimension);
-    if (dimension && this.lastDimension && dimension !== this.lastDimension) {
+    const previousDimension = this.lastDimension;
+    this.lastDimension = dimension;
+    if (dimension && previousDimension && dimension !== previousDimension) {
       this.record(
         'dimension_changed',
-        { previous: this.lastDimension, current: dimension },
+        { previous: previousDimension, current: dimension },
         'urgent',
         'body',
       );
     }
-    this.lastDimension = dimension;
 
     const now = this.now();
     if (this.task == null && now - this.lastPulseAt >= this.pulseIntervalMs) {

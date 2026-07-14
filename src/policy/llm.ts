@@ -807,7 +807,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     if (
       event.type === 'action_completed' &&
       continuingBodilyAttention &&
-      BODILY_RESPONSE_TOOLS.has(finished.intent.tool)
+      completedBodilyResponse(finished.intent.tool, event.data?.result)
     ) {
       // A new urgent event deserves one fast response. Once a bodily action
       // really executes, the critical condition remains visible and keeps
@@ -1055,6 +1055,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       loomContext: loomContext.state(),
     }),
   };
+}
+
+function completedBodilyResponse(tool: string, result: any) {
+  if (!BODILY_RESPONSE_TOOLS.has(tool) || result?.ok !== true) return false;
+  if (result?.bodyMoved === false) return false;
+  if (result?.status === 'already_within_requested_range') return false;
+  return true;
 }
 
 export function controllerSystemPrompt(specs: readonly ToolSpec[]) {

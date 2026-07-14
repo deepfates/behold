@@ -485,6 +485,44 @@ test('ordinary world changes become attention events and instances stay isolated
   secondExperience.destroy();
 });
 
+test('state transitions update their checkpoint before synchronous attention re-observes', () => {
+  const bot = fakeBot();
+  bot.isRaining = false;
+  bot.game.dimension = 'minecraft:overworld';
+  let items: any[] = [];
+  bot.inventory = { items: () => items };
+  let experience!: InhabitantExperience;
+  const delivered: any[] = [];
+  experience = new InhabitantExperience(bot, {
+    onEvent: (event) => {
+      delivered.push(event);
+      experience.observe();
+    },
+  });
+  const initial = experience.observe();
+
+  items = [{ name: 'apple', count: 1 }];
+  bot.time.time = 12_500;
+  bot.isRaining = true;
+  bot.game.dimension = 'minecraft:the_nether';
+  const changed = experience.observe(initial.sequence);
+
+  for (const type of [
+    'inventory_changed',
+    'day_phase_changed',
+    'weather_changed',
+    'dimension_changed',
+  ]) {
+    assert.equal(
+      changed.events.filter((event) => event.type === type).length,
+      1,
+      `${type} must be recorded once under reentrant observation`,
+    );
+    assert.equal(delivered.filter((event) => event.type === type).length, 1);
+  }
+  experience.destroy();
+});
+
 test('an untasked life receives a bounded pulse when the world has otherwise been quiet', () => {
   let now = 1000;
   const bot = fakeBot();

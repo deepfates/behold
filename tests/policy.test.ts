@@ -369,7 +369,16 @@ test('critical body condition keeps urgency through failure then deliberates aft
         return {
           protocol: 'behold.mind-decision.v1',
           disposition: 'act',
-          utterance: 'That failed and my body is still critical, so I will eat.',
+          utterance: 'I will try to reach the nearby shelter side.',
+          action: { name: 'move_to', input: {} },
+          call: modelCallEvidence('continuing-body-mind', request.model),
+        };
+      }
+      if (requests.length === 3) {
+        return {
+          protocol: 'behold.mind-decision.v1',
+          disposition: 'act',
+          utterance: 'That did not move me and my body is still critical, so I will eat.',
           action: { name: 'consume', input: {} },
           call: modelCallEvidence('continuing-body-mind', request.model),
         };
@@ -432,7 +441,7 @@ test('critical body condition keeps urgency through failure then deliberates aft
   const policy = startLLMPolicy(
     {
       entityId: 'Scout',
-      actions: [tool('manage_project'), tool('move_direction'), tool('consume')],
+      actions: [tool('manage_project'), tool('move_direction'), tool('move_to'), tool('consume')],
       attempt: (intent) => {
         attempted.push(intent);
         currentAction = { id: intent.id, tool: intent.tool, status: 'queued' };
@@ -506,40 +515,61 @@ test('critical body condition keeps urgency through failure then deliberates aft
     await policy.onEngineEvent({
       type: 'action_completed',
       at: 30,
-      data: { intent: attempted[1], result: { ok: true, inventoryRemoved: 1 } },
+      data: {
+        intent: attempted[1],
+        result: {
+          ok: true,
+          status: 'already_within_requested_range',
+          bodyMoved: false,
+          bodyDisplacement: 0,
+        },
+      },
     });
-    await until(() => requests.length === 3);
+    await until(() => requests.length === 3 && attempted.length === 3);
+    assert.equal(requests[2].model, 'test/urgent-model');
+    assert.equal(requests[2].attention?.continuingCondition, 'critical_body_condition');
+    assert.equal(attempted[2].tool, 'consume');
+    assert.equal(foldCalls, 0, 'a no-op movement must not release body urgency');
+
+    sequence = 4;
+    currentAction = { ...currentAction, status: 'completed' };
+    await policy.onEngineEvent({
+      type: 'action_completed',
+      at: 40,
+      data: { intent: attempted[2], result: { ok: true, inventoryRemoved: 1 } },
+    });
+    await until(() => requests.length === 4);
     assert.equal(
       foldCalls,
       0,
       'memory maintenance remains deferred while the body is still critical',
     );
-    assert.equal(requests[2].model, 'test/ordinary-model');
-    assert.equal(requests[2].attention?.mode, 'deliberative');
-    assert.equal(requests[2].attention?.context, 'current_body_and_continuity');
-    assert.equal(requests[2].attention?.continuingCondition, 'critical_body_condition');
-    assert.ok(requests[2].conversation.length <= 5);
+    assert.equal(requests[3].model, 'test/ordinary-model');
+    assert.equal(requests[3].attention?.mode, 'deliberative');
+    assert.equal(requests[3].attention?.context, 'current_body_and_continuity');
+    assert.equal(requests[3].attention?.continuingCondition, 'critical_body_condition');
+    assert.ok(requests[3].conversation.length <= 5);
     assert.match(
-      requests[2].conversation.map((message: any) => String(message.content || '')).join('\n'),
+      requests[3].conversation.map((message: any) => String(message.content || '')).join('\n'),
       /Ongoing critical body pressure[\s\S]*recovery may be deliberate/i,
     );
     assert.equal(
-      requests[2].actions.some((action) => action.name === 'manage_project'),
+      requests[3].actions.some((action) => action.name === 'manage_project'),
       false,
     );
     await until(() => policy.state().turnActive === false);
 
-    sequence = 4;
+    sequence = 5;
     health = 8;
     await policy.tick();
-    await until(() => requests.length === 4);
+    await until(() => requests.length === 5);
     assert.ok(foldCalls >= 1, 'deferred maintenance resumes after the critical condition clears');
-    assert.equal(requests[3].model, 'test/ordinary-model');
-    assert.equal(requests[3].attention?.mode, 'deliberative');
-    assert.equal(requests[3].attention?.context, 'bounded_loom');
-    assert.equal(requests[3].attention?.continuingCondition, undefined);
+    assert.equal(requests[4].model, 'test/ordinary-model');
+    assert.equal(requests[4].attention?.mode, 'deliberative');
+    assert.equal(requests[4].attention?.context, 'bounded_loom');
+    assert.equal(requests[4].attention?.continuingCondition, undefined);
     assert.equal(
-      requests[3].actions.some((action) => action.name === 'manage_project'),
+      requests[4].actions.some((action) => action.name === 'manage_project'),
       true,
     );
   } finally {
