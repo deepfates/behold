@@ -22,6 +22,7 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   const allActions = interpreter.list().map((spec) => spec.name);
 
   assert.ok(inhabitantActions.includes('move_to'));
+  assert.ok(inhabitantActions.includes('look_direction'));
   assert.ok(inhabitantActions.includes('descend_step'));
   assert.ok(inhabitantActions.includes('ascend_step'));
   assert.ok(inhabitantActions.includes('block_at_cursor'));
@@ -41,6 +42,7 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   assert.deepEqual(pickup?.parameters.required, ['target']);
   assert.deepEqual(Object.keys(pickup?.parameters.properties || {}), ['target']);
   assert.equal(inhabitantActions.includes('set_control'), false);
+  assert.equal(inhabitantActions.includes('look'), false);
   assert.equal(inhabitantActions.includes('clear_controls'), false);
   assert.equal(inhabitantActions.includes('survey_area'), false);
   assert.equal(inhabitantActions.includes('find_blocks'), false);
@@ -52,12 +54,109 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   assert.equal(inhabitantActions.includes('teach_player'), false);
   assert.equal(inhabitantActions.includes('build_home'), false);
   assert.ok(allActions.includes('set_control'));
+  assert.ok(allActions.includes('look'));
   assert.ok(allActions.includes('survey_area'));
   assert.ok(allActions.includes('find_blocks'));
   assert.ok(allActions.includes('inspect_volume'));
   assert.ok(allActions.includes('inspect_reachable_space'));
   assert.ok(allActions.includes('nearest_entity'));
   assert.ok(allActions.includes('get_nearby'));
+});
+
+test('look_direction exposes bounded relative player orientation without raw angles', async () => {
+  const bot = baseBot();
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  const calls: Array<{ yaw: number; pitch: number; force: boolean }> = [];
+  bot.look = async (yaw: number, pitch: number, force: boolean) => {
+    calls.push({ yaw, pitch, force });
+    bot.entity.yaw = yaw;
+    bot.entity.pitch = pitch;
+  };
+  const interpreter = buildInterpreter(bot);
+  const spec = interpreter.describe('look_direction');
+
+  assert.deepEqual(spec?.parameters.required, ['direction']);
+  assert.deepEqual(spec?.parameters.properties.direction.enum, [
+    'left',
+    'right',
+    'around',
+    'up',
+    'down',
+    'level',
+  ]);
+
+  const left = await interpreter.run('look_direction', { direction: 'left' });
+  assert.equal(left.ok, true);
+  assert.deepEqual(left.from, {
+    facing: 'north',
+    vertical: 'level',
+    yawDegrees: 0,
+    pitchDegrees: 0,
+  });
+  assert.deepEqual(left.orientation, {
+    facing: 'west',
+    vertical: 'level',
+    yawDegrees: 90,
+    pitchDegrees: 0,
+  });
+
+  await interpreter.run('look_direction', { direction: 'around' });
+  const up = await interpreter.run('look_direction', { direction: 'up' });
+  assert.equal(up.ok, true);
+  assert.equal(up.orientation.vertical, 'up');
+  assert.equal(up.orientation.pitchDegrees, 30);
+  const level = await interpreter.run('look_direction', { direction: 'level' });
+  assert.equal(level.orientation.vertical, 'level');
+  assert.equal(level.orientation.pitchDegrees, 0);
+  bot.entity.pitch = (80 * Math.PI) / 180;
+  const bounded = await interpreter.run('look_direction', { direction: 'up' });
+  assert.equal(bounded.ok, true);
+  assert.ok(bounded.orientation.pitchDegrees < 90);
+  assert.ok(calls.every((call) => call.force === false));
+});
+
+test('look_direction fails closed when orientation is unavailable or unconfirmed', async () => {
+  const unavailable = baseBot();
+  unavailable.entity.yaw = null;
+  unavailable.entity.pitch = 0;
+  unavailable.look = async () => {};
+  assert.deepEqual(
+    await buildInterpreter(unavailable).run('look_direction', { direction: 'left' }),
+    {
+      ok: false,
+      error: 'body_orientation_unavailable',
+    },
+  );
+
+  const unchanged = baseBot();
+  unchanged.entity.yaw = 0;
+  unchanged.entity.pitch = 0;
+  unchanged.look = async () => {};
+  const unconfirmed = await buildInterpreter(unchanged).run('look_direction', {
+    direction: 'right',
+  });
+  assert.equal(unconfirmed.ok, false);
+  assert.equal(unconfirmed.error, 'body_orientation_unconfirmed');
+  assert.deepEqual(
+    await buildInterpreter(unchanged).run('look_direction', { direction: 'sideways' }),
+    { ok: false, error: 'unknown_look_direction', direction: 'sideways' },
+  );
+
+  let called = false;
+  unchanged.look = async () => {
+    called = true;
+  };
+  const abort = new AbortController();
+  abort.abort();
+  const cancelled = await buildInterpreter(unchanged).run(
+    'look_direction',
+    { direction: 'left' },
+    { signal: abort.signal },
+  );
+  assert.equal(cancelled.ok, false);
+  assert.equal(cancelled.error, 'interrupted_by_human');
+  assert.equal(called, false);
 });
 
 test('find_blocks returns actionable local positions without claiming visibility', async () => {

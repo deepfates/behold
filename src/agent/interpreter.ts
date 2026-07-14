@@ -173,6 +173,78 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   });
 
   add({
+    name: 'look_direction',
+    description:
+      'Turn your first-person view relative to where you are already facing. Use left, right, or around to reveal terrain outside the current camera view; use up, down, or level to change vertical attention. This changes only your view, never your position or the world.',
+    parameters: {
+      type: 'object',
+      properties: {
+        direction: {
+          type: 'string',
+          enum: ['left', 'right', 'around', 'up', 'down', 'level'],
+        },
+      },
+      required: ['direction'],
+    },
+    run: async ({ direction }) => {
+      const body = (bot as any).entity;
+      const yaw = body?.yaw == null ? null : finiteNumber(body.yaw);
+      const pitch = body?.pitch == null ? null : finiteNumber(body.pitch);
+      if (yaw == null || pitch == null || typeof (bot as any).look !== 'function') {
+        return { ok: false, error: 'body_orientation_unavailable' };
+      }
+      const requested = String(direction || '');
+      if (!['left', 'right', 'around', 'up', 'down', 'level'].includes(requested)) {
+        return { ok: false, error: 'unknown_look_direction', direction: requested };
+      }
+      const horizontalTurns: Record<string, number> = {
+        left: Math.PI / 2,
+        right: -Math.PI / 2,
+        around: Math.PI,
+      };
+      const verticalTurns: Record<string, number> = {
+        up: Math.PI / 6,
+        down: -Math.PI / 6,
+      };
+      const targetYaw = normalizeYaw(yaw + (horizontalTurns[requested] ?? 0));
+      const targetPitch =
+        requested === 'level'
+          ? 0
+          : clamp(
+              pitch + (verticalTurns[requested] ?? 0),
+              -Math.PI / 2 + 0.001,
+              Math.PI / 2 - 0.001,
+            );
+      await (bot as any).look(targetYaw, targetPitch, false);
+      const finalYaw = finiteNumber(body?.yaw);
+      const finalPitch = finiteNumber(body?.pitch);
+      if (
+        finalYaw == null ||
+        finalPitch == null ||
+        Math.abs(normalizeYaw(finalYaw - targetYaw)) > 0.02 ||
+        Math.abs(finalPitch - targetPitch) > 0.02
+      ) {
+        return {
+          ok: false,
+          error: 'body_orientation_unconfirmed',
+          direction: requested,
+          requested: orientationRecord(targetYaw, targetPitch),
+          observed:
+            finalYaw == null || finalPitch == null ? null : orientationRecord(finalYaw, finalPitch),
+        };
+      }
+      return {
+        ok: true,
+        direction: requested,
+        from: orientationRecord(yaw, pitch),
+        orientation: orientationRecord(finalYaw, finalPitch),
+        confirmation: 'mineflayer:body_orientation',
+      };
+    },
+    category: 'view',
+  });
+
+  add({
     name: 'look',
     description: 'Set yaw/pitch directly (radians)',
     parameters: {
@@ -4649,6 +4721,26 @@ function navigationError(error: any) {
   if (value.includes('changed')) return 'goal_changed';
   if (value.includes('timeout') || value.includes('too long')) return 'navigation_timeout';
   return String(error?.message || error || 'navigation_failed');
+}
+
+function normalizeYaw(value: number) {
+  let angle = value;
+  while (angle <= -Math.PI) angle += Math.PI * 2;
+  while (angle > Math.PI) angle -= Math.PI * 2;
+  return angle;
+}
+
+function orientationRecord(yaw: number, pitch: number) {
+  const x = -Math.sin(yaw) * Math.cos(pitch);
+  const z = -Math.cos(yaw) * Math.cos(pitch);
+  const facing = Math.abs(x) > Math.abs(z) ? (x > 0 ? 'east' : 'west') : z > 0 ? 'south' : 'north';
+  const vertical = pitch > Math.PI / 12 ? 'up' : pitch < -Math.PI / 12 ? 'down' : 'level';
+  return {
+    facing,
+    vertical,
+    yawDegrees: round((normalizeYaw(yaw) * 180) / Math.PI),
+    pitchDegrees: round((pitch * 180) / Math.PI),
+  };
 }
 
 function clamp(value: number, min: number, max: number) {

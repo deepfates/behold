@@ -981,6 +981,11 @@ function controllerSystemPrompt(specs: readonly ToolSpec[]) {
       'Prefer approach_entity for a particular nearby person from scene.entities. Choose the exact scene id; the body owns pursuit and conversational distance, and navigation succeeds only when current proximity is confirmed.',
     );
   }
+  if (tools.has('look_direction')) {
+    lines.push(
+      'Your first-person scene contains only the direction you currently face. Use look_direction to reveal unseen directions while orienting or seeking an entrance. Before breaking intact built fabric merely to navigate, look around for an ordinary route unless immediate danger makes that unreasonable.',
+    );
+  }
   if (hasAny('find_blocks', 'dig_block')) {
     lines.push(
       'Nearby terrain samples and find_blocks identify loaded local blocks but do not prove visual line of sight. Move and look when that distinction matters.',
