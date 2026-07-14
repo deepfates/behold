@@ -18,6 +18,8 @@ import {
   createComeSeeDoReportTask,
 } from '../tasks/come-see-do-report';
 
+const INITIAL_WORLD_SYNC_SETTLE_MS = 4_000;
+
 export type ConsoleOptions = {
   agentName?: string;
   model?: string;
@@ -275,10 +277,11 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     show();
     void (bot as any)
       .waitForChunksToLoad()
+      .then(() => waitForInitialWorldSync(bot as any, INITIAL_WORLD_SYNC_SETTLE_MS))
       .then(() => {
         if (shutdownStarted) return;
         localWorldReady = true;
-        experience.markLocalWorldReady();
+        experience.markLocalWorldReady(INITIAL_WORLD_SYNC_SETTLE_MS);
         appendJournal('local_world_ready', experience.observe());
         startPolicyIfReady();
         show();
@@ -516,6 +519,22 @@ function residentMindAdapter(value: string | undefined): 'direct' | 'ax' {
     .toLowerCase();
   if (normalized === 'direct' || normalized === 'ax') return normalized;
   throw new Error(`Unsupported BEHOLD_MIND ${JSON.stringify(value)}; expected direct or ax`);
+}
+
+function waitForInitialWorldSync(bot: any, milliseconds: number) {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      bot.removeListener?.('end', finish);
+      resolve();
+    };
+    timer = setTimeout(finish, Math.max(0, milliseconds));
+    bot.once?.('end', finish);
+  });
 }
 
 function openAICompatibleBaseURL(value: string | undefined) {

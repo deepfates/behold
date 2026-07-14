@@ -180,7 +180,7 @@ test('entity appearances distinguish initial world synchronization from live eve
     .events.find((event) => event.type === 'entity_appeared_nearby');
   assert.equal(initialAppearance?.data.observationPhase, 'initial_world_sync');
 
-  experience.markLocalWorldReady();
+  experience.markLocalWorldReady(4000);
   const liveEntity = {
     id: 3,
     name: 'item',
@@ -195,6 +195,7 @@ test('entity appearances distinguish initial world synchronization from live eve
     .filter((event) => event.type === 'entity_appeared_nearby')
     .at(-1);
   assert.equal(ready?.data.initialSceneSynchronized, true);
+  assert.equal(ready?.data.settleMs, 4000);
   assert.equal(liveAppearance?.data.observationPhase, 'live_world');
 
   experience.destroy();

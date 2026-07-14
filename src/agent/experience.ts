@@ -214,10 +214,15 @@ export class InhabitantExperience {
     this.record('task_updated', { task }, 'high', 'event');
   }
 
-  markLocalWorldReady() {
+  markLocalWorldReady(settleMs = 0) {
     if (this.localWorldReady) return;
     this.localWorldReady = true;
-    this.record('local_world_ready', { initialSceneSynchronized: true }, 'high', 'body');
+    this.record(
+      'local_world_ready',
+      { initialSceneSynchronized: true, settleMs: Math.max(0, Number(settleMs) || 0) },
+      'high',
+      'body',
+    );
   }
 
   record(
