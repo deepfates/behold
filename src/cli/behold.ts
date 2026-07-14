@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import 'dotenv/config';
 import { parseArgs } from 'node:util';
 import { runConsole } from '../tui/console';
 import { completeSuccessfulCliExit } from './process-lifecycle';

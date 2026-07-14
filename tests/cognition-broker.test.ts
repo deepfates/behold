@@ -11,6 +11,7 @@ import {
 } from '../src/mind/cognition-broker';
 import {
   cognitionClientHeaders,
+  cognitionResidentKey,
   parseCognitionAdmission,
   type CognitionPriority,
 } from '../src/mind/cognition';
@@ -25,6 +26,7 @@ test('the loopback cognition gate preserves request bytes and enforces aggregate
   const releases: Array<() => void> = [];
   const broker = await startCognitionBroker({
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
     clients: [client('a'), client('b')],
     maxConcurrent: 1,
@@ -85,6 +87,7 @@ test('urgent cognition jumps the ordinary queue without starving it', async () =
   const releases: Array<() => void> = [];
   const broker = await startCognitionBroker({
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
     clients: ['blocker', 'ordinary', 'urgent-1', 'urgent-2', 'urgent-3'].map(client),
     maxConcurrent: 1,
@@ -152,11 +155,63 @@ test('urgent cognition jumps the ordinary queue without starving it', async () =
   }
 });
 
+test('the global queue cap holds even when a resident is ineligible for a free slot', async () => {
+  const releases: Array<() => void> = [];
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [client('a'), client('b')],
+    maxConcurrent: 2,
+    maxQueued: 1,
+    maxQueuedPerResident: 2,
+    fetch: async () => {
+      await new Promise<void>((resolve) => releases.push(resolve));
+      return jsonResponse({});
+    },
+  });
+
+  try {
+    const active = brokerRequest(
+      broker,
+      'a',
+      requestBody('fixture/model', 'active'),
+      'deliberative',
+      'active',
+    );
+    await waitFor(() => broker.snapshot().active === 1);
+    const queued = brokerRequest(
+      broker,
+      'a',
+      requestBody('fixture/model', 'queued'),
+      'deliberative',
+      'queued',
+    );
+    await waitFor(() => broker.snapshot().queued === 1);
+    const rejected = await brokerRequest(
+      broker,
+      'a',
+      requestBody('fixture/model', 'overflow'),
+      'deliberative',
+      'overflow',
+    );
+    assert.equal(rejected.status, 429);
+    releases.shift()!();
+    await active;
+    await waitFor(() => broker.snapshot().active === 1);
+    releases.shift()!();
+    await queued;
+  } finally {
+    await broker.close();
+  }
+});
+
 test('queued cancellation makes no upstream call and in-flight cancellation retains its slot', async () => {
   const events: CognitionBrokerEvent[] = [];
   const calls: string[] = [];
   const broker = await startCognitionBroker({
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
     clients: [client('a'), client('b'), client('c')],
     maxConcurrent: 1,
@@ -238,6 +293,7 @@ test('the transport gate rejects foreign credentials, model drift, and streaming
   let upstreamCalls = 0;
   const broker = await startCognitionBroker({
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
     clients: [client('a')],
     maxConcurrent: 1,
@@ -272,6 +328,14 @@ test('the transport gate rejects foreign credentials, model drift, and streaming
       'streaming',
     );
     assert.equal(streaming.status, 400);
+    const multipleChoices = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify({ model: 'fixture/model', messages: [], n: 2 }),
+      'deliberative',
+      'multiple-choices',
+    );
+    assert.equal(multipleChoices.status, 400);
     assert.equal(upstreamCalls, 0);
   } finally {
     await broker.close();
@@ -283,6 +347,7 @@ test('the transport gate bounds an upstream response while preserving terminal e
   let cancelled = false;
   const broker = await startCognitionBroker({
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
     clients: [client('a')],
     maxConcurrent: 1,
@@ -328,12 +393,151 @@ test('the transport gate bounds an upstream response while preserving terminal e
   }
 });
 
+test('an upstream deadline closes the admitted request and releases its slot', async () => {
+  const events: CognitionBrokerEvent[] = [];
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [client('a')],
+    maxConcurrent: 1,
+    maxCallMs: 10,
+    onEvent: (event) => events.push(event),
+    fetch: async (_input, init) =>
+      await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      }),
+  });
+
+  try {
+    const response = await brokerRequest(
+      broker,
+      'a',
+      requestBody('fixture/model', 'timeout'),
+      'deliberative',
+      'timeout',
+    );
+    assert.equal(response.status, 504);
+    assert.equal((await response.json()).error.code, 'upstream_timeout');
+    await waitFor(() => broker.snapshot().active === 0);
+    assert.equal(broker.snapshot().failed, 1);
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === 'completed' &&
+          event.request?.clientRequestId === 'timeout' &&
+          (event.data as any).error === 'upstream_timeout',
+      ),
+    );
+  } finally {
+    await broker.close();
+  }
+});
+
+test('an admission journal failure cannot strand an active slot or listening server', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-failure-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let upstreamCalls = 0;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [client('a')],
+    maxConcurrent: 1,
+    journalFile: path.join(root, 'broker.jsonl'),
+    fetch: async () => {
+      upstreamCalls += 1;
+      return jsonResponse({});
+    },
+  });
+  const originalFsync = fs.fsyncSync;
+  let fsyncs = 0;
+  (fs as any).fsyncSync = (descriptor: number) => {
+    fsyncs += 1;
+    if (fsyncs === 2) throw new Error('fixture fsync failure');
+    return originalFsync(descriptor);
+  };
+  try {
+    const response = await brokerRequest(
+      broker,
+      'a',
+      requestBody('fixture/model', 'journal-failure'),
+      'deliberative',
+      'journal-failure',
+    );
+    assert.equal(response.status, 500);
+    assert.match(await response.text(), /fixture fsync failure/);
+    assert.match((await broker.failed).message, /fixture fsync failure/);
+    assert.equal(upstreamCalls, 0);
+    assert.equal(broker.snapshot().active, 0);
+  } finally {
+    (fs as any).fsyncSync = originalFsync;
+  }
+  await assert.rejects(broker.close(), /fixture fsync failure/);
+  await assert.rejects(fetch(broker.endpoint), /fetch failed|ECONNREFUSED/);
+});
+
+test('a cancellation journal failure is contained and closes every live resource', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-cancel-failure-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [client('a'), client('b')],
+    maxConcurrent: 1,
+    journalFile: path.join(root, 'broker.jsonl'),
+    fetch: async (_input, init) =>
+      await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      }),
+  });
+  const activeAbort = new AbortController();
+  const queuedAbort = new AbortController();
+  const active = brokerRequest(
+    broker,
+    'a',
+    requestBody('fixture/model', 'active'),
+    'deliberative',
+    'active',
+    activeAbort.signal,
+  );
+  await waitFor(() => broker.snapshot().active === 1);
+  const queued = brokerRequest(
+    broker,
+    'b',
+    requestBody('fixture/model', 'queued'),
+    'deliberative',
+    'queued',
+    queuedAbort.signal,
+  );
+  await waitFor(() => broker.snapshot().queued === 1);
+
+  const originalFsync = fs.fsyncSync;
+  (fs as any).fsyncSync = () => {
+    throw new Error('cancel fsync failure');
+  };
+  try {
+    queuedAbort.abort();
+    await assert.rejects(queued, /abort/i);
+    assert.match((await broker.failed).message, /cancel fsync failure/);
+  } finally {
+    (fs as any).fsyncSync = originalFsync;
+  }
+  await Promise.allSettled([active]);
+  await assert.rejects(broker.close(), /cancel fsync failure/);
+  assert.equal(broker.snapshot().active, 0);
+  assert.equal(broker.snapshot().queued, 0);
+  await assert.rejects(fetch(broker.endpoint), /fetch failed|ECONNREFUSED/);
+});
+
 test('the cognition journal durably closes every admitted request and detects edits', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-journal-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const journalFile = path.join(root, 'cognition.jsonl');
   const broker = await startCognitionBroker({
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
     clients: [client('a')],
     maxConcurrent: 1,
@@ -371,7 +575,7 @@ test('the cognition journal durably closes every admitted request and detects ed
 function client(name: string) {
   return {
     bearer: token(name),
-    residentKey: `resident-${name}`,
+    residentKey: cognitionResidentKey('fixture-run', name),
     model: 'fixture/model',
   };
 }

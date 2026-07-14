@@ -85,8 +85,10 @@ export type CognitionBrokerOptions = Readonly<{
   maxQueuedPerResident?: number;
   maxBodyBytes?: number;
   maxResponseBytes?: number;
+  maxCallMs?: number;
   maxUrgentBurst?: number;
   maxNonAuxiliaryBurst?: number;
+  allowedUpstreamOrigins?: readonly string[];
   fetch?: typeof fetch;
   now?: () => number;
   journalFile?: string;
@@ -123,7 +125,10 @@ const PRIORITIES: readonly CognitionPriority[] = ['urgent', 'deliberative', 'aux
 export async function startCognitionBroker(
   options: CognitionBrokerOptions,
 ): Promise<CognitionBroker> {
-  const upstream = exactUpstreamEndpoint(options.upstreamEndpoint);
+  const upstream = exactUpstreamEndpoint(
+    options.upstreamEndpoint,
+    options.allowedUpstreamOrigins ?? ['https://openrouter.ai'],
+  );
   const upstreamApiKey = String(options.upstreamApiKey || '').trim();
   if (upstreamApiKey.length < 12) throw new Error('cognition broker requires an upstream API key');
   const clients = normalizeClients(options.clients);
@@ -144,6 +149,7 @@ export async function startCognitionBroker(
     'maxResponseBytes',
     128 * 1024 * 1024,
   );
+  const maxCallMs = positiveInteger(options.maxCallMs ?? 60_000, 'maxCallMs', 10 * 60_000);
   const maxUrgentBurst = positiveInteger(options.maxUrgentBurst ?? 4, 'maxUrgentBurst', 1_024);
   const maxNonAuxiliaryBurst = positiveInteger(
     options.maxNonAuxiliaryBurst ?? 8,
@@ -161,9 +167,24 @@ export async function startCognitionBroker(
   const failed = new Promise<Error>((resolve) => {
     resolveFailure = resolve;
   });
+  const recordFatalFailure = (error: unknown) => {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    if (!journalFailure) {
+      journalFailure = failure;
+      closing = true;
+      resolveFailure(failure);
+    }
+    return failure;
+  };
   if (journalFile) {
-    fs.mkdirSync(path.dirname(journalFile), { recursive: true });
-    journalDescriptor = fs.openSync(journalFile, 'wx', 0o600);
+    ensureDurableDirectory(path.dirname(journalFile));
+    try {
+      journalDescriptor = fs.openSync(journalFile, 'wx', 0o600);
+      fsyncDirectory(path.dirname(journalFile));
+    } catch (error) {
+      if (journalDescriptor != null) fs.closeSync(journalDescriptor);
+      throw error;
+    }
   }
   const queues = new Map<CognitionPriority, Job[]>(PRIORITIES.map((priority) => [priority, []]));
   const activeJobs = new Set<Job>();
@@ -174,6 +195,13 @@ export async function startCognitionBroker(
   let nonAuxiliaryBurst = 0;
   let closing = false;
   let closePromise: Promise<CognitionBrokerSnapshot> | null = null;
+  let requestClose: (() => Promise<CognitionBrokerSnapshot>) | null = null;
+  const containAsyncFailure = (error: unknown) => {
+    recordFatalFailure(error);
+    queueMicrotask(() => {
+      void requestClose?.().catch(() => undefined);
+    });
+  };
   const drainWaiters = new Set<() => void>();
   const metrics = {
     peakActive: 0,
@@ -221,10 +249,7 @@ export async function startCognitionBroker(
         fs.fsyncSync(journalDescriptor);
         journalTipDigest = event.digest;
       } catch (error: any) {
-        journalFailure = error instanceof Error ? error : new Error(String(error));
-        closing = true;
-        resolveFailure(journalFailure);
-        throw journalFailure;
+        throw recordFatalFailure(error);
       }
     }
     try {
@@ -294,7 +319,7 @@ export async function startCognitionBroker(
       const status = error?.code === 'body_too_large' ? 413 : 400;
       return reject(response, status, error?.code || 'request_body_invalid', error?.message);
     }
-    if (active >= maxConcurrent && queuedCount() >= maxQueued) {
+    if (queuedCount() >= maxQueued) {
       return reject(response, 429, 'queue_capacity_exhausted', 'cognition queue is full');
     }
     if (residentQueuedCount(client.residentKey) >= maxQueuedPerResident) {
@@ -326,8 +351,20 @@ export async function startCognitionBroker(
     metrics.accepted += 1;
     queues.get(priority)!.push(job);
     metrics.peakQueued = Math.max(metrics.peakQueued, queuedCount());
-    emit('accepted', job, { active, queued: queuedCount() });
-    const cancel = () => cancelJob(job, 'client_disconnected');
+    try {
+      emit('accepted', job, { active, queued: queuedCount() });
+    } catch (error) {
+      job.state = 'cancelled';
+      metrics.cancelled += 1;
+      throw error;
+    }
+    const cancel = () => {
+      try {
+        cancelJob(job, 'client_disconnected');
+      } catch (error) {
+        containAsyncFailure(error);
+      }
+    };
     request.once('aborted', cancel);
     response.once('close', () => {
       if (!response.writableEnded) cancel();
@@ -356,13 +393,16 @@ export async function startCognitionBroker(
       });
     } else {
       job.state = 'cancelling';
-      emit('cancel_requested', job, {
-        reason,
-        admitted: true,
-        queueMs: job.admission?.queueMs ?? 0,
-        activeBeforeRelease: active,
-      });
-      job.upstreamAbort?.abort(new Error(reason));
+      try {
+        emit('cancel_requested', job, {
+          reason,
+          admitted: true,
+          queueMs: job.admission?.queueMs ?? 0,
+          activeBeforeRelease: active,
+        });
+      } finally {
+        job.upstreamAbort?.abort(new Error(reason));
+      }
     }
     pump();
   }
@@ -379,6 +419,9 @@ export async function startCognitionBroker(
         brokerId,
         brokerRequestId: job.brokerRequestId,
         clientRequestId: job.clientRequestId,
+        residentKey: job.client.residentKey,
+        model: job.client.model,
+        bodySha256: job.bodySha256,
         priority: job.priority,
         purpose: job.purpose,
         urgentTriggerSequence: job.urgentTriggerSequence,
@@ -399,14 +442,33 @@ export async function startCognitionBroker(
       metrics.admitted += 1;
       metrics.totalQueueMs += admission.queueMs;
       metrics.peakActive = Math.max(metrics.peakActive, active);
-      emit('admitted', job, admission);
-      void execute(job).finally(() => {
+      try {
+        emit('admitted', job, admission);
+      } catch (error) {
+        job.state = 'cancelled';
+        metrics.cancelled += 1;
+        job.upstreamAbort.abort(error);
         active = Math.max(0, active - 1);
         activeJobs.delete(job);
         activeResidents.delete(job.client.residentKey);
-        if (!closing) pump();
-        else notifyDrained();
-      });
+        notifyDrained();
+        throw error;
+      }
+      void execute(job)
+        .catch((error) => {
+          recordFatalFailure(error);
+          if (!job.response.destroyed && !job.response.headersSent) {
+            writeError(job.response, 500, 'broker_internal_error', 'cognition broker failed');
+          }
+        })
+        .finally(() => {
+          active = Math.max(0, active - 1);
+          activeJobs.delete(job);
+          activeResidents.delete(job.client.residentKey);
+          if (!closing) pump();
+          else notifyDrained();
+        })
+        .catch(containAsyncFailure);
     }
   }
 
@@ -460,6 +522,10 @@ export async function startCognitionBroker(
 
   async function execute(job: Job) {
     const admissionHeaders = cognitionAdmissionHeaders(job.admission!);
+    const timeout = setTimeout(() => {
+      job.upstreamAbort?.abort(codedError('upstream_timeout', 'model upstream timed out'));
+    }, maxCallMs);
+    timeout.unref?.();
     try {
       const upstreamResponse = await callFetch(upstream, {
         method: 'POST',
@@ -467,6 +533,7 @@ export async function startCognitionBroker(
           'content-type': 'application/json',
           authorization: `Bearer ${upstreamApiKey}`,
         },
+        // Admission rejects non-canonical UTF-8, so this is byte-preserving.
         body: job.body.toString('utf8'),
         signal: job.upstreamAbort!.signal,
       });
@@ -494,7 +561,12 @@ export async function startCognitionBroker(
       job.response.end(responseBody);
     } catch (error: any) {
       if (job.state === 'cancelling' || job.upstreamAbort?.signal.aborted) {
-        recordInflightCancellation(job, 'upstream_abort_settled');
+        const timeout = (job.upstreamAbort?.signal.reason as any)?.code === 'upstream_timeout';
+        if (timeout && job.state !== 'cancelling') {
+          recordTimeout(job);
+        } else {
+          recordInflightCancellation(job, timeout ? 'upstream_timeout' : 'upstream_abort_settled');
+        }
         return;
       }
       if (job.state === 'cancelled') return;
@@ -522,6 +594,8 @@ export async function startCognitionBroker(
           admissionHeaders,
         );
       }
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -536,6 +610,30 @@ export async function startCognitionBroker(
         queueMs: job.admission?.queueMs ?? 0,
         activeBeforeRelease: active,
       });
+    }
+  }
+
+  function recordTimeout(job: Job) {
+    if (job.state === 'completed' || job.state === 'cancelled') return;
+    job.state = 'completed';
+    metrics.failed += 1;
+    if (!journalFailure) {
+      emit('completed', job, {
+        status: null,
+        ok: false,
+        error: 'upstream_timeout',
+        queueMs: job.admission?.queueMs ?? 0,
+        activeBeforeRelease: active,
+      });
+    }
+    if (!job.response.destroyed) {
+      writeError(
+        job.response,
+        504,
+        'upstream_timeout',
+        'model upstream timed out',
+        cognitionAdmissionHeaders(job.admission!),
+      );
     }
   }
 
@@ -585,50 +683,91 @@ export async function startCognitionBroker(
     if (journalDescriptor != null) fs.closeSync(journalDescriptor);
     throw error;
   }
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('cognition broker has no TCP port');
-  const endpoint = `http://127.0.0.1:${address.port}/v1/chat/completions`;
+  let endpoint: string;
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('cognition broker has no TCP port');
+    }
+    endpoint = `http://127.0.0.1:${address.port}/v1/chat/completions`;
+    emit('started', null, { endpoint, concurrencyLimit: maxConcurrent, maxCallMs });
+  } catch (error) {
+    await closeListeningServer();
+    closeJournal();
+    throw error;
+  }
   server.on('error', (error) => {
     if (closing) return;
-    closing = true;
-    resolveFailure(error);
+    containAsyncFailure(error);
   });
-  emit('started', null, { endpoint, concurrencyLimit: maxConcurrent });
 
   const close = () => {
     if (closePromise) return closePromise;
     closePromise = (async () => {
       closing = true;
-      if (!journalFailure) emit('draining', null, snapshot());
-      for (const queue of queues.values()) {
-        for (const job of queue) {
-          if (job.state !== 'queued') continue;
-          job.state = 'cancelled';
-          metrics.cancelled += 1;
-          if (!job.response.destroyed) {
-            writeError(job.response, 503, 'broker_closing', 'cognition broker is closing');
+      let closeFailure: Error | null = journalFailure;
+      const rememberFailure = (error: unknown) => {
+        closeFailure ??= error instanceof Error ? error : new Error(String(error));
+      };
+      try {
+        if (!journalFailure) {
+          try {
+            emit('draining', null, snapshot());
+          } catch (error) {
+            rememberFailure(error);
           }
-          if (!journalFailure)
-            emit('cancelled', job, { reason: 'broker_closing', admitted: false });
+        }
+        for (const queue of queues.values()) {
+          for (const job of queue) {
+            if (job.state !== 'queued') continue;
+            job.state = 'cancelled';
+            metrics.cancelled += 1;
+            if (!job.response.destroyed) {
+              writeError(job.response, 503, 'broker_closing', 'cognition broker is closing');
+            }
+            if (!journalFailure) {
+              try {
+                emit('cancelled', job, { reason: 'broker_closing', admitted: false });
+              } catch (error) {
+                rememberFailure(error);
+              }
+            }
+          }
+        }
+        for (const job of activeJobs) {
+          try {
+            cancelJob(job, 'broker_closing');
+          } catch (error) {
+            rememberFailure(error);
+          }
+        }
+        await waitUntilDrained();
+        if (!journalFailure) {
+          try {
+            emit('drained', null, snapshot());
+          } catch (error) {
+            rememberFailure(error);
+          }
+        }
+      } finally {
+        try {
+          closeJournal();
+        } catch (error) {
+          rememberFailure(error);
+        }
+        try {
+          await closeListeningServer();
+        } catch (error) {
+          rememberFailure(error);
         }
       }
-      for (const job of activeJobs) cancelJob(job, 'broker_closing');
-      await waitUntilDrained();
-      if (!journalFailure) emit('drained', null, snapshot());
-      if (journalDescriptor != null) {
-        fs.closeSync(journalDescriptor);
-        journalDescriptor = null;
-      }
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeIdleConnections();
-        server.closeAllConnections();
-      });
       if (journalFailure) throw journalFailure;
+      if (closeFailure) throw closeFailure;
       return snapshot();
     })();
     return closePromise;
   };
+  requestClose = close;
 
   return Object.freeze({
     protocol: COGNITION_TRANSPORT_PROTOCOL,
@@ -650,6 +789,27 @@ export async function startCognitionBroker(
     for (const resolve of drainWaiters) resolve();
     drainWaiters.clear();
   }
+
+  function closeJournal() {
+    if (journalDescriptor == null) return;
+    try {
+      fs.closeSync(journalDescriptor);
+    } finally {
+      journalDescriptor = null;
+    }
+  }
+
+  function closeListeningServer() {
+    return new Promise<void>((resolve) => {
+      if (!server.listening) {
+        resolve();
+        return;
+      }
+      server.close(() => resolve());
+      server.closeIdleConnections();
+      server.closeAllConnections();
+    });
+  }
 }
 
 function normalizeClients(values: CognitionBrokerOptions['clients']): readonly Client[] {
@@ -666,8 +826,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       if (
         bearer.length < 32 ||
         bearer.length > 512 ||
-        !residentKey ||
-        residentKey.length > 200 ||
+        !/^[a-f0-9]{64}$/.test(residentKey) ||
         !model ||
         model.length > 300
       ) {
@@ -698,21 +857,50 @@ function acceptedPath(value: string | undefined) {
   return value === '/v1/chat/completions' || value === '/chat/completions';
 }
 
-function exactUpstreamEndpoint(value: string) {
+function exactUpstreamEndpoint(value: string, allowedOrigins: readonly string[]) {
   const url = new URL(String(value || ''));
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) {
+  const normalizedOrigins = new Set(
+    allowedOrigins.map((origin) => {
+      const parsed = new URL(origin);
+      if (
+        parsed.username ||
+        parsed.password ||
+        parsed.pathname !== '/' ||
+        parsed.search ||
+        parsed.hash
+      ) {
+        throw new Error(`invalid cognition upstream origin: ${origin}`);
+      }
+      return parsed.origin;
+    }),
+  );
+  if (
+    !normalizedOrigins.has(url.origin) ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    url.protocol !== 'https:'
+  ) {
     throw new Error('invalid cognition upstream endpoint');
   }
-  if (!acceptedPath(url.pathname) || url.search) {
+  if (!acceptedUpstreamPath(url.pathname) || url.search) {
     throw new Error('cognition upstream must be an exact chat-completions endpoint');
   }
   return url.toString();
 }
 
+function acceptedUpstreamPath(value: string) {
+  return acceptedPath(value) || value === '/api/v1/chat/completions';
+}
+
 function validateRequestBody(body: Buffer) {
+  const text = body.toString('utf8');
+  if (!Buffer.from(text, 'utf8').equals(body)) {
+    throw codedError('request_utf8_invalid', 'request body must be canonical UTF-8');
+  }
   let value: any;
   try {
-    value = JSON.parse(body.toString('utf8'));
+    value = JSON.parse(text);
   } catch {
     throw codedError('request_json_invalid', 'request body is not valid JSON');
   }
@@ -725,8 +913,22 @@ function validateRequestBody(body: Buffer) {
   if (!Array.isArray(value.messages)) {
     throw codedError('request_messages_invalid', 'request messages must be an array');
   }
-  if (value.stream === true) {
+  if (value.stream !== undefined && value.stream !== false) {
     throw codedError('request_streaming_unsupported', 'streaming requests are not admitted');
+  }
+  if (value.n !== undefined && value.n !== 1) {
+    throw codedError('request_choice_count_invalid', 'exactly one model choice is admitted');
+  }
+  for (const field of ['max_tokens', 'max_completion_tokens'] as const) {
+    if (
+      value[field] !== undefined &&
+      (!Number.isSafeInteger(value[field]) || value[field] < 1 || value[field] > 32_768)
+    ) {
+      throw codedError(
+        'request_output_budget_invalid',
+        `${field} must be a positive integer no greater than 32768`,
+      );
+    }
   }
   return value.model;
 }
@@ -834,6 +1036,41 @@ function sha256(value: Buffer) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function fsyncDirectory(directory: string) {
+  const descriptor = fs.openSync(directory, 'r');
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function ensureDurableDirectory(directoryValue: string) {
+  const directory = path.resolve(directoryValue);
+  const missing: string[] = [];
+  let cursor = directory;
+  while (!fs.existsSync(cursor)) {
+    missing.push(cursor);
+    const parent = path.dirname(cursor);
+    if (parent === cursor)
+      throw new Error(`cannot create cognition journal directory: ${directory}`);
+    cursor = parent;
+  }
+  const ancestor = fs.lstatSync(cursor);
+  if (!ancestor.isDirectory() || ancestor.isSymbolicLink()) {
+    throw new Error(`cognition journal ancestor is not a plain directory: ${cursor}`);
+  }
+  for (const next of missing.reverse()) {
+    fs.mkdirSync(next, { mode: 0o700 });
+    fsyncDirectory(next);
+    fsyncDirectory(path.dirname(next));
+  }
+  const stats = fs.lstatSync(directory);
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error(`cognition journal directory is not plain: ${directory}`);
+  }
+}
+
 export function verifyCognitionBrokerJournal(fileValue: string) {
   const file = path.resolve(fileValue);
   const stats = fs.lstatSync(file);
@@ -851,6 +1088,12 @@ export function verifyCognitionBrokerJournal(fileValue: string) {
   const accepted = new Set<string>();
   const admitted = new Set<string>();
   const terminal = new Set<string>();
+  const cancellationRequested = new Set<string>();
+  const requestMetadata = new Map<string, string>();
+  let draining = false;
+  let startedCount = 0;
+  let drainingCount = 0;
+  let drainedCount = 0;
   let active = 0;
   let peakActive = 0;
   for (const [index, line] of lines.entries()) {
@@ -875,20 +1118,68 @@ export function verifyCognitionBrokerJournal(fileValue: string) {
     if (!brokerId || event.brokerId !== brokerId) {
       throw new Error(`cognition broker identity changed at line ${index + 1}: ${file}`);
     }
+    if (
+      ![
+        'started',
+        'accepted',
+        'admitted',
+        'completed',
+        'cancel_requested',
+        'cancelled',
+        'rejected',
+        'draining',
+        'drained',
+      ].includes(event.type)
+    ) {
+      throw new Error(`unknown cognition broker event at line ${index + 1}: ${file}`);
+    }
     const requestId = event.request?.brokerRequestId ?? null;
-    if (event.type === 'accepted') {
-      if (!requestId || accepted.has(requestId)) {
+    if (requestId) {
+      const serialized = JSON.stringify(event.request);
+      const prior = requestMetadata.get(requestId);
+      if (prior != null && prior !== serialized) {
+        throw new Error(`cognition request identity changed at line ${index + 1}: ${file}`);
+      }
+      requestMetadata.set(requestId, serialized);
+    }
+    if (event.type === 'started') {
+      startedCount += 1;
+      if (index !== 0 || event.request != null) {
+        throw new Error(`invalid cognition broker start at line ${index + 1}: ${file}`);
+      }
+    } else if (event.type === 'draining') {
+      drainingCount += 1;
+      draining = true;
+      if (event.request != null) {
+        throw new Error(`invalid cognition drain at line ${index + 1}: ${file}`);
+      }
+    } else if (event.type === 'drained') {
+      drainedCount += 1;
+      if (!draining || event.request != null || index !== lines.length - 1) {
+        throw new Error(`invalid cognition drained event at line ${index + 1}: ${file}`);
+      }
+    } else if (event.type === 'accepted') {
+      if (draining || !requestId || accepted.has(requestId)) {
         throw new Error(`duplicate or absent accepted request at line ${index + 1}: ${file}`);
       }
       accepted.add(requestId);
     } else if (event.type === 'admitted') {
-      if (!requestId || !accepted.has(requestId) || admitted.has(requestId)) {
+      if (draining || !requestId || !accepted.has(requestId) || admitted.has(requestId)) {
         throw new Error(`invalid admitted request at line ${index + 1}: ${file}`);
       }
       admitted.add(requestId);
       active += 1;
       peakActive = Math.max(peakActive, active);
-    } else if (event.type === 'completed' || event.type === 'cancelled') {
+    } else if (event.type === 'completed') {
+      if (!requestId || !admitted.has(requestId) || terminal.has(requestId)) {
+        throw new Error(`invalid completed request at line ${index + 1}: ${file}`);
+      }
+      terminal.add(requestId);
+      active -= 1;
+      if (active < 0) {
+        throw new Error(`negative cognition concurrency at line ${index + 1}: ${file}`);
+      }
+    } else if (event.type === 'cancelled') {
       if (!requestId || !accepted.has(requestId) || terminal.has(requestId)) {
         throw new Error(`invalid terminal request at line ${index + 1}: ${file}`);
       }
@@ -898,14 +1189,28 @@ export function verifyCognitionBrokerJournal(fileValue: string) {
         throw new Error(`negative cognition concurrency at line ${index + 1}: ${file}`);
       }
     } else if (event.type === 'cancel_requested') {
-      if (!requestId || !admitted.has(requestId) || terminal.has(requestId)) {
+      if (
+        !requestId ||
+        !admitted.has(requestId) ||
+        terminal.has(requestId) ||
+        cancellationRequested.has(requestId)
+      ) {
         throw new Error(`invalid cancellation request at line ${index + 1}: ${file}`);
       }
+      cancellationRequested.add(requestId);
+    } else if (event.type === 'rejected' && event.request != null) {
+      throw new Error(`invalid rejected request at line ${index + 1}: ${file}`);
     }
     events.push(event);
     previousDigest = digest;
   }
-  if (events[0]?.type !== 'started' || events.at(-1)?.type !== 'drained') {
+  if (
+    startedCount !== 1 ||
+    drainingCount !== 1 ||
+    drainedCount !== 1 ||
+    events[0]?.type !== 'started' ||
+    events.at(-1)?.type !== 'drained'
+  ) {
     throw new Error(`cognition broker journal is not cleanly bounded: ${file}`);
   }
   if (active !== 0 || terminal.size !== accepted.size) {

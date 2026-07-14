@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export const COGNITION_TRANSPORT_PROTOCOL = 'behold.cognition-transport.v1' as const;
 export const COGNITION_ADMISSION_PROTOCOL = 'behold.cognition-admission.v1' as const;
 
@@ -9,6 +11,9 @@ export type CognitionAdmissionEvidence = Readonly<{
   brokerId: string;
   brokerRequestId: string;
   clientRequestId: string;
+  residentKey: string;
+  model: string;
+  bodySha256: string;
   priority: CognitionPriority;
   purpose: CognitionPurpose;
   urgentTriggerSequence: number | null;
@@ -29,6 +34,9 @@ const HEADERS = Object.freeze({
   urgentTrigger: 'x-behold-cognition-urgent-trigger',
   brokerId: 'x-behold-cognition-broker-id',
   brokerRequestId: 'x-behold-cognition-broker-request-id',
+  residentKey: 'x-behold-cognition-resident-key',
+  model: 'x-behold-cognition-model',
+  bodySha256: 'x-behold-cognition-body-sha256',
   queuedAt: 'x-behold-cognition-queued-at',
   admittedAt: 'x-behold-cognition-admitted-at',
   queueMs: 'x-behold-cognition-queue-ms',
@@ -59,6 +67,9 @@ export function cognitionAdmissionHeaders(evidence: CognitionAdmissionEvidence) 
     [HEADERS.protocol]: evidence.protocol,
     [HEADERS.brokerId]: evidence.brokerId,
     [HEADERS.brokerRequestId]: evidence.brokerRequestId,
+    [HEADERS.residentKey]: evidence.residentKey,
+    [HEADERS.model]: evidence.model,
+    [HEADERS.bodySha256]: evidence.bodySha256,
     [HEADERS.requestId]: evidence.clientRequestId,
     [HEADERS.priority]: evidence.priority,
     [HEADERS.purpose]: evidence.purpose,
@@ -84,6 +95,9 @@ export function parseCognitionAdmission(headers: Headers): CognitionAdmissionEvi
     brokerId: headers.get(HEADERS.brokerId) || '',
     brokerRequestId: headers.get(HEADERS.brokerRequestId) || '',
     clientRequestId: headers.get(HEADERS.requestId) || '',
+    residentKey: headers.get(HEADERS.residentKey) || '',
+    model: headers.get(HEADERS.model) || '',
+    bodySha256: headers.get(HEADERS.bodySha256) || '',
     priority,
     purpose,
     urgentTriggerSequence: optionalSequenceHeader(headers, HEADERS.urgentTrigger),
@@ -99,6 +113,9 @@ export function parseCognitionAdmission(headers: Headers): CognitionAdmissionEvi
     !evidence.brokerId ||
     !evidence.brokerRequestId ||
     !evidence.clientRequestId ||
+    !/^[a-f0-9]{64}$/.test(evidence.residentKey) ||
+    !evidence.model ||
+    !/^[a-f0-9]{64}$/.test(evidence.bodySha256) ||
     evidence.queueMs < 0 ||
     evidence.queueDepthOnArrival < 0 ||
     evidence.activeBeforeAdmission < 0 ||
@@ -110,6 +127,14 @@ export function parseCognitionAdmission(headers: Headers): CognitionAdmissionEvi
     return null;
   }
   return evidence;
+}
+
+export function cognitionResidentKey(runId: string, entityId: string) {
+  return sha256(`${runId}\0${entityId}`);
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 export function isCognitionTransportEnabled(value: unknown) {

@@ -3,6 +3,12 @@ import type { EntityTurn } from '../src/entity/loom';
 import type { WorldLifecycleEvent } from '../src/runtime/world-control';
 import type { CognitionBrokerEvent } from '../src/mind/cognition-broker';
 import {
+  COGNITION_ADMISSION_PROTOCOL,
+  cognitionResidentKey,
+  type CognitionAdmissionEvidence,
+  type CognitionPurpose,
+} from '../src/mind/cognition';
+import {
   assessOwnedWorldModelEvidence,
   eventData,
   summarizeUsage,
@@ -101,10 +107,14 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
       },
     };
   });
-  const actCalls = input.residents.flatMap((resident) => populationModelCalls(resident.actEvents));
-  const resumeCalls = input.residents.flatMap((resident) =>
-    populationModelCalls(resident.resumeEvents),
+  const actCallRecords = input.residents.flatMap((resident) =>
+    attributedPopulationModelCalls(resident.entityId, resident.actEvents),
   );
+  const resumeCallRecords = input.residents.flatMap((resident) =>
+    attributedPopulationModelCalls(resident.entityId, resident.resumeEvents),
+  );
+  const actCalls = actCallRecords.map((record) => record.call);
+  const resumeCalls = resumeCallRecords.map((record) => record.call);
   const allCalls = [...actCalls, ...resumeCalls];
   const usage = summarizeUsage(allCalls);
   const actCognition = cognitionMetrics(input.actCognition);
@@ -125,6 +135,7 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
     input.actRunId,
     residentIds,
     input.budgets,
+    input.actCognition,
   );
   const resumeLifecycle = assessPopulationLifecycle(
     input.resumeLifecycle,
@@ -132,6 +143,7 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
     input.resumeRunId,
     residentIds,
     input.budgets,
+    input.resumeCognition,
   );
   const cognitionRequired =
     lifecycleDeclaresCognition(input.actLifecycle) ||
@@ -221,8 +233,8 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
       !cognitionRequired || (actCognition?.valid === true && resumeCognition?.valid === true),
     cognitionAdmissionsReconcileWithResidentCalls:
       !cognitionRequired ||
-      (reconcilesCognition(actCalls, input.actCognition) &&
-        reconcilesCognition(resumeCalls, input.resumeCognition)),
+      (reconcilesCognition(actCallRecords, input.actCognition, input.actRunId) &&
+        reconcilesCognition(resumeCallRecords, input.resumeCognition, input.resumeRunId)),
     usageAndCostRecorded:
       usage.callCount > 0 &&
       usage.totalTokens > 0 &&
@@ -270,6 +282,7 @@ export function assessPopulationLifecycle(
   runId: string,
   residentIds: readonly string[],
   budgets: PopulationProofBudgets,
+  cognitionEvents?: readonly CognitionBrokerEvent[],
 ) {
   const configured = lifecycleData(events, 'run_configured')[0];
   const configuredPopulation = configured?.population;
@@ -286,6 +299,10 @@ export function assessPopulationLifecycle(
   const runReadyIds = Array.isArray(runReady?.residents)
     ? runReady.residents.map((resident: any) => String(resident?.entityId || ''))
     : [];
+  const configuredCognition = configuredPopulation?.cognition;
+  const cognitionReady = lifecycleData(events, 'cognition_broker_ready');
+  const cognitionDrained = lifecycleData(events, 'cognition_broker_drained');
+  const journalStarted = cognitionEvents?.find((event) => event.type === 'started');
   const assertions = {
     journalEnvelopeMatchesEpoch:
       events.length > 0 &&
@@ -299,6 +316,19 @@ export function assessPopulationLifecycle(
       Number(configuredPopulation?.maxResidentProcesses) === budgets.maxResidents &&
       Number(configuredPopulation?.maxConcurrentModelCalls) === budgets.maxConcurrentModelCalls &&
       Number(configuredPopulation?.maxConcurrentModelCalls) <= residentIds.length,
+    cognitionUsesDefaultResidentLauncher:
+      configuredPopulation?.cognition == null ||
+      configuredPopulation?.residentProcessLauncher === 'default_node_process',
+    cognitionBoundaryMatchesJournal:
+      cognitionEvents == null ||
+      (configuredCognition?.brokerId === journalStarted?.brokerId &&
+        Number(configuredPopulation?.maxConcurrentModelCalls) ===
+          Number((journalStarted?.data as any)?.concurrencyLimit) &&
+        cognitionReady.length === 1 &&
+        cognitionReady[0]?.brokerId === journalStarted?.brokerId &&
+        Number(cognitionReady[0]?.concurrencyLimit) === budgets.maxConcurrentModelCalls &&
+        cognitionDrained.length === 1 &&
+        cognitionDrained[0]?.brokerId === journalStarted?.brokerId),
     everyControllerStartedOnce:
       sameSet(started, residentIds) && started.length === residentIds.length,
     everyControllerReadyOnce: sameSet(ready, residentIds) && ready.length === residentIds.length,
@@ -349,6 +379,29 @@ export function populationModelCalls(events: readonly RunJournalEvent[]) {
     .filter((call) => call?.protocol === 'behold.model-call.v1');
 }
 
+type AttributedPopulationModelCall = Readonly<{
+  entityId: string;
+  purpose: CognitionPurpose;
+  call: any;
+}>;
+
+function attributedPopulationModelCalls(
+  entityId: string,
+  events: readonly RunJournalEvent[],
+): AttributedPopulationModelCall[] {
+  return events
+    .filter((event) => event.type === 'model_turn' || event.type === 'model_auxiliary_call')
+    .map((event) => ({
+      entityId,
+      purpose:
+        event.type === 'model_auxiliary_call'
+          ? ('loom_fold' as const)
+          : ('resident_decision' as const),
+      call: event.data?.call,
+    }))
+    .filter((record) => record.call?.protocol === 'behold.model-call.v1');
+}
+
 export function measuredModelConcurrency(calls: readonly any[]) {
   const edges = calls.flatMap((call, index) => {
     const startedAt = Number(call?.startedAt);
@@ -380,20 +433,39 @@ function cognitionMetrics(events: readonly CognitionBrokerEvent[] | undefined) {
   const terminal = new Set<string>();
   let active = 0;
   let peakActive = 0;
+  let draining = false;
+  let startedCount = 0;
+  let drainingCount = 0;
+  let drainedCount = 0;
   let valid = events[0]?.type === 'started' && events.at(-1)?.type === 'drained';
   for (const event of events) {
     const id = event.request?.brokerRequestId;
-    if (event.type === 'accepted') {
-      if (!id || accepted.has(id)) valid = false;
+    if (event.type === 'started') {
+      startedCount += 1;
+    } else if (event.type === 'draining') {
+      drainingCount += 1;
+      draining = true;
+    } else if (event.type === 'drained') {
+      drainedCount += 1;
+      if (!draining) valid = false;
+    } else if (event.type === 'accepted') {
+      if (draining || !id || accepted.has(id)) valid = false;
       else accepted.add(id);
     } else if (event.type === 'admitted') {
-      if (!id || !accepted.has(id) || admitted.has(id)) valid = false;
+      if (draining || !id || !accepted.has(id) || admitted.has(id)) valid = false;
       else {
         admitted.add(id);
         active += 1;
         peakActive = Math.max(peakActive, active);
       }
-    } else if (event.type === 'completed' || event.type === 'cancelled') {
+    } else if (event.type === 'completed') {
+      if (!id || !admitted.has(id) || terminal.has(id)) valid = false;
+      else {
+        terminal.add(id);
+        active -= 1;
+        if (active < 0) valid = false;
+      }
+    } else if (event.type === 'cancelled') {
       if (!id || !accepted.has(id) || terminal.has(id)) valid = false;
       else {
         terminal.add(id);
@@ -402,7 +474,14 @@ function cognitionMetrics(events: readonly CognitionBrokerEvent[] | undefined) {
       }
     }
   }
-  if (active !== 0 || terminal.size !== accepted.size) valid = false;
+  if (
+    startedCount !== 1 ||
+    drainingCount !== 1 ||
+    drainedCount !== 1 ||
+    active !== 0 ||
+    terminal.size !== accepted.size
+  )
+    valid = false;
   return {
     valid,
     eventCount: events.length,
@@ -414,33 +493,77 @@ function cognitionMetrics(events: readonly CognitionBrokerEvent[] | undefined) {
 }
 
 function reconcilesCognition(
-  calls: readonly any[],
+  records: readonly AttributedPopulationModelCall[],
   events: readonly CognitionBrokerEvent[] | undefined,
+  runId: string,
 ) {
-  if (!events) return false;
-  const admitted = new Set(
+  if (!events || records.length === 0) return false;
+  const admitted = new Map(
     events
-      .filter((event) => event.type === 'admitted')
-      .map((event) => event.request?.brokerRequestId)
-      .filter(Boolean),
+      .filter((event) => event.type === 'admitted' && event.request)
+      .map((event) => [event.request!.brokerRequestId, event] as const),
   );
-  const completed = new Set(
+  const completed = new Map(
     events
-      .filter((event) => event.type === 'completed')
-      .map((event) => event.request?.brokerRequestId)
-      .filter(Boolean),
+      .filter((event) => event.type === 'completed' && event.request)
+      .map((event) => [event.request!.brokerRequestId, event] as const),
   );
-  const recorded = new Set(
-    calls.flatMap((call) =>
-      Array.isArray(call?.admissions)
-        ? call.admissions.map((admission: any) => String(admission?.brokerRequestId || ''))
-        : [],
-    ),
-  );
+  const recorded = new Set<string>();
+  for (const record of records) {
+    const admissions = Array.isArray(record.call?.admissions)
+      ? (record.call.admissions as CognitionAdmissionEvidence[])
+      : [];
+    if (admissions.length === 0) return false;
+    for (const admission of admissions) {
+      const id = String(admission?.brokerRequestId || '');
+      const event = admitted.get(id);
+      if (
+        !id ||
+        recorded.has(id) ||
+        !event?.request ||
+        !completed.has(id) ||
+        admission.protocol !== COGNITION_ADMISSION_PROTOCOL ||
+        admission.brokerId !== event.brokerId ||
+        admission.clientRequestId !== record.call.requestId ||
+        admission.clientRequestId !== event.request.clientRequestId ||
+        admission.residentKey !== cognitionResidentKey(runId, record.entityId) ||
+        admission.model !== record.call.request?.model ||
+        admission.priority !== event.request.priority ||
+        admission.purpose !== record.purpose ||
+        admission.purpose !== event.request.purpose ||
+        admission.urgentTriggerSequence !== event.request.urgentTriggerSequence ||
+        admission.residentKey !== event.request.residentKey ||
+        admission.model !== event.request.model ||
+        admission.bodySha256 !== event.request.bodySha256 ||
+        !sameAdmissionPayload(admission, event.data)
+      ) {
+        return false;
+      }
+      recorded.add(id);
+    }
+  }
+  return completed.size === recorded.size && [...completed.keys()].every((id) => recorded.has(id));
+}
+
+function sameAdmissionPayload(admission: CognitionAdmissionEvidence, value: any) {
   return (
-    completed.size === recorded.size &&
-    [...completed].every((id) => recorded.has(id)) &&
-    [...recorded].every((id) => admitted.has(id))
+    value?.protocol === admission.protocol &&
+    value?.brokerId === admission.brokerId &&
+    value?.brokerRequestId === admission.brokerRequestId &&
+    value?.clientRequestId === admission.clientRequestId &&
+    value?.residentKey === admission.residentKey &&
+    value?.model === admission.model &&
+    value?.bodySha256 === admission.bodySha256 &&
+    value?.priority === admission.priority &&
+    value?.purpose === admission.purpose &&
+    value?.urgentTriggerSequence === admission.urgentTriggerSequence &&
+    value?.queuedAt === admission.queuedAt &&
+    value?.admittedAt === admission.admittedAt &&
+    value?.queueMs === admission.queueMs &&
+    value?.queueDepthOnArrival === admission.queueDepthOnArrival &&
+    value?.activeBeforeAdmission === admission.activeBeforeAdmission &&
+    value?.concurrencyLimit === admission.concurrencyLimit &&
+    value?.admissionOrdinal === admission.admissionOrdinal
   );
 }
 

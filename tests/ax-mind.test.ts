@@ -2,14 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAxResidentMind } from '../src/mind/ax';
 import { startCognitionBroker } from '../src/mind/cognition-broker';
+import { cognitionResidentKey } from '../src/mind/cognition';
 
 test('Ax proposes a typed decision without receiving executable world functions', async () => {
   const requests: any[] = [];
   const localBearer = `ax-local-${'x'.repeat(48)}`;
   const broker = await startCognitionBroker({
     upstreamEndpoint: 'https://models.example.test/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://models.example.test'],
     upstreamApiKey: 'upstream-test-key',
-    clients: [{ bearer: localBearer, residentKey: 'ax-scout', model: 'test/model' }],
+    clients: [
+      {
+        bearer: localBearer,
+        residentKey: cognitionResidentKey('fixture-run', 'ax-scout'),
+        model: 'test/model',
+      },
+    ],
     maxConcurrent: 1,
     fetch: async (_url: any, init: any) => {
       requests.push(JSON.parse(String(init?.body || '{}')));

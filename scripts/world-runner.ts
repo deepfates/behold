@@ -38,7 +38,7 @@ import {
   verifyCognitionBrokerJournal,
   type CognitionBroker,
 } from '../src/mind/cognition-broker';
-import { COGNITION_TRANSPORT_PROTOCOL } from '../src/mind/cognition';
+import { COGNITION_TRANSPORT_PROTOCOL, cognitionResidentKey } from '../src/mind/cognition';
 
 export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'chat',
@@ -142,6 +142,7 @@ export type WorldRunnerDependencies = Readonly<{
     index: number;
     leasePath: string;
     journalDirectory: string;
+    environment: Readonly<NodeJS.ProcessEnv>;
   }) => ChildProcessWithoutNullStreams;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
@@ -562,9 +563,7 @@ export async function startManagedWorld(
           resident.entityId,
           Object.freeze({
             bearer: randomBytes(32).toString('base64url'),
-            residentKey: createHash('sha256')
-              .update(`${managedRunId}\0${resident.entityId}`)
-              .digest('hex'),
+            residentKey: cognitionResidentKey(managedRunId, resident.entityId),
             model: resident.model,
           }),
         ]),
@@ -597,6 +596,9 @@ export async function startManagedWorld(
         maxResidentProcesses: Math.max(1, Math.floor(options.maxResidents ?? 16)),
         maxConcurrentModelCalls: cognition?.concurrencyLimit ?? 0,
         residentStartupDelayMs: options.residentStartupDelayMs ?? 0,
+        residentProcessLauncher: dependencies.spawnController
+          ? 'injected_dependency'
+          : 'default_node_process',
         cognition: cognition
           ? {
               protocol: COGNITION_TRANSPORT_PROTOCOL,
@@ -661,6 +663,14 @@ export async function startManagedWorld(
 
     for (const [index, resident] of residents.entries()) {
       const journalDirectory = path.join(runRoot, managedRunId, sanitizeName(resident.entityId));
+      const environment = managedControllerEnvironment(
+        options,
+        resident,
+        managedRunId,
+        control.file,
+        journalDirectory,
+        cognition,
+      );
       const controller =
         dependencies.spawnController?.({
           runId: managedRunId,
@@ -668,15 +678,8 @@ export async function startManagedWorld(
           index,
           leasePath: resident.leasePath,
           journalDirectory,
-        }) ??
-        spawnDefaultController(
-          options,
-          resident,
-          managedRunId,
-          control.file,
-          journalDirectory,
-          cognition,
-        );
+          environment,
+        }) ?? spawnDefaultController(options, resident, environment);
       if (!controller.pid) {
         throw new WorldRunnerError(
           `Controller process for ${resident.entityId} has no PID`,
@@ -1295,10 +1298,7 @@ function spawnDefaultServer(options: ManagedWorldRunOptions) {
 function spawnDefaultController(
   options: ManagedWorldRunOptions,
   resident: NormalizedManagedResident,
-  runId: string,
-  controlFile: string,
-  journalDirectory: string,
-  cognition: ManagedCognition | null,
+  environment: Readonly<NodeJS.ProcessEnv>,
 ) {
   const args = [
     options.controllerEntry,
@@ -1317,7 +1317,42 @@ function spawnDefaultController(
   if (resident.task) args.push('--task', resident.task);
   if (resident.target) args.push('--target', resident.target);
   if (resident.allowTools?.length) args.push('--allowTools', resident.allowTools.join(','));
-  const env = { ...process.env };
+  return spawn(process.execPath, args, {
+    cwd: process.cwd(),
+    env: environment,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
+  });
+}
+
+function managedControllerEnvironment(
+  options: ManagedWorldRunOptions,
+  resident: NormalizedManagedResident,
+  runId: string,
+  controlFile: string,
+  journalDirectory: string,
+  cognition: ManagedCognition | null,
+) {
+  const env: NodeJS.ProcessEnv = {};
+  for (const name of [
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'TMPDIR',
+    'SHELL',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TZ',
+    'NODE_ENV',
+    'NODE_EXTRA_CA_CERTS',
+    'SSL_CERT_FILE',
+    'SSL_CERT_DIR',
+    'BEHOLD_RECORD_MODEL_IO',
+  ]) {
+    if (process.env[name] != null) env[name] = process.env[name];
+  }
   if (cognition) {
     const client = cognition.clients.get(resident.entityId);
     if (!client) {
@@ -1326,30 +1361,20 @@ function spawnDefaultController(
         'cognition_client_missing',
       );
     }
-    delete env.OPENROUTER_API_KEY;
-    delete env.OPENROUTER_BASE_URL;
-    delete env.OPENROUTER_REFERER;
-    delete env.OPENROUTER_TITLE;
     env.OPENROUTER_API_KEY = client.bearer;
     env.OPENROUTER_BASE_URL = cognition.broker.endpoint;
     env.BEHOLD_COGNITION_TRANSPORT = COGNITION_TRANSPORT_PROTOCOL;
   }
-  return spawn(process.execPath, args, {
-    cwd: process.cwd(),
-    env: {
-      ...env,
-      VIEWER_ENABLED: '0',
-      BEHOLD_RUN_ID: runId,
-      BEHOLD_WORLD_ID: options.worldId,
-      BEHOLD_WORLD_CONTROL_FILE: controlFile,
-      BEHOLD_WORLD_CONTROL_ROOT: path.dirname(path.dirname(controlFile)),
-      BEHOLD_ENTITY_DIR: path.resolve(options.entityRoot),
-      BEHOLD_RUN_DIR: journalDirectory,
-      BEHOLD_MIND: resident.mind,
-    },
-    stdio: ['pipe', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32',
-  });
+  env.VIEWER_ENABLED = '0';
+  env.BEHOLD_LOAD_DOTENV = '0';
+  env.BEHOLD_RUN_ID = runId;
+  env.BEHOLD_WORLD_ID = options.worldId;
+  env.BEHOLD_WORLD_CONTROL_FILE = controlFile;
+  env.BEHOLD_WORLD_CONTROL_ROOT = path.dirname(path.dirname(controlFile));
+  env.BEHOLD_ENTITY_DIR = path.resolve(options.entityRoot);
+  env.BEHOLD_RUN_DIR = journalDirectory;
+  env.BEHOLD_MIND = resident.mind;
+  return Object.freeze(env);
 }
 
 type ProcessExit = Readonly<{ name: string; code: number | null; signal: NodeJS.Signals | null }>;

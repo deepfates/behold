@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 import type { EntityTurn } from '../src/entity/loom';
+import {
+  COGNITION_ADMISSION_PROTOCOL,
+  cognitionResidentKey,
+  type CognitionAdmissionEvidence,
+} from '../src/mind/cognition';
+import {
+  COGNITION_BROKER_EVENT_PROTOCOL,
+  type CognitionBrokerEvent,
+} from '../src/mind/cognition-broker';
 import type { WorldLifecycleEvent } from '../src/runtime/world-control';
 import type { RunJournalEvent } from '../scripts/owned-world-model-evidence';
 import {
@@ -64,6 +73,38 @@ test('population evidence rejects a foreign journal envelope and cross-body inve
   const assessment = assessOwnedWorldPopulationEvidence(input);
   assert.ok(assessment.failed.includes('journalsStayResidentScoped'));
   assert.ok(assessment.failed.includes('freshBodiesRetainOnlyOwnTarget'));
+});
+
+test('configured cognition requires every resident call to match the exact broker admission', () => {
+  const passing = withCognitionEvidence(structuredClone(fixture()) as PopulationEvidenceInput);
+  assert.deepEqual(assessOwnedWorldPopulationEvidence(passing).failed, []);
+  assert.equal(assessOwnedWorldPopulationEvidence(passing).metrics.maxConcurrentModelCalls, 1);
+
+  const missing = withCognitionEvidence(structuredClone(fixture()) as PopulationEvidenceInput);
+  delete (missing.residents[0].actEvents[1].data.call as any).admissions;
+  assert.ok(
+    assessOwnedWorldPopulationEvidence(missing).failed.includes(
+      'cognitionAdmissionsReconcileWithResidentCalls',
+    ),
+  );
+
+  const mismatched = withCognitionEvidence(structuredClone(fixture()) as PopulationEvidenceInput);
+  (mismatched.residents[0].actEvents[1].data.call as any).admissions[0].bodySha256 = 'f'.repeat(64);
+  assert.ok(
+    assessOwnedWorldPopulationEvidence(mismatched).failed.includes(
+      'cognitionAdmissionsReconcileWithResidentCalls',
+    ),
+  );
+
+  const foreignBroker = withCognitionEvidence(
+    structuredClone(fixture()) as PopulationEvidenceInput,
+  );
+  ((foreignBroker.actLifecycle[0].data as any).population.cognition as any).brokerId =
+    'broker-foreign';
+  const foreignBrokerAssessment = assessOwnedWorldPopulationEvidence(foreignBroker);
+  assert.ok(
+    foreignBrokerAssessment.lifecycle.act.failed.includes('cognitionBoundaryMatchesJournal'),
+  );
 });
 
 function fixture(): PopulationEvidenceInput {
@@ -205,6 +246,7 @@ function modelTurn(
         : { id: `${callId}-intent`, source: 'llm', tool: action, input: {} },
     call: {
       protocol: 'behold.model-call.v1',
+      requestId: callId,
       startedAt: 100 + offset * 100,
       completedAt: 250 + offset * 100,
       latencyMs: 150,
@@ -240,6 +282,125 @@ function modelTurn(
       },
     },
   };
+}
+
+function withCognitionEvidence(input: PopulationEvidenceInput) {
+  const actCognition = cognitionPhase(
+    input,
+    'act',
+    input.actRunId,
+    input.residents.map((resident) => ({
+      entityId: resident.entityId,
+      events: resident.actEvents,
+    })),
+  );
+  const resumeCognition = cognitionPhase(
+    input,
+    'resume',
+    input.resumeRunId,
+    input.residents.map((resident) => ({
+      entityId: resident.entityId,
+      events: resident.resumeEvents,
+    })),
+  );
+  (input as any).actCognition = actCognition;
+  (input as any).resumeCognition = resumeCognition;
+  bindLifecycleCognition(input.actLifecycle as WorldLifecycleEvent[], actCognition[0].brokerId);
+  bindLifecycleCognition(
+    input.resumeLifecycle as WorldLifecycleEvent[],
+    resumeCognition[0].brokerId,
+  );
+  return input;
+}
+
+function bindLifecycleCognition(lifecycle: WorldLifecycleEvent[], brokerId: string) {
+  const population = (lifecycle[0].data as any).population;
+  population.cognition = { protocol: 'behold.cognition-transport.v1', brokerId };
+  population.residentProcessLauncher = 'default_node_process';
+  lifecycle.splice(1, 0, {
+    ...lifecycle[0],
+    type: 'cognition_broker_ready',
+    data: { brokerId, concurrencyLimit: BUDGETS.maxConcurrentModelCalls },
+  });
+  lifecycle.splice(-3, 0, {
+    ...lifecycle[0],
+    type: 'cognition_broker_drained',
+    data: { brokerId },
+  });
+  lifecycle.forEach((event, index) => ((event as any).sequence = index + 1));
+}
+
+function cognitionPhase(
+  _input: PopulationEvidenceInput,
+  phase: string,
+  runId: string,
+  residents: readonly Readonly<{ entityId: string; events: readonly RunJournalEvent[] }>[],
+) {
+  const brokerId = `broker-${phase}`;
+  const events: CognitionBrokerEvent[] = [];
+  const append = (
+    type: CognitionBrokerEvent['type'],
+    request: CognitionBrokerEvent['request'],
+    data: any = {},
+  ) => {
+    events.push({
+      protocol: COGNITION_BROKER_EVENT_PROTOCOL,
+      sequence: events.length + 1,
+      at: events.length + 1,
+      brokerId,
+      type,
+      request,
+      data,
+      previousDigest: events.at(-1)?.digest ?? null,
+      digest: `fixture-${phase}-${events.length + 1}`,
+    });
+  };
+  append('started', null, { concurrencyLimit: 2 });
+  let ordinal = 0;
+  for (const resident of residents) {
+    for (const journalEvent of resident.events.filter((event) => event.type === 'model_turn')) {
+      const call = journalEvent.data.call;
+      const brokerRequestId = `${phase}-${resident.entityId}-${call.requestId}`;
+      const bodySha256 = String(ordinal + 1).padStart(64, '0');
+      const request = {
+        brokerRequestId,
+        clientRequestId: call.requestId,
+        residentKey: cognitionResidentKey(runId, resident.entityId),
+        priority: 'deliberative' as const,
+        purpose: 'resident_decision' as const,
+        urgentTriggerSequence: null,
+        model: MODEL,
+        bodySha256,
+        bodyBytes: 100,
+      };
+      const admission: CognitionAdmissionEvidence = {
+        protocol: COGNITION_ADMISSION_PROTOCOL,
+        brokerId,
+        brokerRequestId,
+        clientRequestId: call.requestId,
+        residentKey: request.residentKey,
+        model: MODEL,
+        bodySha256,
+        priority: 'deliberative',
+        purpose: 'resident_decision',
+        urgentTriggerSequence: null,
+        queuedAt: 100 + ordinal * 10,
+        admittedAt: 100 + ordinal * 10,
+        queueMs: 0,
+        queueDepthOnArrival: 0,
+        activeBeforeAdmission: 0,
+        concurrencyLimit: 2,
+        admissionOrdinal: ++ordinal,
+      };
+      call.admissions = [admission];
+      append('accepted', request, { active: 0, queued: 1 });
+      append('admitted', request, admission);
+      append('completed', request, { status: 200, ok: true });
+    }
+  }
+  append('draining', null);
+  append('drained', null);
+  return events;
 }
 
 function collectionTurn(

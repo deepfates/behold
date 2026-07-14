@@ -157,13 +157,15 @@ test('managed cognition keeps the provider key in the runner and drains before M
         pid: process.pid, hostname: os.hostname(), managedRunId: process.env.BEHOLD_RUN_ID
       }));
       const localKey = String(process.env.OPENROUTER_API_KEY || '');
-      fs.writeFileSync(process.env.CAPTURE_FILE, JSON.stringify({
+      fs.writeFileSync(${JSON.stringify(captureFile)}, JSON.stringify({
         keySha256: crypto.createHash('sha256').update(localKey).digest('hex'),
         keyLength: localKey.length,
         endpoint: process.env.OPENROUTER_BASE_URL,
         transport: process.env.BEHOLD_COGNITION_TRANSPORT,
         refererPresent: process.env.OPENROUTER_REFERER != null,
-        titlePresent: process.env.OPENROUTER_TITLE != null
+        titlePresent: process.env.OPENROUTER_TITLE != null,
+        ambientCloudCredentialPresent: process.env.AWS_SECRET_ACCESS_KEY != null,
+        dotenvDisabled: process.env.BEHOLD_LOAD_DOTENV === '0'
       }));
       console.log('[bot] Local world loaded.');
       process.stdin.resume();
@@ -178,20 +180,20 @@ test('managed cognition keeps the provider key in the runner and drains before M
     base: process.env.OPENROUTER_BASE_URL,
     referer: process.env.OPENROUTER_REFERER,
     title: process.env.OPENROUTER_TITLE,
-    capture: process.env.CAPTURE_FILE,
+    cloud: process.env.AWS_SECRET_ACCESS_KEY,
   };
   const providerSecret = 'provider-secret-never-in-child';
   process.env.OPENROUTER_API_KEY = providerSecret;
-  process.env.OPENROUTER_BASE_URL = 'https://upstream.invalid/v1/chat/completions';
+  process.env.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
   process.env.OPENROUTER_REFERER = 'https://private.example';
   process.env.OPENROUTER_TITLE = 'private title';
-  process.env.CAPTURE_FILE = captureFile;
+  process.env.AWS_SECRET_ACCESS_KEY = 'ambient-cloud-secret';
   t.after(() => {
     restoreTestEnvironment('OPENROUTER_API_KEY', prior.key);
     restoreTestEnvironment('OPENROUTER_BASE_URL', prior.base);
     restoreTestEnvironment('OPENROUTER_REFERER', prior.referer);
     restoreTestEnvironment('OPENROUTER_TITLE', prior.title);
-    restoreTestEnvironment('CAPTURE_FILE', prior.capture);
+    restoreTestEnvironment('AWS_SECRET_ACCESS_KEY', prior.cloud);
   });
 
   let serverPid: number | null = null;
@@ -239,6 +241,8 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(captured.transport, COGNITION_TRANSPORT_PROTOCOL);
   assert.equal(captured.refererPresent, false);
   assert.equal(captured.titlePresent, false);
+  assert.equal(captured.ambientCloudCredentialPresent, false);
+  assert.equal(captured.dotenvDisabled, true);
 
   await run.stop('cognition_fixture_complete');
   await run.finished;

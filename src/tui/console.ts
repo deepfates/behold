@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import { config as loadDotenv } from 'dotenv';
 import readline from 'node:readline';
 import { getConfig } from '../config';
 import { createBot } from '../bot';
@@ -20,6 +20,8 @@ import {
 } from '../tasks/come-see-do-report';
 
 const INITIAL_WORLD_SYNC_SETTLE_MS = 4_000;
+
+if (process.env.BEHOLD_LOAD_DOTENV !== '0') loadDotenv();
 
 export type ConsoleOptions = {
   agentName?: string;
