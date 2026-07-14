@@ -17,6 +17,7 @@ import {
   verifyWorldLifecycleJournal,
 } from '../src/runtime/world-control';
 import {
+  assertCleanRepository,
   durableWriteJson,
   gitRevision,
   listFiles,
@@ -30,7 +31,8 @@ import {
   assessNativeBodyConformance,
   NATIVE_BODY_CONFORMANCE_PROTOCOL,
   NATIVE_BODY_PHASE_PROTOCOL,
-} from './native-body-conformance-evidence';
+} from '../src/evaluation/native-body-conformance';
+import { createMinecraftMaterialActionRecord } from '../src/evaluation/minecraft-material-action-record';
 import { executeScriptedInhabitantTurn } from './scripted-inhabitant-turn';
 import {
   disconnectMinecraftBot,
@@ -66,13 +68,22 @@ async function runProof() {
   const runId = String(
     parsed.values.run || `body-${new Date().toISOString().replace(/[:.]/g, '-')}`,
   );
-  const fixture = await prepareOwnedWorld(
-    runId,
-    Number(parsed.values.port || 25579),
-    'native-body',
-    TARGET_ITEM,
-  );
+  assertCleanRepository();
+  const priorUmask = process.umask(0o077);
+  let fixture: Awaited<ReturnType<typeof prepareOwnedWorld>>;
+  try {
+    fixture = await prepareOwnedWorld(
+      runId,
+      Number(parsed.values.port || 25579),
+      'native-body',
+      TARGET_ITEM,
+    );
+  } catch (error) {
+    process.umask(priorUmask);
+    throw error;
+  }
   const reportFile = path.join(fixture.evidenceRoot, 'native-body-conformance.json');
+  const witnessFile = path.join(fixture.evidenceRoot, 'independent-witness.json');
   let run: Awaited<ReturnType<typeof startManagedWorld>> | null = null;
   try {
     run = await startManagedWorld(
@@ -123,11 +134,26 @@ async function runProof() {
       port: fixture.port,
       model: MODEL,
       witnessId: WITNESS_ID,
-      observe: (bot) => ({ blocks: observedBlocks(bot, [phase.target]) }),
+      observe: (bot) => ({
+        dimension: String((bot as any).game?.dimension || ''),
+        blocks: observedBlocks(bot, [phase.target]),
+      }),
     });
+    durableWriteJson(witnessFile, independentWitness);
     await run.stop('native_body_conformance_complete');
     await run.finished;
     const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
+    const quiescenceEvents = lifecycle.events.filter(
+      (candidate) =>
+        candidate.type === 'residents_quiesced' &&
+        (candidate.data as any)?.reason === 'native_body_before_independent_witness',
+    );
+    if (quiescenceEvents.length !== 1) {
+      throw new Error(
+        `world lifecycle has ${quiescenceEvents.length} bound pre-witness quiescence receipts`,
+      );
+    }
+    const quiescence = quiescenceEvents[0];
     const runtime = await statusWorld(fixture.worldId, fixture.world);
     const control = inspectWorldControl(fixture.controlRoot, fixture.worldId);
     const leases = inspectEntityLeaseFence(fixture.entityRoot, [fixture.worldId]);
@@ -137,6 +163,7 @@ async function runProof() {
     if (loomFiles.length !== 1) {
       throw new Error(`expected one body-resident Lync, found ${loomFiles.length}`);
     }
+    const completedAt = new Date().toISOString();
     const draft = {
       protocol: NATIVE_BODY_CONFORMANCE_PROTOCOL,
       repositoryRevision: gitRevision(),
@@ -147,23 +174,31 @@ async function runProof() {
       phaseFile,
       phaseSha256: sha256File(phaseFile),
       independentWitness,
+      independentWitnessFile: witnessFile,
+      independentWitnessSha256: sha256File(witnessFile),
       loomFile: loomFiles[0],
       loomSha256: sha256File(loomFiles[0]),
       lifecycle: {
         file: run.control.journalFile,
+        sha256: sha256File(run.control.journalFile),
         verified: true,
         eventCount: lifecycle.events.length,
         tipDigest: lifecycle.tipDigest,
+        quiescence: {
+          sequence: quiescence.sequence,
+          at: quiescence.at,
+          digest: quiescence.digest,
+          reason: (quiescence.data as any).reason,
+        },
       },
       finalOwnership: {
         control: control.state,
         port: runtime.serverPort.state,
         leases: leases.state,
       },
-      completedAt: new Date().toISOString(),
+      completedAt,
     };
     const assessment = assessNativeBodyConformance(draft);
-    durableWriteJson(reportFile, { ...draft, assessment });
     if (!assessment.pass) {
       throw new Error(
         `native body conformance failed: ${Object.entries(assessment.assertions)
@@ -172,12 +207,30 @@ async function runProof() {
           .join(', ')}`,
       );
     }
+    const actionRecordAssessment = createMinecraftMaterialActionRecord(draft, {
+      assessedAt: completedAt,
+      checkerRevision: draft.repositoryRevision,
+      refs: {
+        phase: { file: phaseFile, sha256: draft.phaseSha256 },
+        witness: { file: witnessFile, sha256: draft.independentWitnessSha256 },
+        life: { file: draft.loomFile, sha256: draft.loomSha256 },
+        lifecycle: { file: draft.lifecycle.file, sha256: draft.lifecycle.sha256 },
+      },
+    });
+    durableWriteJson(reportFile, { ...draft, assessment, actionRecordAssessment });
+    if (actionRecordAssessment.status !== 'passed') {
+      throw new Error(
+        `native body material action record failed: ${actionRecordAssessment.failed.join(', ')}`,
+      );
+    }
     process.stdout.write(
       `[native-body] PASS ${reportFile}\n[native-body] sha256 ${sha256File(reportFile)}\n`,
     );
   } catch (error) {
     if (run) await run.stop('native_body_conformance_failed').catch(() => {});
     throw error;
+  } finally {
+    process.umask(priorUmask);
   }
 }
 

@@ -29,6 +29,7 @@
     "proof:owned-world-project": "npm run build && node dist/scripts/owned-world-project-proof.js",
     "proof:owned-world-portfolio": "npm run build && node dist/scripts/owned-world-portfolio.js",
     "proof:native-body": "npm run build && node dist/scripts/native-body-conformance.js",
+    "verify:native-body": "npm run build && node dist/scripts/reassess-native-body-conformance.js",
     "proof:native-attention": "npm run build && node dist/scripts/native-attention-conformance.js",
     "proof:native-doorway": "npm run build && node dist/scripts/native-doorway-conformance.js",
     "proof:resident-recovery": "npm run build && node dist/scripts/resident-recovery-witness.js",

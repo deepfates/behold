@@ -2843,6 +2843,10 @@ function observeBlockTransition(bot: Bot, position: BlockPosition, expectedBefor
         evidence: {
           source: 'mineflayer:blockUpdate',
           observedAt: Date.now(),
+          dimension: String((bot as any).game?.dimension || ''),
+          position: integerBlockPosition(eventPosition) ?? { ...position },
+          before: { name: eventBefore.name, stateId: eventBefore.stateId },
+          after: { name: eventAfter.name, stateId: eventAfter.stateId },
           beforeStateId: eventBefore.stateId,
           afterStateId: eventAfter.stateId,
         },

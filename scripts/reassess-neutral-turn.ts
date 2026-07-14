@@ -22,14 +22,21 @@ import {
   gitRevision,
   sha256File,
 } from './owned-world-fixture';
+import {
+  assertPrivateActionRecordReferences,
+  assertPrivateProofDirectory,
+  assertPrivateProofFile,
+  assertPrivateProofTree,
+  proofEvidenceFile,
+} from './private-proof-evidence';
 
 const SOURCE_PROTOCOLS = new Set(['behold.neutral-turn-proof.v4']);
 
 export async function reassessNeutralTurn(resultPath: string) {
   const resultFile = path.resolve(resultPath);
   const root = path.dirname(path.dirname(resultFile));
-  assertPrivateDirectory(root, 'proof root');
-  assertPrivateFile(root, resultFile, 'private turn result');
+  assertPrivateProofDirectory(root, 'proof root');
+  assertPrivateProofFile(root, resultFile, 'private turn result');
   const source = readJson(resultFile);
   if (!SOURCE_PROTOCOLS.has(source?.protocol)) {
     throw new Error(`unsupported neutral turn proof protocol: ${source?.protocol || 'missing'}`);
@@ -41,27 +48,31 @@ export async function reassessNeutralTurn(resultPath: string) {
     throw new Error('neutral turn proof root does not match its result location');
   }
 
-  const journalFile = evidenceFile(root, source?.evidence?.journalFile, 'run journal');
-  const lifecycleFile = evidenceFile(root, source?.evidence?.lifecycleFile, 'world lifecycle');
-  const episodeFile = evidenceFile(root, source?.evidence?.episodeFile, 'evaluation episode');
-  const requestFile = evidenceFile(root, source?.evidence?.requestFile, 'private mind request');
+  const journalFile = proofEvidenceFile(root, source?.evidence?.journalFile, 'run journal');
+  const lifecycleFile = proofEvidenceFile(root, source?.evidence?.lifecycleFile, 'world lifecycle');
+  const episodeFile = proofEvidenceFile(root, source?.evidence?.episodeFile, 'evaluation episode');
+  const requestFile = proofEvidenceFile(
+    root,
+    source?.evidence?.requestFile,
+    'private mind request',
+  );
   for (const [file, label] of [
     [journalFile, 'private run journal'],
     [lifecycleFile, 'private world lifecycle'],
     [episodeFile, 'private evaluation episode'],
     [requestFile, 'private mind request'],
   ] as const) {
-    assertPrivateFile(root, file, label);
+    assertPrivateProofFile(root, file, label);
   }
   if (source.claim === 'world-action') {
-    assertPrivateRecordReferences(root, source?.actionRecordAssessment?.bundle);
+    assertPrivateActionRecordReferences(root, source?.actionRecordAssessment?.bundle);
   }
 
   const storedDecisionBinding = source?.decisionAssessment?.binding;
   const episodeDirectory = path.dirname(episodeFile);
   const entityRoot = path.join(root, 'entities');
-  assertPrivateTree(root, entityRoot, 'private entity life store');
-  assertPrivateTree(root, episodeDirectory, 'private evaluation episode store');
+  assertPrivateProofTree(root, entityRoot, 'private entity life store');
+  assertPrivateProofTree(root, episodeDirectory, 'private evaluation episode store');
   const episode = await openEvaluationEpisode(
     episodeDirectory,
     entityRoot,
@@ -225,105 +236,6 @@ async function main() {
     process.stdout.write(`[neutral-turn-reassessment] PASS ${output}\n`);
   } else {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-  }
-}
-
-function evidenceFile(root: string, value: unknown, label: string) {
-  const file = path.resolve(requiredString(value, label));
-  const relative = path.relative(root, file);
-  if (
-    relative === '' ||
-    relative === '..' ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  ) {
-    throw new Error(`${label} must be a file inside the proof root`);
-  }
-  const status = fs.lstatSync(file);
-  if (!status.isFile()) throw new Error(`${label} is not a plain file`);
-  assertInsideRealRoot(root, file, label);
-  return file;
-}
-
-function assertPrivateRecordReferences(root: string, bundle: any) {
-  if (!bundle || !Array.isArray(bundle.records)) {
-    throw new Error('action record bundle is unavailable for private-reference verification');
-  }
-  const references: Array<{ ref: string; label: string }> = [];
-  for (const record of bundle.records) {
-    if (record?.access?.visibility !== 'private') continue;
-    if (typeof record?.payload?.dataRef === 'string') {
-      references.push({ ref: record.payload.dataRef, label: `${record.stage} data reference` });
-    }
-    if (record?.stage === 'check' && Array.isArray(record?.payload?.evidence)) {
-      for (const evidence of record.payload.evidence) {
-        if (evidence?.access?.visibility === 'private' && typeof evidence?.ref === 'string') {
-          references.push({ ref: evidence.ref, label: `${evidence.kind} evidence reference` });
-        }
-      }
-    }
-  }
-  if (references.length === 0) {
-    throw new Error('private action record has no verifiable private references');
-  }
-  for (const reference of references) {
-    if (reference.ref.startsWith('lync://')) continue;
-    const withoutFragment = reference.ref.split('#', 1)[0];
-    if (!path.isAbsolute(withoutFragment)) {
-      throw new Error(`${reference.label} must be an absolute proof path or Lync reference`);
-    }
-    const file = evidenceFile(root, withoutFragment, reference.label);
-    assertPrivateFile(root, file, reference.label);
-  }
-}
-
-function assertPrivateTree(root: string, directory: string, label: string) {
-  assertPrivateDirectory(directory, label);
-  assertInsideRealRoot(root, directory, label);
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const child = path.join(directory, entry.name);
-    if (entry.isSymbolicLink()) throw new Error(`${label} contains a symbolic link: ${child}`);
-    if (entry.isDirectory()) assertPrivateTree(root, child, label);
-    else if (entry.isFile()) assertPrivateFile(root, child, label);
-    else throw new Error(`${label} contains a non-file entry: ${child}`);
-  }
-}
-
-function assertPrivateFile(root: string, file: string, label: string) {
-  const status = fs.lstatSync(file);
-  if (!status.isFile()) throw new Error(`${label} is not a regular no-follow file`);
-  if ((status.mode & 0o777) !== 0o600) throw new Error(`${label} must have mode 0600`);
-  assertInsideRealRoot(root, file, label);
-  let directory = path.dirname(file);
-  const resolvedRoot = path.resolve(root);
-  while (true) {
-    assertPrivateDirectory(directory, `${label} parent`);
-    if (path.resolve(directory) === resolvedRoot) break;
-    const parent = path.dirname(directory);
-    if (parent === directory || path.relative(resolvedRoot, parent).startsWith('..')) {
-      throw new Error(`${label} parent escaped the proof root`);
-    }
-    directory = parent;
-  }
-}
-
-function assertPrivateDirectory(directory: string, label: string) {
-  const status = fs.lstatSync(directory);
-  if (!status.isDirectory()) throw new Error(`${label} is not a regular directory`);
-  if ((status.mode & 0o777) !== 0o700) throw new Error(`${label} must have mode 0700`);
-}
-
-function assertInsideRealRoot(root: string, candidate: string, label: string) {
-  const canonicalRoot = fs.realpathSync(root);
-  const canonicalCandidate = fs.realpathSync(candidate);
-  const relative = path.relative(canonicalRoot, canonicalCandidate);
-  if (
-    relative === '' ||
-    relative === '..' ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  ) {
-    throw new Error(`${label} resolves outside the proof root`);
   }
 }
 

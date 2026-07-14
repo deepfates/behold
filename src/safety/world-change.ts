@@ -9,6 +9,10 @@ export type WorldChangeRequest = {
 export type WorldChangeEvidence = {
   source: 'mineflayer:blockUpdate';
   observedAt: number;
+  dimension: string;
+  position: BlockPosition;
+  before: { name: string | null; stateId: number | null };
+  after: { name: string | null; stateId: number | null };
   beforeStateId: number | null;
   afterStateId: number | null;
 };
@@ -29,15 +33,12 @@ export type Authorization =
   | {
       ok: false;
       error:
-        | 'change_budget_exhausted'
-        | 'change_outside_allowed_region'
-        | 'safety_anchor_unavailable';
+        'change_budget_exhausted' | 'change_outside_allowed_region' | 'safety_anchor_unavailable';
       reason: string;
     };
 
 export type Reservation =
-  | { ok: true; reservationId: string }
-  | Exclude<Authorization, { ok: true }>;
+  { ok: true; reservationId: string } | Exclude<Authorization, { ok: true }>;
 
 export type WorldChangeSettlement = {
   after?: string | null;
@@ -184,7 +185,12 @@ function clonePosition(position: BlockPosition): BlockPosition {
 }
 
 function cloneEvidence(evidence: WorldChangeEvidence): WorldChangeEvidence {
-  return { ...evidence };
+  return {
+    ...evidence,
+    position: clonePosition(evidence.position),
+    before: { ...evidence.before },
+    after: { ...evidence.after },
+  };
 }
 
 function cloneChange(change: WorldChange): WorldChange {

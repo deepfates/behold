@@ -39,6 +39,10 @@ test('world-change guard enforces region and budget', () => {
     evidence: {
       source: 'mineflayer:blockUpdate',
       observedAt: 122,
+      dimension: 'overworld',
+      position: { x: 12, y: 64, z: 10 },
+      before: { name: 'air', stateId: 0 },
+      after: { name: 'lantern', stateId: 12 },
       beforeStateId: 0,
       afterStateId: 12,
     },
@@ -113,6 +117,10 @@ test('world-change authority does not leak mutable request, settlement, or snaps
   const evidence = {
     source: 'mineflayer:blockUpdate' as const,
     observedAt: 30,
+    dimension: 'overworld',
+    position: { x: 11, y: 64, z: 10 },
+    before: { name: 'air', stateId: 0 },
+    after: { name: 'lantern', stateId: 12 },
     beforeStateId: 0,
     afterStateId: 12,
   };

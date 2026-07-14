@@ -279,12 +279,7 @@ test('Come–See–Do–Report verifier requires an ordered, evidenced trajector
     obs,
   );
   verifier.recordIncomingChat('importdf', 'Place the lantern on this gray concrete block', 40);
-  const confirmation = {
-    source: 'mineflayer:blockUpdate' as const,
-    observedAt: 49,
-    beforeStateId: 0,
-    afterStateId: 12,
-  };
+  const confirmation = confirmationEvidence(49);
   recordWorldChange(executor, {
     verb: 'place',
     position: { x: 1, y: 64, z: 0 },
@@ -361,12 +356,7 @@ test('verifier never credits operator reports or world changes to the resident',
     obs,
   );
   verifier.recordIncomingChat('importdf', 'Place the lantern on this gray concrete block', 40);
-  const confirmation = {
-    source: 'mineflayer:blockUpdate' as const,
-    observedAt: 49,
-    beforeStateId: 0,
-    afterStateId: 12,
-  };
+  const confirmation = confirmationEvidence(49);
   recordWorldChange(executor, {
     verb: 'place',
     position: { x: 1, y: 64, z: 0 },
@@ -435,12 +425,7 @@ test('verifier rejects negated scene and outcome claims', () => {
   assert.equal(verifier.snapshot(obs).groundedReport, null);
 
   verifier.recordIncomingChat('importdf', 'Place the lantern on this gray concrete block', 40);
-  const confirmation = {
-    source: 'mineflayer:blockUpdate' as const,
-    observedAt: 49,
-    beforeStateId: 0,
-    afterStateId: 12,
-  };
+  const confirmation = confirmationEvidence(49);
   recordWorldChange(executor, {
     verb: 'place',
     position: { x: 1, y: 64, z: 0 },
@@ -620,12 +605,7 @@ test('verifier rejects a claimed change without matching Minecraft and safety ev
   const obs = observation();
   verifier.recordIncomingChat('importdf', 'Place the lantern on this block', 10);
 
-  const fakeConfirmation = {
-    source: 'mineflayer:blockUpdate' as const,
-    observedAt: 19,
-    beforeStateId: 0,
-    afterStateId: 12,
-  };
+  const fakeConfirmation = confirmationEvidence(19);
   verifier.recordEngineEvent(
     completed(
       'place_against',
@@ -681,3 +661,16 @@ test('verifier rejects a claimed change without matching Minecraft and safety ev
   assert.equal(progress.safety.changes[0].status, 'uncertain');
   assert.equal(progress.success, false);
 });
+
+function confirmationEvidence(observedAt: number) {
+  return {
+    source: 'mineflayer:blockUpdate' as const,
+    observedAt,
+    dimension: 'overworld',
+    position: { x: 1, y: 64, z: 0 },
+    before: { name: 'air', stateId: 0 },
+    after: { name: 'lantern', stateId: 12 },
+    beforeStateId: 0,
+    afterStateId: 12,
+  };
+}

@@ -19,6 +19,7 @@ function block(name: string, stateId: number, position: Vec3): FakeBlock {
 
 function fakeBot() {
   const bot: any = new EventEmitter();
+  bot.game = { dimension: 'overworld' };
   const blocks = new Map<string, FakeBlock>();
   const key = (position: Vec3) => `${position.x}:${position.y}:${position.z}`;
   bot.setBlock = (next: FakeBlock) => blocks.set(key(next.position), next);
@@ -48,6 +49,10 @@ test('dig succeeds only after a matching Minecraft blockUpdate', async () => {
   assert.equal(result.ok, true);
   assert.equal(result.changes[0].verified, true);
   assert.equal(result.changes[0].confirmation.source, 'mineflayer:blockUpdate');
+  assert.equal(result.changes[0].confirmation.dimension, 'overworld');
+  assert.deepEqual(result.changes[0].confirmation.position, { x: 1, y: 64, z: 2 });
+  assert.deepEqual(result.changes[0].confirmation.before, { name: 'stone', stateId: 1 });
+  assert.deepEqual(result.changes[0].confirmation.after, { name: 'air', stateId: 0 });
   assert.equal(result.changes[0].before, 'stone');
   assert.equal(result.changes[0].after, 'air');
   const safety = guard.snapshot();
