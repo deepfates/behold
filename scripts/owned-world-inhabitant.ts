@@ -14,6 +14,9 @@ import { createEngine, type EngineEvent } from '../src/loop/engine';
 
 const PROTOCOL = 'behold.owned-world-inhabitant-proof.v1' as const;
 const WITNESS_ID = 'ProofWitness';
+const HIDDEN_WITNESS_POSITION = Object.freeze({ x: 0, y: -60, z: 6 });
+const VISIBLE_WITNESS_POSITION = Object.freeze({ x: 6, y: -60, z: 6 });
+const MOVED_WITNESS_POSITION = Object.freeze({ x: 10, y: -60, z: 6 });
 
 async function main() {
   const args = parseArgs({
@@ -124,7 +127,7 @@ async function main() {
         engine,
         events,
         name: 'move_to',
-        input: { x: 0, y: -60, z: 20 },
+        input: { x: -20, y: -60, z: 0 },
       });
       if (
         !locomotion.result?.ok ||
@@ -285,6 +288,13 @@ async function proveExactApproach(input: {
       witnessLoom.connectionCapability,
     );
     await waitForLocalWorld(witness, 45_000);
+    await (witness as any).pathfinder.goto(
+      new (goals as any).GoalBlock(
+        HIDDEN_WITNESS_POSITION.x,
+        HIDDEN_WITNESS_POSITION.y,
+        HIDDEN_WITNESS_POSITION.z,
+      ),
+    );
     const target = await waitForPlayerEntity(input.resident, WITNESS_ID, 5_000);
     const targetEntityId = Number(target.id);
     await (input.resident as any).lookAt(
@@ -309,7 +319,13 @@ async function proveExactApproach(input: {
       throw new Error(`occluded target was not denied: ${JSON.stringify(hiddenTurn)}`);
     }
 
-    await (witness as any).pathfinder.goto(new (goals as any).GoalBlock(-4, -60, 0));
+    await (witness as any).pathfinder.goto(
+      new (goals as any).GoalBlock(
+        VISIBLE_WITNESS_POSITION.x,
+        VISIBLE_WITNESS_POSITION.y,
+        VISIBLE_WITNESS_POSITION.z,
+      ),
+    );
     await (input.resident as any).lookAt(
       target.position.offset(0, Math.max(0.5, Number(target.height || 1.8) * 0.8), 0),
       true,
@@ -330,7 +346,13 @@ async function proveExactApproach(input: {
       input: { target: `player:${WITNESS_ID}` },
     });
     await delay(100);
-    await (witness as any).pathfinder.goto(new (goals as any).GoalBlock(-8, -60, 0));
+    await (witness as any).pathfinder.goto(
+      new (goals as any).GoalBlock(
+        MOVED_WITNESS_POSITION.x,
+        MOVED_WITNESS_POSITION.y,
+        MOVED_WITNESS_POSITION.z,
+      ),
+    );
     const turn = await turnPromise;
     return {
       hidden: {

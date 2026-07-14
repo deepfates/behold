@@ -23,7 +23,9 @@ const PROTOCOL = 'behold.owned-world-proof.v1' as const;
 const ENTITY_ID = 'ProofResident';
 const OBSERVATION_LATENCY_BUDGET_MS = 50;
 const OCCLUSION_WALL = Object.freeze(
-  [-1, 0, 1].flatMap((x) => [-60, -59].map((y) => Object.freeze({ x, y, z: 3, block: 'stone' }))),
+  [-4, -3, -2, -1].flatMap((x) =>
+    [-60, -59].map((y) => Object.freeze({ x, y, z: 3, block: 'stone' })),
+  ),
 );
 
 async function main() {
