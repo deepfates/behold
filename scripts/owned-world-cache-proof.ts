@@ -67,7 +67,7 @@ const CARROT_TARGET: OwnedWorldTarget = Object.freeze({
 const CACHE_BLOCK: OwnedWorldBlock = Object.freeze({
   x: 0,
   y: -60,
-  z: 5,
+  z: 4,
   block: 'chest',
 });
 const CACHE_BUDGETS: PopulationProofBudgets = Object.freeze({
