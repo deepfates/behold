@@ -32,4 +32,17 @@ test('visit candidate keeps a measured spawn, chooses a useful ground leg, and r
   assert.equal(result.arrival.landmark.id, 'park');
   assert.equal(result.groundDestination.landmark.id, 'station');
   assert.equal(result.reveal.landmark.id, 'hill');
+  const fallback = deriveVisitCandidate(
+    { geography: { spawn: { name: 'Park' } }, landmarks },
+    {
+      checkpoints: [
+        checkpoint('park', 0, 4),
+        checkpoint('station', 800, 10),
+        checkpoint('museum', 500, 20),
+        checkpoint('hill', 1200, 100),
+      ],
+    },
+    { rejectedDestinationIds: ['station'] },
+  );
+  assert.equal(fallback.groundDestination.landmark.id, 'museum');
 });

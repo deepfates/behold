@@ -11,7 +11,7 @@ function distance(left, right) {
   return Math.hypot(left.projected.x - right.projected.x, left.projected.z - right.projected.z);
 }
 
-export function deriveVisitCandidate(recipe, inspection) {
+export function deriveVisitCandidate(recipe, inspection, options = {}) {
   const checkpoints = new Map(
     inspection.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]),
   );
@@ -28,7 +28,10 @@ export function deriveVisitCandidate(recipe, inspection) {
   const arrivalCheckpoint = checkpoints.get(arrival.id);
   const familyPriority = { transit: 7, civic: 6, education: 5, culture: 4, district: 3, other: 2 };
   const destinations = safeLandmarks
-    .filter((landmark) => landmark.id !== arrival.id)
+    .filter(
+      (landmark) =>
+        landmark.id !== arrival.id && !(options.rejectedDestinationIds ?? []).includes(landmark.id),
+    )
     .map((landmark) => {
       const checkpoint = checkpoints.get(landmark.id);
       const blocks = distance(arrivalCheckpoint, checkpoint);
