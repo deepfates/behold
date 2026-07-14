@@ -23,6 +23,9 @@ test, not the organizing purpose of the system.
 - Structured JSONL experience logs
 - Per-entity append-only autobiographies that survive controller restarts
 - Bounded model working context over an unbounded durable trajectory
+- Event-driven idle waking, immediate admitted-action dispatch, stale body-life
+  decision fencing, and an adversarially tested urgent-attention handoff that
+  preserves the full player action set
 - Ordinary life affordances for finding, collecting, crafting, sleeping, and defense
 - One player-grain two-resident handoff using only walking, dropping, automatic
   Minecraft pickup, independent observations, and restart continuity
@@ -42,6 +45,8 @@ test, not the organizing purpose of the system.
 - Sustained multi-resident interaction, cooperation, contention, and soak
   behavior; one staged handoff and one shared cache establish causal exchange
   and a common resource, not a household or society
+- Human-scale urgent cognition: matched evidence shows substantially smaller
+  prompts and lower uncached cost, but not lower single-call latency
 
 ### First Life proved so far
 
@@ -65,14 +70,17 @@ test, not the organizing purpose of the system.
 
 ## Immediate priorities
 
-1. Let Scout encounter and manage a bodily need or world threat.
-2. Continue a recognizable building project across another session.
-3. Stop multiplying scripted exchange scenarios: compress the repeated proof
+1. Prove the urgent-attention transition in one bounded live run and continue
+   measuring decision freshness rather than assuming compact prompts are fast.
+2. Finish the player-grain action audit and prove bounded body skills against a
+   real server independently of whether a model happens to choose them.
+3. Continue a recognizable building project across another session.
+4. Stop multiplying scripted exchange scenarios: compress the repeated proof
    machinery, then run a minimally scripted household with a human and several
    continuing residents maintaining one shared place.
-4. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
+5. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
    autobiography growth.
-5. Extend relationship and project memory only where lived tests show that the
+6. Extend relationship and project memory only where lived tests show that the
    bounded recent trajectory and continuity projection are insufficient.
 
 ## Useful world work

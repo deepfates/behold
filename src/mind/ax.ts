@@ -62,6 +62,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
     "Choose exactly one next action for a persistent embodied resident from bounded lived evidence. Propose only; never claim the action happened and never execute tools."
     livedContext:json,
     currentObservation:json,
+    attention?:json,
     admittedActionNames:string[],
     admittedActions:json,
     requiredAction?:string
@@ -142,9 +143,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
             provider: stringOrNull(providerResponse?.provider) || 'Ax/OpenAI-compatible',
             finishReason:
               stringOrNull(providerResponse?.choices?.[0]?.finish_reason) || 'structured_output',
-            nativeFinishReason: stringOrNull(
-              providerResponse?.choices?.[0]?.native_finish_reason,
-            ),
+            nativeFinishReason: stringOrNull(providerResponse?.choices?.[0]?.native_finish_reason),
             usage: {
               ax: usage,
               provider: aggregateProviderUsage(providerResponses),
@@ -202,6 +201,7 @@ function mindInput(request: ResidentMindRequest) {
   return {
     livedContext: livedContext(request),
     currentObservation: request.observation,
+    ...(request.attention ? { attention: request.attention } : {}),
     admittedActionNames: request.actions.map((action) => action.name),
     admittedActions: request.actions,
     ...(request.requiredAction ? { requiredAction: request.requiredAction } : {}),
@@ -234,15 +234,19 @@ function residentInstruction(request: ResidentMindRequest) {
 }
 
 function livedContext(request: ResidentMindRequest) {
-  const withoutSystem = request.conversation.filter((message: any) => message?.role !== 'system');
-  const last = withoutSystem.at(-1) as any;
+  const contextMessages = request.conversation.filter(
+    (message: any, index: number) => index !== 0 || message?.role !== 'system',
+  );
+  const last = contextMessages.at(-1) as any;
   if (
     last?.role === 'user' &&
-    /^(New world experience|Current world experience|World after )/.test(String(last?.content || ''))
+    /^(New world experience|Current world experience|World after )/.test(
+      String(last?.content || ''),
+    )
   ) {
-    return { messages: withoutSystem.slice(0, -1) };
+    return { messages: contextMessages.slice(0, -1) };
   }
-  return { messages: withoutSystem };
+  return { messages: contextMessages };
 }
 
 function toDecision(output: any, call: ResidentMindDecision['call']): ResidentMindDecision {

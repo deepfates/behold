@@ -156,6 +156,25 @@ independently recognize one persistent common resource through Minecraft. It
 does not prove open-ended cooperation, relationship development, contention,
 repair, survival, or a household that remains coherent for hours.
 
+## The first unscripted household trials
+
+`ScoutLife` and `WrenLife` have now run untasked in one continuing survival
+world. They formed separate concerns, gathered and crafted, converged without a
+collaboration macro, fled threats, died, respawned, recovered possessions, and
+continued work across managed restarts. Scout once freely chose to defend Wren
+from a zombie. The world, separate private histories, safe lifecycle, and free
+choice held; a stable household did not. Slow model calls, packet-grain combat,
+polling delay, stale pre-death decisions, forced item collection, misleading
+perception wording, and name-only moving targets were each exposed and corrected
+at their owning boundary.
+
+The latest bounded restart left both residents alive, but it did not include a
+human interaction, sustained relationship, completed shared place, or
+restart-after-completion proof. It made eight model calls in roughly 33 seconds,
+using 171,100 prompt tokens, 749 completion tokens, 28.35 seconds of aggregate
+model latency, and $0.218363. That is continuity evidence and a clear cognition
+budget failure, not household acceptance.
+
 ## The architecture we actually need
 
 The implementation has seven boundaries. They are useful because each corresponds
@@ -385,6 +404,15 @@ The useful architecture came from concrete failures:
   interface to gather, craft, and build. Interface quality and controller
   capability are separate variables; improving one cannot compensate for never
   testing the other.
+- Minecraft continued for 2.2–6.1 seconds while a resident was inside one model
+  call. High or urgent events now wake an idle mind. A newly urgent event during
+  slow deliberation cancels that request visibly, reobserves, and asks the same
+  mind again with the current body, bounded continuity, and the unchanged full
+  action set. It does not choose or narrow an action. A cache-controlled matched
+  replay reduced the prompt from 17,108 to 6,922 tokens and uncached cost from
+  $0.02231425 to $0.00962375, but the single urgent call was slower (3.811s versus
+  2.543s). Compact context is therefore a cost and freshness mechanism, not yet
+  proof of human-scale responsiveness.
 
 ## What is not proved yet
 

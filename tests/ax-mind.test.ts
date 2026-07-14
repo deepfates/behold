@@ -53,7 +53,12 @@ test('Ax proposes a typed decision without receiving executable world functions'
         entityId: 'Scout',
         model: 'test/model',
         observation: { inventory: [{ name: 'oak_log', count: 1 }] },
-        conversation: [{ role: 'system', content: 'Live carefully.' }],
+        conversation: [
+          { role: 'system', content: 'Live carefully.' },
+          { role: 'system', content: 'Folded view of your own loom: the shelter is unfinished.' },
+          { role: 'system', content: 'Urgent attention handoff: self_hurt@42.' },
+          { role: 'user', content: 'Current world experience: body health is 6.' },
+        ],
         actions: [
           {
             name: 'craft_item',
@@ -62,6 +67,11 @@ test('Ax proposes a typed decision without receiving executable world functions'
           },
         ],
         requiredAction: null,
+        attention: {
+          mode: 'urgent',
+          context: 'current_body_and_continuity',
+          triggers: [{ sequence: 42, type: 'self_hurt', salience: 'urgent' }],
+        },
       },
       { signal: new AbortController().signal },
     );
@@ -72,6 +82,10 @@ test('Ax proposes a typed decision without receiving executable world functions'
       false,
       'Ax may request structured output, but it must not receive executable Minecraft tools',
     );
+    const firstRequest = JSON.stringify(requests[0]);
+    assert.match(firstRequest, /Folded view of your own loom/);
+    assert.match(firstRequest, /Urgent attention handoff/);
+    assert.match(firstRequest, /current_body_and_continuity/);
     assert.equal(decision.disposition, 'act');
     assert.equal(decision.action?.name, 'craft_item');
     assert.deepEqual(decision.action?.input, { item: 'oak_planks' });

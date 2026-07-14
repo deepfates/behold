@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  attentionForObservation,
   hasDecisionRelevantEvent,
   isImmediateAttentionEvent,
   modelDecisionInvalidation,
@@ -41,6 +42,315 @@ test('only high and urgent lived events demand immediate attention', () => {
   assert.equal(isImmediateAttentionEvent({ salience: 'normal' }), false);
   assert.equal(isImmediateAttentionEvent({ salience: 'high' }), true);
   assert.equal(isImmediateAttentionEvent({ salience: 'urgent' }), true);
+});
+
+test('only a newly urgent lived event selects compact urgent cognition', () => {
+  assert.equal(
+    attentionForObservation({ events: [{ sequence: 1, salience: 'high', isNew: true }] }).mode,
+    'deliberative',
+  );
+  assert.equal(
+    attentionForObservation({ events: [{ sequence: 2, salience: 'urgent', isNew: false }] }).mode,
+    'deliberative',
+  );
+  assert.deepEqual(
+    attentionForObservation({
+      events: [{ sequence: 3, type: 'self_hurt', salience: 'urgent', isNew: true }],
+    }),
+    {
+      mode: 'urgent',
+      context: 'current_body_and_continuity',
+      triggers: [{ sequence: 3, type: 'self_hurt', salience: 'urgent' }],
+    },
+  );
+});
+
+test('an urgent body event preempts slow thought without choosing or narrowing an action', async () => {
+  let worldSequence = 1;
+  let firstStarted!: () => void;
+  const firstRequestStarted = new Promise<void>((resolve) => (firstStarted = resolve));
+  const requests: any[] = [];
+  const signals: AbortSignal[] = [];
+  const errors: any[] = [];
+  const interruptions: any[] = [];
+  const modelTurns: any[] = [];
+  const entityTurns: EntityTurn[] = [];
+  const actions = [tool('move_to'), tool('attack_entity'), tool('collect_nearby_item')];
+  const mind: ResidentMind = {
+    id: 'temporal-mind',
+    decide: async (request, { signal }) => {
+      requests.push(request);
+      signals.push(signal);
+      if (requests.length === 1) {
+        firstStarted();
+        return await new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I reobserved my body before choosing.',
+        action: null,
+        call: modelCallEvidence('temporal-mind'),
+      };
+    },
+  };
+  const observe = (sinceSequence = 0) => ({
+    protocol: 'behold.inhabitant.v1',
+    sequence: worldSequence,
+    observedAt: 100 + worldSequence,
+    eventWindow: {
+      requestedAfterSequence: sinceSequence,
+      oldestAvailableSequence: 1,
+      newestAvailableSequence: worldSequence,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
+    task: null,
+    self: {
+      currentAction: null,
+      condition: { health: worldSequence === 1 ? 20 : 14, food: 20, oxygen: 20 },
+      projects: [],
+      places: [],
+      placeConflicts: [],
+    },
+    scene: {
+      entities:
+        worldSequence === 1
+          ? []
+          : [{ id: 'entity:7', kind: 'hostile', name: 'zombie', distance: 2.2 }],
+    },
+    events: [
+      {
+        sequence: 1,
+        type: 'local_world_ready',
+        salience: 'high',
+        isNew: 1 > sinceSequence,
+        data: {},
+      },
+      ...(worldSequence >= 2
+        ? [
+            {
+              sequence: 2,
+              type: 'self_hurt',
+              salience: 'urgent',
+              isNew: 2 > sinceSequence,
+              data: {},
+            },
+          ]
+        : []),
+    ],
+  });
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions,
+      attempt: () => assert.fail('the test mind yielded; no action should be attempted'),
+      observe,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to'), failedTurn(3, 'move_to')],
+      acceptEngineEvent: () => true,
+      onModelError: (error) => errors.push(error),
+      onModelInterrupted: (interruption) => interruptions.push(interruption),
+      onModelTurn: (turn) => modelTurns.push(turn),
+      onEntityTurn: (turn) => entityTurns.push(turn),
+    },
+  );
+
+  try {
+    const firstTick = policy.tick();
+    await firstRequestStarted;
+    assert.equal(requests[0].attention.mode, 'deliberative');
+
+    worldSequence = 2;
+    policy.wake();
+    await until(() => requests.length === 2 && entityTurns.length === 1);
+    await firstTick;
+
+    assert.equal(signals[0].aborted, true);
+    assert.match(String(signals[0].reason?.message || signals[0].reason), /urgent_world_attention/);
+    assert.equal(errors.length, 0, 'intentional attention changes are not provider failures');
+    assert.equal(interruptions.length, 1);
+    assert.equal(interruptions[0].protocol, 'behold.attention-interruption.v1');
+    assert.equal(interruptions[0].reason, 'urgent_world_attention');
+    assert.equal(interruptions[0].from.mode, 'deliberative');
+    assert.deepEqual(interruptions[0].to.triggers, [
+      { sequence: 2, type: 'self_hurt', salience: 'urgent' },
+    ]);
+    assert.equal(interruptions[0].observationSequence, 1);
+    assert.equal(requests[1].attention.mode, 'urgent');
+    assert.deepEqual(requests[1].attention.triggers, [
+      { sequence: 2, type: 'self_hurt', salience: 'urgent' },
+    ]);
+    assert.ok(requests[1].conversation.length < requests[0].conversation.length);
+    assert.match(
+      requests[1].conversation.map((message: any) => String(message.content || '')).join('\n'),
+      /Urgent attention handoff[\s\S]*self_hurt@2/,
+    );
+    assert.deepEqual(
+      requests[1].observation.events.map((event: any) => event.sequence),
+      [2],
+    );
+    assert.deepEqual(
+      requests[1].actions.map((action: any) => action.name),
+      requests[0].actions.map((action: any) => action.name),
+    );
+    assert.equal(requests[1].requiredAction, null);
+    assert.equal(modelTurns[0].attention.mode, 'urgent');
+    assert.equal(entityTurns[0].attention?.mode, 'urgent');
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('a merely high event waits for slow thought instead of cancelling it', async () => {
+  let sequence = 1;
+  let started!: () => void;
+  const requestStarted = new Promise<void>((resolve) => (started = resolve));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const signals: AbortSignal[] = [];
+  const interruptions: any[] = [];
+  let calls = 0;
+  const mind: ResidentMind = {
+    id: 'high-event-mind',
+    decide: async (_request, { signal }) => {
+      calls += 1;
+      signals.push(signal);
+      if (calls === 1) {
+        started();
+        await gate;
+      }
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I can finish this thought before reconsidering.',
+        action: null,
+        call: modelCallEvidence('high-event-mind'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_to')],
+      attempt: () => true,
+      observe: (sinceSequence = 0) => ({
+        ...experience(sequence, null, sinceSequence),
+        task: null,
+        events: [
+          {
+            sequence,
+            type: sequence === 1 ? 'local_world_ready' : 'entity_died_nearby',
+            salience: 'high',
+            isNew: sequence > sinceSequence,
+            data: {},
+          },
+        ],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+      onModelInterrupted: (interruption) => interruptions.push(interruption),
+    },
+  );
+
+  try {
+    const firstTick = policy.tick();
+    await requestStarted;
+    sequence = 2;
+    policy.wake();
+    await drainImmediateQueue();
+    assert.equal(signals[0].aborted, false);
+    release();
+    await firstTick;
+    await until(() => calls === 2);
+    assert.equal(interruptions.length, 0);
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('new urgent evidence queues behind an already urgent decision without thrashing', async () => {
+  let sequence = 1;
+  let started!: () => void;
+  const requestStarted = new Promise<void>((resolve) => (started = resolve));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const requests: any[] = [];
+  const signals: AbortSignal[] = [];
+  const interruptions: any[] = [];
+  const mind: ResidentMind = {
+    id: 'urgent-event-mind',
+    decide: async (request, { signal }) => {
+      requests.push(request);
+      signals.push(signal);
+      if (requests.length === 1) {
+        started();
+        await gate;
+      }
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I considered the current urgent body state.',
+        action: null,
+        call: modelCallEvidence('urgent-event-mind'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_to')],
+      attempt: () => true,
+      observe: (sinceSequence = 0) => ({
+        ...experience(sequence, null, sinceSequence),
+        task: null,
+        events: Array.from({ length: sequence }, (_, index) => ({
+          sequence: index + 1,
+          type: 'self_hurt',
+          salience: 'urgent',
+          isNew: index + 1 > sinceSequence,
+          data: {},
+        })),
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+      onModelInterrupted: (interruption) => interruptions.push(interruption),
+    },
+  );
+
+  try {
+    const firstTick = policy.tick();
+    await requestStarted;
+    assert.equal(requests[0].attention.mode, 'urgent');
+    sequence = 2;
+    policy.wake();
+    await drainImmediateQueue();
+    assert.equal(signals[0].aborted, false);
+    release();
+    await firstTick;
+    await until(() => requests.length === 2);
+    assert.equal(requests[1].attention.mode, 'urgent');
+    assert.deepEqual(requests[1].attention.triggers, [
+      { sequence: 2, type: 'self_hurt', salience: 'urgent' },
+    ]);
+    assert.equal(interruptions.length, 0);
+  } finally {
+    await policy.stop();
+  }
 });
 
 test('a model decision fails closed when its observation cursor has a gap', () => {
@@ -202,8 +512,16 @@ test('an alternate mind receives one bounded observation and the exact admitted 
     assert.equal(requests.length, 1);
     assert.equal(requests[0].protocol, 'behold.mind-request.v1');
     assert.equal(requests[0].entityId, 'Scout');
-    assert.deepEqual(requests[0].observation, observation);
     assert.notEqual(requests[0].observation, observation);
+    assert.equal(requests[0].observation.protocol, observation.protocol);
+    assert.equal(requests[0].observation.sequence, observation.sequence);
+    assert.equal(requests[0].observation.eventWindow.deliveredNewestSequence, 1);
+    assert.equal(requests[0].observation.eventWindow.omittedNewEvents, 0);
+    assert.equal(
+      (observation as any).eventWindow,
+      undefined,
+      'projection must not mutate world evidence',
+    );
     assert.deepEqual(
       requests[0].actions.map((action: any) => action.name),
       ['inspect_volume', 'wait_for_event'],
@@ -212,6 +530,70 @@ test('an alternate mind receives one bounded observation and the exact admitted 
     assert.equal(attempted.length, 1);
     assert.equal(attempted[0].tool, 'inspect_volume');
     assert.deepEqual(attempted[0].input, { radius: 2 });
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('every mind adapter receives the same bounded event projection as the conversation', async () => {
+  const requests: any[] = [];
+  const mind: ResidentMind = {
+    id: 'bounded-mind',
+    decide: async (request) => {
+      requests.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I received one bounded batch.',
+        action: null,
+        call: modelCallEvidence('bounded-mind'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe: (sinceSequence = 0) => ({
+        protocol: 'behold.inhabitant.v1',
+        sequence: 20,
+        eventWindow: {
+          requestedAfterSequence: sinceSequence,
+          oldestAvailableSequence: 1,
+          newestAvailableSequence: 20,
+          missingBeforeOldest: 0,
+          complete: true,
+        },
+        self: { currentAction: null },
+        scene: { entities: [] },
+        events: Array.from({ length: 20 }, (_, index) => ({
+          sequence: index + 1,
+          type: 'world_event',
+          salience: 'normal',
+          isNew: index + 1 > sinceSequence,
+          data: { index: index + 1 },
+        })),
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.deepEqual(
+      requests[0].observation.events.map((event: any) => event.sequence),
+      Array.from({ length: 12 }, (_, index) => index + 1),
+    );
+    assert.equal(requests[0].observation.eventWindow.omittedNewEvents, 8);
+    const currentMessage = String(requests[0].conversation.at(-1)?.content || '');
+    assert.match(currentMessage, /"deliveredNewestSequence":12/);
+    assert.doesNotMatch(currentMessage, /"sequence":13/);
   } finally {
     await policy.stop();
   }

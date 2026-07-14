@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IntentSource } from '../loop/arbiter';
+import type { ResidentAttention } from '../mind/interface';
 import { sanitizeName } from '../observability/journal';
 import {
   beginManagedControllerAdmission,
@@ -22,6 +23,7 @@ export type EntityTurn = {
   sequence: number;
   parentId: string | null;
   model: string;
+  attention?: ResidentAttention;
   startedAt: number;
   completedAt: number;
   observation: any;

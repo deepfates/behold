@@ -151,6 +151,22 @@ The report binds the captured and replayed observation hashes, records any
 explicit observation migration, and rejects the candidate proposal at the
 admission boundary.
 
+For a matched fast/slow attention measurement, select a captured turn that
+contains a newly urgent event:
+
+```bash
+npm run eval:mind-differential -- \
+  --journal .behold-runs/<run>/<resident>/<journal>.jsonl \
+  --model-turn <journal-sequence> \
+  --attention-pair \
+  --out .behold-runs/<run>/<resident>/<attention-comparison>.json
+```
+
+Both provider calls receive the exact same model, current observation, action
+schemas, and required-action state. The runner varies only the working-context
+mode, adds the same unique cache-control provenance to both prompts, records
+provider cache usage, and admits neither proposal into Minecraft.
+
 Command registry and tools
 
 - Interpreter commands live in `src/agent/interpreter.ts` (chat/look/move/dig/place/inventory/sense).

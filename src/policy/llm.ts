@@ -11,7 +11,13 @@ import {
   type LoomFoldRequest,
   type LoomFoldSummarizer,
 } from '../entity/folding';
-import type { ResidentMind, ResidentMindDecision, ResidentMindRequest } from '../mind/interface';
+import type {
+  ResidentAttention,
+  ResidentAttentionInterruption,
+  ResidentMind,
+  ResidentMindDecision,
+  ResidentMindRequest,
+} from '../mind/interface';
 import {
   ResidentMindCallError,
   type ModelCallEvidence,
@@ -50,6 +56,7 @@ export type Options = {
     assistant: any;
     intent: Intent | null;
     call: ModelCallEvidence;
+    attention: ResidentAttention;
   }) => void;
   onModelError?: (failure: {
     at: number;
@@ -57,6 +64,7 @@ export type Options = {
     error: string;
     call: ModelCallFailureEvidence | ModelCallEvidence | null;
   }) => void;
+  onModelInterrupted?: (interruption: ResidentAttentionInterruption & { model: string }) => void;
   onAuxiliaryModelCall?: (turn: {
     at: number;
     model: string;
@@ -83,6 +91,7 @@ type TurnDraft = {
   startedAt: number;
   observation: any;
   assistant: any;
+  attention: ResidentAttention;
 };
 
 type ModelDecision = {
@@ -91,6 +100,13 @@ type ModelDecision = {
   toolCallId: string | null;
   wait: boolean;
   call: ModelCallEvidence;
+};
+
+type ActiveDecision = {
+  attention: ResidentAttention;
+  startedAt: number;
+  observationSequence: number;
+  interruption: ResidentAttentionInterruption | null;
 };
 
 class ModelCallError extends Error {
@@ -231,6 +247,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let turnSteps = 0;
   let pending: PendingAction | null = null;
   let currentObservation: any = null;
+  let currentModelObservation: any = null;
   let entitySequence = history.at(-1)?.sequence ?? 0;
   let parentTurnId = history.at(-1)?.id ?? null;
   let lastActionSignature: string | null = null;
@@ -240,10 +257,40 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let failedEmbodiedTool = trailingFailures.tool;
   let failedEmbodiedCount = trailingFailures.count;
   let suspended = false;
+  let activeDecision: ActiveDecision | null = null;
 
   async function wake(force = false) {
     if (stopped || suspended) return;
-    if (pending || deciding || preparingContext) {
+    if (deciding) {
+      wakeQueued = true;
+      const latest = observe();
+      const decision = activeDecision;
+      const triggers = urgentEventTriggers(latest, decision?.observationSequence ?? lastSequence);
+      if (
+        decision?.attention.mode === 'deliberative' &&
+        !decision.interruption &&
+        triggers.length > 0
+      ) {
+        const interruptedAt = now();
+        decision.interruption = {
+          protocol: 'behold.attention-interruption.v1',
+          reason: 'urgent_world_attention',
+          startedAt: decision.startedAt,
+          interruptedAt,
+          latencyMs: Math.max(0, interruptedAt - decision.startedAt),
+          observationSequence: decision.observationSequence,
+          from: decision.attention,
+          to: {
+            mode: 'urgent',
+            context: 'current_body_and_continuity',
+            triggers,
+          },
+        };
+        activeModelRequest?.abort(abortError('urgent_world_attention'));
+      }
+      return;
+    }
+    if (pending || preparingContext) {
       wakeQueued = true;
       return;
     }
@@ -336,6 +383,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     try {
       turnSteps += 1;
       const startedAt = now();
+      const modelObservation =
+        currentModelObservation ?? projectCurrentModelObservation(currentObservation);
+      const attention = attentionForObservation(modelObservation);
+      activeDecision = {
+        attention,
+        startedAt,
+        observationSequence: Number(currentObservation?.sequence) || lastSequence,
+        interruption: null,
+      };
       const availableTools = availableModelTools(modelTools, currentObservation);
       const requiredTool = requiredSelfDirectionTool(currentObservation, availableTools, allow);
       const decision = await withModelRequest(async (signal) => {
@@ -343,8 +399,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           protocol: 'behold.mind-request.v1',
           entityId,
           model: opts.model,
-          observation: cloneJson(currentObservation),
-          conversation: cloneJson(messages),
+          observation: cloneJson(modelObservation),
+          conversation: cloneJson(conversationForAttention(messages, attention)),
           actions: cloneJson(
             availableTools.map((action) => ({
               name: action.function.name,
@@ -356,6 +412,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             })),
           ),
           requiredAction: requiredTool,
+          attention,
         };
         const proposed = await abortable(mind.decide(request, { signal }), signal);
         return validateMindDecision(proposed, availableTools, requiredTool);
@@ -378,15 +435,17 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         startedAt,
         observation: currentObservation,
         assistant,
+        attention,
       };
       messages.push(assistant);
       opts.onModelTurn?.({
         at: decidedAt,
         model: opts.model,
-        observation: currentObservation,
+        observation: modelObservation,
         assistant,
         intent: decision.intent,
         call: decision.call,
+        attention,
       });
 
       if (decision.intent) {
@@ -584,23 +643,34 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       pending = { intent, toolCallId: decision.toolCallId, draft };
     } catch (e: any) {
       if (!stopped) {
-        log(`[policy] error: ${e?.message || String(e)}`);
-        opts.onModelError?.({
-          at: now(),
-          model: opts.model,
-          error: e?.message || String(e),
-          call:
-            e instanceof ModelCallError ||
-            e instanceof MindDecisionError ||
-            e instanceof ResidentMindCallError
-              ? e.call
-              : null,
-        });
+        const interruption = activeDecision?.interruption;
+        if (interruption) {
+          log(
+            `[policy] interrupted deliberation for ${interruption.to.triggers
+              .map((trigger) => `${trigger.type}@${trigger.sequence}`)
+              .join(', ')}`,
+          );
+          opts.onModelInterrupted?.({ ...interruption, model: opts.model });
+        } else {
+          log(`[policy] error: ${e?.message || String(e)}`);
+          opts.onModelError?.({
+            at: now(),
+            model: opts.model,
+            error: e?.message || String(e),
+            call:
+              e instanceof ModelCallError ||
+              e instanceof MindDecisionError ||
+              e instanceof ResidentMindCallError
+                ? e.call
+                : null,
+          });
+        }
       }
       turnActive = false;
       turnSteps = 0;
     } finally {
       deciding = false;
+      activeDecision = null;
       settleStop();
       if (!stopped && continueImmediately && turnActive && !pending) {
         setImmediate(() => void continueTurn());
@@ -705,6 +775,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   function appendWorldUpdate(frame: any, label: string) {
     currentObservation = frame;
     const projected = projectCurrentModelObservation(frame);
+    currentModelObservation = projected;
     const deliveredSequence = projected?.eventWindow?.deliveredNewestSequence;
     if (Number.isFinite(Number(deliveredSequence))) {
       lastSequence = Math.max(lastSequence, Number(deliveredSequence));
@@ -733,6 +804,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       sequence,
       parentId: parentTurnId,
       model: opts.model,
+      attention: draft.attention,
       startedAt: draft.startedAt,
       completedAt,
       observation: draft.observation,
@@ -1094,6 +1166,56 @@ export function modelDecisionInvalidation(frame: any, afterSequence: number) {
 
 export function isImmediateAttentionEvent(event: { salience?: unknown }) {
   return event?.salience === 'high' || event?.salience === 'urgent';
+}
+
+export function attentionForObservation(frame: any): ResidentAttention {
+  const triggers = urgentEventTriggers(frame, -1);
+  return triggers.length > 0
+    ? { mode: 'urgent', context: 'current_body_and_continuity', triggers }
+    : { mode: 'deliberative', context: 'bounded_loom', triggers: [] };
+}
+
+function urgentEventTriggers(frame: any, afterSequence: number): ResidentAttention['triggers'] {
+  return (Array.isArray(frame?.events) ? frame.events : [])
+    .filter(
+      (event: any) =>
+        Number(event?.sequence) > afterSequence &&
+        event?.isNew !== false &&
+        event?.salience === 'urgent',
+    )
+    .map((event: any) => ({
+      sequence: Number(event.sequence),
+      type: String(event.type || 'unknown'),
+      salience: 'urgent' as const,
+    }));
+}
+
+function conversationForAttention(messages: readonly any[], attention: ResidentAttention) {
+  if (attention.mode !== 'urgent') return messages;
+  const system = messages[0];
+  const foldedContinuity = messages
+    .slice(1, -1)
+    .filter(
+      (message) =>
+        message?.role === 'system' &&
+        String(message?.content || '').startsWith('Folded view of your own loom'),
+    )
+    .at(-1);
+  const urgentHandoff = {
+    role: 'system',
+    content: [
+      'Urgent attention handoff: slow deliberation was superseded by newly lived bodily evidence.',
+      `Triggers: ${
+        attention.triggers.map((trigger) => `${trigger.type}@${trigger.sequence}`).join(', ') ||
+        'current urgent observation'
+      }.`,
+      'Reassess the current body and scene. Your complete admitted action set is unchanged; no action has been selected for you.',
+    ].join('\n'),
+  };
+  const current = messages.at(-1);
+  return [system, ...(foldedContinuity ? [foldedContinuity] : []), urgentHandoff, current].filter(
+    Boolean,
+  );
 }
 
 export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {

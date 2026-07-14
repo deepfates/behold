@@ -365,6 +365,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           appendJournal('model_turn', turn);
         },
         onModelError: (failure) => appendJournal('model_call_failed', failure),
+        onModelInterrupted: (interruption) => appendJournal('model_call_interrupted', interruption),
         onAuxiliaryModelCall: (turn) => appendJournal('model_auxiliary_call', turn),
         onAuxiliaryModelError: (failure) => appendJournal('model_auxiliary_call_failed', failure),
         onEntityTurn: async (turn) => {
