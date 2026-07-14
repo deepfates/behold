@@ -100,6 +100,12 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   });
   let policy: ReturnType<typeof startLLMPolicy> | null = null;
   let engine: ReturnType<typeof createEngine> | null = null;
+  let localWorldReady = false;
+  const startPolicyIfReady = () => {
+    if (!localWorldReady || !policy) return;
+    policy.start();
+    policy.wake();
+  };
 
   const recordTaskProgress = () => {
     if (!taskRuntime) return null;
@@ -122,7 +128,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       engine?.muteLLM(false);
       policy?.resume();
     } else {
-      policy?.wake();
+      if (localWorldReady) policy?.wake();
     }
   });
 
@@ -236,7 +242,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         tool !== 'chat' &&
         tool !== 'whisper'
       ) {
-        policy?.wake();
+        if (localWorldReady) policy?.wake();
       }
     },
   });
@@ -266,8 +272,24 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   bot.once('spawn', () => {
     appendJournal('spawned', experience.observe());
     recordTaskProgress();
-    policy?.wake();
     show();
+    void (bot as any)
+      .waitForChunksToLoad()
+      .then(() => {
+        if (shutdownStarted) return;
+        localWorldReady = true;
+        experience.markLocalWorldReady();
+        appendJournal('local_world_ready', experience.observe());
+        startPolicyIfReady();
+        show();
+      })
+      .catch((error: any) => {
+        if (!shutdownStarted) {
+          appendJournal('local_world_readiness_failed', {
+            error: error?.message || String(error),
+          });
+        }
+      });
     let lastObservationAt = 0;
     displayTimer = setInterval(() => {
       if (!rl.line) show();
@@ -345,7 +367,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         },
       },
     );
-    policy.start();
+    startPolicyIfReady();
     console.error(`[console] LLM policy enabled (model ${model}, mind ${mindAdapter})`);
   } else if (!apiKey) {
     console.error('[console] No OPENROUTER_API_KEY; LLM autopilot disabled.');

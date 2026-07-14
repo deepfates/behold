@@ -31,13 +31,7 @@ export type TaskBrief = {
 };
 
 export type ActionStatus =
-  | 'queued'
-  | 'selected'
-  | 'started'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'interrupted';
+  'queued' | 'selected' | 'started' | 'running' | 'completed' | 'failed' | 'interrupted';
 
 export type ActionSnapshot = {
   id: string;
@@ -191,6 +185,7 @@ export class InhabitantExperience {
   private lastWeather: boolean | null;
   private lastDimension: string | null;
   private lastPulseAt: number;
+  private localWorldReady = false;
 
   constructor(
     private readonly bot: Bot,
@@ -217,6 +212,12 @@ export class InhabitantExperience {
   setTask(task: TaskBrief | null) {
     this.task = task;
     this.record('task_updated', { task }, 'high', 'event');
+  }
+
+  markLocalWorldReady() {
+    if (this.localWorldReady) return;
+    this.localWorldReady = true;
+    this.record('local_world_ready', { initialSceneSynchronized: true }, 'high', 'body');
   }
 
   record(
@@ -468,7 +469,10 @@ export class InhabitantExperience {
       if (!summary || summary.distance > 16) return;
       this.record(
         'entity_appeared_nearby',
-        summary,
+        {
+          ...summary,
+          observationPhase: this.localWorldReady ? 'live_world' : 'initial_world_sync',
+        },
         summary.kind === 'player' || summary.distance <= 6 ? 'high' : 'ambient',
         'proximity',
       );

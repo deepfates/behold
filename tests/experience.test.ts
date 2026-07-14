@@ -170,6 +170,36 @@ test('entity proximity is a bounded relation to this body, not server presence',
   experience.destroy();
 });
 
+test('entity appearances distinguish initial world synchronization from live events', () => {
+  const bot = fakeBot();
+  const experience = new InhabitantExperience(bot);
+
+  bot.emit('entitySpawn', bot.entities[2]);
+  const initialAppearance = experience
+    .observe()
+    .events.find((event) => event.type === 'entity_appeared_nearby');
+  assert.equal(initialAppearance?.data.observationPhase, 'initial_world_sync');
+
+  experience.markLocalWorldReady();
+  const liveEntity = {
+    id: 3,
+    name: 'item',
+    type: 'object',
+    position: new Vec3(2, 64, 0),
+  };
+  bot.entities[3] = liveEntity;
+  bot.emit('entitySpawn', liveEntity);
+  const observation = experience.observe();
+  const ready = observation.events.find((event) => event.type === 'local_world_ready');
+  const liveAppearance = observation.events
+    .filter((event) => event.type === 'entity_appeared_nearby')
+    .at(-1);
+  assert.equal(ready?.data.initialSceneSynchronized, true);
+  assert.equal(liveAppearance?.data.observationPhase, 'live_world');
+
+  experience.destroy();
+});
+
 test('engine lifecycle becomes part of the inhabitant body state', () => {
   const bot = fakeBot();
   const experience = new InhabitantExperience(bot);
