@@ -64,9 +64,13 @@ It has also earned three implementation boundaries inside the repository:
    observation, proposal, decision, execution, world fact when earned, and
    outside check records.
 
-The third boundary is now live and independently reassessed in Minecraft. It
-should remain an internal module until a second world conforms without
-Minecraft concepts leaking into it.
+The third boundary is now live and independently reassessed twice in Minecraft:
+one uncoached Ax action correctly emits no material fact, while one scripted
+native placement earns an air-to-dirt fact only after an exact Minecraft block
+update and a post-quiescence fresh-body read. This proves the inhabitation and
+verification composition, not the scripted resident's intelligence. The module
+should remain internal until a second world conforms without Minecraft concepts
+leaking into it.
 
 ## The offerings this can become
 
@@ -92,28 +96,27 @@ first package.
 
 ## The next big swings
 
-The next checkpoints should each falsify a larger claim.
+The material-consequence checkpoint has now passed in a real Minecraft 1.21.4
+epoch and survived independent reassessment. The next checkpoints should each
+falsify a larger claim.
 
-1. **Material consequence.** Perform one ordinary Minecraft action such as
-   mining or placing and emit a `world_fact` only from the existing native
-   block-change evidence and a later authoritative observation.
-2. **Contrasting world.** Project one real Golarion turn through the same six
+1. **Contrasting world.** Project one real Golarion turn through the same six
    causal distinctions. Keep its gauges, bodies, and authority local. If the
    graph bends, fix the graph before extracting it.
-3. **Continuing intelligence.** Stop the controller, change or replace the mind
+2. **Continuing intelligence.** Stop the controller, change or replace the mind
    program, resume the same body and life, and show that it remembers a real
    unfinished concern without repeating completed physical work.
-4. **Two private lives.** Put two inhabitants in one epoch. Let one cause an
+3. **Two private lives.** Put two inhabitants in one epoch. Let one cause an
    ordinary world consequence the other later observes, without sharing
    private prompts, memories, inventories, or evaluator state.
-5. **Optimization that matters.** Use exact Lync episode references and Ax
+4. **Optimization that matters.** Use exact Lync episode references and Ax
    program identities to optimize on training episodes, then require a cheaper
    or more capable held-out real rollout. Prompt changes receive no credit by
    themselves.
-6. **Population frontier.** Measure latency, throughput, cost, storage growth,
+5. **Population frontier.** Measure latency, throughput, cost, storage growth,
    fairness, and active-region load as inhabitants are added. Intelligence can
    be upgraded or downgraded, but identity and life cannot silently change.
-7. **World histories.** Join a Behold epoch to an immutable world checkpoint,
+6. **World histories.** Join a Behold epoch to an immutable world checkpoint,
    fork two writable children, and preserve which life experienced which
    history. Keep world forks, controller forks, and evaluation branches
    separate.

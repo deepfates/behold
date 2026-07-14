@@ -66,8 +66,11 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   graph. Observation, proposal, authentic permission, execution, optional
   world fact, and outside judgment have separate content IDs and relations
   while Minecraft payloads remain world-owned. A real Ax/Minecraft v4 turn and
-  clean-process reassessment pass. See `docs/ACTION_RECORD.md` and
-  `docs/reports/2026-07-14-action-record-v4.md`
+  clean-process reassessment pass. A separate real Minecraft placement now
+  earns a material fact from an exact native block update and a post-quiescence
+  fresh-body witness; its clean-process reassessment also passes. See
+  `docs/ACTION_RECORD.md`, `docs/reports/2026-07-14-action-record-v4.md`, and
+  `docs/reports/2026-07-14-material-action-fact-v2.md`
 - Managed multi-resident epochs with conjunctive readiness, exact per-entity
   leases, isolated journals/Lync lives, bounded process/model concurrency, and
   all-resident drain before one Minecraft save/stop
@@ -108,6 +111,11 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   first gate proves that placement may own one bounded step-aside while
   preserving the exact target, receiving Minecraft block-update confirmation,
   appending one durable turn, and passing an independent fresh-client witness
+- Every custom live-proof resident now parses the same complete process contract
+  used by the managed launcher. The material-fact E2E exposed the previous
+  launcher/resident profile-flag mismatch before any world action, and one
+  shared parser plus a contract test removed the latent defect from all proof
+  residents
 - One canonical causal, loss-visible observation projection shared by recent
   model history and disposable Lync folds; provider-free projection of the
   previously oversized Wren batch is 33,930 bytes
@@ -210,9 +218,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    [the neutral benchmark design](MINECRAFT_BENCHMARK.md).
 2. Run direct and content-addressed Ax minds against identical captured
    requests, then use held-out real Minecraft episodes for outcome selection.
-3. Prove one honest observation-action-consequence turn and one continuation in
-   a contrasting real world. Extract shared code only after that integration
-   shows which semantics actually repeat.
+3. Prove one honest turn and one continuation in a contrasting real world.
+   Minecraft's observation-action-material-consequence loop now passes; extract
+   shared code only after the second integration shows which semantics actually
+   repeat.
 4. Extend the player-grain conformance gate across representative movement,
    interaction, self-care, and interruption semantics without creating one
    runner per story.

@@ -53,7 +53,7 @@ explicit in stage payloads. For example, a later observation says
 `observedAfter`; it does not claim that every state it contains was caused by
 the preceding action.
 
-## Current Behold mapping
+## Current Behold mappings
 
 The neutral Minecraft turn currently maps as follows:
 
@@ -67,12 +67,24 @@ The neutral Minecraft turn currently maps as follows:
 | Observation after  | Later complete inhabitant observation                 | The body received later action and world state                                   |
 | Structural check   | Post-run graph assessor                               | IDs, references, ordering, access metadata, and evidence commitments conform     |
 
-There is intentionally no `world_fact` in this neutral look record. A later
+There is intentionally no `world_fact` in the neutral look record. A later
 client pose and `self.currentAction` are useful observations, but neither is a
-server-confirmed material effect. Existing Minecraft block-change verifiers
-show how to earn a fact through an exact native update and later authoritative
-read; a future material action-record profile must connect that evidence
-without weakening it.
+server-confirmed material effect.
+
+The material Minecraft profile now adds three records without changing the
+generic graph:
+
+| Record                     | Authenticated source                                                                              | Meaning                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Resident observation after | Complete first-person observation immediately after the terminal                                  | The acting body received the result and later local state                                         |
+| Fresh-body observation     | A separately connected Minecraft client after the resident quiesced                               | A different body later read the exact dimension, cell, block name, and state ID                   |
+| World fact                 | World-aware verifier over callback-time `blockUpdate`, the successful terminal, and fresh witness | This exact cell changed from air to dirt during execution and the later client saw the same state |
+
+The live material proof used a scripted `place_block` proposal through the
+production engine. That is honest evidence for the body, authority, world, life,
+and verification boundaries; it is not evidence of model competence. The fact
+also does not claim indefinite persistence, a separately operated Minecraft
+service, or that every successful action has a material consequence.
 
 Behold's world-action binding now refuses a started action unless it finds one
 fresh, earlier `permission_decision` for the same intent, with the same
@@ -87,11 +99,17 @@ the mind/world turn, uses a separate checker identity, and cannot guide the
 completed proposal. This separation is useful, but it is not process
 independence by itself.
 
-The stronger proof is `verify:neutral-turn`. That command independently opens
+The stronger neutral proof is `verify:neutral-turn`. That command independently opens
 the private mind request, run journal, world lifecycle, Lync life turn, and
 evaluator episode; verifies their digests and references; reconstructs the
 decision, authorization, execution, observations, and action-record graph; and
 refuses any mismatch with the stored result.
+
+The material counterpart is `verify:native-body`. It reopens the phase,
+fresh-body witness, lifecycle, and canonical Lync file; verifies exact digests,
+world/run/resident identity, quiescence order, and one durable turn; then
+recomputes both the native assessment and the complete action record. See the
+[live material-fact report](reports/2026-07-14-material-action-fact-v2.md).
 
 ## Privacy
 
@@ -126,8 +144,6 @@ that has not been authenticated into this record.
 
 The following remain red:
 
-- a clean live v4 Minecraft artifact independently reassessed from raw files;
-- a material action record with a Minecraft-native confirmed `world_fact`;
 - stale controller/lease fencing against live authority, not merely consistent
   references inside one graph;
 - duplicate delivery of one proposal ID without a repeated physical effect;
