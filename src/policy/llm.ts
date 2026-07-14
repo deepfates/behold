@@ -459,7 +459,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               messages,
               attention,
               availableTools,
-              attention.mode === 'urgent'
+              attention.context === 'current_body_and_continuity'
                 ? projectRecentActionContinuity(
                     loomContext.view().turns,
                     undefined,
@@ -769,6 +769,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       };
     }
     continuingBodilyAttention = null;
+    if (isCriticalBodyCondition(frame?.self?.condition)) {
+      return {
+        mode: 'deliberative',
+        context: 'current_body_and_continuity',
+        continuingCondition: 'critical_body_condition',
+        triggers: [],
+      };
+    }
     return fresh;
   }
 
@@ -1436,8 +1444,9 @@ function conversationForAttention(
   availableTools?: readonly ToolSpec[],
   recentActionContinuity?: RecentActionContinuity | null,
 ) {
-  if (attention.mode !== 'urgent') return messages;
+  if (attention.context === 'bounded_loom') return messages;
   const bodilyUrgency = hasBodilyUrgency(attention);
+  const continuingBodyPressure = attention.continuingCondition === 'critical_body_condition';
   const system = availableTools
     ? { role: 'system', content: controllerSystemPrompt(availableTools) }
     : messages[0];
@@ -1452,12 +1461,14 @@ function conversationForAttention(
   const urgentHandoff = {
     role: 'system',
     content: [
-      attention.continuingCondition
-        ? 'Continuing bodily urgency: an earlier lived trigger remains unresolved in the current body condition.'
-        : 'Urgent attention handoff: slow deliberation was superseded by newly lived bodily evidence.',
+      bodilyUrgency
+        ? continuingBodyPressure
+          ? 'Continuing bodily urgency: the last attempted response failed and the critical condition remains.'
+          : 'Urgent attention handoff: slow deliberation was superseded by newly lived bodily evidence.'
+        : 'Ongoing critical body pressure: an immediate response executed, so recovery may be deliberate while the condition remains current.',
       `Triggers: ${
         attention.triggers.map((trigger) => `${trigger.type}@${trigger.sequence}`).join(', ') ||
-        'current urgent observation'
+        (continuingBodyPressure ? 'current critical body condition' : 'current urgent observation')
       }.`,
       ...(bodilyUrgency
         ? [
@@ -1467,9 +1478,15 @@ function conversationForAttention(
             'A threat leaving the camera is not proof of safety. When no hostile is currently visible, do not flee blindly forever; use a bounded look or current terrain and inventory evidence to locate food, defensible cover, or a safe route.',
             'Every admitted embodied action remains available; private project bookkeeping is deferred until bodily urgency ends. No response has been selected for you.',
           ]
-        : [
-            'Reassess the current body, scene, and social event. The ordinary admitted action surface is unchanged, and no response has been selected for you.',
-          ]),
+        : continuingBodyPressure
+          ? [
+              'Use the current body, egocentric scene, inventory, and recent consequences to plan the next grounded recovery step. Survival remains the priority, but no new urgent event has preselected an action.',
+              'Do not convert remembered or inferred safety into current fact. Seek food, defensible terrain, or another ordinary Minecraft mitigation only through available evidence and verified consequences.',
+              'Private project bookkeeping and memory maintenance remain deferred until the body leaves the critical range.',
+            ]
+          : [
+              'Reassess the current body, scene, and social event. The ordinary admitted action surface is unchanged, and no response has been selected for you.',
+            ]),
     ].join('\n'),
   };
   const recentActions = recentActionContinuity

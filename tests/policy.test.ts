@@ -485,7 +485,7 @@ test('critical body condition keeps urgency through failure then deliberates aft
     );
     assert.match(
       requests[1].conversation.map((message: any) => String(message.content || '')).join('\n'),
-      /Continuing bodily urgency[\s\S]*remains unresolved/,
+      /Continuing bodily urgency[\s\S]*critical condition remains/,
     );
     assert.match(
       requests[1].conversation.map((message: any) => String(message.content || '')).join('\n'),
@@ -516,7 +516,13 @@ test('critical body condition keeps urgency through failure then deliberates aft
     );
     assert.equal(requests[2].model, 'test/ordinary-model');
     assert.equal(requests[2].attention?.mode, 'deliberative');
-    assert.equal(requests[2].attention?.continuingCondition, undefined);
+    assert.equal(requests[2].attention?.context, 'current_body_and_continuity');
+    assert.equal(requests[2].attention?.continuingCondition, 'critical_body_condition');
+    assert.ok(requests[2].conversation.length <= 5);
+    assert.match(
+      requests[2].conversation.map((message: any) => String(message.content || '')).join('\n'),
+      /Ongoing critical body pressure[\s\S]*recovery may be deliberate/i,
+    );
     assert.equal(
       requests[2].actions.some((action) => action.name === 'manage_project'),
       false,
@@ -530,6 +536,8 @@ test('critical body condition keeps urgency through failure then deliberates aft
     assert.ok(foldCalls >= 1, 'deferred maintenance resumes after the critical condition clears');
     assert.equal(requests[3].model, 'test/ordinary-model');
     assert.equal(requests[3].attention?.mode, 'deliberative');
+    assert.equal(requests[3].attention?.context, 'bounded_loom');
+    assert.equal(requests[3].attention?.continuingCondition, undefined);
     assert.equal(
       requests[3].actions.some((action) => action.name === 'manage_project'),
       true,

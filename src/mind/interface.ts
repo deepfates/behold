@@ -9,7 +9,7 @@ export type ResidentMindAction = {
 export type ResidentAttention = {
   mode: 'deliberative' | 'urgent';
   context: 'bounded_loom' | 'current_body_and_continuity';
-  /** Present only when an earlier bodily trigger remains unresolved in current body state. */
+  /** Present while a critical body condition still constrains attention and maintenance. */
   continuingCondition?: 'critical_body_condition';
   triggers: readonly {
     sequence: number;
