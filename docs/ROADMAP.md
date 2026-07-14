@@ -36,7 +36,12 @@ test, not the organizing purpose of the system.
   distinguishes bodily danger from social interruption, preserves the full
   player action set while deferring only private project bookkeeping during
   bodily urgency, and can route that workload through a separately authorized
-  and fully evidenced mind model
+  and fully evidenced mind model. Three live endangered-resident choices used
+  Luna exactly for that tier; the latest cap-triggered terminal committed to
+  Lync before a clean controller, broker, and Minecraft drain
+- Player-scale relative walking refuses an obstructed adjacent body step before
+  pathfinding and enforces bounded time, horizontal displacement, and vertical
+  displacement instead of silently taking an arbitrary route
 - One canonical causal, loss-visible observation projection shared by recent
   model history and disposable Lync folds; provider-free projection of the
   previously oversized Wren batch is 33,930 bytes
@@ -68,10 +73,10 @@ test, not the organizing purpose of the system.
   one disposable Lync fold accounted for 67,319 prompt tokens and $0.1049295.
   Causal fold projection and a hard call ceiling are implemented, but no new
   paid run has established their token and cost effect
-- Live evidence that the urgent embodied/bookkeeping separation changes survival
-  behavior; exact-frame comparison selected Luna provisionally for bodily
-  urgency, but an unadmitted replay cannot prove the resident will act well in
-  the live world
+- Competent danger recovery: Luna now chooses embodied escape rather than
+  unrelated project bookkeeping in live endangered frames, but one over-routed
+  movement, one bounded path-choice failure, and one correctly refused blocked
+  step do not prove escape, healing, shelter, or survival
 - Human-scale urgent cognition: matched evidence shows substantially smaller
   prompts and lower uncached cost, but not lower single-call latency
 
@@ -103,9 +108,9 @@ test, not the organizing purpose of the system.
 
 ## Immediate priorities
 
-1. Run one endangered resident with Gemini ordinary cognition and Luna bodily
-   urgency behind a very small call budget; verify the chosen action, bodily
-   consequence, exact selected model, terminal settlement, and owner shutdown.
+1. Give the endangered resident a short native-player recovery trajectory:
+   descend safely, reduce exposure, find food or shelter from first-person
+   evidence, and survive—with bounded body skills and exact consequences.
 2. Compress and measure the ordinary recent-turn frontier without mutating its
    authoritative Lync source, then keep the hard aggregate call ceiling above
    expected episode demand as a safety boundary.

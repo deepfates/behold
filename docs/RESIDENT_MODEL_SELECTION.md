@@ -70,7 +70,10 @@ the selected provider rejected required tool choice; Step 3.5 Flash crossed a
 five-second deadline. DeepSeek V4 Flash was extremely cheap but did not choose
 a bodily consequence and later timed out on one of two ordinary frames.
 
-Luna is therefore the provisional `--urgentModel`, while Gemini remains the
-ordinary default. This is an explicit workload tier, not a global ranking and
-not yet a live survival claim. The full evidence and nonclaims are in the
+Luna is therefore the `--urgentModel`, while Gemini remains the ordinary
+default. Three later live endangered frames selected Luna exactly and produced
+relative escape choices instead of project bookkeeping. This validates the
+workload routing and choice shift, not bodily survival: the body over-routed
+once, failed one bounded path choice, and correctly refused one blocked adjacent
+step. The full evidence and nonclaims are in the
 [capped danger calibration](reports/2026-07-14-capped-danger-calibration.md).

@@ -222,6 +222,16 @@ provisionally for that workload while retaining Gemini for ordinary
 orientation. The run, comparison, costs, and live nonclaim are in the
 [capped danger calibration](reports/2026-07-14-capped-danger-calibration.md).
 
+Three bounded follow-up epochs then admitted Luna for Wren's actual urgent
+frames. Luna chose relative escape each time rather than continuing the shelter
+project. Those runs exposed and corrected unrestricted local path routing,
+fire-and-forget terminal persistence, and a stop-during-terminal-commit race.
+The latest run refused an adjacent oak-leaf obstruction without pathfinding,
+committed the failure as Wren turn 62, drained one accepted model call, saved
+Minecraft, and released every authority normally. This is a live cognition and
+lifecycle pass, not yet a survival pass; descent, food, exposure reduction, and
+sustained bodily care remain red.
+
 The demonstrated failures are now corrected at their owning source boundaries,
 pending live validation. Urgent bodily attention retains the complete admitted
 Minecraft action surface but defers the private `manage_project` mutator; a

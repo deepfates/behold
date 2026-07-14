@@ -136,9 +136,12 @@ What remains red, in priority order:
 2. **Egocentric local movement.** `move_direction` now supplies bounded
    forward/back/left/right walking relative to the resident's view, while
    `move_to` remains for visible, communicated, or remembered coordinates. Its
-   first natural admission did not select the new action: the resident already
-   saw an exact oak-log target and appropriately used `move_to`. Preserve that
-   trajectory and seek real-server selection through later life, not retries.
+   first endangered live admission exposed unrestricted pathfinder routing, so
+   the skill now refuses a blocked adjacent body step and enforces a local time,
+   horizontal, and vertical envelope. Two later live selections stayed local:
+   one advanced about three blocks before an honest path-choice failure, and one
+   refused immediately on an oak-leaf obstruction. Safe descent and sustained
+   escape remain red.
 3. **Legible obstruction.** Failed relative walking now reports only the
    adjacent feet, head, and support cells. Coordinate `move_to` failures still
    need equally useful body-scale evidence without revealing a hidden route or

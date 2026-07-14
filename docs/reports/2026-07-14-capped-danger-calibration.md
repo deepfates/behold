@@ -145,23 +145,74 @@ The following corrections now pass the complete repository gate:
    request profiling reads only a current fold and fails closed rather than
    invoking a fold model or rewriting a resident cache.
 
-The full build, lint, and test gate passes 328 of 328 tests. None of those tests
-proves Luna will save Wren in the live world. That remains the next small,
-bounded empirical question.
+The full build, lint, and test gate at that revision passed 328 of 328 tests.
+None of those tests proved Luna would save Wren in the live world. That was the
+next small, bounded empirical question.
+
+## Live tier and body validation
+
+Three later one-resident epochs answered part of that question and falsified
+two lower-level assumptions.
+
+Epoch 14 used Luna for Wren's newly urgent bodily frame. The request, broker,
+model turn, and action all named `openai/gpt-5.6-luna`; Luna chose
+`move_direction forward 6` in 2.535 seconds for $0.00669125. That was a much
+better bodily choice than Gemini's repeated plank placement, but the body skill
+silently treated it as an unrestricted pathfinding column. Wren moved 8.7
+blocks horizontally and climbed nine blocks before duration teardown cancelled
+the action. The action terminal also reached the run journal but not Lync before
+process exit because engine observers were fire-and-forget.
+
+Revision `599552c30...` corrected both boundaries. Relative movement now refuses
+an obstructed adjacent body step before pathfinding, uses a three-dimensional
+near goal, has a distance-scaled time limit, and stops when displacement leaves
+a strict player-scale envelope. Engine shutdown waits for asynchronous terminal
+consumers. The complete gate then passed 331 tests.
+
+Epoch 15 started from that clean revision. Luna again chose embodied escape,
+this time `move_direction left 6`. Mineflayer moved Wren only about three blocks
+forward and one block down before reporting that path choice took too long. A
+second ordinary Gemini call proposed an unsupported plank and failed before a
+world command. Both terminal outcomes became durable entity turns, proving the
+engine-to-Lync correction. Shutdown nevertheless exposed a narrower policy
+race: when stop began during the second terminal commit, the commit completed
+but the policy's stop promise was never reconsidered. The owner timed out after
+60 seconds, preserved the epoch as `recovery_required`, and the explicit
+recovery path released it only after the controller, server, port, session lock,
+and lease were demonstrably stopped.
+
+Revision `a58dfaa...` adds the missing policy settlement edge and an exact
+interleaving regression. Epoch 16 then recreated the race deliberately with one
+accepted call. Luna chose `move_direction back 6` in 4.345 seconds for
+$0.00586375. The adjacent feet cell was oak leaves, so the body refused
+immediately with `immediate_direction_unavailable` and did not pathfind. That
+failure became Wren entity turn 62 before controller shutdown. The controller
+exited zero, the broker reconciled one accepted/admitted/completed call,
+Minecraft saved and exited zero, lifecycle sequence 25 released control, and
+the final owner, port, session-lock, and lease inspection was clear.
+
+This proves that the workload tier changes live choices, that local movement
+now fails at player grain, and that a terminal survives a cap-triggered race
+into normal teardown. It does **not** prove that Wren can escape danger, descend
+from a canopy, heal, or survive for a useful period. The model chose a sensible
+kind of act; the remaining red work is bodily competence and available-world
+legibility, not another urgency ontology.
 
 ## Next gate
 
-The next paid validation should use one endangered resident, Gemini as the
-ordinary model, Luna only for bodily urgency, aggregate concurrency one, a very
-small call ceiling, and the normal managed owner. It should prove all of the
-following from journals and Minecraft consequences:
+The small paid tier and teardown validation is now green. The next danger gate
+should keep Gemini for ordinary cognition and Luna only for bodily urgency, but
+evaluate a short native-player recovery trajectory rather than another isolated
+proposal. It should prove all of the following from journals and Minecraft
+consequences:
 
-- the urgent request and broker admission name Luna while ordinary or social
-  thought still names Gemini;
-- the first urgent action changes exposure or otherwise produces a defensible
-  bodily consequence;
-- every accepted call reaches a terminal before owner teardown;
-- the world saves and all authority is released; and
+- Wren can use visible terrain and ordinary inventory/body feedback to get off
+  the canopy, reduce exposure, and pursue food or shelter without hidden route
+  knowledge;
+- each chosen move remains inside the player-scale envelope and each mutation
+  has an independently observed Minecraft consequence;
+- failures leave enough adjacent, visual, or inventory evidence for a different
+  native strategy without revealing a route oracle; and
 - exact prompt tokens, cost, latency, cancellation, body state, and resulting
   action are reported without treating survival by chance as intelligent care.
 
@@ -175,5 +226,8 @@ problem and needs its own causal compression gate.
 - residents:
   `.behold-runs/first-life-v1-13/{ScoutLife,WrenLife}/*.jsonl`
 - cognition: `.behold-runs/first-life-v1-13/_cognition/broker.jsonl`
+- live tier/body validation:
+  `.behold-runs/first-life-v1-{14,15,16}/`, with owner lifecycle and recovery
+  evidence under `.behold-runtime/world-control/first-life-v1/`
 - provider-free request profiles and exact-frame candidate records under the
   two resident run directories
