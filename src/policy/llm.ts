@@ -208,6 +208,7 @@ const EMBODIED_ACTION_TOOLS = new Set<string>([
   'sleep_in_bed',
   'wake_up',
 ]);
+const BODILY_RESPONSE_TOOLS = new Set<string>([...EMBODIED_ACTION_TOOLS, 'consume', 'equip_item']);
 const TERMINAL_ACTION_EVENTS = new Set(['action_completed', 'action_failed', 'intent_blocked']);
 
 /**
@@ -386,7 +387,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     const attentionBeforeFold = attentionForCurrentLife(
       currentModelObservation ?? projectCurrentModelObservation(currentObservation),
     );
-    if (loomContext.state().needsFold && !hasBodilyUrgency(attentionBeforeFold)) {
+    const bodyPressure = isCriticalBodyCondition(currentModelObservation?.self?.condition);
+    if (loomContext.state().needsFold && !hasBodilyUrgency(attentionBeforeFold) && !bodyPressure) {
       preparingContext = true;
       try {
         const folded = await loomContext.prepare();
@@ -407,7 +409,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         settleStop();
       }
     } else if (loomContext.state().needsFold) {
-      log('[policy] deferred own-loom fold while bodily urgency remains unresolved');
+      log('[policy] deferred own-loom fold while bodily pressure remains unresolved');
     }
     if (turnSteps >= maxTurnSteps) {
       log(`[policy] controller paused after reaching ${maxTurnSteps} model steps`);
@@ -794,6 +796,18 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
     const finished = pending;
     pending = null;
+    if (
+      event.type === 'action_completed' &&
+      continuingBodilyAttention &&
+      BODILY_RESPONSE_TOOLS.has(finished.intent.tool)
+    ) {
+      // A new urgent event deserves one fast response. Once a bodily action
+      // really executes, the critical condition remains visible and keeps
+      // maintenance/bookkeeping deferred, but planning may become deliberative
+      // until new harm or another urgent world event arrives.
+      continuingBodilyAttention = null;
+      log('[policy] acute bodily response completed; continuing recovery may deliberate');
+    }
     if (
       event.type === 'intent_blocked' &&
       ['human_stop', 'llm_muted_by_human_stop'].includes(String(event.data?.reason || ''))
@@ -1221,7 +1235,12 @@ function availableModelTools(
     // Minecraft response. Preserve every ordinary player affordance during
     // urgent attention, but defer bookkeeping until the body is no longer
     // demanding an immediate choice.
-    if (hasBodilyUrgency(attention) && spec.function.name === MANAGE_PROJECT_TOOL) return [];
+    if (
+      (hasBodilyUrgency(attention) || isCriticalBodyCondition(frame?.self?.condition)) &&
+      spec.function.name === MANAGE_PROJECT_TOOL
+    ) {
+      return [];
+    }
     if (COMMUNICATION_TOOLS.has(spec.function.name)) {
       return !Array.isArray(roster) || roster.length > 0 ? [spec] : [];
     }

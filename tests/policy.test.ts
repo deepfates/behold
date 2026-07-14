@@ -345,7 +345,7 @@ test('social urgency keeps ordinary projects available without bodily-danger fra
   }
 });
 
-test('critical body condition keeps urgent cognition through failure and releases after mitigation', async () => {
+test('critical body condition keeps urgency through failure then deliberates after a real response', async () => {
   let sequence = 1;
   let health = 2;
   let currentAction: any = null;
@@ -416,7 +416,7 @@ test('critical body condition keeps urgent cognition through failure and release
             },
           ]
         : []),
-      ...(sequence >= 3
+      ...(sequence >= 3 && health > 2
         ? [
             {
               sequence: 3,
@@ -502,20 +502,36 @@ test('critical body condition keeps urgent cognition through failure and release
     assert.match(String(recentContinuity.content), /I will try to move out of danger/);
 
     sequence = 3;
-    health = 8;
     currentAction = { ...currentAction, status: 'completed' };
     await policy.onEngineEvent({
       type: 'action_completed',
       at: 30,
-      data: { intent: attempted[1], result: { ok: true, healthBefore: 2, healthAfter: 8 } },
+      data: { intent: attempted[1], result: { ok: true, inventoryRemoved: 1 } },
     });
     await until(() => requests.length === 3);
-    assert.ok(foldCalls >= 1, 'deferred maintenance resumes after the critical condition clears');
+    assert.equal(
+      foldCalls,
+      0,
+      'memory maintenance remains deferred while the body is still critical',
+    );
     assert.equal(requests[2].model, 'test/ordinary-model');
     assert.equal(requests[2].attention?.mode, 'deliberative');
     assert.equal(requests[2].attention?.continuingCondition, undefined);
     assert.equal(
       requests[2].actions.some((action) => action.name === 'manage_project'),
+      false,
+    );
+    await until(() => policy.state().turnActive === false);
+
+    sequence = 4;
+    health = 8;
+    await policy.tick();
+    await until(() => requests.length === 4);
+    assert.ok(foldCalls >= 1, 'deferred maintenance resumes after the critical condition clears');
+    assert.equal(requests[3].model, 'test/ordinary-model');
+    assert.equal(requests[3].attention?.mode, 'deliberative');
+    assert.equal(
+      requests[3].actions.some((action) => action.name === 'manage_project'),
       true,
     );
   } finally {
