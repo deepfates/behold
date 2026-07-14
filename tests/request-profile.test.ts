@@ -11,6 +11,9 @@ test('resident request profile is an exact UTF-8 byte partition with no executio
     protocol: 'behold.mind-request.v1',
     entityId: 'IrisLife',
     model: 'fixture/model',
+    policyProfile: 'neutral-benchmark-v1',
+    actionProfile: 'minecraft-player-v1',
+    safetyProfile: 'vanilla-player-v1',
     observation: { sequence: 7, scene: { focus: 'café' } },
     conversation: [
       { role: 'system', content: 'Live here.' },
@@ -42,6 +45,11 @@ test('resident request profile is an exact UTF-8 byte partition with no executio
   );
   assert.equal(profile.request.messageCount, 5);
   assert.equal(profile.request.actionCount, 1);
+  assert.deepEqual(profile.request.profiles, {
+    policy: 'neutral-benchmark-v1',
+    actions: 'minecraft-player-v1',
+    safety: 'vanilla-player-v1',
+  });
   assert.deepEqual(profile.request.actionNames, ['look_direction']);
   assert.equal(profile.request.actionEntries[0].name, 'look_direction');
   assert.ok(profile.request.actionEntries[0].definitionBytes > 0);

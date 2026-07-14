@@ -177,6 +177,21 @@ test('resident configuration rejects canonical identity collisions and process-b
     (error: any) => error?.code === 'model_call_limit_invalid',
   );
   assert.equal(inspections, 0);
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          residents: fixture.options.residents.map((resident) => ({
+            ...resident,
+            policyProfile: 'secret-coaching-v1' as any,
+          })),
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_profile_invalid',
+  );
+  assert.equal(inspections, 0);
 });
 
 test('managed cognition keeps the provider key in the runner and drains before Minecraft stops', async (t) => {
@@ -206,7 +221,10 @@ test('managed cognition keeps the provider key in the runner and drains before M
         refererPresent: process.env.OPENROUTER_REFERER != null,
         titlePresent: process.env.OPENROUTER_TITLE != null,
         ambientCloudCredentialPresent: process.env.AWS_SECRET_ACCESS_KEY != null,
-        dotenvDisabled: process.env.BEHOLD_LOAD_DOTENV === '0'
+        dotenvDisabled: process.env.BEHOLD_LOAD_DOTENV === '0',
+        policyProfile: process.env.BEHOLD_POLICY_PROFILE,
+        actionProfile: process.env.BEHOLD_ACTION_PROFILE,
+        safetyProfile: process.env.BEHOLD_SAFETY_PROFILE
       }));
       console.log('[bot] Local world loaded.');
       process.stdin.resume();
@@ -272,6 +290,7 @@ test('managed cognition keeps the provider key in the runner and drains before M
       residents: fixture.options.residents.map((resident) => ({
         ...resident,
         urgentModel: 'fixture/urgent-model',
+        policyProfile: 'neutral-benchmark-v1' as const,
       })),
     },
     {
@@ -285,7 +304,13 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.ok(run.cognition);
   assert.equal(run.cognition.concurrencyLimit, 1);
   assert.equal(run.cognition.maxTotalModelCalls, 4);
+  assert.equal(run.residents[0].policyProfile, 'neutral-benchmark-v1');
+  assert.equal(run.residents[0].actionProfile, 'minecraft-player-v1');
+  assert.equal(run.residents[0].safetyProfile, 'vanilla-player-v1');
   const captured = JSON.parse(fs.readFileSync(captureFile, 'utf8'));
+  assert.equal(captured.policyProfile, 'neutral-benchmark-v1');
+  assert.equal(captured.actionProfile, 'minecraft-player-v1');
+  assert.equal(captured.safetyProfile, 'vanilla-player-v1');
   assert.notEqual(captured.keySha256, createHash('sha256').update(providerSecret).digest('hex'));
   assert.ok(captured.keyLength >= 32);
   assert.match(captured.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/v1\/chat\/completions$/);
@@ -306,6 +331,9 @@ test('managed cognition keeps the provider key in the runner and drains before M
   const brokerReady: any = lifecycle.find((event) => event.type === 'cognition_broker_ready');
   assert.equal(configured?.data?.population?.maxTotalModelCalls, 4);
   assert.equal(configured?.data?.population?.residents?.[0]?.urgentModel, 'fixture/urgent-model');
+  assert.equal(configured?.data?.population?.residents?.[0]?.policyProfile, 'neutral-benchmark-v1');
+  assert.equal(configured?.data?.population?.residents?.[0]?.actionProfile, 'minecraft-player-v1');
+  assert.equal(configured?.data?.population?.residents?.[0]?.safetyProfile, 'vanilla-player-v1');
   assert.equal(brokerReady?.data?.maxTotalModelCalls, 4);
   const drained = lifecycle.findIndex((event) => event.type === 'cognition_broker_drained');
   const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');

@@ -1,5 +1,10 @@
 import type { InhabitantActionSpec } from '../entity/interface';
 import { digPositionIssueForBody } from './body-geometry';
+import { usesResidentSafety, type MinecraftSafetyProfile } from './action-profiles';
+
+export type MinecraftAffordanceOptions = Readonly<{
+  safetyProfile?: MinecraftSafetyProfile;
+}>;
 
 /**
  * Publish Minecraft actions supported by one exact lived observation.
@@ -12,6 +17,7 @@ import { digPositionIssueForBody } from './body-geometry';
 export function minecraftInhabitantActionsFor(
   specs: readonly InhabitantActionSpec[],
   frame: any,
+  options: MinecraftAffordanceOptions = {},
 ): InhabitantActionSpec[] {
   const roster = frame?.scene?.social?.playersOnline;
   const inventory = Array.isArray(frame?.self?.inventory) ? frame.self.inventory : [];
@@ -128,7 +134,7 @@ export function minecraftInhabitantActionsFor(
         (target: any) =>
           Number.isFinite(Number(target?.distance)) &&
           Number(target.distance) <= 16 &&
-          currentBodyCanDigTarget(frame, target),
+          currentBodyCanDigTarget(frame, target, options.safetyProfile ?? 'resident-safe-v1'),
       );
       return targets.length > 0
         ? [
@@ -284,7 +290,7 @@ function currentReachableBlockFocus(frame: any) {
     : null;
 }
 
-function currentBodyCanDigTarget(frame: any, target: any) {
+function currentBodyCanDigTarget(frame: any, target: any, safetyProfile: MinecraftSafetyProfile) {
   const body = frame?.self?.pose?.position;
   const position = target?.position;
   if (
@@ -294,7 +300,7 @@ function currentBodyCanDigTarget(frame: any, target: any) {
   ) {
     return false;
   }
-  return digPositionIssueForBody(body, position) == null;
+  return !usesResidentSafety(safetyProfile) || digPositionIssueForBody(body, position) == null;
 }
 
 function inventoryNamesForUse(inventory: any[], use: string) {

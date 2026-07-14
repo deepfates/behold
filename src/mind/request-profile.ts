@@ -20,6 +20,11 @@ export function profileDirectResidentRequest(
     source,
     request: {
       model: request.model,
+      profiles: {
+        policy: request.policyProfile ?? 'legacy-unspecified',
+        actions: request.actionProfile ?? 'legacy-unspecified',
+        safety: request.safetyProfile ?? 'legacy-unspecified',
+      },
       bodyBytes,
       bodySha256: sha256(bodyJson),
       messageCount: request.conversation.length,
@@ -54,6 +59,11 @@ export function profileDirectResidentRequest(
       admittedActionsBytes: jsonBytes(request.actions),
       requiredActionBytes: jsonBytes(request.requiredAction),
       attentionBytes: jsonBytes(request.attention ?? null),
+      profilesBytes: jsonBytes({
+        policy: request.policyProfile ?? null,
+        actions: request.actionProfile ?? null,
+        safety: request.safetyProfile ?? null,
+      }),
     },
     safety: {
       providerCalled: false,

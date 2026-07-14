@@ -4,6 +4,13 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Bot } from 'mineflayer';
 import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
+import {
+  minecraftActionProfile,
+  minecraftActionsForProfile,
+  minecraftSafetyProfile,
+  type MinecraftActionProfile,
+  type MinecraftSafetyProfile,
+} from '../src/agent/action-profiles';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { openEntityLoom } from '../src/entity/loom';
 import { createPlaceMemory } from '../src/entity/places';
@@ -12,6 +19,7 @@ import { createAxResidentMind } from '../src/mind/ax';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { profileDirectResidentRequest } from '../src/mind/request-profile';
 import { startLLMPolicy } from '../src/policy/llm';
+import { residentPolicyProfile, type ResidentPolicyProfile } from '../src/policy/profile';
 
 type CandidateAdapter = 'ax' | 'direct';
 type Args = {
@@ -30,6 +38,7 @@ async function main() {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey && !args.profileOnly) throw new Error('OPENROUTER_API_KEY is required');
   const records = readJsonl(args.journal);
+  const runStarted = records.find((record) => record?.type === 'run_started');
   const baselineRecord = records.find(
     (record) =>
       record?.type === 'model_turn' &&
@@ -51,6 +60,22 @@ async function main() {
   if (!matchingTurn?.data?.sequence) {
     throw new Error('The journal does not contain the completed entity turn for its model choice');
   }
+  const policyProfile = residentPolicyProfile(
+    baselineRecord.data.policyProfile ?? runStarted?.data?.controller?.policyProfile,
+  );
+  const actionProfile = minecraftActionProfile(
+    baselineRecord.data.actionProfile ??
+      runStarted?.data?.controller?.actionProfile ??
+      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+  );
+  const safetyProfile = minecraftSafetyProfile(
+    baselineRecord.data.safetyProfile ??
+      runStarted?.data?.controller?.safetyProfile ??
+      (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+  );
+  const allowTools = Array.isArray(runStarted?.data?.controller?.allowTools)
+    ? runStarted.data.controller.allowTools.map(String)
+    : null;
 
   const loom = await openEntityLoom(entityId);
   let policy: ReturnType<typeof startLLMPolicy> | null = null;
@@ -68,11 +93,12 @@ async function main() {
     // Tool construction is side-effect free; no CommandSpec.run function is
     // exposed to either model or invoked by this differential.
     const interpreter = buildInterpreter({} as Bot, {
+      safetyProfile,
       projects,
       places: () => places.snapshot(),
       observe: () => replayObservationAtCursor(observation),
     });
-    const actions = interpreter.list('inhabitant').map((spec) => ({
+    const completeActions = interpreter.list('inhabitant').map((spec) => ({
       type: 'function' as const,
       function: {
         name: spec.name,
@@ -80,18 +106,49 @@ async function main() {
         parameters: spec.parameters || { type: 'object', properties: {} },
       },
     }));
+    const actions = minecraftActionsForProfile(completeActions, actionProfile);
     const baselineModel = String(baselineRecord.data.model);
     const model = args.model || baselineModel;
     if (args.profileOnly) {
-      const request = await captureMindRequest({
-        apiKey: apiKey || 'offline-profile',
-        model,
-        entityId,
-        observation,
-        history,
-        actions,
-        foldCacheFile: loom.foldFile,
-      });
+      const baselineAdapter = String(baselineRecord.data.call.adapter?.name || 'unknown');
+      const baselineBodySha256 = String(baselineRecord.data.call.request?.bodySha256 || 'missing');
+      let request: ResidentMindRequest;
+      try {
+        request = await captureMindRequest({
+          apiKey: apiKey || 'offline-profile',
+          model,
+          entityId,
+          observation,
+          history,
+          actions,
+          policyProfile,
+          actionProfile,
+          safetyProfile,
+          allowTools,
+          foldCacheFile: loom.foldFile,
+        });
+      } catch (error: any) {
+        await writeOutput(
+          {
+            protocol: 'behold.request-reconstruction.v1',
+            generatedAt: new Date().toISOString(),
+            source: {
+              journal: path.resolve(args.journal),
+              modelTurnJournalSequence: Number(baselineRecord.sequence),
+              entityId,
+            },
+            status: 'unavailable',
+            baseline: { adapter: baselineAdapter, bodySha256: baselineBodySha256 },
+            profiles: { policyProfile, actionProfile, safetyProfile },
+            allowTools,
+            error: String(error?.message || error),
+            note: 'No provider call or world mutation occurred. An unavailable reconstruction is not an exact replay.',
+          },
+          args.out,
+        );
+        process.exitCode = 1;
+        return;
+      }
       const profile = profileDirectResidentRequest(request, {
         journal: path.resolve(args.journal),
         modelTurnJournalSequence: Number(baselineRecord.sequence),
@@ -101,7 +158,29 @@ async function main() {
         capturedObservationSha256: sha256(stableJson(capturedObservation)),
         observationMigrations: replay.migrations,
       });
-      await writeOutput(profile, args.out);
+      const comparable = baselineAdapter === 'direct-openrouter';
+      const exactProviderRequestMatch =
+        comparable && baselineBodySha256 === profile.request.bodySha256;
+      await writeOutput(
+        {
+          ...profile,
+          reconstruction: {
+            kind: 'current-code-request-reconstruction',
+            baselineAdapter,
+            baselineBodySha256,
+            reconstructedBodySha256: profile.request.bodySha256,
+            comparable,
+            exactProviderRequestMatch,
+            allowTools,
+            capturedProviderBodyAvailable: baselineRecord.data.call.request?.body != null,
+            note: exactProviderRequestMatch
+              ? 'Current code reconstructed the exact captured direct-provider request bytes.'
+              : 'This profile is diagnostic only; it is not an exact replay of the captured provider request.',
+          },
+        },
+        args.out,
+      );
+      if (!exactProviderRequestMatch) process.exitCode = 1;
       return;
     }
     if (args.attentionPair) {
@@ -112,6 +191,10 @@ async function main() {
         observation,
         history,
         actions,
+        policyProfile,
+        actionProfile,
+        safetyProfile,
+        allowTools,
         foldCacheFile: loom.foldFile,
         timeoutMs: args.timeoutMs,
         source: {
@@ -145,7 +228,7 @@ async function main() {
         entityId,
         observe: (sinceSequence) => replayObservationAtCursor(observation, sinceSequence),
         actions,
-        actionsFor: (frame) => minecraftInhabitantActionsFor(actions, frame),
+        actionsFor: (frame) => minecraftInhabitantActionsFor(actions, frame, { safetyProfile }),
         // This proof ends at proposal admission. It cannot mutate Minecraft.
         attempt: (intent) => {
           attempted.push(intent);
@@ -157,6 +240,10 @@ async function main() {
         model,
         ...(candidateMind ? { mind: candidateMind } : {}),
         history,
+        policyProfile,
+        actionProfile,
+        safetyProfile,
+        allowTools,
         foldCacheFile: loom.foldFile,
         maxTurnSteps: 1,
         acceptEngineEvent: () => true,
@@ -202,6 +289,7 @@ async function main() {
         observationSha256: sha256(stableJson(observation)),
         capturedObservationSha256: sha256(stableJson(capturedObservation)),
         observationMigrations: replay.migrations,
+        profiles: { policyProfile, actionProfile, safetyProfile },
       },
       safety: {
         worldMutationEnabled: false,
@@ -231,6 +319,10 @@ async function main() {
             sameModelAsBaseline: model === baselineModel,
             observation: replay.migrations.length === 0,
             actionSet: baseline.call.request.toolsSha256 === candidateCall.request.toolsSha256,
+            profiles:
+              policyProfile === candidate?.policyProfile &&
+              actionProfile === candidate?.actionProfile &&
+              safetyProfile === candidate?.safetyProfile,
             contextProjection: {
               messageCount:
                 baseline.call.request.messageCount === candidateCall.request.messageCount,
@@ -311,6 +403,10 @@ async function runAttentionPair(options: {
   observation: any;
   history: any[];
   actions: any[];
+  policyProfile: ResidentPolicyProfile;
+  actionProfile: MinecraftActionProfile;
+  safetyProfile: MinecraftSafetyProfile;
+  allowTools: string[] | null;
   foldCacheFile: string;
   timeoutMs: number;
   source: Record<string, unknown>;
@@ -345,6 +441,10 @@ async function runAttentionPair(options: {
   const measuredUrgent = withEvaluationNonce(urgent, evaluationId);
   const matched = {
     model: measuredDeliberative.model === measuredUrgent.model,
+    profiles:
+      measuredDeliberative.policyProfile === measuredUrgent.policyProfile &&
+      measuredDeliberative.actionProfile === measuredUrgent.actionProfile &&
+      measuredDeliberative.safetyProfile === measuredUrgent.safetyProfile,
     observation:
       sha256(stableJson(measuredDeliberative.observation)) ===
       sha256(stableJson(measuredUrgent.observation)),
@@ -413,6 +513,10 @@ async function captureMindRequest(options: {
   observation: any;
   history: any[];
   actions: any[];
+  policyProfile: ResidentPolicyProfile;
+  actionProfile: MinecraftActionProfile;
+  safetyProfile: MinecraftSafetyProfile;
+  allowTools: string[] | null;
   foldCacheFile: string;
 }) {
   let captured: ResidentMindRequest | null = null;
@@ -435,7 +539,10 @@ async function captureMindRequest(options: {
       entityId: options.entityId,
       observe: (sinceSequence) => replayObservationAtCursor(options.observation, sinceSequence),
       actions: options.actions,
-      actionsFor: (frame) => minecraftInhabitantActionsFor(options.actions, frame),
+      actionsFor: (frame) =>
+        minecraftInhabitantActionsFor(options.actions, frame, {
+          safetyProfile: options.safetyProfile,
+        }),
       attempt: () => {
         throw new Error('attention request capture cannot admit an action');
       },
@@ -445,6 +552,10 @@ async function captureMindRequest(options: {
       model: options.model,
       mind,
       history: options.history,
+      policyProfile: options.policyProfile,
+      actionProfile: options.actionProfile,
+      safetyProfile: options.safetyProfile,
+      allowTools: options.allowTools,
       foldCacheFile: options.foldCacheFile,
       foldReadOnly: true,
       maxTurnSteps: 1,

@@ -39,6 +39,13 @@ import {
   type CognitionBroker,
 } from '../src/mind/cognition-broker';
 import { COGNITION_TRANSPORT_PROTOCOL, cognitionResidentKey } from '../src/mind/cognition';
+import {
+  minecraftActionProfile,
+  minecraftSafetyProfile,
+  type MinecraftActionProfile,
+  type MinecraftSafetyProfile,
+} from '../src/agent/action-profiles';
+import { residentPolicyProfile, type ResidentPolicyProfile } from '../src/policy/profile';
 
 export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'chat',
@@ -144,6 +151,9 @@ export type ManagedResidentSpec = Readonly<{
   model: string;
   urgentModel?: string;
   mind?: 'direct' | 'ax';
+  policyProfile?: ResidentPolicyProfile;
+  actionProfile?: MinecraftActionProfile;
+  safetyProfile?: MinecraftSafetyProfile;
   tickMs?: number;
   task?: string;
   target?: string;
@@ -197,6 +207,9 @@ export type ManagedWorldRun = Readonly<{
     model: string;
     urgentModel: string | null;
     mind: 'direct' | 'ax';
+    policyProfile: ResidentPolicyProfile;
+    actionProfile: MinecraftActionProfile;
+    safetyProfile: MinecraftSafetyProfile;
     tickMs: number;
     pid: number;
     leasePath: string;
@@ -262,6 +275,9 @@ type NormalizedManagedResident = Readonly<{
   model: string;
   urgentModel?: string;
   mind: 'direct' | 'ax';
+  policyProfile: ResidentPolicyProfile;
+  actionProfile: MinecraftActionProfile;
+  safetyProfile: MinecraftSafetyProfile;
   tickMs: number;
   task?: string;
   target?: string;
@@ -376,6 +392,32 @@ function normalizeManagedResidents(
           { index, entityId, mind },
         );
       }
+      let policyProfile: ResidentPolicyProfile;
+      let actionProfile: MinecraftActionProfile;
+      let safetyProfile: MinecraftSafetyProfile;
+      try {
+        policyProfile = residentPolicyProfile(candidate.policyProfile);
+        actionProfile = minecraftActionProfile(
+          candidate.actionProfile ??
+            (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+        );
+        safetyProfile = minecraftSafetyProfile(
+          candidate.safetyProfile ??
+            (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+        );
+      } catch (error: any) {
+        throw new WorldRunnerError(
+          `Invalid resident profile for ${entityId}: ${error?.message || String(error)}`,
+          'resident_profile_invalid',
+          {
+            index,
+            entityId,
+            policyProfile: candidate.policyProfile,
+            actionProfile: candidate.actionProfile,
+            safetyProfile: candidate.safetyProfile,
+          },
+        );
+      }
       const tickMs = candidate.tickMs ?? 4000;
       if (!Number.isSafeInteger(tickMs) || tickMs < 500) {
         throw new WorldRunnerError(
@@ -410,6 +452,9 @@ function normalizeManagedResidents(
         model,
         ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
         mind,
+        policyProfile,
+        actionProfile,
+        safetyProfile,
         tickMs,
         ...(candidate.task ? { task: String(candidate.task) } : {}),
         ...(candidate.target ? { target: String(candidate.target) } : {}),
@@ -448,6 +493,9 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         model: entry.resident.model,
         urgentModel: entry.resident.urgentModel ?? null,
         mind: entry.resident.mind,
+        policyProfile: entry.resident.policyProfile,
+        actionProfile: entry.resident.actionProfile,
+        safetyProfile: entry.resident.safetyProfile,
         tickMs: entry.resident.tickMs,
         pid: entry.child.pid!,
         leasePath: entry.resident.leasePath,
@@ -655,6 +703,9 @@ export async function startManagedWorld(
           model: resident.model,
           urgentModel: resident.urgentModel ?? null,
           mind: resident.mind,
+          policyProfile: resident.policyProfile,
+          actionProfile: resident.actionProfile,
+          safetyProfile: resident.safetyProfile,
           tickMs: resident.tickMs,
           task: resident.task ?? null,
           target: resident.target ?? null,
@@ -1390,6 +1441,12 @@ function spawnDefaultController(
     options.worldId,
     '--model',
     resident.model,
+    '--policyProfile',
+    resident.policyProfile,
+    '--actionProfile',
+    resident.actionProfile,
+    '--safetyProfile',
+    resident.safetyProfile,
     '--tickMs',
     String(resident.tickMs),
   ];
@@ -1454,6 +1511,9 @@ function managedControllerEnvironment(
   env.BEHOLD_ENTITY_DIR = path.resolve(options.entityRoot);
   env.BEHOLD_RUN_DIR = journalDirectory;
   env.BEHOLD_MIND = resident.mind;
+  env.BEHOLD_POLICY_PROFILE = resident.policyProfile;
+  env.BEHOLD_ACTION_PROFILE = resident.actionProfile;
+  env.BEHOLD_SAFETY_PROFILE = resident.safetyProfile;
   return Object.freeze(env);
 }
 
@@ -1989,6 +2049,9 @@ export async function runCli(argv = process.argv.slice(2)) {
       world: { type: 'string' },
       model: { type: 'string' },
       urgentModel: { type: 'string' },
+      policyProfile: { type: 'string' },
+      actionProfile: { type: 'string' },
+      safetyProfile: { type: 'string' },
       controller: { type: 'string', multiple: true },
       mind: { type: 'string' },
       tickMs: { type: 'string' },
@@ -2067,6 +2130,19 @@ export async function runCli(argv = process.argv.slice(2)) {
   const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL);
   const urgentModel = optionalText(parsed.values.urgentModel || process.env.LLM_URGENT_MODEL);
   const mind = String(parsed.values.mind || process.env.BEHOLD_MIND || 'direct') as 'direct' | 'ax';
+  const policyProfile = residentPolicyProfile(
+    parsed.values.policyProfile || process.env.BEHOLD_POLICY_PROFILE,
+  );
+  const actionProfile = minecraftActionProfile(
+    parsed.values.actionProfile ||
+      process.env.BEHOLD_ACTION_PROFILE ||
+      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+  );
+  const safetyProfile = minecraftSafetyProfile(
+    parsed.values.safetyProfile ||
+      process.env.BEHOLD_SAFETY_PROFILE ||
+      (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+  );
   const tickMs = Number(parsed.values.tickMs || process.env.AGENT_TICK_MS || 4000);
   const maxResidents = Number(parsed.values.maxResidents || 16);
   const maxConcurrentModelCalls = Number(
@@ -2090,6 +2166,9 @@ export async function runCli(argv = process.argv.slice(2)) {
       model,
       ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
       mind,
+      policyProfile,
+      actionProfile,
+      safetyProfile,
       tickMs,
       ...controllerProfile,
     })),
@@ -2158,10 +2237,10 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
-    'Without --task, the foreground runner starts untasked residents with the full safe inhabitant action surface.',
+    'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 defaults to the minecraft-player-v1 action surface and vanilla-player-v1 risk policy.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',
     'With --urgentModel, only newly urgent bodily/world evidence uses that model; ordinary and social decisions retain --model.',

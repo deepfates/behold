@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { Vec3 } from 'vec3';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { droppedItemPickupGround } from '../src/agent/observation';
+import { minecraftActionClass, minecraftActionsForProfile } from '../src/agent/action-profiles';
 
 function baseBot() {
   const bot: any = new EventEmitter();
@@ -20,6 +21,23 @@ test('the inhabitant action space excludes raw controls, duplicate probes, and p
   const interpreter = buildInterpreter(baseBot());
   const inhabitantActions = interpreter.list('inhabitant').map((spec) => spec.name);
   const allActions = interpreter.list().map((spec) => spec.name);
+  const playerActions = minecraftActionsForProfile(
+    interpreter.list('inhabitant').map((spec) => ({
+      type: 'function' as const,
+      function: {
+        name: spec.name,
+        description: spec.description,
+        parameters: spec.parameters,
+      },
+    })),
+    'minecraft-player-v1',
+  );
+
+  assert.deepEqual(
+    inhabitantActions.filter((name) => minecraftActionClass(name) === 'unclassified'),
+    [],
+    'every current inhabitant action must be deliberately classified before profile publication',
+  );
 
   assert.ok(inhabitantActions.includes('move_to'));
   assert.ok(inhabitantActions.includes('move_direction'));
@@ -30,6 +48,19 @@ test('the inhabitant action space excludes raw controls, duplicate probes, and p
   assert.ok(inhabitantActions.includes('cross_visible_door'));
   assert.ok(inhabitantActions.includes('craft_item'));
   assert.ok(inhabitantActions.includes('attack_entity'));
+  assert.equal(
+    playerActions.some((action) => action.function.name === 'craft_item'),
+    false,
+  );
+  assert.equal(
+    playerActions.some((action) => action.function.name === 'place_block'),
+    false,
+  );
+  assert.ok(playerActions.every((action) => Boolean(action.function.description)));
+  assert.doesNotMatch(
+    playerActions.map((action) => action.function.description).join('\n'),
+    /\bprefer\b|do not|does not replace|use move_to|approach and look before/i,
+  );
   const move = interpreter.describe('move_to');
   assert.deepEqual(move?.parameters.required, ['x', 'y', 'z']);
   assert.deepEqual(Object.keys(move?.parameters.properties || {}), ['x', 'y', 'z', 'near']);
@@ -1444,6 +1475,47 @@ test('digging refuses air, body support, and an unsafe downward shaft', async ()
   assert.equal(digCalls, 0);
 });
 
+test('vanilla player safety permits a chosen supporting block and reports Minecraft consequence', async () => {
+  const bot = baseBot();
+  bot.entity.position = new Vec3(4.3, 64, 7.8);
+  let removed = false;
+  const position = new Vec3(4, 63, 7);
+  const stone = {
+    name: 'stone',
+    type: 1,
+    stateId: 1,
+    boundingBox: 'block',
+    position,
+  };
+  const air = {
+    name: 'air',
+    type: 0,
+    stateId: 0,
+    boundingBox: 'empty',
+    position,
+  };
+  bot.blockAt = (requested: Vec3) =>
+    requested.x === position.x && requested.y === position.y && requested.z === position.z
+      ? removed
+        ? air
+        : stone
+      : { ...stone, position: requested };
+  bot.canSeeBlock = () => true;
+  bot.dig = async (block: any) => {
+    removed = true;
+    bot.emit('blockUpdate', block, air);
+  };
+
+  const result = await buildInterpreter(bot, {
+    safetyProfile: 'vanilla-player-v1',
+    changeStabilityWindowMs: 1,
+  }).run('dig_block', { x: 4, y: 63, z: 7 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.changes[0].confirmation.source, 'mineflayer:blockUpdate');
+  assert.equal(removed, true);
+});
+
 test('digging treats every block under the body footprint as support', async () => {
   const bot = baseBot();
   bot.entity.position = new Vec3(0.82, 64, 0.5);
@@ -2499,7 +2571,7 @@ test('item collection uses a bounded direct nudge when local pathfinding cannot 
   assert.deepEqual(controls, [true, false]);
 });
 
-test('item collection refuses to pathfind or nudge into an unsupported drop', async () => {
+test('item collection makes unsupported-ground refusal an explicit safety profile choice', async () => {
   const bot = baseBot();
   const item = {
     id: 6,
@@ -2533,6 +2605,16 @@ test('item collection refuses to pathfind or nudge into an unsupported drop', as
   assert.equal(result.pickupGround.status, 'unsupported');
   assert.equal(navigationCalls, 0);
   assert.equal(nudgeCalls, 0);
+
+  bot.pathfinder.goto = async () => {
+    navigationCalls += 1;
+    bot.emit('playerCollect', bot.entity, item);
+  };
+  const vanilla = await buildInterpreter(bot, {
+    safetyProfile: 'vanilla-player-v1',
+  }).run('collect_nearby_item', { target: 'entity:6' });
+  assert.equal(vanilla.ok, true);
+  assert.equal(navigationCalls, 1);
 });
 
 test('dropped-item pickup ground describes a real entity position below zero', () => {

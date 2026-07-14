@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { Vec3 } from 'vec3';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createWorldChangeAuthority } from '../src/safety/world-change';
+import type { InhabitantPlace } from '../src/entity/places';
 
 type FakeBlock = {
   name: string;
@@ -330,28 +331,27 @@ test('placement preserves witnessed body space while allowing a real interior am
     bot.setBlock(placed);
     bot.emit('blockUpdate', air, placed);
   };
+  const rememberedPlace: InhabitantPlace = {
+    id: 'place:overworld:18:64:10',
+    label: 'Shared home',
+    purpose: 'A shared shelter exists',
+    anchor: { dimension: 'overworld', x: 18, y: 64, z: 10 },
+    affordances: ['sealed-space', 'shared-capacity'],
+    protectedBodyCells: [{ x: 18, y: 64, z: 10 }],
+    entrances: [],
+    evidence: 'space_enclosed',
+    learnedAtSequence: 2,
+    lastConfirmedAtSequence: 3,
+    provenance: {
+      source: 'own_entity_loom',
+      projectId: 'home',
+      completionTurnSequence: 3,
+      witnessTurnSequence: 2,
+      witnessAction: 'inspect_reachable_space',
+    },
+  };
   const interpreter = buildInterpreter(bot, {
-    places: () => [
-      {
-        id: 'place:overworld:18:64:10',
-        label: 'Shared home',
-        purpose: 'A shared shelter exists',
-        anchor: { dimension: 'overworld', x: 18, y: 64, z: 10 },
-        affordances: ['sealed-space', 'shared-capacity'],
-        protectedBodyCells: [{ x: 18, y: 64, z: 10 }],
-        entrances: [],
-        evidence: 'space_enclosed',
-        learnedAtSequence: 2,
-        lastConfirmedAtSequence: 3,
-        provenance: {
-          source: 'own_entity_loom',
-          projectId: 'home',
-          completionTurnSequence: 3,
-          witnessTurnSequence: 2,
-          witnessAction: 'inspect_reachable_space',
-        },
-      },
-    ],
+    places: () => [rememberedPlace],
     changeConfirmationTimeoutMs: 5,
     changeStabilityWindowMs: 1,
   });
@@ -366,6 +366,22 @@ test('placement preserves witnessed body space while allowing a real interior am
   assert.equal(structural.place.id, 'place:overworld:18:64:10');
   assert.equal(attempts, 0);
 
+  const vanillaStructural = await buildInterpreter(bot, {
+    places: () => [rememberedPlace],
+    safetyProfile: 'vanilla-player-v1',
+    changeConfirmationTimeoutMs: 5,
+    changeStabilityWindowMs: 1,
+  }).run('place_block', {
+    x: 18,
+    y: 64,
+    z: 10,
+    name: 'spruce_planks',
+  });
+  assert.equal(vanillaStructural.ok, true);
+  assert.equal(attempts, 1);
+
+  bot.setBlock(air);
+
   bot.heldItem = { name: 'chest', count: 1 };
   bot.inventory = { items: () => [bot.heldItem] };
   const amenity = await interpreter.run('place_block', {
@@ -375,7 +391,7 @@ test('placement preserves witnessed body space while allowing a real interior am
     name: 'chest',
   });
   assert.equal(amenity.ok, true);
-  assert.equal(attempts, 1);
+  assert.equal(attempts, 2);
 });
 
 test('placement forces the final face look when Mineflayer exposes placement options', async () => {

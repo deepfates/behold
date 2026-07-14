@@ -12,6 +12,7 @@ import {
 } from './observation';
 import { surveyArea } from '../skills/survey';
 import { digPositionIssueForBody } from './body-geometry';
+import { usesResidentSafety, type MinecraftSafetyProfile } from './action-profiles';
 import {
   MANAGE_PROJECT_TOOL,
   RESIDENT_PROJECT_EVIDENCE_VALUES,
@@ -66,6 +67,8 @@ type InterpreterOptions = {
   pickupTimeoutMs?: number;
   fightPursuitDistance?: number;
   fightTimeoutMs?: number;
+  /** Explicit player-risk policy; vanilla permits mining supporting and lower blocks. */
+  safetyProfile?: MinecraftSafetyProfile;
 };
 
 export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
@@ -751,7 +754,10 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       }
 
       const pickupGround = droppedItemPickupGround(bot, target.entity.position);
-      if (pickupGround.status !== 'supported') {
+      if (
+        usesResidentSafety(opts.safetyProfile ?? 'resident-safe-v1') &&
+        pickupGround.status !== 'supported'
+      ) {
         return {
           ok: false,
           error: 'unapproachable_item_ground',
@@ -789,7 +795,13 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       let pickupRecovery: any = null;
       if (!collected) {
         pickupRecovery = sceneCurrentlyPerceives(targetReference)
-          ? await boundedPickupNudge(bot, target.entity, watcher, 2000)
+          ? await boundedPickupNudge(
+              bot,
+              target.entity,
+              watcher,
+              2000,
+              opts.safetyProfile ?? 'resident-safe-v1',
+            )
           : {
               attempted: false,
               collected: false,
@@ -922,7 +934,9 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         return { ok: false, error: 'no_solid_block', block: summarizeBlock(b), position };
       }
       const me = (bot as any).entity?.position;
-      const unsafeDig = digPositionIssue(bot, position);
+      const unsafeDig = usesResidentSafety(opts.safetyProfile ?? 'resident-safe-v1')
+        ? digPositionIssue(bot, position)
+        : null;
       if (unsafeDig === 'supporting_body') {
         return {
           ok: false,
@@ -1344,8 +1358,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
 
   add({
     name: 'place_against',
-    description:
-      'Place the held block against an explicitly chosen solid reference face. Prefer place_block when you know the desired empty destination cell and do not care which neighboring block supplies support.',
+    description: 'Place the held block against an explicitly chosen solid reference face.',
     parameters: {
       type: 'object',
       properties: {
@@ -1384,12 +1397,14 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       if (placementIntersectsBody(bot, position)) {
         return placementBodyConflict(bot, position);
       }
-      const protectedConflict = protectedBodySpaceConflict(
-        opts.places?.() ?? [],
-        position,
-        String((bot as any).heldItem?.name || ''),
-        String((bot as any).game?.dimension || ''),
-      );
+      const protectedConflict = usesResidentSafety(opts.safetyProfile ?? 'resident-safe-v1')
+        ? protectedBodySpaceConflict(
+            opts.places?.() ?? [],
+            position,
+            String((bot as any).heldItem?.name || ''),
+            String((bot as any).game?.dimension || ''),
+          )
+        : null;
       if (protectedConflict) return protectedConflict;
       return executeConfirmedWorldChange({
         bot,
@@ -1453,12 +1468,14 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
 
       const selected = await selectPlacementItem(bot, name);
       if (!selected.ok) return selected;
-      const protectedConflict = protectedBodySpaceConflict(
-        opts.places?.() ?? [],
-        position,
-        selected.item,
-        String((bot as any).game?.dimension || ''),
-      );
+      const protectedConflict = usesResidentSafety(opts.safetyProfile ?? 'resident-safe-v1')
+        ? protectedBodySpaceConflict(
+            opts.places?.() ?? [],
+            position,
+            selected.item,
+            String((bot as any).game?.dimension || ''),
+          )
+        : null;
       if (protectedConflict) return protectedConflict;
 
       let references = placementReferences(bot, position);
@@ -4552,6 +4569,7 @@ async function boundedPickupNudge(
   entity: any,
   watcher: { wait: (timeoutMs: number) => Promise<boolean> },
   timeoutMs: number,
+  safetyProfile: MinecraftSafetyProfile,
 ) {
   const me = (bot as any).entity?.position;
   const target = entity?.position;
@@ -4560,7 +4578,7 @@ async function boundedPickupNudge(
   if (
     !me ||
     !target ||
-    pickupGround?.status !== 'supported' ||
+    (usesResidentSafety(safetyProfile) && pickupGround?.status !== 'supported') ||
     initialDistance > 2.75 ||
     typeof (bot as any).setControlState !== 'function'
   ) {
@@ -4568,7 +4586,7 @@ async function boundedPickupNudge(
       attempted: false,
       collected: false,
       reason:
-        pickupGround && pickupGround.status !== 'supported'
+        usesResidentSafety(safetyProfile) && pickupGround && pickupGround.status !== 'supported'
           ? 'unapproachable_item_ground'
           : initialDistance > 2.75
             ? 'item_not_within_nudge_range'
@@ -4578,7 +4596,7 @@ async function boundedPickupNudge(
     };
   }
   const oxygen = minecraftOxygenLevel((bot as any).oxygenLevel ?? (bot as any).oxygen);
-  if (oxygen != null && oxygen <= 5) {
+  if (usesResidentSafety(safetyProfile) && oxygen != null && oxygen <= 5) {
     return {
       attempted: false,
       collected: false,
@@ -5009,6 +5027,7 @@ async function runBoundedFight(
   let pathfinderEngaged = false;
   let stopIssued = false;
   let currentlyPerceived = true;
+  let lastAttackAt: number | null = null;
   let lastSeenPosition = selectedTarget.position.clone();
   let pursuitGoalPosition: Vec3 | null = null;
 
@@ -5173,6 +5192,16 @@ async function runBoundedFight(
       }
 
       requestStop();
+      if (lastAttackAt != null) {
+        const cooldownRemaining = attackIntervalMs - (Date.now() - lastAttackAt);
+        if (cooldownRemaining > 0) {
+          await waitForFightTick(
+            Math.min(cooldownRemaining, Math.max(0, options.timeoutMs - (Date.now() - startedAt))),
+            options.signal,
+          );
+          continue;
+        }
+      }
       try {
         await (bot as any).lookAt(
           target.position.offset(0, Math.max(0.5, Number(target.height || 1.6) * 0.8), 0),
@@ -5185,6 +5214,7 @@ async function runBoundedFight(
       try {
         (bot as any).attack(target);
         attacksAttempted += 1;
+        lastAttackAt = Date.now();
       } catch (error: any) {
         return fail('attack_failed', {
           detail: String(error?.message || error),

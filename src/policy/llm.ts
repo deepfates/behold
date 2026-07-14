@@ -39,6 +39,13 @@ import {
   type ModelCallEvidence,
   type ModelCallFailureEvidence,
 } from '../mind/evidence';
+import {
+  minecraftActionProfile,
+  minecraftSafetyProfile,
+  type MinecraftActionProfile,
+  type MinecraftSafetyProfile,
+} from '../agent/action-profiles';
+import { isNeutralPolicy, residentPolicyProfile, type ResidentPolicyProfile } from './profile';
 
 export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
@@ -73,12 +80,22 @@ export type Options = {
   cognitionTransport?: boolean;
   /** Alternate bounded decision implementation. Behold still owns the resident loop. */
   mind?: ResidentMind;
+  /** Versioned controller behavior; neutral mode does not coach or repair model choices. */
+  policyProfile?: ResidentPolicyProfile;
+  /** Versioned action surface identity selected outside the generic policy loop. */
+  actionProfile?: MinecraftActionProfile;
+  /** Versioned world/body risk policy selected by the world adapter. */
+  safetyProfile?: MinecraftSafetyProfile;
   log?: (s: string) => void;
   /** Accept only lifecycle objects minted by the engine that owns attempt(). */
   acceptEngineEvent: (event: EngineEvent) => boolean;
   onModelTurn?: (turn: {
     at: number;
     model: string;
+    mind: string;
+    policyProfile: ResidentPolicyProfile;
+    actionProfile: MinecraftActionProfile;
+    safetyProfile: MinecraftSafetyProfile;
     observation: any;
     assistant: any;
     intent: Intent | null;
@@ -191,6 +208,14 @@ const WAIT_TOOL_SPEC: ToolSpec = {
     },
   },
 };
+const NEUTRAL_WAIT_TOOL_SPEC: ToolSpec = {
+  type: 'function',
+  function: {
+    name: WAIT_TOOL,
+    description: 'Yield without proposing a Minecraft action until a later world event.',
+    parameters: WAIT_TOOL_SPEC.function.parameters,
+  },
+};
 const EMBODIED_ACTION_TOOLS = new Set<string>([
   'move_to',
   'move_direction',
@@ -234,14 +259,24 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const history = opts.history || [];
   const tickMs = Math.max(500, Number(opts.tickMs ?? 3000));
   const maxTurnSteps = Math.max(1, Math.min(32, Number(opts.maxTurnSteps ?? 8)));
+  const policyProfile = residentPolicyProfile(opts.policyProfile);
+  const actionProfile = minecraftActionProfile(
+    opts.actionProfile ??
+      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+  );
+  const safetyProfile = minecraftSafetyProfile(
+    opts.safetyProfile ??
+      (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+  );
   const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(opts.urgentDecisionTimeoutMs);
   const allow = Array.isArray(opts.allowTools) ? new Set(opts.allowTools) : null;
   const executableTools = allow
     ? environment.actions.filter((spec) => allow.has(spec.function.name))
     : [...environment.actions];
+  const waitToolSpec = isNeutralPolicy(policyProfile) ? NEUTRAL_WAIT_TOOL_SPEC : WAIT_TOOL_SPEC;
   const modelTools = executableTools.some((spec) => spec.function.name === WAIT_TOOL)
     ? executableTools
-    : [...executableTools, WAIT_TOOL_SPEC];
+    : [...executableTools, waitToolSpec];
   const executableCatalog = new Map(
     executableTools.map((spec) => [spec.function.name, spec] as const),
   );
@@ -267,7 +302,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             : opts.summarizeLoom!(request)
       : (request, signal) => summarizeLoom(request, opts, signal ?? new AbortController().signal),
   });
-  const messages: any[] = [{ role: 'system', content: controllerSystemPrompt(modelTools) }];
+  const messages: any[] = [
+    { role: 'system', content: controllerSystemPrompt(modelTools, policyProfile) },
+  ];
 
   let timer: NodeJS.Timeout | null = null;
   let resumeTimer: NodeJS.Timeout | null = null;
@@ -458,9 +495,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       );
       const withYield = physicallyOffered.some((spec) => spec.function.name === WAIT_TOOL)
         ? physicallyOffered
-        : [...physicallyOffered, WAIT_TOOL_SPEC];
-      const availableTools = availableModelTools(withYield, currentObservation, attention);
-      const requiredTool = requiredSelfDirectionTool(currentObservation, availableTools, allow);
+        : [...physicallyOffered, waitToolSpec];
+      const availableTools = availableModelTools(
+        withYield,
+        currentObservation,
+        attention,
+        policyProfile,
+      );
+      const requiredTool = isNeutralPolicy(policyProfile)
+        ? null
+        : requiredSelfDirectionTool(currentObservation, availableTools, allow);
       const decision = await withModelRequest(async (signal) => {
         const deadline = hasBodilyUrgency(attention)
           ? setTimeout(() => {
@@ -473,6 +517,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           protocol: 'behold.mind-request.v1',
           entityId,
           model: decisionModel,
+          policyProfile,
+          actionProfile,
+          safetyProfile,
           observation: cloneJson(modelObservation),
           conversation: cloneJson(
             conversationForAttention(
@@ -489,6 +536,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
                   : URGENT_CONTINUITY_BYTES,
                 residentTurnMayReplay,
               ),
+              policyProfile,
             ),
           ),
           actions: cloneJson(
@@ -542,6 +590,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       opts.onModelTurn?.({
         at: decidedAt,
         model: decisionModel,
+        mind: mind.id,
+        policyProfile,
+        actionProfile,
+        safetyProfile,
         observation: modelObservation,
         assistant,
         intent: decision.intent,
@@ -635,7 +687,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         lastActionSignature = signature;
         repeatedActionCount = 1;
       }
-      if (intent.tool !== 'attack_entity' && repeatedActionCount >= 3) {
+      if (
+        !isNeutralPolicy(policyProfile) &&
+        intent.tool !== 'attack_entity' &&
+        repeatedActionCount >= 3
+      ) {
         const result = {
           ok: false,
           error: 'repeated_action_without_adaptation',
@@ -656,6 +712,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       if (
+        !isNeutralPolicy(policyProfile) &&
         EMBODIED_ACTION_TOOLS.has(intent.tool) &&
         intent.tool === failedEmbodiedTool &&
         failedEmbodiedCount >= 3
@@ -678,7 +735,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         continueImmediately = true;
         return;
       }
-      if (COMMUNICATION_TOOLS.has(intent.tool) && consecutiveCommunicationActions >= 2) {
+      if (
+        !isNeutralPolicy(policyProfile) &&
+        COMMUNICATION_TOOLS.has(intent.tool) &&
+        consecutiveCommunicationActions >= 2
+      ) {
         const result = {
           ok: false,
           error: 'communication_without_world_progress',
@@ -1184,7 +1245,17 @@ function completedBodilyResponse(tool: string, result: any) {
   return true;
 }
 
-export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
+export function controllerSystemPrompt(
+  specs: readonly ToolSpec[],
+  profile: ResidentPolicyProfile = 'resident-v1',
+) {
+  if (isNeutralPolicy(profile)) {
+    return [
+      'You are embodied in Minecraft and receive only this body’s bounded lived observation.',
+      'Choose exactly one currently admitted action, or explicitly yield when you choose not to act.',
+      'An action is only a proposal until Minecraft returns its terminal result; do not claim an unobserved consequence.',
+    ].join('\n');
+  }
   const tools = new Set(specs.map((spec) => spec.function.name));
   const hasAny = (...names: string[]) => names.some((name) => tools.has(name));
   const lines = [
@@ -1350,6 +1421,7 @@ function availableModelTools(
   specs: ToolSpec[],
   frame: any,
   attention: ResidentAttention = attentionForObservation(frame),
+  profile: ResidentPolicyProfile = 'resident-v1',
 ) {
   return specs.filter((spec) => {
     // A project record is private continuity bookkeeping, not an embodied
@@ -1357,6 +1429,7 @@ function availableModelTools(
     // urgent attention, but defer bookkeeping until the body is no longer
     // demanding an immediate choice.
     if (
+      !isNeutralPolicy(profile) &&
       (hasBodilyUrgency(attention) || isCriticalBodyCondition(frame?.self?.condition)) &&
       spec.function.name === MANAGE_PROJECT_TOOL
     ) {
@@ -1644,11 +1717,12 @@ function conversationForAttention(
   attention: ResidentAttention,
   availableTools?: readonly ToolSpec[],
   recentActionContinuity?: RecentActionContinuity | null,
+  profile: ResidentPolicyProfile = 'resident-v1',
 ) {
   const bodilyUrgency = hasBodilyUrgency(attention);
   const continuingBodyPressure = attention.continuingCondition === 'critical_body_condition';
   const system = availableTools
-    ? { role: 'system', content: controllerSystemPrompt(availableTools) }
+    ? { role: 'system', content: controllerSystemPrompt(availableTools, profile) }
     : messages[0];
   const foldedContinuity = messages
     .slice(1, -1)
@@ -1658,7 +1732,7 @@ function conversationForAttention(
         String(message?.content || '').startsWith('Folded view of your own loom'),
     )
     .at(-1);
-  const urgentHandoff = {
+  const residentUrgentHandoff = {
     role: 'system',
     content: [
       bodilyUrgency
@@ -1692,6 +1766,23 @@ function conversationForAttention(
             ]),
     ].join('\n'),
   };
+  const urgentHandoff = isNeutralPolicy(profile)
+    ? {
+        role: 'system',
+        content: [
+          'A newer lived observation superseded unfinished model work. No interrupted proposal executed unless a terminal result says it did.',
+          `Attention evidence: ${
+            attention.triggers.map((trigger) => `${trigger.type}@${trigger.sequence}`).join(', ') ||
+            attention.continuingCondition ||
+            'current observation'
+          }.`,
+          ...(attention.decisionBudgetMs
+            ? [`Decision deadline: ${attention.decisionBudgetMs}ms of wall time.`]
+            : []),
+          'The admitted action surface is unchanged by this notice, and no response has been selected or recommended.',
+        ].join('\n'),
+      }
+    : residentUrgentHandoff;
   const recentActions = recentActionContinuity
     ? {
         role: 'system',

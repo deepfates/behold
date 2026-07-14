@@ -40,6 +40,12 @@ export type ResidentMindRequest = {
   protocol: 'behold.mind-request.v1';
   entityId: string;
   model: string;
+  /** Versioned controller behavior. Optional only for reading legacy captures. */
+  policyProfile?: string;
+  /** Versioned action catalog selection. Optional only for reading legacy captures. */
+  actionProfile?: string;
+  /** Versioned world/body risk policy. Optional only for reading legacy captures. */
+  safetyProfile?: string;
   observation: unknown;
   /** Bounded lived context. Adapters may project it into their own prompt form. */
   conversation: readonly unknown[];

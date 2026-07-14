@@ -130,11 +130,16 @@ Environment Variables
 - `LLM_MODEL` — exact OpenRouter model slug (default `google/gemini-3.5-flash`)
 - `LLM_URGENT_MODEL` — optional separately authorized model for newly urgent bodily attention
 - `BEHOLD_MIND` — bounded decision adapter: `direct` (default) or `ax`
+- `BEHOLD_POLICY_PROFILE` — `resident-v1` (default) or strategy-neutral `neutral-benchmark-v1`
+- `BEHOLD_ACTION_PROFILE` — `resident-v1` or `minecraft-player-v1`; the latter removes Behold memory utilities and disclosed composite body skills
+- `BEHOLD_SAFETY_PROFILE` — `resident-safe-v1` or `vanilla-player-v1`; the latter exposes risky actions that ordinary Minecraft permits
+- `BEHOLD_RECORD_MODEL_IO=1` — opt in to storing full provider request/response bodies for exact replay; the default records hashes and byte attribution without copying private lived context
 
 LLM Autopilot (optional)
 
 - Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `google/gemini-3.5-flash`).
 - The console starts a resident policy that proposes one admitted action at a time using the same command registry you use as a human. `BEHOLD_MIND=ax` uses Ax structured generation; Behold still validates and executes every proposal.
+- For a neutral evaluation, set `BEHOLD_POLICY_PROFILE=neutral-benchmark-v1`. Unless explicitly overridden, that selects `minecraft-player-v1` actions and `vanilla-player-v1` risk. Every managed run journals all three profile identities.
 
 Trajectory counterfactuals
 
@@ -153,9 +158,10 @@ npm run eval:mind-differential -- \
 The report binds the captured and replayed observation hashes, records any
 explicit observation migration, and rejects the candidate proposal at the
 admission boundary. Omit `--model` to replay the captured model. Use
-`--profile-only` instead of `--candidate` to write an exact request-byte
-partition without requiring a provider credential, making a provider call, or
-exposing executable functions.
+`--profile-only` instead of `--candidate` to reconstruct and partition the
+current request without a provider call or executable functions. It compares
+that request with the captured direct-provider body hash and exits nonzero when
+the bytes differ; a mismatch is diagnostic evidence, not an exact replay.
 
 For a matched fast/slow attention measurement, select a captured turn that
 contains a newly urgent event:

@@ -15,6 +15,8 @@ import type { EntityTurn } from '../src/entity/loom';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { cognitionHeaderNames } from '../src/mind/cognition';
 import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
+import { minecraftActionsForProfile } from '../src/agent/action-profiles';
+import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine } from '../src/loop/engine';
 
 function withMinecraftActionSurface<T extends { actions: readonly any[] }>(environment: T) {
@@ -2847,6 +2849,207 @@ test('the complete controller guidance stays bounded without losing causal invar
   assert.match(system, /bodyFeet.*occupied by bodies/i);
   assert.match(system, /survey_area is privileged symbolic sensing/i);
   assert.match(system, /repeat no failed action without new evidence/i);
+});
+
+test('the neutral policy prompt states protocol only and contains no Minecraft strategy', () => {
+  const system = controllerSystemPrompt(
+    [tool('manage_project'), tool('dig_block'), tool('chat'), tool('wait_for_event')],
+    'neutral-benchmark-v1',
+  );
+
+  assert.ok(system.length < 400, `neutral protocol prompt was ${system.length} characters`);
+  assert.match(system, /embodied in Minecraft/i);
+  assert.match(system, /exactly one currently admitted action/i);
+  assert.match(system, /only a proposal until Minecraft returns its terminal result/i);
+  assert.doesNotMatch(
+    system,
+    /\b(survival|projects?|shelter|danger|food|crafting|repeat|self-directed)\b|inspect first/i,
+  );
+});
+
+test('a neutral request uses the real interpreter catalog without coached or hidden composite actions', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const catalog = minecraftActionsForProfile(
+    buildInterpreter({} as any)
+      .list('inhabitant')
+      .map((spec) => ({
+        type: 'function' as const,
+        function: {
+          name: spec.name,
+          description: spec.description,
+          parameters: spec.parameters,
+        },
+      })),
+    'minecraft-player-v1',
+  );
+  const mind: ResidentMind = {
+    id: 'neutral-real-catalog',
+    decide: async (request) => {
+      requests.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: null,
+        action: { name: 'wait_for_event', input: { reason: 'chosen yield' } },
+        call: modelCallEvidence('neutral-real-catalog'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: catalog,
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'neutral-benchmark-v1',
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(requests.length, 1);
+    const actions = requests[0].actions;
+    assert.equal(
+      actions.some((action) => action.name === 'place_block'),
+      false,
+    );
+    assert.equal(
+      actions.some((action) => action.name === 'craft_item'),
+      false,
+    );
+    assert.equal(
+      actions.some((action) => action.name === 'manage_project'),
+      false,
+    );
+    assert.equal(
+      actions.find((action) => action.name === 'wait_for_event')?.description,
+      'Yield without proposing a Minecraft action until a later world event.',
+    );
+    assert.doesNotMatch(
+      actions.map((action) => action.description || '').join('\n'),
+      /\bprefer\b|do not|does not replace|use move_to|approach and look before/i,
+    );
+    assert.equal(requests[0].actionProfile, 'minecraft-player-v1');
+    assert.equal(requests[0].safetyProfile, 'vanilla-player-v1');
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('neutral policy does not force bookkeeping or coach a bodily choice', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const mind: ResidentMind = {
+    id: 'neutral-capture',
+    decide: async (request) => {
+      requests.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I choose to wait.',
+        action: { name: 'wait_for_event', input: { reason: 'chosen wait' } },
+        call: modelCallEvidence('neutral-capture'),
+      };
+    },
+  };
+  const observation = {
+    ...experience(4, null, 0),
+    task: null,
+    self: {
+      currentAction: null,
+      projects: [{ id: 'one' }, { id: 'two' }],
+      condition: { health: 5, food: 20, oxygen: 20 },
+    },
+    events: [
+      { sequence: 4, type: 'self_hurt', salience: 'urgent', isNew: true, data: { damage: 2 } },
+    ],
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('manage_project'), tool('move_direction')],
+      attempt: () => true,
+      observe: () => observation,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'neutral-benchmark-v1',
+      actionProfile: 'resident-v1',
+      safetyProfile: 'vanilla-player-v1',
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].requiredAction, null);
+    assert.equal(requests[0].policyProfile, 'neutral-benchmark-v1');
+    assert.equal(requests[0].actionProfile, 'resident-v1');
+    assert.equal(requests[0].safetyProfile, 'vanilla-player-v1');
+    assert.deepEqual(
+      requests[0].actions.map((action) => action.name),
+      ['manage_project', 'move_direction', 'wait_for_event'],
+    );
+    const guidance = requests[0].conversation
+      .filter((message: any) => message?.role === 'system')
+      .map((message: any) => String(message.content || ''))
+      .join('\n');
+    assert.match(guidance, /no response has been selected or recommended/i);
+    assert.doesNotMatch(guidance, /survival|cover|defense|food|escape|unrelated construction/i);
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('neutral policy admits a repeated failed player choice instead of repairing it', async () => {
+  const history = [1, 2, 3].map((sequence) => failedTurn(sequence, 'dig_block'));
+  const attempts: any[] = [];
+  const mind: ResidentMind = {
+    id: 'neutral-repeat',
+    decide: async () => ({
+      protocol: 'behold.mind-decision.v1',
+      disposition: 'act',
+      utterance: 'I choose the same attempt.',
+      action: { name: 'dig_block', input: {} },
+      call: modelCallEvidence('neutral-repeat'),
+    }),
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('dig_block')],
+      attempt: (intent) => {
+        attempts.push(intent);
+        return true;
+      },
+      observe: () => experience(4, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      history,
+      maxTurnSteps: 1,
+      policyProfile: 'neutral-benchmark-v1',
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].tool, 'dig_block');
+  } finally {
+    policy.stop();
+  }
 });
 
 test('a failed model call is visible once with request provenance and no credential', async () => {

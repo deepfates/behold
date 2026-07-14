@@ -109,6 +109,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
   };
   const program = ax(`
     "Choose exactly one next action for a persistent embodied resident from bounded lived evidence. Propose only; never claim the action happened and never execute tools."
+    profiles:json,
     livedContext:json,
     currentObservation:json,
     attention?:json,
@@ -257,6 +258,11 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
 
 function mindInput(request: ResidentMindRequest) {
   return {
+    profiles: {
+      policy: request.policyProfile ?? 'legacy-unspecified',
+      actions: request.actionProfile ?? 'legacy-unspecified',
+      safety: request.safetyProfile ?? 'legacy-unspecified',
+    },
     livedContext: livedContext(request),
     currentObservation: request.observation,
     ...(request.attention ? { attention: request.attention } : {}),
@@ -284,7 +290,7 @@ function residentInstruction(request: ResidentMindRequest) {
   return [
     'Choose exactly one next action for this persistent embodied resident from bounded lived evidence.',
     'Propose only. Never execute a tool and never claim an action happened before its later world consequence is observed.',
-    'actionName must exactly equal one admittedActionNames value. Darkness alone is not a reason to wait when a safe useful action is available.',
+    'actionName must exactly equal one admittedActionNames value.',
     system?.content || '',
   ]
     .filter(Boolean)

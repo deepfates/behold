@@ -211,10 +211,10 @@ product utilities. They change the problem presented to the model and therefore
 belong in separately named action profiles. Loaded-volume scans, evaluator
 topology, and story commands never belong in the neutral profile.
 
-## What is currently contaminating the benchmark
+## What belongs only to the continuing-resident profile
 
-The production resident policy currently includes several useful product
-heuristics that are not neutral evaluation machinery:
+The production `resident-v1` policy includes several useful product heuristics
+that are not neutral evaluation machinery:
 
 - a long system prompt describing how to survive, build, collaborate, recover,
   manage projects, and sequence particular action families;
@@ -227,9 +227,24 @@ heuristics that are not neutral evaluation machinery:
   the attempt.
 
 Lifecycle limits, stale-action rejection, schema validation, authority, and
-causal consequence checks remain valid. The behavioral rules must move into an
-optional resident policy or into the candidate mind itself. In benchmark mode,
-a bad choice should remain a bad scored choice.
+causal consequence checks remain valid. The behavioral rules now remain behind
+the named resident profile. `neutral-benchmark-v1` uses a three-sentence
+protocol prompt, never forces project bookkeeping, never rejects a legal choice
+for repetition or speech cadence, and emits a factual interruption notice
+without recommending a response. In benchmark mode, a bad choice remains a bad
+scored choice.
+
+The action and risk surfaces are independently named. `minecraft-player-v1`
+removes resident memory utilities and disclosed compound body skills, including
+coordinate placement that chooses support, equipment, and navigation on the
+model's behalf. The current crafting command is also withheld until its recipe
+and crafting-table prerequisites are observation-bound rather than discovered
+from loaded world state. The retained player-scale intentions receive short
+semantics-only descriptions. `vanilla-player-v1` exposes risky legal Minecraft
+choices such as mining supporting blocks, approaching items over dangerous
+ground, or changing remembered protected space; `resident-safe-v1` may withhold
+them as an explicit product preference. Every managed run records the selected
+policy, action, and safety profiles.
 
 ## Ax should optimize the mind, not the world
 
@@ -335,12 +350,12 @@ the people and agents living there.
 
 Before another open-ended paid life run:
 
-1. Add one neutral policy profile that emits only the minimal protocol prompt,
-   never forces `manage_project`, never blocks a valid repeated choice, and does
-   not inject danger strategy.
-2. Name and freeze a neutral action profile. Classify every current action as
-   native core, disclosed composite skill, resident memory utility, or
-   evaluator/operator instrument.
+1. Keep the implemented `neutral-benchmark-v1` policy, `minecraft-player-v1`
+   action surface, and `vanilla-player-v1` risk profile under conformance tests
+   as the environment evolves.
+2. Finish auditing action descriptions and observation fields for remaining
+   strategic language or privileged information; profile selection alone does
+   not prove the entire request is neutral.
 3. Make Ax instruction and optimization artifacts first-class instead of
    overwriting them per request.
 4. Run direct and Ax minds through identical captured-frame replays.

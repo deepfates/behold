@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
+import {
+  minecraftActionClass,
+  minecraftActionsForProfile,
+  minecraftActionProfile,
+  minecraftSafetyProfile,
+} from '../src/agent/action-profiles';
 import type { InhabitantActionSpec } from '../src/entity/interface';
 import { isActionSchemaNarrowing } from '../src/policy/llm';
 
@@ -231,6 +237,65 @@ test('visual mining selects exact bounded first-hit surfaces without requiring c
   assert.deepEqual(dig.function.parameters.properties.target.enum, ['block:overworld:1:64:0']);
   assert.deepEqual(dig.function.parameters.required, ['target']);
   assert.equal(isActionSchemaNarrowing(action.function.parameters, dig.function.parameters), true);
+});
+
+test('the named player profile removes memory utilities and disclosed composite skills only', () => {
+  const actions = [
+    tool('look_direction'),
+    tool('move_direction'),
+    tool('dig_block'),
+    tool('place_block'),
+    tool('craft_item'),
+    tool('manage_project'),
+    tool('cross_place_door'),
+    tool('cross_visible_door'),
+    tool('descend_step'),
+    tool('ascend_step'),
+    tool('future_controller_magic'),
+  ];
+
+  assert.deepEqual(
+    minecraftActionsForProfile(actions, 'minecraft-player-v1').map(
+      (action) => action.function.name,
+    ),
+    ['look_direction', 'move_direction', 'dig_block'],
+  );
+  assert.equal(minecraftActionClass('manage_project'), 'resident-memory-utility');
+  assert.equal(minecraftActionClass('cross_visible_door'), 'disclosed-composite-skill');
+  assert.equal(minecraftActionClass('place_block'), 'disclosed-composite-skill');
+  assert.equal(minecraftActionClass('craft_item'), 'disclosed-composite-skill');
+  assert.equal(minecraftActionClass('dig_block'), 'player-intention');
+  assert.equal(minecraftActionClass('future_controller_magic'), 'unclassified');
+  assert.equal(minecraftActionProfile('minecraft-player-v1'), 'minecraft-player-v1');
+  assert.equal(minecraftSafetyProfile('vanilla-player-v1'), 'vanilla-player-v1');
+  assert.throws(() => minecraftActionProfile('helpful-agent-v9'), /Unsupported Minecraft action/);
+  assert.throws(() => minecraftSafetyProfile('hidden-safety'), /Unsupported Minecraft safety/);
+});
+
+test('vanilla player risk exposes visible support and lower blocks without recommending them', () => {
+  const action = schemaTool('dig_block', { target: { type: 'string' } }, ['target']);
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    self: { pose: { position: { x: 0.5, y: 64, z: 0.5 } } },
+    scene: {
+      entities: [],
+      terrain: {
+        targets: [
+          { ...visibleBlock('block:overworld:0:63:0', 'grass_block', 0, 63, 0), distance: 1 },
+          { ...visibleBlock('block:overworld:1:62:0', 'stone', 1, 62, 0), distance: 3 },
+        ],
+      },
+    },
+  };
+
+  assert.deepEqual(minecraftInhabitantActionsFor([action], observation), []);
+  const [dig] = minecraftInhabitantActionsFor([action], observation, {
+    safetyProfile: 'vanilla-player-v1',
+  });
+  assert.deepEqual(dig.function.parameters.properties.target.enum, [
+    'block:overworld:0:63:0',
+    'block:overworld:1:62:0',
+  ]);
 });
 
 test('consumption follows Mineflayer hunger and always-consumable semantics', () => {

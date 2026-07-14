@@ -4,6 +4,13 @@ import { getConfig } from '../config';
 import { createBot } from '../bot';
 import { buildInterpreter } from '../agent/interpreter';
 import { minecraftInhabitantActionsFor } from '../agent/affordances';
+import {
+  minecraftActionProfile,
+  minecraftActionsForProfile,
+  minecraftSafetyProfile,
+  type MinecraftActionProfile,
+  type MinecraftSafetyProfile,
+} from '../agent/action-profiles';
 import { buildFrame, renderFrame } from './render';
 import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
@@ -13,6 +20,7 @@ import {
   isImmediateAttentionEvent,
   startLLMPolicy,
 } from '../policy/llm';
+import { residentPolicyProfile, type ResidentPolicyProfile } from '../policy/profile';
 import { createAxResidentMind } from '../mind/ax';
 import { isCognitionTransportEnabled } from '../mind/cognition';
 import { createRunJournal } from '../observability/journal';
@@ -36,6 +44,9 @@ export type ConsoleOptions = {
   urgentDecisionTimeoutMs?: number;
   tickMs?: number;
   paused?: boolean;
+  policyProfile?: ResidentPolicyProfile;
+  actionProfile?: MinecraftActionProfile;
+  safetyProfile?: MinecraftSafetyProfile;
   allowTools?: string[] | null;
   task?: string;
   target?: string;
@@ -60,6 +71,19 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const urgentModel = opts.urgentModel?.trim() || undefined;
   const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(
     opts.urgentDecisionTimeoutMs ?? process.env.BEHOLD_URGENT_DECISION_TIMEOUT_MS,
+  );
+  const policyProfile = residentPolicyProfile(
+    opts.policyProfile ?? process.env.BEHOLD_POLICY_PROFILE,
+  );
+  const actionProfile = minecraftActionProfile(
+    opts.actionProfile ??
+      process.env.BEHOLD_ACTION_PROFILE ??
+      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+  );
+  const safetyProfile = minecraftSafetyProfile(
+    opts.safetyProfile ??
+      process.env.BEHOLD_SAFETY_PROFILE ??
+      (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
   );
   const mindAdapter = residentMindAdapter(process.env.BEHOLD_MIND);
   const cognitionTransport = isCognitionTransportEnabled(process.env.BEHOLD_COGNITION_TRANSPORT);
@@ -94,6 +118,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     controller: {
       kind: cfg.llm.apiKey && !opts.paused ? 'llm' : 'operator',
       mindAdapter,
+      policyProfile,
+      actionProfile,
+      safetyProfile,
       urgentModel: urgentModel ?? null,
       urgentDecisionTimeoutMs,
       tickMs: Number(process.env.AGENT_TICK_MS || 3000),
@@ -218,6 +245,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
 
   const interp = buildInterpreter(bot as any, {
     worldChangeExecutor: taskRuntime?.worldChangeExecutor,
+    safetyProfile,
     projects,
     places: () => places.snapshot(),
     observe: () => experience.observe(),
@@ -365,7 +393,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model = cfg.llm.model;
   if (apiKey && !opts.paused) {
-    const toolSpecs = interp.list('inhabitant').map((s: any) => ({
+    const completeToolSpecs = interp.list('inhabitant').map((s: any) => ({
       type: 'function',
       function: {
         name: s.name,
@@ -373,12 +401,14 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         parameters: s.parameters || { type: 'object', properties: {} },
       },
     }));
+    const toolSpecs = minecraftActionsForProfile(completeToolSpecs as any, actionProfile);
     policy = startLLMPolicy(
       {
         entityId: name,
         observe: (sinceSequence) => experience.observe(sinceSequence),
         actions: toolSpecs as any,
-        actionsFor: (observation) => minecraftInhabitantActionsFor(toolSpecs as any, observation),
+        actionsFor: (observation) =>
+          minecraftInhabitantActionsFor(toolSpecs as any, observation, { safetyProfile }),
         attempt: (intent) => engine!.enqueueIntent(intent),
       },
       {
@@ -386,6 +416,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         model,
         urgentModel,
         urgentDecisionTimeoutMs,
+        policyProfile,
+        actionProfile,
+        safetyProfile,
         endpoint: process.env.OPENROUTER_BASE_URL || undefined,
         mind:
           mindAdapter === 'ax'
@@ -430,7 +463,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     );
     startPolicyIfReady();
     console.error(
-      `[console] LLM policy enabled (model ${model}${urgentModel ? `, bodily urgency ${urgentModel}` : ''}, mind ${mindAdapter})`,
+      `[console] LLM policy enabled (model ${model}${urgentModel ? `, bodily urgency ${urgentModel}` : ''}, mind ${mindAdapter}, policy ${policyProfile}, actions ${actionProfile}, safety ${safetyProfile})`,
     );
   } else if (!apiKey) {
     console.error('[console] No OPENROUTER_API_KEY; LLM autopilot disabled.');
