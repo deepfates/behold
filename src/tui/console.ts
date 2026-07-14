@@ -244,13 +244,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           deliver('task progress journal', recordTaskProgress);
         }
       }
-      void policy
-        ?.onEngineEvent(event)
-        .catch((error: any) =>
-          console.error(
-            `[console] policy event consumer failed for ${event.type}: ${error?.message || String(error)}`,
-          ),
-        );
+      const policyDelivery = policy?.onEngineEvent(event);
       const tool = String(event.data?.intent?.tool || '');
       const source = String(event.data?.intent?.source || '');
       if (
@@ -261,6 +255,11 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       ) {
         if (localWorldReady) policy?.wake();
       }
+      return policyDelivery?.catch((error: any) =>
+        console.error(
+          `[console] policy event consumer failed for ${event.type}: ${error?.message || String(error)}`,
+        ),
+      );
     },
   });
   taskRuntime?.verifier.bindEngineEventSource(engine.acceptsEvent);

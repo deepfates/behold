@@ -419,35 +419,36 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         z: Math.floor(intendedPosition.z),
       };
       const immediatePath = relativeMovementEvidence(bot, start, vector);
+      if (immediatePath.issue !== 'immediate_path_clear') {
+        return {
+          ok: false,
+          error: 'immediate_direction_unavailable',
+          direction: requested,
+          distanceBlocks,
+          orientationAtStart: orientationRecord(yaw, pitch),
+          intendedFeet,
+          obstruction: immediatePath,
+        };
+      }
+      const configuredTimeout = clamp(Number(opts.moveTimeoutMs ?? 45_000), 1000, 120_000);
+      const bodyTimeLimitMs = Math.min(configuredTimeout, 2_500 + distanceBlocks * 1_000);
       const navigation = await runPathfinderGoal(
         bot,
-        new (goals as any).GoalXZ(intendedFeet.x, intendedFeet.z),
+        new (goals as any).GoalNear(intendedFeet.x, intendedFeet.y, intendedFeet.z, 1),
         {
           destination: intendedPosition,
-          near: 0,
-          timeoutMs: clamp(Number(opts.moveTimeoutMs ?? 45_000), 1000, 120_000),
+          near: 1,
+          timeoutMs: bodyTimeLimitMs,
           target: `${requested} relative walk`,
           signal: execution?.signal,
-          horizontalOnly: true,
+          movementEnvelope: {
+            maxHorizontalFromStart: distanceBlocks + 2,
+            maxVerticalFromStart: 3,
+          },
         },
       );
       const final = positionOf(bot);
       const finalFeet = (bot as any).entity?.position?.floored?.();
-      const arrivedInIntendedColumn =
-        navigation.ok &&
-        finalFeet != null &&
-        finalFeet.x === intendedFeet.x &&
-        finalFeet.z === intendedFeet.z;
-      const result = arrivedInIntendedColumn
-        ? navigation
-        : navigation.ok
-          ? {
-              ...navigation,
-              ok: false,
-              error: 'relative_arrival_unconfirmed',
-              status: undefined,
-            }
-          : navigation;
       const displacement = final
         ? {
             forward: round((final.x - start.x) * vector.x + (final.z - start.z) * vector.z),
@@ -456,14 +457,15 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           }
         : null;
       return {
-        ...result,
+        ...navigation,
         direction: requested,
         distanceBlocks,
+        bodyTimeLimitMs,
         orientationAtStart: orientationRecord(yaw, pitch),
         intendedFeet,
         finalFeet: finalFeet ? { x: finalFeet.x, y: finalFeet.y, z: finalFeet.z } : null,
         displacement,
-        ...(result.ok ? {} : { obstruction: immediatePath }),
+        ...(navigation.ok ? {} : { obstruction: immediatePath }),
       };
     },
     category: 'move',
@@ -4717,6 +4719,10 @@ async function runPathfinderGoal(
     target?: string;
     signal?: AbortSignal;
     horizontalOnly?: boolean;
+    movementEnvelope?: {
+      maxHorizontalFromStart: number;
+      maxVerticalFromStart: number;
+    };
   },
 ) {
   const pathfinder = (bot as any).pathfinder;
@@ -4724,14 +4730,40 @@ async function runPathfinderGoal(
   const start = positionOf(bot);
   let timer: NodeJS.Timeout | null = null;
   let stopIssued = false;
+  let movementLimit: {
+    horizontalFromStart: number;
+    verticalFromStart: number;
+    maxHorizontalFromStart: number;
+    maxVerticalFromStart: number;
+  } | null = null;
   const requestStop = () => {
     try {
       pathfinder.stop();
       stopIssued = true;
     } catch {}
   };
+  const enforceMovementEnvelope = () => {
+    if (!start || !options.movementEnvelope || movementLimit) return;
+    const current = positionOf(bot);
+    if (!current) return;
+    const horizontalFromStart = horizontalDistance(current, start);
+    const verticalFromStart = Math.abs(current.y - start.y);
+    if (
+      horizontalFromStart <= options.movementEnvelope.maxHorizontalFromStart + 0.25 &&
+      verticalFromStart <= options.movementEnvelope.maxVerticalFromStart + 0.25
+    ) {
+      return;
+    }
+    movementLimit = {
+      horizontalFromStart: round(horizontalFromStart),
+      verticalFromStart: round(verticalFromStart),
+      ...options.movementEnvelope,
+    };
+    requestStop();
+  };
   if (options.signal?.aborted) return cancelledAction('mineflayer-pathfinder');
   options.signal?.addEventListener('abort', requestStop, { once: true });
+  if (options.movementEnvelope) (bot as any).on?.('move', enforceMovementEnvelope);
   try {
     await Promise.race([
       pathfinder.goto(goal),
@@ -4744,6 +4776,19 @@ async function runPathfinderGoal(
         }, options.timeoutMs);
       }),
     ]);
+    if (movementLimit) {
+      return {
+        ok: false,
+        error: 'movement_envelope_exceeded',
+        target: options.target,
+        destination: options.destination,
+        near: options.near,
+        start,
+        final: positionOf(bot),
+        movementLimit,
+        durationMs: Date.now() - startedAt,
+      };
+    }
     const final = positionOf(bot);
     const finalDistance = final
       ? options.horizontalOnly
@@ -4777,6 +4822,19 @@ async function runPathfinderGoal(
       durationMs: Date.now() - startedAt,
     };
   } catch (error: any) {
+    if (movementLimit) {
+      return {
+        ok: false,
+        error: 'movement_envelope_exceeded',
+        target: options.target,
+        destination: options.destination,
+        near: options.near,
+        start,
+        final: positionOf(bot),
+        movementLimit,
+        durationMs: Date.now() - startedAt,
+      };
+    }
     if (options.signal?.aborted && stopIssued && navigationError(error) === 'interrupted') {
       return {
         ...cancelledAction('mineflayer-pathfinder'),
@@ -4807,6 +4865,7 @@ async function runPathfinderGoal(
   } finally {
     if (timer) clearTimeout(timer);
     options.signal?.removeEventListener('abort', requestStop);
+    if (options.movementEnvelope) (bot as any).removeListener?.('move', enforceMovementEnvelope);
   }
 }
 

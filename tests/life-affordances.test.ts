@@ -528,8 +528,10 @@ test('move_direction fails closed and explains only adjacent player-scale obstru
   bot.entity.yaw = 0;
   bot.entity.pitch = 0;
   bot.entity.position = new Vec3(0.5, 64, 0.5);
+  let pathfinderCalls = 0;
   bot.pathfinder = {
     goto: async () => {
+      pathfinderCalls += 1;
       throw new Error('No path to goal');
     },
     stop: () => {},
@@ -551,7 +553,8 @@ test('move_direction fails closed and explains only adjacent player-scale obstru
   });
   const result = await interpreter.run('move_direction', { direction: 'forward', distance: 3 });
   assert.equal(result.ok, false);
-  assert.equal(result.error, 'no_path');
+  assert.equal(result.error, 'immediate_direction_unavailable');
+  assert.equal(pathfinderCalls, 0);
   assert.deepEqual(result.obstruction, {
     scope: 'adjacent_body_space',
     issue: 'feet_blocked',
@@ -565,6 +568,23 @@ test('move_direction fails closed and explains only adjacent player-scale obstru
   });
   assert.equal(Object.hasOwn(result.obstruction, 'alternatives'), false);
 
+  bot.blockAt = (position: Vec3) => ({
+    name: position.y === 63 ? 'stone' : 'air',
+    boundingBox: position.y === 63 ? 'block' : 'empty',
+    position,
+  });
+  bot.pathfinder.goto = async () => {
+    pathfinderCalls += 1;
+    throw new Error('No path to goal');
+  };
+  const noPath = await interpreter.run('move_direction', {
+    direction: 'forward',
+    distance: 3,
+  });
+  assert.equal(noPath.ok, false);
+  assert.equal(noPath.error, 'no_path');
+  assert.equal(pathfinderCalls, 1);
+
   bot.pathfinder.goto = async () => {};
   const unconfirmed = await interpreter.run('move_direction', {
     direction: 'back',
@@ -572,6 +592,75 @@ test('move_direction fails closed and explains only adjacent player-scale obstru
   });
   assert.equal(unconfirmed.ok, false);
   assert.equal(unconfirmed.error, 'arrival_unconfirmed');
+});
+
+test('move_direction stops pathfinding at a strict player-scale movement envelope', async () => {
+  const bot = baseBot();
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.blockAt = (position: Vec3) => ({
+    name: position.y === 63 ? 'stone' : 'air',
+    boundingBox: position.y === 63 ? 'block' : 'empty',
+    position,
+  });
+  let rejectPath!: (error: Error) => void;
+  let stopCalls = 0;
+  bot.pathfinder = {
+    goto: () => new Promise<void>((_resolve, reject) => (rejectPath = reject)),
+    stop: () => {
+      stopCalls += 1;
+      rejectPath(new Error('Path was stopped before it could be completed'));
+    },
+  };
+
+  const pending = buildInterpreter(bot).run('move_direction', {
+    direction: 'forward',
+    distance: 4,
+  });
+  await Promise.resolve();
+  bot.entity.position = new Vec3(0.5, 68, -6.5);
+  bot.emit('move');
+  const result = await pending;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'movement_envelope_exceeded');
+  assert.equal(stopCalls, 1);
+  assert.deepEqual(result.movementLimit, {
+    horizontalFromStart: 7,
+    verticalFromStart: 4,
+    maxHorizontalFromStart: 6,
+    maxVerticalFromStart: 3,
+  });
+});
+
+test('move_direction keeps an exceeded movement envelope terminal when stop resolves navigation', async () => {
+  const bot = baseBot();
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.blockAt = (position: Vec3) => ({
+    name: position.y === 63 ? 'stone' : 'air',
+    boundingBox: position.y === 63 ? 'block' : 'empty',
+    position,
+  });
+  let resolvePath!: () => void;
+  bot.pathfinder = {
+    goto: () => new Promise<void>((resolve) => (resolvePath = resolve)),
+    stop: () => resolvePath(),
+  };
+
+  const pending = buildInterpreter(bot).run('move_direction', {
+    direction: 'forward',
+    distance: 4,
+  });
+  await Promise.resolve();
+  bot.entity.position = new Vec3(0.5, 68, -6.5);
+  bot.emit('move');
+  const result = await pending;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'movement_envelope_exceeded');
 });
 
 test('move_direction preserves acknowledged pathfinder cancellation', async () => {

@@ -626,6 +626,55 @@ test('engine shutdown stops admission, requests adapter cancellation, and drains
   assert.equal(terminal.data.cancellation.acknowledged, true);
 });
 
+test('engine shutdown waits for asynchronous terminal consumers before reporting drain', async () => {
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => (entered = resolve));
+  let terminalDelivered!: () => void;
+  const terminalDelivery = new Promise<void>((resolve) => (terminalDelivered = resolve));
+  let terminalPersisted = false;
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async (_tool, _args, _intent, execution) => {
+        entered();
+        await new Promise<void>((resolve) =>
+          execution!.signal.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        return {
+          ok: false,
+          error: 'interrupted_by_shutdown',
+          cancellation: { acknowledged: true, adapter: 'fixture-adapter' },
+        };
+      },
+    },
+    {
+      onEvent: async (event) => {
+        if (event.type !== 'action_failed') return;
+        await terminalDelivery;
+        terminalPersisted = true;
+      },
+    },
+  );
+  engine.enqueueIntent({ id: 'durable-terminal', source: 'llm', tool: 'move_direction' });
+  const tick = engine.tick();
+  await started;
+
+  let shutdownCompleted = false;
+  const shutdown = engine.shutdown('controller_stdin_closed').then((result) => {
+    shutdownCompleted = true;
+    return result;
+  });
+  await tick;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(shutdownCompleted, false);
+  assert.equal(terminalPersisted, false);
+
+  terminalDelivered();
+  const result = await shutdown;
+  assert.equal(result.drained, true);
+  assert.equal(terminalPersisted, true);
+});
+
 test('engine shutdown cancels every queued source and permanently closes admission', async () => {
   let dispatches = 0;
   const events: any[] = [];

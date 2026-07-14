@@ -46,6 +46,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
   const authenticEvents = new WeakSet<object>();
   const reportObserverFailure = (type: string, error: any) =>
     log(`[engine] event observer failed for ${type}: ${error?.message || String(error)}`);
+  const observerDeliveries = new Set<Promise<void>>();
   const emit = (type: string, data: any = {}) => {
     const eventData = structuredClone(data);
     const event: EngineEvent = Object.freeze({
@@ -63,7 +64,11 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       ) {
         // Event consumers are downstream of the already-minted lifecycle.
         // Observe rejection without awaiting it or rewriting action outcome.
-        void Promise.resolve(delivery).catch((error) => reportObserverFailure(type, error));
+        const observed = Promise.resolve(delivery)
+          .then(() => undefined)
+          .catch((error) => reportObserverFailure(type, error));
+        observerDeliveries.add(observed);
+        void observed.finally(() => observerDeliveries.delete(observed));
       }
     } catch (error: any) {
       // A broken observer must not rewrite a successfully completed action as
@@ -72,6 +77,11 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       reportObserverFailure(type, error);
     }
     return event;
+  };
+  const settleObservers = async () => {
+    while (observerDeliveries.size > 0) {
+      await Promise.all([...observerDeliveries]);
+    }
   };
   const tickMs = Math.max(200, Number(opts.tickMs ?? 3000));
   const allow = Array.isArray(opts.allowTools) ? new Set(opts.allowTools) : null;
@@ -254,6 +264,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
   async function shutdown(reason = 'engine_shutdown') {
     if (shuttingDown) {
       if (inFlight) await inFlight.promise;
+      await settleObservers();
       return { drained: inFlight == null, activeIntent: inFlight?.intent ?? null };
     }
     shuttingDown = true;
@@ -271,7 +282,10 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
         result: { ok: false, error: 'engine_shutdown' },
       });
     }
-    if (!inFlight) return { drained: true, activeIntent: null };
+    if (!inFlight) {
+      await settleObservers();
+      return { drained: true, activeIntent: null };
+    }
     const active = inFlight;
     if (!active.controller.signal.aborted) {
       emit('cancellation_requested', {
@@ -286,6 +300,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       active.controller.abort(reason);
     }
     await active.promise;
+    await settleObservers();
     return { drained: inFlight == null, activeIntent: inFlight?.intent ?? null };
   }
 
