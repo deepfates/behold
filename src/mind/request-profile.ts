@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ResidentMindRequest } from './interface';
 import { directOpenRouterRequestBody, directOpenRouterTools } from './direct-wire';
 import { attributeProviderRequestBody } from './request-attribution';
+import { residentMindRequestSha256 } from './request-artifact';
 
 export const RESIDENT_REQUEST_PROFILE_PROTOCOL = 'behold.resident-request-profile.v1' as const;
 
@@ -20,6 +21,7 @@ export function profileDirectResidentRequest(
     source,
     request: {
       model: request.model,
+      mindRequestSha256: residentMindRequestSha256(request),
       profiles: {
         policy: request.policyProfile ?? 'legacy-unspecified',
         actions: request.actionProfile ?? 'legacy-unspecified',

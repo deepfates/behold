@@ -18,6 +18,7 @@ import { createProjectMemory } from '../src/entity/projects';
 import { createAxResidentMind, parseAxResidentProgramArtifact } from '../src/mind/ax';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { profileDirectResidentRequest } from '../src/mind/request-profile';
+import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
 import { startLLMPolicy } from '../src/policy/llm';
 import { residentPolicyProfile, type ResidentPolicyProfile } from '../src/policy/profile';
 
@@ -32,6 +33,10 @@ type Args = {
   profileOnly: boolean;
   timeoutMs: number;
   axProgram?: string;
+  requestOut?: string;
+  policyProfile?: ResidentPolicyProfile;
+  actionProfile?: MinecraftActionProfile;
+  safetyProfile?: MinecraftSafetyProfile;
 };
 
 async function main() {
@@ -61,16 +66,20 @@ async function main() {
   if (!matchingTurn?.data?.sequence) {
     throw new Error('The journal does not contain the completed entity turn for its model choice');
   }
-  const policyProfile = residentPolicyProfile(
-    baselineRecord.data.policyProfile ?? runStarted?.data?.controller?.policyProfile,
-  );
+  const policyProfile =
+    args.policyProfile ??
+    residentPolicyProfile(
+      baselineRecord.data.policyProfile ?? runStarted?.data?.controller?.policyProfile,
+    );
   const actionProfile = minecraftActionProfile(
-    baselineRecord.data.actionProfile ??
+    args.actionProfile ??
+      baselineRecord.data.actionProfile ??
       runStarted?.data?.controller?.actionProfile ??
       (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
   );
   const safetyProfile = minecraftSafetyProfile(
-    baselineRecord.data.safetyProfile ??
+    args.safetyProfile ??
+      baselineRecord.data.safetyProfile ??
       runStarted?.data?.controller?.safetyProfile ??
       (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
   );
@@ -162,6 +171,15 @@ async function main() {
       const comparable = baselineAdapter === 'direct-openrouter';
       const exactProviderRequestMatch =
         comparable && baselineBodySha256 === profile.request.bodySha256;
+      const requestArtifact = createResidentMindRequestArtifact(request);
+      if (args.requestOut) {
+        const requestFile = path.resolve(args.requestOut);
+        await fsPromises.mkdir(path.dirname(requestFile), { recursive: true });
+        await fsPromises.writeFile(requestFile, `${JSON.stringify(requestArtifact, null, 2)}\n`, {
+          encoding: 'utf8',
+          mode: 0o600,
+        });
+      }
       await writeOutput(
         {
           ...profile,
@@ -174,6 +192,16 @@ async function main() {
             exactProviderRequestMatch,
             allowTools,
             capturedProviderBodyAvailable: baselineRecord.data.call.request?.body != null,
+            requestArtifact: args.requestOut
+              ? {
+                  protocol: requestArtifact.protocol,
+                  requestSha256: requestArtifact.requestSha256,
+                  file: path.resolve(args.requestOut),
+                  sourceKind: exactProviderRequestMatch
+                    ? 'exact-baseline-reconstruction'
+                    : 'current-code-reconstruction',
+                }
+              : null,
             note: exactProviderRequestMatch
               ? 'Current code reconstructed the exact captured direct-provider request bytes.'
               : 'This profile is diagnostic only; it is not an exact replay of the captured provider request.',
@@ -323,6 +351,9 @@ async function main() {
       candidateError,
       matchedEpisode: candidateCall
         ? {
+            exactMindRequest:
+              typeof baseline.call.request.mindRequestSha256 === 'string' &&
+              baseline.call.request.mindRequestSha256 === candidateCall.request.mindRequestSha256,
             requestedModel: model === candidateCall.request.model,
             sameModelAsBaseline: model === baselineModel,
             observation: replay.migrations.length === 0,
@@ -362,12 +393,23 @@ function parseArgs(argv: string[]): Args {
   let profileOnly = false;
   let timeoutMs = 30_000;
   let axProgram: string | undefined;
+  let requestOut: string | undefined;
+  let policyProfile: ResidentPolicyProfile | undefined;
+  let actionProfile: MinecraftActionProfile | undefined;
+  let safetyProfile: MinecraftSafetyProfile | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--journal') journal = String(argv[++index] || '');
     else if (argv[index] === '--out') out = String(argv[++index] || '');
     else if (argv[index] === '--model') model = String(argv[++index] || '');
     else if (argv[index] === '--ax-program') axProgram = String(argv[++index] || '');
-    else if (argv[index] === '--model-turn') {
+    else if (argv[index] === '--request-out') requestOut = String(argv[++index] || '');
+    else if (argv[index] === '--policy-profile') {
+      policyProfile = residentPolicyProfile(String(argv[++index] || ''));
+    } else if (argv[index] === '--action-profile') {
+      actionProfile = minecraftActionProfile(String(argv[++index] || ''));
+    } else if (argv[index] === '--safety-profile') {
+      safetyProfile = minecraftSafetyProfile(String(argv[++index] || ''));
+    } else if (argv[index] === '--model-turn') {
       modelTurn = Number(argv[++index]);
       if (!Number.isSafeInteger(modelTurn) || modelTurn < 1) {
         throw new Error('--model-turn must be a positive journal sequence');
@@ -391,11 +433,14 @@ function parseArgs(argv: string[]): Args {
   }
   if (!journal) {
     throw new Error(
-      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--ax-program artifact.json] [--timeoutMs <ms>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
+      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--policy-profile profile] [--action-profile profile] [--safety-profile profile] [--ax-program artifact.json] [--request-out request.json] [--timeoutMs <ms>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
     );
   }
   if (axProgram && (candidate !== 'ax' || attentionPair || profileOnly)) {
     throw new Error('--ax-program applies only to an Ax candidate rollout');
+  }
+  if (requestOut && !profileOnly) {
+    throw new Error('--request-out requires --profile-only');
   }
   return {
     journal,
@@ -407,6 +452,10 @@ function parseArgs(argv: string[]): Args {
     ...(modelTurn == null ? {} : { modelTurn }),
     ...(out ? { out } : {}),
     ...(axProgram ? { axProgram } : {}),
+    ...(requestOut ? { requestOut } : {}),
+    ...(policyProfile ? { policyProfile } : {}),
+    ...(actionProfile ? { actionProfile } : {}),
+    ...(safetyProfile ? { safetyProfile } : {}),
   };
 }
 

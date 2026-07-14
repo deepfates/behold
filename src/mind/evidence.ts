@@ -30,6 +30,10 @@ export type ModelCallEvidence = {
   program?: MindProgramIdentity;
   request: {
     model: string;
+    /** Exact canonical identity of the framework-level ResidentMindRequest. */
+    mindRequestSha256?: string;
+    /** Opt-in framework input retained for exact replay; may contain private lived context. */
+    mindRequest?: unknown;
     messageCount: number;
     toolCount: number;
     toolChoice: unknown;

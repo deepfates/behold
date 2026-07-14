@@ -25,13 +25,10 @@ import type {
   ResidentMindDecision,
   ResidentMindRequest,
 } from '../mind/interface';
-import { directOpenRouterRequestBody } from '../mind/direct-wire';
+import { createDirectResidentMind } from '../mind/direct';
+import { residentMindRequestSha256 } from '../mind/request-artifact';
 import { attributeProviderRequestBody } from '../mind/request-attribution';
-import {
-  cognitionClientHeaders,
-  parseCognitionAdmission,
-  type CognitionPriority,
-} from '../mind/cognition';
+import { cognitionClientHeaders, parseCognitionAdmission } from '../mind/cognition';
 import { validateResidentActionInput } from '../mind/schema';
 import { residentTurnMayReplay } from '../mind/resident-visibility';
 import {
@@ -281,7 +278,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     executableTools.map((spec) => [spec.function.name, spec] as const),
   );
   const mind: ResidentMind =
-    opts.mind || createDirectResidentMind((request, signal) => callLLM(request, opts, signal));
+    opts.mind ||
+    createDirectResidentMind({
+      apiKey: opts.apiKey,
+      model: opts.model,
+      ...(opts.urgentModel ? { allowedModels: [opts.urgentModel] } : {}),
+      ...(opts.endpoint ? { endpoint: opts.endpoint } : {}),
+      ...(opts.cognitionTransport ? { cognitionTransport: true } : {}),
+      ...(opts.recordModelIO ? { recordModelIO: true } : {}),
+      ...(opts.now ? { now: opts.now } : {}),
+    });
   let activeModelRequest: AbortController | null = null;
   let stopped = false;
   let stopPromise: Promise<void> | null = null;
@@ -556,11 +562,18 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         // with a synthetic rejection: aggregate compute remains occupied until
         // the adapter promise actually settles.
         try {
+          const requestSha256 = residentMindRequestSha256(request);
           const proposed = await mind.decide(request, { signal });
           if (signal.aborted) {
             throw signal.reason ?? abortError('urgent decision expired before admission');
           }
-          return validateMindDecision(proposed, availableTools, requiredTool, decisionModel);
+          return validateMindDecision(
+            proposed,
+            availableTools,
+            requiredTool,
+            decisionModel,
+            requestSha256,
+          );
         } finally {
           if (deadline) clearTimeout(deadline);
         }
@@ -2040,55 +2053,6 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
   return content.trim();
 }
 
-function createDirectResidentMind(
-  decide: (request: ResidentMindRequest, signal: AbortSignal) => Promise<ModelDecision>,
-): ResidentMind {
-  return {
-    id: 'direct-openrouter',
-    async decide(request, { signal }) {
-      const decision = await decide(request, signal);
-      const utterance =
-        typeof decision.assistant?.content === 'string' ? decision.assistant.content : null;
-      if (decision.wait) {
-        return {
-          protocol: 'behold.mind-decision.v1',
-          disposition: 'wait',
-          utterance,
-          action: {
-            name: WAIT_TOOL,
-            input: toolArguments(decision.assistant),
-            callId: decision.toolCallId,
-          },
-          adapterRecord: decision.assistant,
-          call: decision.call,
-        };
-      }
-      if (!decision.intent) {
-        return {
-          protocol: 'behold.mind-decision.v1',
-          disposition: 'no_action',
-          utterance,
-          action: null,
-          adapterRecord: decision.assistant,
-          call: decision.call,
-        };
-      }
-      return {
-        protocol: 'behold.mind-decision.v1',
-        disposition: 'act',
-        utterance,
-        action: {
-          name: decision.intent.tool,
-          input: decision.intent.input ?? {},
-          callId: decision.toolCallId,
-        },
-        adapterRecord: decision.assistant,
-        call: decision.call,
-      };
-    },
-  };
-}
-
 /**
  * Convert a framework-neutral proposal into the existing resident coroutine's
  * internal form. This is deliberately the last trust boundary before an
@@ -2099,6 +2063,7 @@ function validateMindDecision(
   admittedActions: readonly ToolSpec[],
   requiredAction: string | null,
   expectedModel: string,
+  expectedMindRequestSha256: string,
 ): ModelDecision {
   if (decision?.protocol !== 'behold.mind-decision.v1') {
     throw new Error('mind returned an unsupported decision protocol');
@@ -2107,9 +2072,25 @@ function validateMindDecision(
     throw new Error('mind returned no inspectable model-call evidence');
   }
 
+  if (
+    decision.call.request?.mindRequestSha256 != null &&
+    decision.call.request.mindRequestSha256 !== expectedMindRequestSha256
+  ) {
+    throw new MindDecisionError(
+      'mind call evidence refers to a different resident mind request',
+      decision.call,
+    );
+  }
+  const call: ModelCallEvidence = {
+    ...decision.call,
+    request: {
+      ...decision.call.request,
+      mindRequestSha256: expectedMindRequestSha256,
+    },
+  };
   const admitted = new Set(admittedActions.map((spec) => spec.function.name));
   const fail = (message: string): never => {
-    throw new MindDecisionError(message, decision.call);
+    throw new MindDecisionError(message, call);
   };
   if (decision.call.request?.model !== expectedModel) {
     fail(
@@ -2126,7 +2107,7 @@ function validateMindDecision(
       intent: null,
       toolCallId: null,
       wait: false,
-      call: decision.call,
+      call,
     };
   }
 
@@ -2171,7 +2152,7 @@ function validateMindDecision(
       intent: null,
       toolCallId,
       wait: true,
-      call: decision.call,
+      call,
     };
   }
   return {
@@ -2179,7 +2160,7 @@ function validateMindDecision(
     intent: toIntent(name, input),
     toolCallId,
     wait: false,
-    call: decision.call,
+    call,
   };
 }
 
@@ -2198,155 +2179,6 @@ function canonicalAssistant(
   if (toolCall) assistant.tool_calls = [toolCall];
   else delete assistant.tool_calls;
   return assistant;
-}
-
-async function callLLM(
-  residentRequest: ResidentMindRequest,
-  opts: Options,
-  signal?: AbortSignal,
-): Promise<ModelDecision> {
-  const body = directOpenRouterRequestBody(residentRequest) as any;
-  const messages = body.messages as any[];
-  const specs = body.tools as ToolSpec[];
-
-  const requestId = rid('model');
-  const priority: CognitionPriority =
-    residentRequest.attention?.mode === 'urgent' ? 'urgent' : 'deliberative';
-  const urgentTriggers = (residentRequest.attention?.triggers ?? []).map(
-    (trigger) => trigger.sequence,
-  );
-  const urgentTriggerSequence =
-    priority === 'urgent' && urgentTriggers.length > 0 ? Math.max(...urgentTriggers) : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${opts.apiKey}`,
-    ...(opts.cognitionTransport
-      ? cognitionClientHeaders({
-          requestId,
-          priority,
-          purpose: 'resident_decision',
-          urgentTriggerSequence,
-        })
-      : {}),
-  };
-  if (process.env.OPENROUTER_REFERER)
-    headers['HTTP-Referer'] = String(process.env.OPENROUTER_REFERER);
-  if (process.env.OPENROUTER_TITLE) headers['X-Title'] = String(process.env.OPENROUTER_TITLE);
-
-  const endpoint = opts.endpoint || DEFAULT_ENDPOINT;
-  const startedAt = opts.now ? opts.now() : Date.now();
-  const requestBody = JSON.stringify(body);
-  const request = {
-    model: residentRequest.model,
-    messageCount: messages.length,
-    toolCount: specs.length,
-    toolChoice: body.tool_choice,
-    bodySha256: sha256(requestBody),
-    bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
-    byteAttribution: attributeProviderRequestBody(body),
-    messagesSha256: sha256(stableJson(messages)),
-    toolsSha256: sha256(stableJson(specs)),
-    kind: 'provider_request' as const,
-    ...(opts.recordModelIO ? { body: JSON.parse(requestBody) } : {}),
-  };
-  let res: Response;
-  try {
-    res = await fetch(endpoint, { method: 'POST', headers, body: requestBody, signal });
-  } catch (error: any) {
-    const completedAt = opts.now ? opts.now() : Date.now();
-    throw new ModelCallError(`llm network error: ${error?.message || String(error)}`, {
-      protocol: 'behold.model-call.v1',
-      adapter: { name: 'direct-openrouter' },
-      requestId,
-      endpoint: safeEndpoint(endpoint),
-      startedAt,
-      completedAt,
-      latencyMs: Math.max(0, completedAt - startedAt),
-      request,
-      response: { status: null, bodyPreview: null },
-    });
-  }
-  if (!res.ok) {
-    const text = await res.text();
-    const completedAt = opts.now ? opts.now() : Date.now();
-    throw new ModelCallError(`llm ${res.status}: ${text.slice(0, 200)}`, {
-      protocol: 'behold.model-call.v1',
-      adapter: { name: 'direct-openrouter' },
-      requestId,
-      endpoint: safeEndpoint(endpoint),
-      startedAt,
-      completedAt,
-      latencyMs: Math.max(0, completedAt - startedAt),
-      ...admissionEvidence(res),
-      request,
-      response: { status: res.status, bodyPreview: text.slice(0, 200) || null },
-    });
-  }
-  const data: any = await res.json();
-  const completedAt = opts.now ? opts.now() : Date.now();
-  const call: ModelCallEvidence = {
-    protocol: 'behold.model-call.v1',
-    adapter: { name: 'direct-openrouter' },
-    requestId,
-    endpoint: safeEndpoint(endpoint),
-    startedAt,
-    completedAt,
-    latencyMs: Math.max(0, completedAt - startedAt),
-    ...admissionEvidence(res),
-    request,
-    response: {
-      id: stringOrNull(data?.id),
-      model: stringOrNull(data?.model),
-      provider: stringOrNull(data?.provider),
-      finishReason: stringOrNull(data?.choices?.[0]?.finish_reason),
-      nativeFinishReason: stringOrNull(data?.choices?.[0]?.native_finish_reason),
-      usage: cloneJson(data?.usage ?? null),
-      ...(opts.recordModelIO ? { raw: cloneJson(data) } : {}),
-    },
-  };
-  const assistant = data?.choices?.[0]?.message || { role: 'assistant', content: '' };
-  const toolCall = assistant?.tool_calls?.[0];
-  if (toolCall?.function?.name) {
-    // The controller intentionally resolves one dependent action at a time.
-    // Keep the assistant history protocol-valid even if a provider ignores
-    // parallel_tool_calls=false and emits several calls.
-    const singleToolAssistant = { ...assistant, tool_calls: [toolCall] };
-    const name = String(toolCall.function.name);
-    const args = parseToolArguments(toolCall.function.arguments);
-    if (name === WAIT_TOOL) {
-      return {
-        assistant: singleToolAssistant,
-        intent: null,
-        toolCallId: String(toolCall.id || rid('wait')),
-        wait: true,
-        call,
-      };
-    }
-    return {
-      assistant: singleToolAssistant,
-      intent: toIntent(name, args),
-      toolCallId: String(toolCall.id || rid('tool')),
-      wait: false,
-      call,
-    };
-  }
-
-  const text: string | undefined = assistant?.content;
-  if (text && text.trim() && specs.some((spec) => spec.function.name === 'chat')) {
-    return {
-      assistant,
-      intent: {
-        id: rid('llm'),
-        source: 'llm',
-        tool: 'chat',
-        input: { text: text.slice(0, 200) },
-      },
-      toolCallId: null,
-      wait: false,
-      call,
-    };
-  }
-  return { assistant, intent: null, toolCallId: null, wait: false, call };
 }
 
 function sha256(value: string) {

@@ -34,6 +34,8 @@
     "proof:resident-recovery": "npm run build && node dist/scripts/resident-recovery-witness.js",
     "proof:resident-recovery-live": "npm run build && node dist/scripts/resident-recovery-live.js",
     "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",
+    "eval:mind-extract": "npm run build && node dist/scripts/extract-mind-request.js",
+    "eval:mind-pair": "npm run build && node dist/scripts/mind-compare.js",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "lint": "tsc -p tsconfig.json --noEmit && eslint .",

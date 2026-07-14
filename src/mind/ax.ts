@@ -16,6 +16,7 @@ import {
   parseAxResidentProgramArtifact,
   type AxResidentProgramArtifact,
 } from './ax-program-artifact';
+import { residentMindRequestSha256 } from './request-artifact';
 
 export {
   axResidentProgramFromOptimization,
@@ -164,6 +165,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
     async decide(request, { signal }) {
       const startedAt = now();
       const requestId = `ax-${randomUUID()}`;
+      const mindRequestSha256 = residentMindRequestSha256(request);
       const input = mindInput(request);
       const inputJson = stableJson(input);
       const traceOffset = program.getTraces().length;
@@ -203,6 +205,8 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           program: programIdentity,
           request: {
             model: request.model,
+            mindRequestSha256,
+            ...(options.recordModelIO ? { mindRequest: cloneJson(request) } : {}),
             messageCount: request.conversation.length,
             toolCount: request.actions.length,
             toolChoice: request.requiredAction,
@@ -251,6 +255,8 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           program: programIdentity,
           request: {
             model: request.model,
+            mindRequestSha256,
+            ...(options.recordModelIO ? { mindRequest: cloneJson(request) } : {}),
             messageCount: request.conversation.length,
             toolCount: request.actions.length,
             toolChoice: request.requiredAction,
