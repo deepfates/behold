@@ -9,7 +9,7 @@ import {
   worldPositionIsVisible,
 } from './observation';
 import type { InhabitantProject } from '../entity/projects';
-import { isCriticalBodyCondition } from './condition';
+import { bodyConditionBecameOrWorsenedCritical, isCriticalBodyCondition } from './condition';
 import {
   findProjectPlaceConflicts,
   situatePlaces,
@@ -485,7 +485,7 @@ export class InhabitantExperience {
         (previous.health != null && next.health != null && next.health < previous.health) ||
         (previous.food != null && next.food != null && next.food < previous.food) ||
         (previous.oxygen != null && next.oxygen != null && next.oxygen < previous.oxygen);
-      const urgent = isCriticalBodyCondition(next);
+      const urgent = bodyConditionBecameOrWorsenedCritical(previous, next);
       this.record(
         'condition_changed',
         { previous, current: next },

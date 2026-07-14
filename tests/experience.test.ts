@@ -213,6 +213,40 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   experience.destroy();
 });
 
+test('healthy sensor initialization does not retrigger an existing body crisis', () => {
+  const bot = fakeBot();
+  bot.health = 2;
+  bot.food = 14;
+  bot.oxygenLevel = undefined;
+  const experience = new InhabitantExperience(bot);
+
+  bot.oxygenLevel = 20;
+  bot.emit('breath');
+  const initialized = experience
+    .observe()
+    .events.find((event) => event.type === 'condition_changed');
+  assert.equal(initialized?.salience, 'normal');
+  assert.deepEqual(initialized?.data, {
+    previous: { health: 2, food: 14, oxygen: null },
+    current: { health: 2, food: 14, oxygen: 20 },
+  });
+
+  bot.food = 13;
+  bot.emit('health');
+  const hunger = experience
+    .observe(initialized?.sequence)
+    .events.find((event) => event.type === 'condition_changed' && event.data.current.food === 13);
+  assert.equal(hunger?.salience, 'high');
+
+  bot.health = 1;
+  bot.emit('health');
+  const worsenedCrisis = experience
+    .observe(hunger?.sequence)
+    .events.find((event) => event.type === 'condition_changed' && event.data.current.health === 1);
+  assert.equal(worsenedCrisis?.salience, 'urgent');
+  experience.destroy();
+});
+
 test('entity proximity is a bounded relation to this body, not server presence', () => {
   const bot = fakeBot();
   const experience = new InhabitantExperience(bot);
