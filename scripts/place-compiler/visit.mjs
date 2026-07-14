@@ -16,7 +16,7 @@ import {
   stopMinecraftServer,
   waitUntil,
 } from './minecraft-harness.mjs';
-import { deriveVisitPlan, loadVisitContract } from './visit-core.mjs';
+import { derivePresentationFocus, deriveVisitPlan, loadVisitContract } from './visit-core.mjs';
 
 const { goals, Movements, pathfinder: pathfinderPlugin } = pathfinderPackage;
 
@@ -173,25 +173,31 @@ try {
     }
   }
 
-  if (options.captureSeconds > 0) {
-    const movie = path.join(evidenceRoot, 'visit.mov');
-    capture = launchWindowCapture(captureExecutable, movie, options.captureSeconds);
-    await sleep(1_000);
-    progress.emit('capture', 'started', { seconds: options.captureSeconds });
-  }
   const stages = {};
   stages.arrival = await proveArrival(server, director, plan, progress);
-  if (options.launchClient) {
+  if (options.launchClient && options.captureSeconds === 0) {
     progress.emit('arrival', 'presented', { milliseconds: 3_000 });
     await sleep(3_000);
   }
+  const startCapture =
+    options.captureSeconds > 0
+      ? async () => {
+          const movie = path.join(evidenceRoot, 'visit.mov');
+          capture = launchWindowCapture(captureExecutable, movie, options.captureSeconds);
+          await sleep(1_000);
+          progress.emit('capture', 'started', {
+            seconds: options.captureSeconds,
+            beginsAt: 'ground-corridor-ready',
+          });
+        }
+      : null;
   stages.groundLeg = await proveGroundLeg(
     server,
     director,
     plan,
     progress,
     options.launchClient ? 3_000 : 0,
-    null,
+    startCapture,
   );
   if (options.launchClient) server.command(`execute as ${options.visitorName} run spectate`);
   stages.reveal = await proveReveal(server, director, plan, progress, options.visitorName);
@@ -332,6 +338,7 @@ async function proveGroundLeg(
   // A forced server chunk is not sent to a distant client. Move the observer to the
   // corridor first, then require every audited waypoint chunk in its client view.
   await ensureGroundCorridor(server, bot, leg, progress);
+  if (beforeTraversal) await beforeTraversal();
   if (presentationHoldMilliseconds > 0) {
     progress.emit('ground-corridor', 'presenting', {
       routeId: leg.routeId,
@@ -339,7 +346,6 @@ async function proveGroundLeg(
     });
     await sleep(presentationHoldMilliseconds);
   }
-  if (beforeTraversal) await beforeTraversal();
   const observed = [point(bot.entity.position)];
   const traversals = [];
   for (const [offset, waypoint] of leg.waypoints.slice(1).entries()) {
@@ -470,6 +476,7 @@ async function traverseWaypoint(bot, waypoint, waypointIndex, timeoutMs) {
 
 async function proveReveal(server, bot, visit, progress, visitorName) {
   const reveal = visit.reveal;
+  const presentationFocus = derivePresentationFocus(reveal);
   progress.emit('reveal', 'started', {
     sightlineId: reveal.sightlineId,
     liftBlocks: reveal.liftBlocks,
@@ -489,7 +496,7 @@ async function proveReveal(server, bot, visit, progress, visitorName) {
       const eased = ratio * ratio * (3 - 2 * ratio);
       const y = baseY + (reveal.observer.y - baseY) * eased;
       server.command(
-        `tp ${visitorName} ${reveal.observer.x} ${y} ${reveal.observer.z} facing ${reveal.target.x} ${reveal.target.y + 2} ${reveal.target.z}`,
+        `tp ${visitorName} ${reveal.observer.x} ${y} ${reveal.observer.z} facing ${presentationFocus.x} ${presentationFocus.y} ${presentationFocus.z}`,
       );
       await sleep(50);
     }
@@ -505,6 +512,7 @@ async function proveReveal(server, bot, visit, progress, visitorName) {
     measuredClear: reveal.clear,
     liftBlocks: reveal.liftBlocks,
     limitation: reveal.limitation,
+    presentationFocus,
   };
   progress.emit('reveal', 'completed', { sightlineId: reveal.sightlineId });
   return result;

@@ -17,7 +17,9 @@ const contractPath = path.join(repositoryRoot, 'docs/place-compiler/visits/livin
 
 test('visit contract derives an accepted arrival, clean ground leg, and reveal for every place', async () => {
   const { loadBenchmark } = await import(pathToFileURL(benchmarkCore).href);
-  const { deriveVisitPlan, loadVisitContract } = await import(pathToFileURL(visitCore).href);
+  const { derivePresentationFocus, deriveVisitPlan, loadVisitContract } = await import(
+    pathToFileURL(visitCore).href
+  );
   const benchmark = await loadBenchmark(benchmarkPath, repositoryRoot);
   const visit = await loadVisitContract(contractPath, repositoryRoot, benchmark);
   assert.deepEqual(Object.keys(visit.places).sort(), [
@@ -31,6 +33,24 @@ test('visit contract derives an accepted arrival, clean ground leg, and reveal f
     assert.ok(plan.groundLeg.distanceBlocks >= 24);
     assert.ok(plan.groundLeg.waypoints.length >= 2);
     assert.ok(plan.reveal.liftBlocks >= 2);
+    const focus = derivePresentationFocus(plan.reveal);
+    assert.ok(
+      Math.abs(
+        Math.hypot(focus.x - plan.reveal.observer.x, focus.z - plan.reveal.observer.z) - 128,
+      ) < 1e-9,
+    );
+    assert.equal(focus.y, plan.reveal.observer.y - 36);
+    const proofDirection = {
+      x: plan.reveal.target.x - plan.reveal.observer.x,
+      z: plan.reveal.target.z - plan.reveal.observer.z,
+    };
+    const presentationDirection = {
+      x: focus.x - plan.reveal.observer.x,
+      z: focus.z - plan.reveal.observer.z,
+    };
+    assert.ok(
+      proofDirection.x * presentationDirection.x + proofDirection.z * presentationDirection.z > 0,
+    );
     const defectEdges = new Set(
       place.route.swept.defects.map((defect: any) => `${defect.fromSample}:${defect.toSample}`),
     );

@@ -105,6 +105,30 @@ export function deriveVisitPlan(loadedPlace) {
   };
 }
 
+export function derivePresentationFocus(reveal, lookDistance = 128, lookDown = 36) {
+  assert(
+    Number.isFinite(reveal?.observer?.x) &&
+      Number.isFinite(reveal?.observer?.y) &&
+      Number.isFinite(reveal?.observer?.z) &&
+      Number.isFinite(reveal?.target?.x) &&
+      Number.isFinite(reveal?.target?.z),
+    'reveal lacks finite presentation coordinates',
+  );
+  assert(
+    Number.isFinite(lookDistance) && lookDistance > 0 && Number.isFinite(lookDown) && lookDown >= 0,
+    'presentation focus requires a positive distance and non-negative look-down',
+  );
+  const deltaX = reveal.target.x - reveal.observer.x;
+  const deltaZ = reveal.target.z - reveal.observer.z;
+  const horizontalDistance = Math.hypot(deltaX, deltaZ);
+  assert(horizontalDistance > 0, 'reveal target must differ from observer horizontally');
+  return {
+    x: reveal.observer.x + (deltaX / horizontalDistance) * lookDistance,
+    y: reveal.observer.y - lookDown,
+    z: reveal.observer.z + (deltaZ / horizontalDistance) * lookDistance,
+  };
+}
+
 export function chooseGroundLeg(route, arrival, targetBlocks = 64) {
   const samples = route.samples ?? [];
   const defectEdges = new Set(
