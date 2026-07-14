@@ -15,6 +15,7 @@ import {
   waitFor,
 } from './owned-world-fixture';
 import { startManagedWorld, type ManagedWorldRun } from './world-runner';
+import { disconnectMinecraftBot, waitForLocalWorld } from './native-conformance-harness';
 
 export type OwnedWorldFixture =
   | Awaited<ReturnType<typeof prepareOwnedWorld>>
@@ -197,7 +198,7 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
       let bot: ReturnType<typeof createBot> | null = null;
       try {
         bot = createBot(config, loom.connectionCapability);
-        await waitForLocalWorld(bot, 45_000);
+        await waitForLocalWorld(bot, 45_000, 'fresh Minecraft witness readiness');
         // Chunk readiness precedes a reliably interactive local scene. Use the
         // same bounded synchronization window as resident policy startup so a
         // fresh witness can open blocks and observe entities instead of racing
@@ -213,7 +214,7 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
           observedAt: Date.now(),
         };
       } finally {
-        if (bot) await disconnect(bot).catch(() => {});
+        if (bot) await disconnectMinecraftBot(bot).catch(() => {});
         await loom.close().catch(() => {});
       }
     },
@@ -333,74 +334,6 @@ async function withEnvironment<T>(
   } finally {
     for (const [name, value] of Object.entries(previous)) restoreEnvironment(name, value);
   }
-}
-
-async function waitForLocalWorld(bot: ReturnType<typeof createBot>, timeoutMs: number) {
-  const localWorld = new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const cleanup = () => {
-      bot.removeListener('spawn', onSpawn);
-      bot.removeListener('error', onError);
-      bot.removeListener('kicked', onKicked);
-      bot.removeListener('end', onEnd);
-    };
-    const pass = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve();
-    };
-    const fail = (error: unknown) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error instanceof Error ? error : new Error(String(error)));
-    };
-    const onError = (error: unknown) => fail(error);
-    const onKicked = (reason: unknown) =>
-      fail(new Error(`fresh Minecraft witness was kicked: ${JSON.stringify(reason)}`));
-    const onEnd = (reason: unknown) =>
-      fail(new Error(`fresh Minecraft witness disconnected before readiness: ${String(reason)}`));
-    const onSpawn = () => {
-      void bot.waitForChunksToLoad().then(pass, fail);
-    };
-    bot.once('spawn', onSpawn);
-    bot.once('error', onError);
-    bot.once('kicked', onKicked);
-    bot.once('end', onEnd);
-    if ((bot as any).entity) onSpawn();
-  });
-  let timer: NodeJS.Timeout | null = null;
-  try {
-    await Promise.race([
-      localWorld,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('fresh Minecraft witness readiness timed out')),
-          timeoutMs,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-function disconnect(bot: ReturnType<typeof createBot>) {
-  if (!(bot as any)._client) return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, 5_000);
-    bot.once('end', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    try {
-      (bot as any).end();
-    } catch {
-      clearTimeout(timer);
-      resolve();
-    }
-  });
 }
 
 function delay(milliseconds: number) {
