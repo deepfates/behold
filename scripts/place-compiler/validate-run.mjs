@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadPlaceRecipe, sha256 } from './core.mjs';
+import { overpassQueryForBounds } from './fetch-osm-snapshot.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const fail = (message) => {
@@ -55,6 +56,25 @@ if (
   (await sha256(manifest.inputs.osmJson)) !== manifest.inputs.sha256
 )
   fail('captured OSM missing or changed');
+if (manifest.inputs.acquisition) {
+  const acquisitionPath = path.resolve(manifest.inputs.acquisition.path);
+  if (
+    !acquisitionPath.startsWith(`${runRoot}${path.sep}`) ||
+    !existsSync(acquisitionPath) ||
+    (await sha256(acquisitionPath)) !== manifest.inputs.acquisition.sha256
+  )
+    fail('OSM acquisition manifest missing, escaped, or changed');
+  const acquisition = JSON.parse(readFileSync(acquisitionPath, 'utf8'));
+  if (
+    acquisition.kind !== 'place-osm-snapshot-acquisition' ||
+    acquisition.placeId !== recipe.id ||
+    acquisition.recipeSha256 !== manifest.place.recipeSha256 ||
+    acquisition.query !== overpassQueryForBounds(recipe.geography.bounds) ||
+    acquisition.payload?.sha256 !== manifest.inputs.sha256 ||
+    acquisition.payload?.sizeBytes !== statSync(manifest.inputs.osmJson).size
+  )
+    fail('OSM acquisition chain disagrees with recipe or captured payload');
+}
 const output = path.join(runRoot, 'output');
 const names = readdirSync(output).filter((name) => name.startsWith('Arnis World '));
 if (names.length !== 1) fail(`expected one world, found ${names.length}`);
@@ -133,6 +153,7 @@ const report = {
     'tool-lock-digest',
     'generator-digest',
     'osm-digest',
+    ...(manifest.inputs.acquisition ? ['osm-acquisition-chain'] : []),
     'world-tree',
     'world-structure',
     'coordinate-bounds',

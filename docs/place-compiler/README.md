@@ -14,10 +14,15 @@ node scripts/place-compiler/generate.mjs --place docs/place-compiler/places/lowe
 Accepted builds should use a frozen OSM JSON input:
 
 ```bash
+node scripts/place-compiler/fetch-osm-snapshot.mjs \
+  --place docs/place-compiler/places/lower-manhattan.json \
+  --output /path/to/lower-manhattan-overpass.json
 node scripts/place-compiler/generate.mjs \
   --place docs/place-compiler/places/lower-manhattan.json \
   --osm-json /path/to/lower-manhattan-overpass.json
 ```
+
+The fetcher derives one recursive Overpass query from the recipe bounds and writes a sidecar containing the endpoint, exact query, OSM timestamp, recipe digest, element count, size, and payload digest. Generation copies that acquisition record beside the frozen input when it is present.
 
 Each run is isolated below `.behold-artifacts/places/PLACE/runs/RUN_ID`. Its manifest records the recipe, recipe digest, tool lock, tool digest, generator digest, exact command, resource policy, runtime profiles, input digest, and isolated generator home.
 

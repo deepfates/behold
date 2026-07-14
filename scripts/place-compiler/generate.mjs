@@ -55,10 +55,13 @@ export async function generate(argv) {
   const inputRoot = path.join(runRoot, 'inputs');
   const isolatedHome = path.join(runRoot, 'generator-home');
   const osmJson = path.join(inputRoot, `${recipe.id}-overpass.json`);
+  const sourceAcquisitionManifest = options.osmJson ? `${options.osmJson}.manifest.json` : null;
+  const acquisitionManifest = path.join(inputRoot, 'osm-acquisition-manifest.json');
   const profilesPath = path.join(repositoryRoot, 'docs/place-compiler/runtime-profiles.json');
   const profiles = loadRuntimeProfiles(profilesPath, recipe.runtimeProfiles);
   const compilerSources = [
     'scripts/place-compiler/core.mjs',
+    'scripts/place-compiler/fetch-osm-snapshot.mjs',
     'scripts/place-compiler/generate.mjs',
     'scripts/place-compiler/validate-run.mjs',
     'scripts/place-compiler/materialize-runtime.mjs',
@@ -143,6 +146,14 @@ export async function generate(argv) {
       mode: options.osmJson ? 'copied-snapshot' : 'fetch-and-save',
       sizeBytes: options.osmJson ? statSync(options.osmJson).size : null,
       sha256: inputDigest,
+      acquisition:
+        sourceAcquisitionManifest && existsSync(sourceAcquisitionManifest)
+          ? {
+              sourcePath: sourceAcquisitionManifest,
+              path: acquisitionManifest,
+              sha256: await sha256(sourceAcquisitionManifest),
+            }
+          : null,
     },
     outputRoot,
     command,
@@ -155,6 +166,8 @@ export async function generate(argv) {
   if (options.osmJson) {
     copyFileSync(options.osmJson, osmJson, constants.COPYFILE_FICLONE);
     if ((await sha256(osmJson)) !== inputDigest) throw new Error('copied OSM digest mismatch');
+    if (sourceAcquisitionManifest && existsSync(sourceAcquisitionManifest))
+      copyFileSync(sourceAcquisitionManifest, acquisitionManifest, constants.COPYFILE_FICLONE);
   }
   writeFileSync(
     path.join(runRoot, 'generation-manifest.json'),
