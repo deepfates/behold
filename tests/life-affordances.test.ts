@@ -1445,8 +1445,15 @@ test('cross_visible_door owns one exact first-person doorway crossing without in
     }
     return { name: 'air', type: 0, stateId: 0, boundingBox: 'empty', position };
   };
-  bot.world = { raycast: () => doorBlock() };
-  bot.activateBlock = async () => {
+  const cursorHit = {
+    ...doorBlock(),
+    face: 3,
+    intersect: new Vec3(0.5, 64.4, 0.1875),
+  };
+  bot.world = { raycast: () => cursorHit };
+  const interactions: Array<{ face: Vec3; cursor: Vec3 }> = [];
+  bot.activateBlock = async (_block: any, face: Vec3, cursor: Vec3) => {
+    interactions.push({ face, cursor });
     const previous = doorBlock();
     open = !open;
     stateId += 1;
@@ -1515,6 +1522,10 @@ test('cross_visible_door owns one exact first-person doorway crossing without in
   assert.equal('protectedBodyCells' in result, false);
   assert.equal(JSON.stringify(result).includes('standable'), false);
   assert.deepEqual(controls, [true, false, true, false]);
+  assert.deepEqual(interactions[0].face, new Vec3(0, 0, 1));
+  assert.equal(interactions[0].cursor.x, 0.5);
+  assert.ok(Math.abs(interactions[0].cursor.y - 0.4) < 1e-9);
+  assert.equal(interactions[0].cursor.z, 0.1875);
   assert.equal(open, false);
 
   const place = {

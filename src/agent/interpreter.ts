@@ -3056,7 +3056,7 @@ async function crossSelectedVisibleDoor(
     };
   }
 
-  const opened = await ensureDoorOpen(bot, resolved.lower, opts, signal);
+  const opened = await ensureDoorOpen(bot, resolved.lower, opts, signal, cursorBlock);
   if (!opened.ok) return { ...opened, error: opened.error || 'selected_door_could_not_open' };
   if (signal?.aborted) {
     const doorRecovery =
@@ -3310,6 +3310,7 @@ async function activateToggleBlock(
   maxDistance: number,
   opts: InterpreterOptions,
   signal?: AbortSignal,
+  interactionBlock?: any,
 ): Promise<any> {
   if (signal?.aborted) return cancelledAction('minecraft-block-activation');
   const block = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
@@ -3338,11 +3339,8 @@ async function activateToggleBlock(
   const observer = observeBlockTransition(bot, position, beforeState);
   let commandError: string | null = null;
   try {
-    await (bot as any).activateBlock(
-      block,
-      interactionFaceFromBody(me, position),
-      new Vec3(0.5, 0.5, 0.5),
-    );
+    const interaction = blockInteraction(interactionBlock, me, position);
+    await (bot as any).activateBlock(block, interaction.face, interaction.cursor);
   } catch (error: any) {
     commandError = String(error?.message || error || 'block_activation_failed');
   }
@@ -3405,6 +3403,49 @@ async function activateToggleBlock(
   };
 }
 
+function blockInteraction(block: any, body: any, position: BlockPosition) {
+  const hit = block?.intersect;
+  const face = blockFaceVector(block?.face);
+  if (
+    face &&
+    hit &&
+    samePosition(integerBlockPosition(block?.position), position) &&
+    [hit.x, hit.y, hit.z].every((part) => Number.isFinite(Number(part)))
+  ) {
+    return {
+      face,
+      cursor: new Vec3(
+        clamp(Number(hit.x) - position.x, 0, 1),
+        clamp(Number(hit.y) - position.y, 0, 1),
+        clamp(Number(hit.z) - position.z, 0, 1),
+      ),
+    };
+  }
+  return {
+    face: interactionFaceFromBody(body, position),
+    cursor: new Vec3(0.5, 0.5, 0.5),
+  };
+}
+
+function blockFaceVector(face: any) {
+  switch (Number(face)) {
+    case 0:
+      return new Vec3(0, -1, 0);
+    case 1:
+      return new Vec3(0, 1, 0);
+    case 2:
+      return new Vec3(0, 0, -1);
+    case 3:
+      return new Vec3(0, 0, 1);
+    case 4:
+      return new Vec3(-1, 0, 0);
+    case 5:
+      return new Vec3(1, 0, 0);
+    default:
+      return null;
+  }
+}
+
 function interactionFaceFromBody(body: any, position: BlockPosition) {
   const dx = Number(body?.x) - (position.x + 0.5);
   const dz = Number(body?.z) - (position.z + 0.5);
@@ -3417,6 +3458,7 @@ async function ensureDoorOpen(
   position: BlockPosition,
   opts: InterpreterOptions,
   signal?: AbortSignal,
+  interactionBlock?: any,
 ) {
   if (signal?.aborted) return cancelledAction('minecraft-door-open');
   const block = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
@@ -3436,7 +3478,7 @@ async function ensureDoorOpen(
       block: summarizeObservedBlock(block),
     };
   }
-  const toggled = await activateToggleBlock(bot, position, 4.5, opts, signal);
+  const toggled = await activateToggleBlock(bot, position, 4.5, opts, signal, interactionBlock);
   return {
     ...toggled,
     ok: toggled.ok && toggled.changed?.property === 'open' && toggled.changed?.after === true,
