@@ -21,7 +21,8 @@ test, not the organizing purpose of the system.
   and ownership release
 - One runner-owned cognition gate with local per-resident credentials, strict
   request admission, fair/cancellable scheduling, exact durable reconciliation,
-  an exact population-wide accepted-call ceiling, and a live two-resident proof
+  an exact population-wide accepted-call ceiling whose exhaustion waits for
+  accepted-call settlement before owner shutdown, and a live two-resident proof
   at aggregate provider concurrency one
 - Unified `behold <AgentName>` CLI plus console and stdio control modes
 - Observations with position, health, inventory, nearby entities, nearby blocks, chat, action lifecycle, and recent events
@@ -32,8 +33,10 @@ test, not the organizing purpose of the system.
 - Bounded model working context over an unbounded durable trajectory
 - Event-driven idle waking, immediate admitted-action dispatch, stale body-life
   decision fencing, and an adversarially tested urgent-attention handoff that
-  preserves the full player action set while deferring only private project
-  bookkeeping during bodily urgency
+  distinguishes bodily danger from social interruption, preserves the full
+  player action set while deferring only private project bookkeeping during
+  bodily urgency, and can route that workload through a separately authorized
+  and fully evidenced mind model
 - One canonical causal, loss-visible observation projection shared by recent
   model history and disposable Lync folds; provider-free projection of the
   previously oversized Wren batch is 33,930 bytes
@@ -66,8 +69,9 @@ test, not the organizing purpose of the system.
   Causal fold projection and a hard call ceiling are implemented, but no new
   paid run has established their token and cost effect
 - Live evidence that the urgent embodied/bookkeeping separation changes survival
-  behavior; the exact failed frame now has the right admitted-action contract,
-  but a provider-free replay cannot prove the resident will act well
+  behavior; exact-frame comparison selected Luna provisionally for bodily
+  urgency, but an unadmitted replay cannot prove the resident will act well in
+  the live world
 - Human-scale urgent cognition: matched evidence shows substantially smaller
   prompts and lower uncached cost, but not lower single-call latency
 
@@ -99,11 +103,12 @@ test, not the organizing purpose of the system.
 
 ## Immediate priorities
 
-1. Run the corrected exact Scout urgent frame and causal fold path in a bounded
-   live episode with explicit call, token, cost, latency, and storage budgets.
-2. Keep the hard aggregate call ceiling above the expected episode demand so it
-   is a safety boundary, then verify refusal, terminal reconciliation, and the
-   owner's normal shutdown from durable evidence.
+1. Run one endangered resident with Gemini ordinary cognition and Luna bodily
+   urgency behind a very small call budget; verify the chosen action, bodily
+   consequence, exact selected model, terminal settlement, and owner shutdown.
+2. Compress and measure the ordinary recent-turn frontier without mutating its
+   authoritative Lync source, then keep the hard aggregate call ceiling above
+   expected episode demand as a safety boundary.
 3. Finish the player-grain action audit and prove bounded body skills against a
    real server independently of whether a model happens to choose them.
 4. Move continuing projects beyond prepared exact cells: let a resident orient,

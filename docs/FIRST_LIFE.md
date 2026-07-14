@@ -212,6 +212,16 @@ retreat.
 The exact evidence, including the preceding stale-environment model calibration
 and next-run gate, is in [the bounded ordinary-life report](reports/2026-07-14-bounded-ordinary-life.md).
 
+A subsequent ten-call run proved that the cap itself was exact but exposed two
+more failures. Wren received the corrected urgent surface at health 6.33 and
+still chose another unrelated plank placement, while immediate cap-triggered
+teardown cancelled two already accepted calls. Admission exhaustion now waits
+for accepted-call settlement before shutdown, and bodily urgency can use a
+separately authorized, fully evidenced model tier. Exact replay selected Luna
+provisionally for that workload while retaining Gemini for ordinary
+orientation. The run, comparison, costs, and live nonclaim are in the
+[capped danger calibration](reports/2026-07-14-capped-danger-calibration.md).
+
 The demonstrated failures are now corrected at their owning source boundaries,
 pending live validation. Urgent bodily attention retains the complete admitted
 Minecraft action surface but defers the private `manage_project` mutator; a

@@ -4,7 +4,7 @@ This is a workload decision, not a permanent ranking of model families. The
 live resident proof is authoritative; a model name or general benchmark is
 not.
 
-## Current decision: Gemini 3.5 Flash
+## Current decision: Gemini ordinary, Luna provisional bodily urgency
 
 On July 14, 2026, `openai/gpt-5.6-luna` failed two full population runs after
 the residents gained an honest first-person orientation action. In both runs,
@@ -26,7 +26,7 @@ action. No proposal could reach Minecraft.
 `*` Luna's range is from individual calls in the two complete causal runs; the
 later search timeouts stopped before a proof report could be assessed.
 
-The selected model is `google/gemini-3.5-flash`. OpenRouter describes it as a
+The selected ordinary model is `google/gemini-3.5-flash`. OpenRouter describes it as a
 high-efficiency model optimized for agentic execution loops, lists tool-choice
 support, and currently reports $1.50 input / $9 output per million tokens with
 roughly 1.6-second provider latency. At the proof's 40,000-token and $0.10
@@ -49,3 +49,28 @@ Future changes should repeat a matched lived-request comparison and then pass
 the full live proof. The record must include actual provider calls, latency,
 tokens, cost, choices, Minecraft consequences, restart behavior, and budget
 verdicts.
+
+## Bodily-urgency screen
+
+The later untasked household run exposed a different workload. Wren was taking
+damage at health 6.33, received compact current-body context, and nevertheless
+chose another unrelated plank placement. Replaying that exact frame showed a
+different Pareto frontier from orientation:
+
+| Model                        | Exact-frame action  |  Latency |        Cost |
+| ---------------------------- | ------------------- | -------: | ----------: |
+| `google/gemini-3.5-flash`    | place another plank |  1.376 s |  $0.0069885 |
+| `deepseek/deepseek-v4-flash` | status              |  2.379 s | $0.00079828 |
+| `deepseek/deepseek-v4-pro`   | move forward 6      | 11.526 s | $0.01174848 |
+| `openai/gpt-5.6-luna`        | move forward 5      |  2.306 s | $0.00627675 |
+| `anthropic/claude-sonnet-5`  | look around         |  3.413 s |   $0.017976 |
+
+The world could not be mutated by these proposals. Qwen 3.7 Plus failed because
+the selected provider rejected required tool choice; Step 3.5 Flash crossed a
+five-second deadline. DeepSeek V4 Flash was extremely cheap but did not choose
+a bodily consequence and later timed out on one of two ordinary frames.
+
+Luna is therefore the provisional `--urgentModel`, while Gemini remains the
+ordinary default. This is an explicit workload tier, not a global ranking and
+not yet a live survival claim. The full evidence and nonclaims are in the
+[capped danger calibration](reports/2026-07-14-capped-danger-calibration.md).
