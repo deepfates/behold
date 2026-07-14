@@ -60,22 +60,27 @@ The fix is not a zombie or doorway policy.
 7. The provider-free differential now uses the same production
    `actionsFor(observation)` boundary as a live controller. Evaluation can no
    longer profile a static catalog that the resident would never actually see.
+8. Run 40 exposed a Gemini function-declaration incompatibility with numeric
+   enums before any model choice. Exact block coordinates now use equal
+   `minimum`/`maximum` bounds, which preserve local admission and cross the live
+   provider boundary; numeric enums are rejected by the shared action boundary.
 
 ## Provider-free replay
 
 Reconstructing the exact first run-39 frame under the corrected source produces
-16 actions and a 31,963-byte direct-provider request. That is 10 fewer actions
-and 10,427 fewer bytes, a 24.6% wire reduction. Tool definitions fall from
-11,520 to 8,689 bytes. The observation hash is unchanged and no provider or
+16 actions and a 32,447-byte direct-provider request. That is 10 fewer actions
+and 9,943 fewer bytes, a 23.5% wire reduction. Tool definitions fall from 11,520
+to 9,105 bytes. The observation hash is unchanged and no provider or
 Minecraft action is invoked.
 
-The replay comes from an older observation that predates registry-derived item
-uses, so it conservatively still offers `consume` for Wren's non-food inventory.
-A new live observation will remove that false offer. The profile therefore
-understates the next live reduction.
+The replay comes from an older observation that predates item-use metadata, so
+its inventory surface remains deliberately coarser than a current body frame.
+The corrected hunger gate nevertheless removes `consume`; the now-valid
+`place_against` offer is bound to Wren's actually held block and exact cursor
+support.
 
 Provider-free profile:
-`.behold-runs/first-life-v1-39/WrenLife/request-profile-affordance-temporal-v3.json`.
+`.behold-runs/first-life-v1-39/WrenLife/request-profile-affordance-temporal-v4.json`.
 
 ## What this does not prove
 

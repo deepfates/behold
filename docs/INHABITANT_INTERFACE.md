@@ -73,8 +73,9 @@ preconditions are absent. Empty inventory cannot offer placement, eating,
 equipment, dropping, or crafting. Digging and ordinary block use bind to the
 reachable cursor focus. Containers and beds bind to their exact visible block.
 Sleep and wake reflect the body's current day and sleeping state. Exact enums
-narrow item names, entity ids, block positions, and door ids before a mind sees
-the action. Older observations without item-use metadata retain a conservative
+narrow item names, entity ids, and door ids; equal numeric bounds narrow block
+positions without relying on provider-incompatible numeric enums. Older
+observations without item-use metadata retain a conservative
 coarse inventory surface rather than being silently reinterpreted.
 
 Raw coordinate looking, `status`, and cursor-query commands remain available to

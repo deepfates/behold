@@ -1316,7 +1316,7 @@ function actionsOfferedByEnvironment(
       log(`[policy] rejected duplicate world-offered capability: ${name}`);
       return [];
     }
-    if (!schemaNarrowing(catalog.function.parameters, spec.function.parameters)) {
+    if (!isActionSchemaNarrowing(catalog.function.parameters, spec.function.parameters)) {
       log(`[policy] rejected broadened world-offered schema: ${name}`);
       return [];
     }
@@ -1333,25 +1333,86 @@ function actionsOfferedByEnvironment(
   });
 }
 
-function schemaNarrowing(catalog: unknown, offered: unknown) {
-  if (!isDeepStrictEqual(withoutEnums(catalog), withoutEnums(offered))) return false;
+export function isActionSchemaNarrowing(catalog: unknown, offered: unknown) {
+  if (!isDeepStrictEqual(withoutNarrowingKeywords(catalog), withoutNarrowingKeywords(offered))) {
+    return false;
+  }
   const catalogEnums = enumPaths(catalog);
   const offeredEnums = enumPaths(offered);
   for (const [path, allowed] of catalogEnums) {
     const narrowed = offeredEnums.get(path);
     if (!narrowed || !narrowed.every((candidate) => includesJson(allowed, candidate))) return false;
   }
-  return [...offeredEnums.values()].every((values) => values.length > 0);
+  if (
+    ![...offeredEnums.values()].every(
+      (values) => values.length > 0 && values.every((value) => typeof value === 'string'),
+    )
+  ) {
+    return false;
+  }
+  return numericBoundsNarrow(catalog, offered);
 }
 
-function withoutEnums(value: any): any {
-  if (Array.isArray(value)) return value.map(withoutEnums);
+function withoutNarrowingKeywords(value: any): any {
+  if (Array.isArray(value)) return value.map(withoutNarrowingKeywords);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([key]) => key !== 'enum')
-      .map(([key, item]) => [key, withoutEnums(item)]),
+      .filter(([key]) => key !== 'enum' && key !== 'minimum' && key !== 'maximum')
+      .map(([key, item]) => [key, withoutNarrowingKeywords(item)]),
   );
+}
+
+function numericBoundsNarrow(catalog: unknown, offered: unknown) {
+  const catalogBounds = numericBounds(catalog);
+  const offeredBounds = numericBounds(offered);
+  const paths = new Set([...catalogBounds.keys(), ...offeredBounds.keys()]);
+  for (const path of paths) {
+    const baseline = catalogBounds.get(path) || {};
+    const narrowed = offeredBounds.get(path) || {};
+    if (
+      (narrowed.minimum != null && !Number.isFinite(narrowed.minimum)) ||
+      (narrowed.maximum != null && !Number.isFinite(narrowed.maximum)) ||
+      (narrowed.minimum != null && narrowed.maximum != null && narrowed.minimum > narrowed.maximum)
+    ) {
+      return false;
+    }
+    if (
+      baseline.minimum != null &&
+      (narrowed.minimum == null || narrowed.minimum < baseline.minimum)
+    ) {
+      return false;
+    }
+    if (
+      baseline.maximum != null &&
+      (narrowed.maximum == null || narrowed.maximum > baseline.maximum)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function numericBounds(
+  value: any,
+  path = '$',
+  found = new Map<string, { minimum?: number; maximum?: number }>(),
+) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => numericBounds(item, `${path}[${index}]`, found));
+    return found;
+  }
+  if (!value || typeof value !== 'object') return found;
+  if (Object.hasOwn(value, 'minimum') || Object.hasOwn(value, 'maximum')) {
+    found.set(path, {
+      ...(Object.hasOwn(value, 'minimum') ? { minimum: Number(value.minimum) } : {}),
+      ...(Object.hasOwn(value, 'maximum') ? { maximum: Number(value.maximum) } : {}),
+    });
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key !== 'minimum' && key !== 'maximum') numericBounds(item, `${path}.${key}`, found);
+  }
+  return found;
 }
 
 function enumPaths(value: any, path = '$', found = new Map<string, any[]>()) {

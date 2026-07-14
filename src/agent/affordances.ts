@@ -183,10 +183,10 @@ export function withExactBlockPosition(
   spec: InhabitantActionSpec,
   position: { x: number; y: number; z: number },
 ): InhabitantActionSpec {
-  return withExactEnum(
-    withExactEnum(withExactEnum(spec, 'x', [Number(position.x)]), 'y', [Number(position.y)]),
+  return withExactNumber(
+    withExactNumber(withExactNumber(spec, 'x', Number(position.x)), 'y', Number(position.y)),
     'z',
-    [Number(position.z)],
+    Number(position.z),
   );
 }
 
@@ -197,17 +197,17 @@ export function withExactNestedBlockPosition(
 ): InhabitantActionSpec {
   const copy = cloneJson(spec) as InhabitantActionSpec;
   const nested = (copy.function.parameters as any)?.properties?.[property];
-  if (!nested?.properties) return copy;
-  nested.properties.x = { ...nested.properties.x, enum: [Number(position.x)] };
-  nested.properties.y = { ...nested.properties.y, enum: [Number(position.y)] };
-  nested.properties.z = { ...nested.properties.z, enum: [Number(position.z)] };
+  if (!nested?.properties?.x || !nested?.properties?.y || !nested?.properties?.z) return copy;
+  nested.properties.x = exactNumberSchema(nested.properties.x, Number(position.x));
+  nested.properties.y = exactNumberSchema(nested.properties.y, Number(position.y));
+  nested.properties.z = exactNumberSchema(nested.properties.z, Number(position.z));
   return copy;
 }
 
-function withExactEnum(
+function withExactNumber(
   spec: InhabitantActionSpec,
   property: string,
-  values: readonly unknown[],
+  value: number,
 ): InhabitantActionSpec {
   const copy = cloneJson(spec) as InhabitantActionSpec;
   const parameters: any = copy.function.parameters || {
@@ -215,15 +215,20 @@ function withExactEnum(
     properties: {},
   };
   const properties = parameters.properties || {};
-  const current = properties[property] || {};
+  const current = properties[property];
+  if (!current) return copy;
   copy.function.parameters = {
     ...parameters,
     properties: {
       ...properties,
-      [property]: { ...current, enum: [...values] },
+      [property]: exactNumberSchema(current, value),
     },
   };
   return copy;
+}
+
+function exactNumberSchema(schema: any, value: number) {
+  return { ...schema, minimum: value, maximum: value };
 }
 
 function visibleEntities(frame: any) {

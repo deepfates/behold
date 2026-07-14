@@ -188,21 +188,15 @@ test('current inventory uses and cursor focus produce exact native action inputs
     'oak_planks',
   ]);
   assert.deepEqual(offered.get('consume')?.function.parameters.properties.name.enum, ['apple']);
-  assert.deepEqual(
-    offered.get('place_against')?.function.parameters.properties.on.properties.x.enum,
-    [3],
-  );
-  assert.deepEqual(
-    offered.get('place_against')?.function.parameters.properties.on.properties.y.enum,
-    [65],
-  );
-  assert.deepEqual(
-    offered.get('place_against')?.function.parameters.properties.on.properties.z.enum,
-    [-2],
-  );
-  assert.deepEqual(offered.get('dig_block')?.function.parameters.properties.x.enum, [3]);
-  assert.deepEqual(offered.get('dig_block')?.function.parameters.properties.y.enum, [65]);
-  assert.deepEqual(offered.get('dig_block')?.function.parameters.properties.z.enum, [-2]);
+  const against = offered.get('place_against')?.function.parameters.properties.on.properties;
+  assert.deepEqual([against.x.minimum, against.x.maximum], [3, 3]);
+  assert.deepEqual([against.y.minimum, against.y.maximum], [65, 65]);
+  assert.deepEqual([against.z.minimum, against.z.maximum], [-2, -2]);
+  const dig = offered.get('dig_block')?.function.parameters.properties;
+  assert.deepEqual([dig.x.minimum, dig.x.maximum], [3, 3]);
+  assert.deepEqual([dig.y.minimum, dig.y.maximum], [65, 65]);
+  assert.deepEqual([dig.z.minimum, dig.z.maximum], [-2, -2]);
+  assert.equal(JSON.stringify(dig).includes('"enum"'), false);
 });
 
 test('consumption follows Mineflayer hunger and always-consumable semantics', () => {

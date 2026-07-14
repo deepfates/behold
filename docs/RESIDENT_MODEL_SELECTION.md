@@ -83,7 +83,7 @@ currently visible door as cover, but the call took 6.841 seconds and Wren died
 before execution. The action was invalidated across the death boundary. The
 current controller therefore records and enforces a five-second bodily-urgency
 decision budget, and the Minecraft adapter has reduced the exact replay from 26
-actions/42,390 bytes to 16 actions/31,963 bytes. Luna remains provisional: the
+actions/42,390 bytes to 16 actions/32,447 bytes. Luna remains provisional: the
 smaller current workload needs a new matched frontier comparison and live proof
 before any model is called adequate for survival. See the
 [affordance closing-time report](reports/2026-07-14-affordance-closing-time.md).

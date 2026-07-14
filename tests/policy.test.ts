@@ -4,6 +4,7 @@ import {
   attentionForObservation,
   controllerSystemPrompt,
   hasDecisionRelevantEvent,
+  isActionSchemaNarrowing,
   isImmediateAttentionEvent,
   modelDecisionInvalidation,
   startLLMPolicy,
@@ -1306,6 +1307,41 @@ test('the world affordance boundary may narrow but cannot broaden a catalog sche
   } finally {
     await policy.stop();
   }
+});
+
+test('the action boundary admits exact numeric bounds but rejects broader or numeric-enum schemas', () => {
+  const catalog = {
+    type: 'object',
+    properties: {
+      x: { type: 'number', minimum: -10, maximum: 10 },
+      y: { type: 'number' },
+    },
+    required: ['x', 'y'],
+  };
+  const exact = {
+    type: 'object',
+    properties: {
+      x: { type: 'number', minimum: 3, maximum: 3 },
+      y: { type: 'number', minimum: 65, maximum: 65 },
+    },
+    required: ['x', 'y'],
+  };
+
+  assert.equal(isActionSchemaNarrowing(catalog, exact), true);
+  assert.equal(
+    isActionSchemaNarrowing(catalog, {
+      ...exact,
+      properties: { ...exact.properties, x: { ...exact.properties.x, minimum: -11 } },
+    }),
+    false,
+  );
+  assert.equal(
+    isActionSchemaNarrowing(catalog, {
+      ...exact,
+      properties: { ...exact.properties, x: { type: 'number', enum: [3] } },
+    }),
+    false,
+  );
 });
 
 test('door affordances are admitted only at the player-visible focus and occupied remembered side', async () => {

@@ -88,7 +88,7 @@ test, not the organizing purpose of the system.
   unrelated project bookkeeping in live endangered frames, but one over-routed
   movement, one bounded path-choice failure, and one correctly refused blocked
   step do not prove escape, healing, shelter, or survival
-- Human-scale urgent cognition: the exact run-39 frame now profiles at 31,963
+- Human-scale urgent cognition: the exact run-39 frame now profiles at 32,447
   bytes and 16 grounded actions instead of 42,390 bytes and 26 actions, and a
   late proposal cannot be admitted after its five-second controller deadline;
   noncooperative adapter compute remains owned until it actually settles. No
