@@ -65,7 +65,9 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 - Passed world actions can now be projected into a structurally checked action
   graph. Observation, proposal, authentic permission, execution, optional
   world fact, and outside judgment have separate content IDs and relations
-  while Minecraft payloads remain world-owned. See `docs/ACTION_RECORD.md`
+  while Minecraft payloads remain world-owned. A real Ax/Minecraft v4 turn and
+  clean-process reassessment pass. See `docs/ACTION_RECORD.md` and
+  `docs/reports/2026-07-14-action-record-v4.md`
 - Managed multi-resident epochs with conjunctive readiness, exact per-entity
   leases, isolated journals/Lync lives, bounded process/model concurrency, and
   all-resident drain before one Minecraft save/stop
