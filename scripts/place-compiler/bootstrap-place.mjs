@@ -2,6 +2,8 @@
 import { createHash } from 'node:crypto';
 import {
   appendFileSync,
+  constants,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -19,7 +21,7 @@ import {
   sourceProfile,
   spawnCandidates,
 } from './bootstrap-core.mjs';
-import { validatePlaceRecipe } from './core.mjs';
+import { sha256, validatePlaceRecipe } from './core.mjs';
 import { sha256Value } from './world-intent-core.mjs';
 
 const DEFAULT_ENDPOINT = 'https://overpass-api.de/api/interpreter';
@@ -125,6 +127,36 @@ export async function bootstrapPlace(argv, dependencies = {}) {
   );
   writeFileSync(spawnPath, `${JSON.stringify(spawns, null, 2)}\n`, { flag: 'wx' });
   writeFileSync(recipePath, `${JSON.stringify(recipe, null, 2)}\n`, { flag: 'wx' });
+  const generationInputPath = path.join(output, 'frozen-osm.json');
+  copyFileSync(osmPath, generationInputPath, constants.COPYFILE_FICLONE);
+  if ((await sha256(generationInputPath)) !== osmSha256)
+    throw new Error('Bootstrap: generation input clone digest mismatch');
+  const acquisitionPath = `${generationInputPath}.manifest.json`;
+  const acquisition = {
+    schemaVersion: 1,
+    kind: 'place-osm-snapshot-acquisition',
+    placeId: recipe.id,
+    recipePath,
+    recipeSha256: await sha256(recipePath),
+    endpoint: options.endpoint,
+    query,
+    fetchedAt: document.osm3s?.timestamp_osm_base ?? startedAt.toISOString(),
+    osmTimestamp: document.osm3s?.timestamp_osm_base ?? null,
+    generator: document.generator ?? null,
+    elementCount: document.elements.length,
+    payload: {
+      path: generationInputPath,
+      sizeBytes: payload.length,
+      sha256: osmSha256,
+    },
+    provenance: {
+      mode: sourceMode,
+      sharedSourcePath: path.relative(options.root, osmPath),
+      placeSeedId: seed.seedId,
+      attemptId: options.attempt,
+    },
+  };
+  writeFileSync(acquisitionPath, `${JSON.stringify(acquisition, null, 2)}\n`, { flag: 'wx' });
   await history.append(
     {
       kind: sourceMode === 'frozen-reuse' ? 'source/osm-reused' : 'source/osm-frozen',
@@ -134,6 +166,10 @@ export async function bootstrapPlace(argv, dependencies = {}) {
         sha256: osmSha256,
       },
       request: { ...requestRecord, sha256: sha256Value(requestRecord) },
+      generationInput: {
+        path: path.relative(options.root, generationInputPath),
+        acquisitionPath: path.relative(options.root, acquisitionPath),
+      },
       profile,
     },
     { stage: 'source-acquisition', status: 'completed' },
@@ -196,7 +232,9 @@ export async function bootstrapPlace(argv, dependencies = {}) {
       landmarkCandidates: 'landmark-candidates.json',
       spawnCandidates: 'spawn-candidates.json',
       draftRecipe: 'draft-place-recipe.json',
-      recipeSha256: sha256Value(recipe),
+      generationInput: 'frozen-osm.json',
+      acquisitionManifest: 'frozen-osm.json.manifest.json',
+      recipeSha256: await sha256(recipePath),
     },
     costs: { overpassRequests: sourceMode === 'network-acquisition' ? 1 : 0, semanticCalls: 0 },
     history: { protocol: history.protocol, loomId: history.loomId, tipTurnId: history.tipTurnId },
