@@ -126,11 +126,13 @@ What remains red, in priority order:
 
 1. **View-complete orientation.** A resident could face a known point but could
    not naturally turn to reveal unseen terrain. `look_direction` now supplies
-   that missing native primitive. A fresh untasked resident used `around` as
-   its first free action and later used `left`, with Minecraft observations
-   changing after both turns. We still need to decide, with evidence, whether
-   structured rays are sufficient or an on-demand first-person image is
-   necessary for architecture and visual culture.
+   one ordinary glance as two orthogonal player choices: horizontal
+   same/left/right/around and vertical same/up/level/down. The normal mind sees
+   facing and vertical bands rather than raw angles. Two residents used it to
+   find different grounded items outside their initial views. We still need to
+   decide, with evidence, whether structured rays are sufficient or an
+   on-demand first-person image is necessary for architecture and visual
+   culture.
 2. **Egocentric local movement.** `move_direction` now supplies bounded
    forward/back/left/right walking relative to the resident's view, while
    `move_to` remains for visible, communicated, or remembered coordinates. Its

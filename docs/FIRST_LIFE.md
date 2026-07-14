@@ -86,6 +86,23 @@ and resource accounting. It does not prove that the residents can yet sustain
 a relationship, cooperate on a project, resolve contention, or live together
 for a long time.
 
+### The bounded population cognition gate
+
+On July 14, the same story was strengthened so the two residents did not begin
+with their resources already visible and could not make provider calls in
+parallel. They used an ordinary two-axis first-person look, found different
+items, collected them through Minecraft, restarted from separate Lync lives,
+and declined to repeat completed work. A runner-owned cognition broker held
+the OpenRouter credential, admitted every exact resident request, serialized
+aggregate provider work at one active call, and durably reconciled all
+terminals before Minecraft save and stop.
+
+The clean default-model run used `google/gemini-3.5-flash`, made 13 calls,
+consumed 32,057 tokens, cost $0.050718, and completed in 60.7 seconds. Every
+declared causal, process, concurrency, latency, token, cost, storage, restart,
+and shutdown assertion passed. The implementation lessons and nonclaims are in
+[the bounded population cognition report](reports/2026-07-14-bounded-population-cognition.md).
+
 ## The first native handoff proof
 
 On July 13, 2026, `GiverResident` entered a managed epoch first, walked to a

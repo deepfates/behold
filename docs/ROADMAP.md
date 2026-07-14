@@ -16,6 +16,9 @@ test, not the organizing purpose of the system.
 - Managed multi-resident epochs with conjunctive readiness, exact per-entity
   leases, isolated journals/Lync lives, bounded process/model concurrency, and
   all-resident drain before one Minecraft save/stop
+- One runner-owned cognition gate with local per-resident credentials, strict
+  request admission, fair/cancellable scheduling, exact durable reconciliation,
+  and a live two-resident proof at aggregate provider concurrency one
 - Unified `behold <AgentName>` CLI plus console and stdio control modes
 - Observations with position, health, inventory, nearby entities, nearby blocks, chat, action lifecycle, and recent events
 - Human stop latches new model work, queued intents cancel, and active actions serialize
@@ -61,8 +64,11 @@ test, not the organizing purpose of the system.
   trajectory, and material concern, then resumed harvesting.
 - AppleResident and CarrotResident acted in one exact epoch, retained separate
   consequences and autobiographies, and restarted together without leakage or
-  repeated work. The live and independently reassessed proof passed all declared
-  process, concurrency, latency, token, cost, journal, loom, and wall-time budgets.
+  repeated work. The latest first-person cognition-gate proof required them to
+  look for their resources, used the selected Gemini 3.5 Flash mind, serialized
+  all 13 provider calls through a cap of one, and passed every causal, process,
+  latency, token, cost, journal, loom, and wall-time assertion. See the
+  [bounded population cognition report](reports/2026-07-14-bounded-population-cognition.md).
 - GiverResident and ReceiverResident completed a native walk/drop/walk/pickup
   exchange, independently witnessed their own consequences, and restarted
   without repeating it. No social macro or symbolic sensing tool was admitted.
