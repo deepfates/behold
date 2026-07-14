@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "placeId": "lower-manhattan",
+  "arrival": {
+    "checkpointId": "city-hall",
+    "selectionPolicy": "measured-natural-surface",
+    "acceptance": {
+      "minimumNativeTicks": 24000,
+      "maximumObserverDeaths": 0
+    }
+  },
+  "checkpointOverrides": [
+    {
+      "checkpointId": "brooklyn-bridge",
+      "lat": 40.711471,
+      "lon": -74.004601,
+      "rationale": "Use the routable Manhattan civic approach instead of the recipe's eastern point, which projects into water and cannot be reached directly by the ground router."
+    }
+  ]
+}

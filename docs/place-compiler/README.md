@@ -77,6 +77,21 @@ node scripts/place-compiler/verify-benchmark-release.mjs \
   .behold-artifacts/place-benchmarks/living-places-v1/releases/NEW_RELEASE_ID
 ```
 
+Living Places v2 adds independently hashed experience policy without mutating accepted generation artifacts. Run both real lanes and verify their user-story acceptance with:
+
+```bash
+node scripts/place-compiler/soak-ecology.mjs \
+  --benchmark docs/place-compiler/benchmarks/living-places-v2.json \
+  --run-id NEW_V2_ECOLOGY_ID
+node scripts/place-compiler/inspect-places.mjs \
+  --benchmark docs/place-compiler/benchmarks/living-places-v2.json \
+  --run-id NEW_V2_INSPECTION_ID
+node scripts/place-compiler/verify-quality-loop.mjs \
+  docs/place-compiler/benchmarks/living-places-v2.json \
+  .behold-artifacts/place-benchmarks/living-places-v2/NEW_V2_ECOLOGY_ID \
+  .behold-artifacts/place-benchmarks/living-places-v2/NEW_V2_INSPECTION_ID
+```
+
 All three lanes use the same Place-owned disposable-server harness. It executes the exact JVM argument vector published by `runtime-manifest.json`, verifies the pinned server JAR, connects a loopback offline observer, and saves and stops cleanly. Concise progress appears on stderr while the complete structured event stream is retained as `progress.jsonl` and checksummed by the lane manifest. A focused performance regression can select one place, profile, and repetition without weakening the benchmark's canonical repetition count:
 
 ```bash

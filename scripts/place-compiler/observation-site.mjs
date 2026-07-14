@@ -42,6 +42,7 @@ export async function prepareObservationSite({
   label = 'observation site',
 }) {
   const highY = Math.min((bot.game.minY ?? -64) + (bot.game.height ?? 384) - 16, 384);
+  server.command(`forceload add ${checkpoint.x} ${checkpoint.z}`);
   server.command(`gamemode spectator ${bot.username}`);
   server.command(`tp ${bot.username} ${checkpoint.x + 0.5} ${highY} ${checkpoint.z + 0.5}`);
   await waitUntil(

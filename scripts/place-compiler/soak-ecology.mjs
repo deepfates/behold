@@ -30,12 +30,14 @@ function parse(argv) {
     benchmark: path.join(repositoryRoot, 'docs/place-compiler/benchmarks/living-places-v1.json'),
     runId: `ecology-${timestamp()}`,
     place: 'all',
+    checkpoint: null,
     basePort: 25730,
   };
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--benchmark') out.benchmark = path.resolve(argv[++index]);
     else if (argv[index] === '--run-id') out.runId = argv[++index];
     else if (argv[index] === '--place') out.place = argv[++index];
+    else if (argv[index] === '--checkpoint') out.checkpoint = argv[++index];
     else if (argv[index] === '--base-port') out.basePort = Number(argv[++index]);
     else throw new Error(`Unknown or incomplete argument: ${argv[index]}`);
   }
@@ -96,7 +98,7 @@ async function snapshot(server, bot, radius) {
   };
 }
 
-async function soakFixture(loaded, fixture, root, port, progress) {
+async function soakFixture(loaded, fixture, root, port, progress, checkpointId = null) {
   const config = loaded.benchmark.ecologySoak;
   const runtimeRoot = path.join(root, 'runtimes', `${fixture.placeId}-living`);
   const evidenceRoot = path.join(root, 'soaks');
@@ -129,12 +131,18 @@ async function soakFixture(loaded, fixture, root, port, progress) {
         progress,
       })
     ).bot;
+    const checkpoint = checkpointId
+      ? fixture.checkpoints.find((item) => item.id === checkpointId)
+      : (fixture.checkpoints.find(
+          (item) => item.id === fixture.experience?.arrival?.checkpointId,
+        ) ?? fixture.checkpoints[0]);
+    if (!checkpoint) throw new Error(`Unknown ecology checkpoint: ${checkpointId}`);
     const observationSite = await prepareObservationSite({
       server,
       bot,
-      checkpoint: fixture.checkpoints[0],
+      checkpoint,
       gameMode: 'survival',
-      label: `observation checkpoint ${fixture.checkpoints[0].id}`,
+      label: `observation checkpoint ${checkpoint.id}`,
     });
     await sleep(500);
     const settle = await sprintTicks(
@@ -184,7 +192,17 @@ async function soakFixture(loaded, fixture, root, port, progress) {
         authority: 'native Minecraft time, weather, gamerules, spawning, and entity lifecycle',
         observerScope: `protocol-visible entities within ${loaded.benchmark.inspections.observationRadius} blocks of the fixture spawn`,
         acceleration: 'vanilla server tick sprint; no parallel ecology or Behold identity',
+        arrivalSelection: fixture.experience
+          ? 'declared place experience arrival'
+          : 'first recipe landmark fallback',
       },
+      experience: fixture.experience
+        ? {
+            path: path.relative(repositoryRoot, fixture.experiencePath),
+            sha256: fixture.experienceSha256,
+            arrival: fixture.experience.arrival,
+          }
+        : null,
       observationSite,
       settle,
       daySprint: day,
@@ -211,6 +229,7 @@ async function soakFixture(loaded, fixture, root, port, progress) {
       server,
       bot,
       reason: 'ecology soak complete',
+      beforeStop: ['forceload remove all'],
       progress,
     });
   }
@@ -228,6 +247,8 @@ const selected =
     ? loaded.fixtures
     : loaded.fixtures.filter((fixture) => fixture.placeId === options.place);
 if (!selected.length) throw new Error(`No selected fixture: ${options.place}`);
+if (options.checkpoint && selected.length !== 1)
+  throw new Error('--checkpoint requires exactly one selected place');
 const root = path.join(
   repositoryRoot,
   '.behold-artifacts/place-benchmarks',
@@ -244,7 +265,14 @@ const progress = createProgressReporter({
 const results = [];
 for (let index = 0; index < selected.length; index += 1)
   results.push(
-    await soakFixture(loaded, selected[index], root, options.basePort + index, progress),
+    await soakFixture(
+      loaded,
+      selected[index],
+      root,
+      options.basePort + index,
+      progress,
+      options.checkpoint,
+    ),
   );
 progress.emit('run', 'completed', { resultCount: results.length });
 await progress.close();

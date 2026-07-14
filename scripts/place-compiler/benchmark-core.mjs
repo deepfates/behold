@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadPlaceRecipe, loadRuntimeProfiles, sha256 } from './core.mjs';
+import { experienceLandmarks, loadPlaceExperience } from './experience-core.mjs';
 
 const REQUIRED_DIMENSIONS = [
   'correspondence',
@@ -153,7 +154,22 @@ export async function loadBenchmark(benchmarkPath, repositoryRoot) {
       metadata.scale === recipe.geography.scaleBlocksPerMeter,
       `${fixture.placeId} scale mismatch`,
     );
-    const checkpoints = recipe.landmarks.map((landmark) => ({
+    let experience = null;
+    let experiencePath = null;
+    if (fixture.experiencePath) {
+      experiencePath = repositoryPath(
+        repositoryRoot,
+        fixture.experiencePath,
+        `${fixture.placeId}.experiencePath`,
+      );
+      assert(
+        typeof fixture.experienceSha256 === 'string' &&
+          (await sha256(experiencePath)) === fixture.experienceSha256,
+        `${fixture.placeId} experience digest mismatch`,
+      );
+      experience = loadPlaceExperience(experiencePath, recipe);
+    }
+    const checkpoints = experienceLandmarks(recipe, experience).map((landmark) => ({
       ...landmark,
       ...project(metadata, landmark.lat, landmark.lon),
     }));
@@ -167,7 +183,17 @@ export async function loadBenchmark(benchmarkPath, repositoryRoot) {
       ),
       `${fixture.placeId} checkpoint projects outside world`,
     );
-    fixtures.push({ ...fixture, runRoot, recipePath, world, metadataPath, metadata, checkpoints });
+    fixtures.push({
+      ...fixture,
+      runRoot,
+      recipePath,
+      world,
+      metadataPath,
+      metadata,
+      checkpoints,
+      experience,
+      experiencePath,
+    });
   }
   return { path: absolute, benchmark, profiles, fixtures };
 }

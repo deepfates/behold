@@ -31,6 +31,7 @@ const result = {
       maxZ: fixture.metadata.maxMcZ,
     },
     checkpoints: fixture.checkpoints,
+    experience: fixture.experience,
   })),
   execution: {
     inspections: loaded.benchmark.inspections,

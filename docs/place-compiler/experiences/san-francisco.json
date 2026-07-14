@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "placeId": "san-francisco",
+  "arrival": {
+    "checkpointId": "civic-center",
+    "selectionPolicy": "measured-natural-surface",
+    "acceptance": {
+      "minimumNativeTicks": 24000,
+      "maximumObserverDeaths": 0
+    }
+  },
+  "presentationTransitions": [
+    {
+      "id": "golden-gate-crossing",
+      "mode": "aerial",
+      "routeId": "golden-gate-crossing",
+      "rationale": "The generated bridge is geographically legible but its swept ground support is discontinuous, so a ground crossing would misrepresent the accepted artifact."
+    }
+  ]
+}

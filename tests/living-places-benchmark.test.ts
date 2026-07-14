@@ -40,6 +40,32 @@ test('Living Places v1 binds both immutable fixtures and keeps a score vector', 
   );
 });
 
+test('Living Places v2 binds independently versioned experience policy', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      benchmarkCli,
+      path.join(repositoryRoot, 'docs/place-compiler/benchmarks/living-places-v2.json'),
+    ],
+    { cwd: repositoryRoot, encoding: 'utf8' },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const plan = JSON.parse(result.stdout);
+  assert.equal(plan.benchmarkId, 'living-places-v2');
+  assert.deepEqual(
+    plan.fixtures.map(
+      (fixture: { experience: { arrival: { checkpointId: string } } }) =>
+        fixture.experience.arrival.checkpointId,
+    ),
+    ['civic-center', 'city-hall'],
+  );
+  const bridge = plan.fixtures[1].checkpoints.find(
+    (checkpoint: { id: string }) => checkpoint.id === 'brooklyn-bridge',
+  );
+  assert.equal(bridge.experienceOverride, true);
+  assert.equal(bridge.sourceLat, 40.7069);
+});
+
 test('Living Places refuses a benchmark that drops a telos dimension', () => {
   const temporary = mkdtempSync(path.join(os.tmpdir(), 'living-places-'));
   try {
