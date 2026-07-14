@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   COGNITION_ADMISSION_LIMIT_PROTOCOL,
+  COGNITION_ADMISSION_LIMIT_SETTLEMENT_PROTOCOL,
   startCognitionBroker,
   type CognitionBroker,
   type CognitionBrokerEvent,
@@ -24,6 +25,7 @@ test('the cognition gate enforces an exact aggregate admission ceiling before up
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const journalFile = path.join(root, 'cognition.jsonl');
   let upstreamCalls = 0;
+  const releases: Array<() => void> = [];
   const broker = await startCognitionBroker({
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
     allowedUpstreamOrigins: ['https://upstream.invalid'],
@@ -34,34 +36,59 @@ test('the cognition gate enforces an exact aggregate admission ceiling before up
     journalFile,
     fetch: async () => {
       upstreamCalls += 1;
+      await new Promise<void>((resolve) => releases.push(resolve));
       return jsonResponse({ id: `admitted-${upstreamCalls}` });
     },
   });
 
-  const first = await brokerRequest(
+  const first = brokerRequest(
     broker,
     'a',
     requestBody('fixture/model', 'first'),
     'deliberative',
     'first',
   );
-  assert.equal(first.status, 200);
-  await first.text();
-  const second = await brokerRequest(
+  await waitFor(() => upstreamCalls === 1);
+  const second = brokerRequest(
     broker,
     'a',
     requestBody('fixture/model', 'second'),
     'deliberative',
     'second',
   );
-  assert.equal(second.status, 200);
-  await second.text();
+  await waitFor(() => broker.snapshot().accepted === 2);
 
   const reached = await broker.admissionLimitReached;
   assert.equal(reached.protocol, COGNITION_ADMISSION_LIMIT_PROTOCOL);
   assert.equal(reached.brokerId, broker.brokerId);
   assert.equal(reached.accepted, 2);
   assert.equal(reached.limit, 2);
+  let settled = false;
+  void broker.admissionLimitSettled.then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  assert.equal(settled, false);
+
+  releases.shift()!();
+  const firstResponse = await first;
+  assert.equal(firstResponse.status, 200);
+  await firstResponse.text();
+  await waitFor(() => upstreamCalls === 2);
+  assert.equal(settled, false);
+  releases.shift()!();
+  const secondResponse = await second;
+  assert.equal(secondResponse.status, 200);
+  await secondResponse.text();
+
+  const settlement = await broker.admissionLimitSettled;
+  assert.equal(settlement.protocol, COGNITION_ADMISSION_LIMIT_SETTLEMENT_PROTOCOL);
+  assert.equal(settlement.brokerId, broker.brokerId);
+  assert.equal(settlement.accepted, 2);
+  assert.equal(settlement.terminal, 2);
+  assert.equal(settlement.completed, 2);
+  assert.equal(settlement.failed, 0);
+  assert.equal(settlement.cancelled, 0);
 
   const refused = await brokerRequest(
     broker,
@@ -120,11 +147,13 @@ test('concurrent resident arrivals cannot overshoot the aggregate admission ceil
       ),
     );
     await broker.admissionLimitReached;
+    const settlement = await broker.admissionLimitSettled;
     assert.deepEqual(
       responses.map((response) => response.status).sort(),
       [200, 200, 200, 429, 429, 429, 429, 429],
     );
     assert.equal(upstreamCalls, 3);
+    assert.equal(settlement.terminal, 3);
     assert.equal(broker.snapshot().accepted, 3);
     assert.equal(broker.snapshot().acceptedRemaining, 0);
   } finally {

@@ -21,6 +21,7 @@ type Args = {
   candidate: CandidateAdapter;
   attentionPair: boolean;
   profileOnly: boolean;
+  timeoutMs: number;
 };
 
 async function main() {
@@ -164,8 +165,26 @@ async function main() {
         },
       },
     );
-    await policy.tick();
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      void policy?.stop();
+    }, args.timeoutMs);
+    deadline.unref?.();
+    try {
+      await policy.tick();
+    } finally {
+      clearTimeout(deadline);
+    }
     await policy.stop();
+    if (timedOut && !candidate && !candidateError) {
+      candidateError = {
+        at: Date.now(),
+        model,
+        error: `candidate evaluation exceeded ${args.timeoutMs}ms`,
+        call: null,
+      };
+    }
 
     const baseline = baselineRecord.data;
     const candidateCall = candidate?.call || candidateError?.call || null;
@@ -238,6 +257,7 @@ function parseArgs(argv: string[]): Args {
   let candidate: CandidateAdapter = 'ax';
   let attentionPair = false;
   let profileOnly = false;
+  let timeoutMs = 30_000;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--journal') journal = String(argv[++index] || '');
     else if (argv[index] === '--out') out = String(argv[++index] || '');
@@ -257,11 +277,16 @@ function parseArgs(argv: string[]): Args {
       attentionPair = true;
     } else if (argv[index] === '--profile-only') {
       profileOnly = true;
+    } else if (argv[index] === '--timeoutMs') {
+      timeoutMs = Number(argv[++index]);
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 120_000) {
+        throw new Error('--timeoutMs must be an integer from 1000 through 120000');
+      }
     } else throw new Error(`Unknown argument ${argv[index]}`);
   }
   if (!journal) {
     throw new Error(
-      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
+      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--timeoutMs <ms>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
     );
   }
   return {
@@ -269,6 +294,7 @@ function parseArgs(argv: string[]): Args {
     candidate,
     attentionPair,
     profileOnly,
+    timeoutMs,
     ...(model ? { model } : {}),
     ...(modelTurn == null ? {} : { modelTurn }),
     ...(out ? { out } : {}),

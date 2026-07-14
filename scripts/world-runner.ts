@@ -206,6 +206,7 @@ export type ManagedWorldRun = Readonly<{
     maxTotalModelCalls: number | null;
     journalFile: string;
     admissionLimitReached: CognitionBroker['admissionLimitReached'];
+    admissionLimitSettled: CognitionBroker['admissionLimitSettled'];
   }> | null;
   finished: Promise<void>;
   quiesceResidents(reason?: string): Promise<void>;
@@ -866,6 +867,7 @@ export async function startManagedWorld(
             maxTotalModelCalls: cognition.maxTotalModelCalls,
             journalFile: cognition.broker.journalFile!,
             admissionLimitReached: cognition.broker.admissionLimitReached,
+            admissionLimitSettled: cognition.broker.admissionLimitSettled,
           })
         : null,
       finished,
@@ -2100,10 +2102,13 @@ export async function runCli(argv = process.argv.slice(2)) {
       stopRequested.then((reason) => ({ kind: 'stop' as const, reason })),
       ...(run.cognition && run.cognition.maxTotalModelCalls != null
         ? [
-            run.cognition.admissionLimitReached.then(() => ({
-              kind: 'stop' as const,
-              reason: 'model_call_limit_reached',
-            })),
+            run.cognition.admissionLimitSettled.then((evidence) => {
+              run.control.append('cognition_admission_limit_settled', evidence);
+              return {
+                kind: 'stop' as const,
+                reason: 'model_call_limit_settled',
+              };
+            }),
           ]
         : []),
     ]);

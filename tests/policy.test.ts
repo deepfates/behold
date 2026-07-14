@@ -9,7 +9,7 @@ import {
   startLLMPolicy,
 } from '../src/policy/llm';
 import type { EntityTurn } from '../src/entity/loom';
-import type { ResidentMind } from '../src/mind/interface';
+import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { cognitionHeaderNames } from '../src/mind/cognition';
 
 function frame(from: string, addressed = false, distance: number | null = null) {
@@ -249,10 +249,90 @@ test('urgent attention preserves resident choice while fresh perception updates 
       .map((message: any) => String(message.content || ''))
       .join('\n');
     assert.match(urgentGuidance, /private project bookkeeping is deferred/);
+    assert.match(urgentGuidance, /Do not continue unrelated construction/);
+    assert.match(urgentGuidance, /prefer an action that changes exposure now/);
     assert.doesNotMatch(urgentGuidance, /Use manage_project|with manage_project/);
     assert.equal(requests[1].requiredAction, null);
     assert.equal(modelTurns[0].attention.mode, 'urgent');
     assert.equal(entityTurns[0].attention?.mode, 'urgent');
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('social urgency keeps ordinary projects available without bodily-danger framing', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const mind: ResidentMind = {
+    id: 'social-attention-mind',
+    decide: async (request) => {
+      requests.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I noticed the message and retain my ordinary choices.',
+        action: null,
+        call: modelCallEvidence('social-attention-mind'),
+      };
+    },
+  };
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    sequence: 1,
+    observedAt: 100,
+    eventWindow: {
+      requestedAfterSequence: 0,
+      oldestAvailableSequence: 1,
+      newestAvailableSequence: 1,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
+    task: null,
+    self: {
+      condition: { health: 20, food: 20, oxygen: 20 },
+      projects: [],
+      places: [],
+      placeConflicts: [],
+      currentAction: null,
+    },
+    scene: { social: { playersOnline: ['importdf'] }, entities: [] },
+    events: [
+      {
+        sequence: 1,
+        type: 'chat_received',
+        salience: 'urgent',
+        isNew: true,
+        data: { from: 'importdf', text: 'Wren, are you there?', addressed: true },
+      },
+    ],
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Wren',
+      actions: [tool('manage_project'), tool('move_to'), tool('chat')],
+      attempt: () => assert.fail('the social attention mind yielded'),
+      observe: () => observation,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].attention?.mode, 'urgent');
+    assert.deepEqual(
+      requests[0].actions.map((action) => action.name),
+      ['manage_project', 'move_to', 'chat', 'wait_for_event'],
+    );
+    const guidance = requests[0].conversation
+      .map((message: any) => String(message.content || ''))
+      .join('\n');
+    assert.match(guidance, /social event[\s\S]*ordinary admitted action surface is unchanged/);
+    assert.doesNotMatch(guidance, /bookkeeping is deferred|Do not continue unrelated construction/);
   } finally {
     await policy.stop();
   }

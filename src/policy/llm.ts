@@ -145,6 +145,13 @@ const DROP_TOOL = 'drop_item';
 const APPROACH_TOOL = 'approach_entity';
 const ATTACK_TOOL = 'attack_entity';
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
+const BODILY_URGENCY_EVENT_TYPES = new Set([
+  'self_hurt',
+  'condition_changed',
+  'died',
+  'dimension_changed',
+  'sound_heard',
+]);
 const WAIT_TOOL_SPEC: ToolSpec = {
   type: 'function',
   function: {
@@ -1130,7 +1137,7 @@ function availableModelTools(
     // Minecraft response. Preserve every ordinary player affordance during
     // urgent attention, but defer bookkeeping until the body is no longer
     // demanding an immediate choice.
-    if (attention.mode === 'urgent' && spec.function.name === MANAGE_PROJECT_TOOL) return [];
+    if (hasBodilyUrgency(attention) && spec.function.name === MANAGE_PROJECT_TOOL) return [];
     if (COMMUNICATION_TOOLS.has(spec.function.name)) {
       return !Array.isArray(roster) || roster.length > 0 ? [spec] : [];
     }
@@ -1269,6 +1276,7 @@ function conversationForAttention(
   availableTools?: readonly ToolSpec[],
 ) {
   if (attention.mode !== 'urgent') return messages;
+  const bodilyUrgency = hasBodilyUrgency(attention);
   const system = availableTools
     ? { role: 'system', content: controllerSystemPrompt(availableTools) }
     : messages[0];
@@ -1288,12 +1296,28 @@ function conversationForAttention(
         attention.triggers.map((trigger) => `${trigger.type}@${trigger.sequence}`).join(', ') ||
         'current urgent observation'
       }.`,
-      'Reassess the current body and scene. Every admitted embodied action remains available; private project bookkeeping is deferred until urgent bodily attention ends. No action has been selected for you.',
+      ...(bodilyUrgency
+        ? [
+            'Reassess the current body and scene. Treat interrupted work as stale until the immediate danger or critical condition is mitigated.',
+            'Choose an action whose immediate expected consequence addresses the danger or obtains perception needed to do so. Movement, cover, defense, food, and escape are ordinary Minecraft possibilities only when current evidence supports them. Do not continue unrelated construction while taking active damage or critically low on health.',
+            'At critical health during active harm, prefer an action that changes exposure now. A perception-only action is safe only when acting without that perception would be worse and the body can survive the delay.',
+            'Every admitted embodied action remains available; private project bookkeeping is deferred until bodily urgency ends. No response has been selected for you.',
+          ]
+        : [
+            'Reassess the current body, scene, and social event. The ordinary admitted action surface is unchanged, and no response has been selected for you.',
+          ]),
     ].join('\n'),
   };
   const current = messages.at(-1);
   return [system, ...(foldedContinuity ? [foldedContinuity] : []), urgentHandoff, current].filter(
     Boolean,
+  );
+}
+
+function hasBodilyUrgency(attention: ResidentAttention) {
+  return (
+    attention.mode === 'urgent' &&
+    attention.triggers.some((trigger) => BODILY_URGENCY_EVENT_TYPES.has(trigger.type))
   );
 }
 

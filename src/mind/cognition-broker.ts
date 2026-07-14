@@ -14,12 +14,26 @@ import {
 
 export const COGNITION_BROKER_EVENT_PROTOCOL = 'behold.cognition-broker-event.v1' as const;
 export const COGNITION_ADMISSION_LIMIT_PROTOCOL = 'behold.cognition-admission-limit.v1' as const;
+export const COGNITION_ADMISSION_LIMIT_SETTLEMENT_PROTOCOL =
+  'behold.cognition-admission-limit-settlement.v1' as const;
 
 export type CognitionAdmissionLimitEvidence = Readonly<{
   protocol: typeof COGNITION_ADMISSION_LIMIT_PROTOCOL;
   brokerId: string;
   accepted: number;
   limit: number;
+  at: number;
+}>;
+
+export type CognitionAdmissionLimitSettlementEvidence = Readonly<{
+  protocol: typeof COGNITION_ADMISSION_LIMIT_SETTLEMENT_PROTOCOL;
+  brokerId: string;
+  accepted: number;
+  limit: number;
+  terminal: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
   at: number;
 }>;
 
@@ -84,6 +98,7 @@ export type CognitionBroker = Readonly<{
   journalFile: string | null;
   failed: Promise<Error>;
   admissionLimitReached: Promise<CognitionAdmissionLimitEvidence>;
+  admissionLimitSettled: Promise<CognitionAdmissionLimitSettlementEvidence>;
   snapshot(): CognitionBrokerSnapshot;
   close(): Promise<CognitionBrokerSnapshot>;
 }>;
@@ -189,6 +204,15 @@ export async function startCognitionBroker(
     resolveAdmissionLimit = resolve;
   });
   let admissionLimitEvidence: CognitionAdmissionLimitEvidence | null = null;
+  let resolveAdmissionLimitSettlement!: (
+    evidence: CognitionAdmissionLimitSettlementEvidence,
+  ) => void;
+  const admissionLimitSettled = new Promise<CognitionAdmissionLimitSettlementEvidence>(
+    (resolve) => {
+      resolveAdmissionLimitSettlement = resolve;
+    },
+  );
+  let admissionLimitSettlementEvidence: CognitionAdmissionLimitSettlementEvidence | null = null;
   const recordFatalFailure = (error: unknown) => {
     const failure = error instanceof Error ? error : new Error(String(error));
     if (!journalFailure) {
@@ -420,6 +444,7 @@ export async function startCognitionBroker(
       if (!response.writableEnded) cancel();
     });
     pump();
+    maybeSettleAdmissionLimit();
   }
 
   function reject(response: ServerResponse, status: number, code: string, message: string) {
@@ -455,6 +480,7 @@ export async function startCognitionBroker(
       }
     }
     pump();
+    maybeSettleAdmissionLimit();
   }
 
   function pump() {
@@ -517,6 +543,7 @@ export async function startCognitionBroker(
           activeResidents.delete(job.client.residentKey);
           if (!closing) pump();
           else notifyDrained();
+          maybeSettleAdmissionLimit();
         })
         .catch(containAsyncFailure);
     }
@@ -798,7 +825,9 @@ export async function startCognitionBroker(
             rememberFailure(error);
           }
         }
+        maybeSettleAdmissionLimit();
         await waitUntilDrained();
+        maybeSettleAdmissionLimit();
         if (!journalFailure) {
           try {
             emit('drained', null, snapshot());
@@ -833,6 +862,7 @@ export async function startCognitionBroker(
     journalFile,
     failed,
     admissionLimitReached,
+    admissionLimitSettled,
     snapshot,
     close,
   });
@@ -846,6 +876,31 @@ export async function startCognitionBroker(
     if (active !== 0 || queuedCount() !== 0) return;
     for (const resolve of drainWaiters) resolve();
     drainWaiters.clear();
+  }
+
+  function maybeSettleAdmissionLimit() {
+    if (
+      admissionLimitEvidence == null ||
+      admissionLimitSettlementEvidence != null ||
+      active !== 0 ||
+      queuedCount() !== 0
+    ) {
+      return;
+    }
+    const terminal = metrics.completed + metrics.failed + metrics.cancelled;
+    if (terminal !== metrics.accepted) return;
+    admissionLimitSettlementEvidence = Object.freeze({
+      protocol: COGNITION_ADMISSION_LIMIT_SETTLEMENT_PROTOCOL,
+      brokerId,
+      accepted: metrics.accepted,
+      limit: admissionLimitEvidence.limit,
+      terminal,
+      completed: metrics.completed,
+      failed: metrics.failed,
+      cancelled: metrics.cancelled,
+      at: now(),
+    });
+    resolveAdmissionLimitSettlement(admissionLimitSettlementEvidence);
   }
 
   function closeJournal() {
