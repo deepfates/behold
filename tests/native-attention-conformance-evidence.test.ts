@@ -26,6 +26,13 @@ test('native attention conformance rejects synthetic urgency and unacknowledged 
     assessNativeAttentionConformance(unacknowledged).assertions.acknowledgedCancellation,
     false,
   );
+
+  const ungrounded = passingReport();
+  ungrounded.phase.fixtureSetup.startBody.x += 0.2;
+  assert.equal(
+    assessNativeAttentionConformance(ungrounded).assertions.declaredUnderwaterSetup,
+    false,
+  );
 });
 
 function passingReport(): any {
@@ -58,6 +65,7 @@ function passingReport(): any {
   const adapterResult = {
     ok: false,
     error: 'interrupted_by_human',
+    start: { ...start },
     requestedDestination: destination,
     final: { x: 2, y: -60, z: 0.5 },
     cancellation: { acknowledged: true, adapter: 'mineflayer-pathfinder' },
@@ -86,7 +94,7 @@ function passingReport(): any {
           kind: 'evaluator_owned_native_controls_before_recorded_action',
           controls: ['look_at', 'sneak', 'forward'],
         },
-        startBody: start,
+        startBody: { ...start },
         startFeet: { x: 1, y: -60, z: 0 },
         startHead: { x: 1, y: -59, z: 0 },
         destination,

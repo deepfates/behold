@@ -45,7 +45,8 @@ export function assessNativeAttentionConformance(report: any) {
       phase?.fixtureSetup?.kind === 'underwater_corridor_before_recorded_action' &&
       phase?.fixtureSetup?.preposition?.kind ===
         'evaluator_owned_native_controls_before_recorded_action' &&
-      samePosition(phase?.fixtureSetup?.startBody, start) &&
+      matchesRoundedObservation(phase?.fixtureSetup?.startBody, start) &&
+      samePosition(phase?.fixtureSetup?.startBody, terminal?.data?.result?.start) &&
       samePosition(phase?.fixtureSetup?.destination, phase?.destination) &&
       phase?.fixtureSetup?.startFeetBlock === 'water' &&
       phase?.fixtureSetup?.startHeadBlock === 'water' &&
@@ -159,4 +160,13 @@ function positionDistance(left: any, right: any) {
 
 function samePosition(left: any, right: any) {
   return positionDistance(left, right) <= 0.01;
+}
+
+function matchesRoundedObservation(actual: any, observed: any) {
+  return ['x', 'y', 'z'].every(
+    (axis) =>
+      Number.isFinite(actual?.[axis]) &&
+      Number.isFinite(observed?.[axis]) &&
+      Math.round(Number(actual[axis]) * 10) / 10 === Number(observed[axis]),
+  );
 }
