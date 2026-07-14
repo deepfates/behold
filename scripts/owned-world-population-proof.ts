@@ -6,7 +6,6 @@ import { parseArgs } from 'node:util';
 import {
   hasCollectionFollowedByYield,
   hasFirstRestartTurn,
-  parseRunJournal,
   type IndependentWorldWitness,
 } from './owned-world-model-evidence';
 import {
@@ -16,13 +15,12 @@ import {
   type OwnedWorldFixture,
 } from './owned-world-model-harness';
 import {
-  compareAuthoritativePopulationTrajectories,
-  fileEvidence,
+  loadPopulationReassessment,
   materializePopulationTrajectories,
-  populationPhaseReport,
-  requiredMapValue,
+  populationEvidenceReport,
+  populationResidentArtifacts,
   runPopulationPhase,
-  verifiedLifecycleFromReport,
+  writePopulationReassessment,
 } from './owned-world-population-harness';
 import {
   POPULATION_PROOF_PROTOCOL,
@@ -38,14 +36,13 @@ import {
   durableWriteJson,
   gitRevision,
   prepareOwnedWorld,
-  readJson,
-  sha256File,
 } from './owned-world-fixture';
 import { digestTree } from './world-lab';
 import type { ManagedResidentSpec } from './world-runner';
 import { DEFAULT_RESIDENT_MODEL, residentModelSelection } from './resident-model-selection';
 
 const WITNESS_ID = 'PopWitness';
+const POPULATION_TRAJECTORY_PROTOCOL = 'behold.population-resident-trajectory.v1';
 const SECOND_TARGET = Object.freeze({ x: -3, y: -60, z: 0, item: 'carrot', count: 1 });
 const ALLOW_TOOLS = Object.freeze(['collect_nearby_item', 'inspect_volume']);
 const DEFAULT_BUDGETS: PopulationProofBudgets = Object.freeze({
@@ -171,37 +168,21 @@ async function main() {
   const trajectoryEvidence = await materializePopulationTrajectories({
     fixture,
     entityIds: residents.map((resident) => resident.entityId),
-    protocol: 'behold.population-resident-trajectory.v1',
+    protocol: POPULATION_TRAJECTORY_PROTOCOL,
     label: 'population',
   });
 
   const residentEvidence: PopulationResidentEvidence[] = residents.map((resident) => {
-    const actJournal = requiredMapValue(act.journals, resident.entityId, 'act journal');
-    const resumeJournal = requiredMapValue(resume.journals, resident.entityId, 'resume journal');
-    const trajectory = requiredMapValue(
-      trajectoryEvidence,
-      resident.entityId,
-      'resident trajectory',
-    );
-    const bodyWitness = requiredMapValue(
-      act.bodyWitnesses,
-      resident.entityId,
-      'resident body witness',
-    );
     return {
-      entityId: resident.entityId,
+      ...populationResidentArtifacts({
+        entityId: resident.entityId,
+        act,
+        resume,
+        trajectories: trajectoryEvidence,
+      }),
       model,
       task: resident.task,
       targetItem: resident.targetItem,
-      actEvents: actJournal.events,
-      resumeEvents: resumeJournal.events,
-      trajectory: trajectory.turns,
-      bodyWitness,
-      files: {
-        actJournal: { file: actJournal.file, bytes: fs.statSync(actJournal.file).size },
-        resumeJournal: { file: resumeJournal.file, bytes: fs.statSync(resumeJournal.file).size },
-        loom: { file: trajectory.loomFile, bytes: fs.statSync(trajectory.loomFile).size },
-      },
     };
   });
   const assessment = assessOwnedWorldPopulationEvidence({
@@ -243,35 +224,15 @@ async function main() {
       seed: OWNED_LEVEL_SEED,
       generation: fixture.generation,
     },
-    evidence: {
-      sourceTree: fixture.sourceTree,
-      baselineTree: fixture.baselineTree,
-      initialRuntimeTree: fixture.initialRuntimeTree,
+    evidence: populationEvidenceReport({
+      fixture,
+      act,
+      resume,
       afterActTree,
       afterResumeTree,
-      independentWitness: act.independentWitness,
-      bodyWitnesses: Object.fromEntries(act.bodyWitnesses),
-      act: populationPhaseReport(act),
-      resume: populationPhaseReport(resume),
-      residents: Object.fromEntries(
-        residentEvidence.map((resident) => {
-          const trajectory = requiredMapValue(
-            trajectoryEvidence,
-            resident.entityId,
-            'resident trajectory',
-          );
-          return [
-            resident.entityId,
-            {
-              actJournal: fileEvidence(resident.files.actJournal.file),
-              resumeJournal: fileEvidence(resident.files.resumeJournal.file),
-              loom: fileEvidence(resident.files.loom.file),
-              trajectory: fileEvidence(trajectory.trajectoryFile),
-            },
-          ];
-        }),
-      ),
-    },
+      residents: residentEvidence,
+      trajectories: trajectoryEvidence,
+    }),
     assessment,
   });
   fs.writeFileSync(
@@ -322,122 +283,46 @@ async function collectPopulationWitnesses(
 }
 
 async function reassessExistingProof(inputFile: string) {
-  const sourceFile = path.resolve(inputFile);
-  const source = readJson(sourceFile);
-  if (source?.protocol !== POPULATION_PROOF_PROTOCOL) {
-    throw new Error(
-      `cannot reassess unsupported population proof: ${source?.protocol || 'missing protocol'}`,
-    );
-  }
-  const residentDefinitions = source.residents as readonly ResidentDefinition[];
-  if (!Array.isArray(residentDefinitions) || residentDefinitions.length !== 2) {
-    throw new Error('population report does not declare exactly two residents');
-  }
-  const actLifecycle = verifiedLifecycleFromReport(source.evidence.act);
-  const resumeLifecycle = verifiedLifecycleFromReport(source.evidence.resume);
-  const residentEvidence: PopulationResidentEvidence[] = [];
-  const integrity: Record<string, boolean> = {
-    actLifecycle:
-      sha256File(actLifecycle.file) === String(source.evidence.act.lifecycleSha256 || ''),
-    resumeLifecycle:
-      sha256File(resumeLifecycle.file) === String(source.evidence.resume.lifecycleSha256 || ''),
-  };
-  for (const resident of residentDefinitions) {
-    const files = source.evidence.residents?.[resident.entityId];
-    if (!files) throw new Error(`missing evidence files for ${resident.entityId}`);
-    for (const [name, evidence] of Object.entries(files) as Array<[string, any]>) {
-      const file = path.resolve(String(evidence?.file || ''));
-      integrity[`${resident.entityId}.${name}`] =
-        sha256File(file) === String(evidence?.sha256 || '') &&
-        fs.statSync(file).size === Number(evidence?.bytes);
-    }
-    const trajectoryEnvelope = readJson(path.resolve(String(files.trajectory.file)));
-    if (
-      trajectoryEnvelope?.protocol !== 'behold.population-resident-trajectory.v1' ||
-      trajectoryEnvelope?.entityId !== resident.entityId ||
-      trajectoryEnvelope?.worldId !== source.worldId ||
-      !Array.isArray(trajectoryEnvelope?.turns)
-    ) {
-      throw new Error(`invalid trajectory evidence for ${resident.entityId}`);
-    }
-    residentEvidence.push({
-      entityId: resident.entityId,
+  const loaded = await loadPopulationReassessment<
+    ResidentDefinition,
+    PopulationBodyWitness,
+    PopulationResidentEvidence
+  >(inputFile, {
+    proofProtocol: POPULATION_PROOF_PROTOCOL,
+    trajectoryProtocol: POPULATION_TRAJECTORY_PROTOCOL,
+    reportLabel: 'population',
+    expectedResidentCount: 2,
+    createResident: ({ definition, source, artifacts }) => ({
+      ...artifacts,
       model: String(source.model),
-      task: resident.task,
-      targetItem: resident.targetItem,
-      actEvents: parseRunJournal(fs.readFileSync(path.resolve(files.actJournal.file), 'utf8')),
-      resumeEvents: parseRunJournal(
-        fs.readFileSync(path.resolve(files.resumeJournal.file), 'utf8'),
-      ),
-      trajectory: trajectoryEnvelope.turns,
-      bodyWitness: source.evidence.bodyWitnesses[resident.entityId],
-      files: {
-        actJournal: {
-          file: path.resolve(files.actJournal.file),
-          bytes: fs.statSync(path.resolve(files.actJournal.file)).size,
-        },
-        resumeJournal: {
-          file: path.resolve(files.resumeJournal.file),
-          bytes: fs.statSync(path.resolve(files.resumeJournal.file)).size,
-        },
-        loom: {
-          file: path.resolve(files.loom.file),
-          bytes: fs.statSync(path.resolve(files.loom.file)).size,
-        },
-      },
-    });
-  }
-  Object.assign(
-    integrity,
-    await compareAuthoritativePopulationTrajectories({
-      worldId: String(source.worldId),
-      entityRoot: path.resolve(String(source.roots?.entity || '')),
-      controlRoot: path.resolve(String(source.roots?.control || '')),
-      residents: residentEvidence.map((resident) => ({
-        entityId: resident.entityId,
-        trajectory: resident.trajectory,
-        loomFile: resident.files.loom.file,
-      })),
+      task: definition.task,
+      targetItem: definition.targetItem,
     }),
-  );
+  });
+  const { source } = loaded;
   const assessment = assessOwnedWorldPopulationEvidence({
     worldId: String(source.worldId),
     actRunId: String(source.evidence.act.managedRunId),
     resumeRunId: String(source.evidence.resume.managedRunId),
-    actLifecycle: actLifecycle.events,
-    resumeLifecycle: resumeLifecycle.events,
+    actLifecycle: loaded.actLifecycle.events,
+    resumeLifecycle: loaded.resumeLifecycle.events,
     independentWitness: source.evidence.independentWitness,
-    residents: residentEvidence,
+    residents: loaded.residents,
     budgets: source.budgets,
     proofWallMs: Number(source.proofWallMs),
   });
-  const failedIntegrity = Object.entries(integrity)
-    .filter(([, passed]) => !passed)
-    .map(([name]) => name);
-  const outputFile = path.join(path.dirname(sourceFile), 'population-report-reassessed.json');
-  if (fs.existsSync(outputFile)) throw new Error(`reassessment already exists: ${outputFile}`);
-  const passed = failedIntegrity.length === 0 && assessment.failed.length === 0;
-  durableWriteJson(outputFile, {
-    protocol: 'behold.owned-world-population-reassessment.v1',
-    status: passed ? 'passed' : 'failed',
-    reassessedAt: new Date().toISOString(),
-    verifierRevision: gitRevision(),
-    source: {
-      file: sourceFile,
-      sha256: sha256File(sourceFile),
-      protocol: source.protocol,
-      status: source.status,
-    },
-    integrity,
-    failedIntegrity,
+  const result = writePopulationReassessment({
+    loaded,
     assessment,
+    protocol: 'behold.owned-world-population-reassessment.v1',
+    outputName: 'population-report-reassessed.json',
   });
-  if (!passed) {
+  if (!result.passed) {
     throw new Error(
-      `existing population proof did not pass reassessment (${[...failedIntegrity, ...assessment.failed].join(', ')}): ${outputFile}`,
+      `existing population proof did not pass reassessment (${[...result.failedIntegrity, ...assessment.failed].join(', ')}): ${result.outputFile}`,
     );
   }
-  process.stdout.write(`[owned-world-population] REASSESSED PASS ${outputFile}\n`);
+  process.stdout.write(`[owned-world-population] REASSESSED PASS ${result.outputFile}\n`);
 }
 
 void main().catch((error) => {

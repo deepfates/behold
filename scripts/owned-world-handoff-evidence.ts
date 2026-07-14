@@ -1,4 +1,3 @@
-import type { EntityTurn } from '../src/entity/loom';
 import type { WorldLifecycleEvent } from '../src/runtime/world-control';
 import {
   decisionMatchesEntityTurn,
@@ -18,27 +17,19 @@ import {
   populationModelCalls,
   type PopulationBodyWitness,
   type PopulationProofBudgets,
+  type PopulationResidentArtifacts,
 } from './owned-world-population-evidence';
 
 export const HANDOFF_PROOF_PROTOCOL = 'behold.owned-world-handoff-proof.v1' as const;
 export const HANDOFF_TRAJECTORY_PROTOCOL = 'behold.handoff-resident-trajectory.v1' as const;
 const NATIVE_HANDOFF_TOOLS = new Set(['move_to', 'drop_item', 'wait_for_event']);
 
-export type HandoffResidentEvidence = Readonly<{
-  role: 'giver' | 'recipient';
-  entityId: string;
-  model: string;
-  task: string;
-  actEvents: readonly RunJournalEvent[];
-  resumeEvents: readonly RunJournalEvent[];
-  trajectory: readonly EntityTurn[];
-  bodyWitness: PopulationBodyWitness;
-  files: Readonly<{
-    actJournal: Readonly<{ file: string; bytes: number }>;
-    resumeJournal: Readonly<{ file: string; bytes: number }>;
-    loom: Readonly<{ file: string; bytes: number }>;
+export type HandoffResidentEvidence = PopulationResidentArtifacts<PopulationBodyWitness> &
+  Readonly<{
+    role: 'giver' | 'recipient';
+    model: string;
+    task: string;
   }>;
-}>;
 
 export type HandoffEvidenceInput = Readonly<{
   worldId: string;

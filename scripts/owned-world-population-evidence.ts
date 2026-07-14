@@ -23,6 +23,19 @@ export type PopulationProofBudgets = Readonly<{
   maxProofWallMs: number;
 }>;
 
+export type PopulationResidentArtifacts<BodyWitness = unknown> = Readonly<{
+  entityId: string;
+  actEvents: readonly RunJournalEvent[];
+  resumeEvents: readonly RunJournalEvent[];
+  trajectory: readonly EntityTurn[];
+  bodyWitness: BodyWitness;
+  files: Readonly<{
+    actJournal: Readonly<{ file: string; bytes: number }>;
+    resumeJournal: Readonly<{ file: string; bytes: number }>;
+    loom: Readonly<{ file: string; bytes: number }>;
+  }>;
+}>;
+
 export type PopulationBodyWitness = Readonly<{
   entityId: string;
   worldId: string;
@@ -33,21 +46,12 @@ export type PopulationBodyWitness = Readonly<{
   droppedItems: readonly Readonly<{ name: string; count: number }>[];
 }>;
 
-export type PopulationResidentEvidence = Readonly<{
-  entityId: string;
-  model: string;
-  task: string;
-  targetItem: string;
-  actEvents: readonly RunJournalEvent[];
-  resumeEvents: readonly RunJournalEvent[];
-  trajectory: readonly EntityTurn[];
-  bodyWitness: PopulationBodyWitness;
-  files: Readonly<{
-    actJournal: Readonly<{ file: string; bytes: number }>;
-    resumeJournal: Readonly<{ file: string; bytes: number }>;
-    loom: Readonly<{ file: string; bytes: number }>;
+export type PopulationResidentEvidence = PopulationResidentArtifacts<PopulationBodyWitness> &
+  Readonly<{
+    model: string;
+    task: string;
+    targetItem: string;
   }>;
-}>;
 
 export type PopulationEvidenceInput = Readonly<{
   worldId: string;

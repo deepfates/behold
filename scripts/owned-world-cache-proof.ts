@@ -11,7 +11,7 @@ import {
   type CacheResidentEvidence,
   type CacheWorldWitness,
 } from './owned-world-cache-evidence';
-import { hasFirstRestartTurn, parseRunJournal } from './owned-world-model-evidence';
+import { hasFirstRestartTurn } from './owned-world-model-evidence';
 import {
   observeFromFreshMinecraftBody,
   observedContainerContents,
@@ -20,13 +20,12 @@ import {
   type OwnedWorldFixture,
 } from './owned-world-model-harness';
 import {
-  compareAuthoritativePopulationTrajectories,
-  fileEvidence,
+  loadPopulationReassessment,
   materializePopulationTrajectories,
-  populationPhaseReport,
-  requiredMapValue,
+  populationEvidenceReport,
+  populationResidentArtifacts,
   runPopulationPhase,
-  verifiedLifecycleFromReport,
+  writePopulationReassessment,
 } from './owned-world-population-harness';
 import type {
   PopulationBodyWitness,
@@ -38,8 +37,6 @@ import {
   durableWriteJson,
   gitRevision,
   prepareOwnedWorld,
-  readJson,
-  sha256File,
   type OwnedWorldBlock,
   type OwnedWorldTarget,
 } from './owned-world-fixture';
@@ -221,28 +218,16 @@ async function main() {
     label: 'cache',
   });
   const residentEvidence: CacheResidentEvidence[] = definitions.map((definition) => {
-    const actJournal = requiredMapValue(act.journals, definition.entityId, 'act journal');
-    const resumeJournal = requiredMapValue(resume.journals, definition.entityId, 'resume journal');
-    const trajectory = requiredMapValue(trajectories, definition.entityId, 'resident trajectory');
-    const bodyWitness = requiredMapValue(
-      act.bodyWitnesses,
-      definition.entityId,
-      'resident body witness',
-    );
     return {
-      entityId: definition.entityId,
+      ...populationResidentArtifacts({
+        entityId: definition.entityId,
+        act,
+        resume,
+        trajectories,
+      }),
       model,
       task: definition.task,
       targetItem: definition.targetItem,
-      actEvents: actJournal.events,
-      resumeEvents: resumeJournal.events,
-      trajectory: trajectory.turns,
-      bodyWitness,
-      files: {
-        actJournal: { file: actJournal.file, bytes: fs.statSync(actJournal.file).size },
-        resumeJournal: { file: resumeJournal.file, bytes: fs.statSync(resumeJournal.file).size },
-        loom: { file: trajectory.loomFile, bytes: fs.statSync(trajectory.loomFile).size },
-      },
     };
   });
   const assessment = assessOwnedWorldCacheEvidence({
@@ -283,35 +268,15 @@ async function main() {
       seed: OWNED_LEVEL_SEED,
       generation: fixture.generation,
     },
-    evidence: {
-      sourceTree: fixture.sourceTree,
-      baselineTree: fixture.baselineTree,
-      initialRuntimeTree: fixture.initialRuntimeTree,
+    evidence: populationEvidenceReport({
+      fixture,
+      act,
+      resume,
       afterActTree,
       afterResumeTree,
-      independentWitness: act.independentWitness,
-      bodyWitnesses: Object.fromEntries(act.bodyWitnesses),
-      act: populationPhaseReport(act),
-      resume: populationPhaseReport(resume),
-      residents: Object.fromEntries(
-        residentEvidence.map((resident) => {
-          const trajectory = requiredMapValue(
-            trajectories,
-            resident.entityId,
-            'resident trajectory',
-          );
-          return [
-            resident.entityId,
-            {
-              actJournal: fileEvidence(resident.files.actJournal.file),
-              resumeJournal: fileEvidence(resident.files.resumeJournal.file),
-              loom: fileEvidence(resident.files.loom.file),
-              trajectory: fileEvidence(trajectory.trajectoryFile),
-            },
-          ];
-        }),
-      ),
-    },
+      residents: residentEvidence,
+      trajectories,
+    }),
     assessment,
   });
   fs.writeFileSync(
@@ -365,121 +330,47 @@ async function collectWitnesses(
 }
 
 async function reassessExistingProof(inputFile: string) {
-  const sourceFile = path.resolve(inputFile);
-  const source = readJson(sourceFile);
-  if (source?.protocol !== CACHE_PROOF_PROTOCOL) {
-    throw new Error(`cannot reassess unsupported cache proof: ${source?.protocol || 'missing'}`);
-  }
-  const definitions = source.residents as readonly CacheResidentDefinition[];
-  if (!Array.isArray(definitions) || definitions.length !== 2) {
-    throw new Error('cache report does not declare exactly two residents');
-  }
-  const actLifecycle = verifiedLifecycleFromReport(source.evidence.act);
-  const resumeLifecycle = verifiedLifecycleFromReport(source.evidence.resume);
-  const integrity: Record<string, boolean> = {
-    actLifecycle:
-      sha256File(actLifecycle.file) === String(source.evidence.act.lifecycleSha256 || ''),
-    resumeLifecycle:
-      sha256File(resumeLifecycle.file) === String(source.evidence.resume.lifecycleSha256 || ''),
-  };
-  const residentEvidence: CacheResidentEvidence[] = [];
-  for (const definition of definitions) {
-    const files = source.evidence.residents?.[definition.entityId];
-    if (!files) throw new Error(`missing evidence files for ${definition.entityId}`);
-    for (const [name, evidence] of Object.entries(files) as Array<[string, any]>) {
-      const file = path.resolve(String(evidence?.file || ''));
-      integrity[`${definition.entityId}.${name}`] =
-        sha256File(file) === String(evidence?.sha256 || '') &&
-        fs.statSync(file).size === Number(evidence?.bytes);
-    }
-    const trajectoryEnvelope = readJson(path.resolve(String(files.trajectory.file)));
-    if (
-      trajectoryEnvelope?.protocol !== CACHE_TRAJECTORY_PROTOCOL ||
-      trajectoryEnvelope?.entityId !== definition.entityId ||
-      trajectoryEnvelope?.worldId !== source.worldId ||
-      !Array.isArray(trajectoryEnvelope?.turns)
-    ) {
-      throw new Error(`invalid cache trajectory evidence for ${definition.entityId}`);
-    }
-    residentEvidence.push({
-      entityId: definition.entityId,
+  const loaded = await loadPopulationReassessment<
+    CacheResidentDefinition,
+    PopulationBodyWitness,
+    CacheResidentEvidence
+  >(inputFile, {
+    proofProtocol: CACHE_PROOF_PROTOCOL,
+    trajectoryProtocol: CACHE_TRAJECTORY_PROTOCOL,
+    reportLabel: 'cache',
+    expectedResidentCount: 2,
+    createResident: ({ definition, source, artifacts }) => ({
+      ...artifacts,
       model: String(source.model),
       task: definition.task,
       targetItem: definition.targetItem,
-      actEvents: parseRunJournal(fs.readFileSync(path.resolve(files.actJournal.file), 'utf8')),
-      resumeEvents: parseRunJournal(
-        fs.readFileSync(path.resolve(files.resumeJournal.file), 'utf8'),
-      ),
-      trajectory: trajectoryEnvelope.turns,
-      bodyWitness: source.evidence.bodyWitnesses[definition.entityId],
-      files: {
-        actJournal: {
-          file: path.resolve(files.actJournal.file),
-          bytes: fs.statSync(path.resolve(files.actJournal.file)).size,
-        },
-        resumeJournal: {
-          file: path.resolve(files.resumeJournal.file),
-          bytes: fs.statSync(path.resolve(files.resumeJournal.file)).size,
-        },
-        loom: {
-          file: path.resolve(files.loom.file),
-          bytes: fs.statSync(path.resolve(files.loom.file)).size,
-        },
-      },
-    });
-  }
-  Object.assign(
-    integrity,
-    await compareAuthoritativePopulationTrajectories({
-      worldId: String(source.worldId),
-      entityRoot: path.resolve(String(source.roots?.entity || '')),
-      controlRoot: path.resolve(String(source.roots?.control || '')),
-      residents: residentEvidence.map((resident) => ({
-        entityId: resident.entityId,
-        trajectory: resident.trajectory,
-        loomFile: resident.files.loom.file,
-      })),
     }),
-  );
+  });
+  const { source } = loaded;
   const assessment = assessOwnedWorldCacheEvidence({
     worldId: String(source.worldId),
     containerPosition: source.containerPosition,
     actRunId: String(source.evidence.act.managedRunId),
     resumeRunId: String(source.evidence.resume.managedRunId),
-    actLifecycle: actLifecycle.events,
-    resumeLifecycle: resumeLifecycle.events,
+    actLifecycle: loaded.actLifecycle.events,
+    resumeLifecycle: loaded.resumeLifecycle.events,
     independentWitness: source.evidence.independentWitness,
-    residents: residentEvidence,
+    residents: loaded.residents,
     budgets: source.budgets,
     proofWallMs: Number(source.proofWallMs),
   });
-  const failedIntegrity = Object.entries(integrity)
-    .filter(([, passed]) => !passed)
-    .map(([name]) => name);
-  const outputFile = path.join(path.dirname(sourceFile), 'cache-report-reassessed.json');
-  if (fs.existsSync(outputFile)) throw new Error(`reassessment already exists: ${outputFile}`);
-  const passed = failedIntegrity.length === 0 && assessment.failed.length === 0;
-  durableWriteJson(outputFile, {
-    protocol: 'behold.owned-world-cache-reassessment.v1',
-    status: passed ? 'passed' : 'failed',
-    reassessedAt: new Date().toISOString(),
-    verifierRevision: gitRevision(),
-    source: {
-      file: sourceFile,
-      sha256: sha256File(sourceFile),
-      protocol: source.protocol,
-      status: source.status,
-    },
-    integrity,
-    failedIntegrity,
+  const result = writePopulationReassessment({
+    loaded,
     assessment,
+    protocol: 'behold.owned-world-cache-reassessment.v1',
+    outputName: 'cache-report-reassessed.json',
   });
-  if (!passed) {
+  if (!result.passed) {
     throw new Error(
-      `existing cache proof did not pass reassessment (${[...failedIntegrity, ...assessment.failed].join(', ')}): ${outputFile}`,
+      `existing cache proof did not pass reassessment (${[...result.failedIntegrity, ...assessment.failed].join(', ')}): ${result.outputFile}`,
     );
   }
-  process.stdout.write(`[owned-world-cache] REASSESSED PASS ${outputFile}\n`);
+  process.stdout.write(`[owned-world-cache] REASSESSED PASS ${result.outputFile}\n`);
 }
 
 void main().catch((error) => {

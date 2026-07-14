@@ -1,4 +1,3 @@
-import type { EntityTurn } from '../src/entity/loom';
 import type { WorldLifecycleEvent } from '../src/runtime/world-control';
 import {
   decisionMatchesEntityTurn,
@@ -17,6 +16,7 @@ import {
   populationModelCalls,
   type PopulationBodyWitness,
   type PopulationProofBudgets,
+  type PopulationResidentArtifacts,
 } from './owned-world-population-evidence';
 
 export const CACHE_PROOF_PROTOCOL = 'behold.owned-world-cache-proof.v1' as const;
@@ -48,21 +48,12 @@ export type CacheWorldWitness = Readonly<{
   confirmation: 'mineflayer:openContainer';
 }>;
 
-export type CacheResidentEvidence = Readonly<{
-  entityId: string;
-  model: string;
-  task: string;
-  targetItem: string;
-  actEvents: readonly RunJournalEvent[];
-  resumeEvents: readonly RunJournalEvent[];
-  trajectory: readonly EntityTurn[];
-  bodyWitness: PopulationBodyWitness;
-  files: Readonly<{
-    actJournal: Readonly<{ file: string; bytes: number }>;
-    resumeJournal: Readonly<{ file: string; bytes: number }>;
-    loom: Readonly<{ file: string; bytes: number }>;
+export type CacheResidentEvidence = PopulationResidentArtifacts<PopulationBodyWitness> &
+  Readonly<{
+    model: string;
+    task: string;
+    targetItem: string;
   }>;
-}>;
 
 export type CacheEvidenceInput = Readonly<{
   worldId: string;

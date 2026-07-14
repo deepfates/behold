@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { openEntityLoom, type EntityTurn } from '../src/entity/loom';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
-import type { RunJournalEvent } from './owned-world-model-evidence';
+import { parseRunJournal, type RunJournalEvent } from './owned-world-model-evidence';
+import type { PopulationResidentArtifacts } from './owned-world-population-evidence';
 import {
   readRunJournal,
   waitForRunJournal,
@@ -11,6 +12,8 @@ import {
 import {
   OWNED_WORLD_ID,
   durableWriteJson,
+  gitRevision,
+  readJson,
   restoreEnvironment,
   sha256File,
   waitFor,
@@ -33,6 +36,16 @@ export type PopulationTrajectory = Readonly<{
   turns: readonly EntityTurn[];
   loomFile: string;
   trajectoryFile: string;
+}>;
+
+export type PopulationReassessment<Definition, Resident> = Readonly<{
+  sourceFile: string;
+  source: any;
+  definitions: readonly Definition[];
+  actLifecycle: ReturnType<typeof verifyWorldLifecycleJournal>;
+  resumeLifecycle: ReturnType<typeof verifyWorldLifecycleJournal>;
+  integrity: Record<string, boolean>;
+  residents: readonly Resident[];
 }>;
 
 export async function runPopulationPhase<
@@ -256,6 +269,209 @@ export async function compareAuthoritativePopulationTrajectories(input: {
     restoreEnvironment('BEHOLD_WORLD_ID', previous.worldId);
     restoreEnvironment('BEHOLD_RUN_ID', previous.runId);
   }
+}
+
+export function populationResidentArtifacts<BodyWitness>(input: {
+  entityId: string;
+  act: PopulationPhase<unknown, BodyWitness>;
+  resume: PopulationPhase<unknown, BodyWitness>;
+  trajectories: ReadonlyMap<string, PopulationTrajectory>;
+}): PopulationResidentArtifacts<BodyWitness> {
+  const actJournal = requiredMapValue(input.act.journals, input.entityId, 'act journal');
+  const resumeJournal = requiredMapValue(input.resume.journals, input.entityId, 'resume journal');
+  const trajectory = requiredMapValue(input.trajectories, input.entityId, 'resident trajectory');
+  return {
+    entityId: input.entityId,
+    actEvents: actJournal.events,
+    resumeEvents: resumeJournal.events,
+    trajectory: trajectory.turns,
+    bodyWitness: requiredMapValue(input.act.bodyWitnesses, input.entityId, 'resident body witness'),
+    files: {
+      actJournal: { file: actJournal.file, bytes: fs.statSync(actJournal.file).size },
+      resumeJournal: { file: resumeJournal.file, bytes: fs.statSync(resumeJournal.file).size },
+      loom: { file: trajectory.loomFile, bytes: fs.statSync(trajectory.loomFile).size },
+    },
+  };
+}
+
+export async function loadPopulationReassessment<
+  Definition extends Readonly<{ entityId: string }>,
+  BodyWitness,
+  Resident extends PopulationResidentArtifacts<BodyWitness>,
+>(
+  inputFile: string,
+  options: Readonly<{
+    proofProtocol: string;
+    trajectoryProtocol: string;
+    reportLabel: string;
+    expectedResidentCount: number;
+    createResident: (input: {
+      definition: Definition;
+      source: any;
+      artifacts: PopulationResidentArtifacts<BodyWitness>;
+    }) => Resident;
+  }>,
+): Promise<PopulationReassessment<Definition, Resident>> {
+  const sourceFile = path.resolve(inputFile);
+  const source = readJson(sourceFile);
+  if (source?.protocol !== options.proofProtocol) {
+    throw new Error(
+      `cannot reassess unsupported ${options.reportLabel} proof: ${source?.protocol || 'missing protocol'}`,
+    );
+  }
+  const definitions = source.residents as readonly Definition[];
+  if (!Array.isArray(definitions) || definitions.length !== options.expectedResidentCount) {
+    throw new Error(
+      `${options.reportLabel} report does not declare exactly ${options.expectedResidentCount} residents`,
+    );
+  }
+
+  const actLifecycle = verifiedLifecycleFromReport(source.evidence.act);
+  const resumeLifecycle = verifiedLifecycleFromReport(source.evidence.resume);
+  const integrity: Record<string, boolean> = {
+    actLifecycle:
+      sha256File(actLifecycle.file) === String(source.evidence.act.lifecycleSha256 || ''),
+    resumeLifecycle:
+      sha256File(resumeLifecycle.file) === String(source.evidence.resume.lifecycleSha256 || ''),
+  };
+  const residents: Resident[] = [];
+  for (const definition of definitions) {
+    const files = source.evidence.residents?.[definition.entityId];
+    if (!files) throw new Error(`missing evidence files for ${definition.entityId}`);
+    for (const [name, evidence] of Object.entries(files) as Array<[string, any]>) {
+      const file = path.resolve(String(evidence?.file || ''));
+      integrity[`${definition.entityId}.${name}`] =
+        sha256File(file) === String(evidence?.sha256 || '') &&
+        fs.statSync(file).size === Number(evidence?.bytes);
+    }
+    const trajectoryEnvelope = readJson(path.resolve(String(files.trajectory.file)));
+    if (
+      trajectoryEnvelope?.protocol !== options.trajectoryProtocol ||
+      trajectoryEnvelope?.entityId !== definition.entityId ||
+      trajectoryEnvelope?.worldId !== source.worldId ||
+      !Array.isArray(trajectoryEnvelope?.turns)
+    ) {
+      throw new Error(
+        `invalid ${options.reportLabel} trajectory evidence for ${definition.entityId}`,
+      );
+    }
+    const actJournalFile = path.resolve(String(files.actJournal.file));
+    const resumeJournalFile = path.resolve(String(files.resumeJournal.file));
+    const loomFile = path.resolve(String(files.loom.file));
+    residents.push(
+      options.createResident({
+        definition,
+        source,
+        artifacts: {
+          entityId: definition.entityId,
+          actEvents: parseRunJournal(fs.readFileSync(actJournalFile, 'utf8')),
+          resumeEvents: parseRunJournal(fs.readFileSync(resumeJournalFile, 'utf8')),
+          trajectory: trajectoryEnvelope.turns,
+          bodyWitness: source.evidence.bodyWitnesses[definition.entityId] as BodyWitness,
+          files: {
+            actJournal: { file: actJournalFile, bytes: fs.statSync(actJournalFile).size },
+            resumeJournal: {
+              file: resumeJournalFile,
+              bytes: fs.statSync(resumeJournalFile).size,
+            },
+            loom: { file: loomFile, bytes: fs.statSync(loomFile).size },
+          },
+        },
+      }),
+    );
+  }
+  Object.assign(
+    integrity,
+    await compareAuthoritativePopulationTrajectories({
+      worldId: String(source.worldId),
+      entityRoot: path.resolve(String(source.roots?.entity || '')),
+      controlRoot: path.resolve(String(source.roots?.control || '')),
+      residents: residents.map((resident) => ({
+        entityId: resident.entityId,
+        trajectory: resident.trajectory,
+        loomFile: resident.files.loom.file,
+      })),
+    }),
+  );
+  return {
+    sourceFile,
+    source,
+    definitions,
+    actLifecycle,
+    resumeLifecycle,
+    integrity,
+    residents,
+  };
+}
+
+export function writePopulationReassessment(input: {
+  loaded: Pick<PopulationReassessment<unknown, unknown>, 'sourceFile' | 'source' | 'integrity'>;
+  assessment: Readonly<{ failed: readonly string[] }>;
+  protocol: string;
+  outputName: string;
+}) {
+  const failedIntegrity = Object.entries(input.loaded.integrity)
+    .filter(([, passed]) => !passed)
+    .map(([name]) => name);
+  const outputFile = path.join(path.dirname(input.loaded.sourceFile), input.outputName);
+  if (fs.existsSync(outputFile)) throw new Error(`reassessment already exists: ${outputFile}`);
+  const passed = failedIntegrity.length === 0 && input.assessment.failed.length === 0;
+  durableWriteJson(outputFile, {
+    protocol: input.protocol,
+    status: passed ? 'passed' : 'failed',
+    reassessedAt: new Date().toISOString(),
+    verifierRevision: gitRevision(),
+    source: {
+      file: input.loaded.sourceFile,
+      sha256: sha256File(input.loaded.sourceFile),
+      protocol: input.loaded.source.protocol,
+      status: input.loaded.source.status,
+    },
+    integrity: input.loaded.integrity,
+    failedIntegrity,
+    assessment: input.assessment,
+  });
+  return { outputFile, passed, failedIntegrity };
+}
+
+export function populationEvidenceReport<IndependentWitness, BodyWitness>(input: {
+  fixture: OwnedWorldFixture;
+  act: PopulationPhase<IndependentWitness, BodyWitness>;
+  resume: PopulationPhase<IndependentWitness, BodyWitness>;
+  afterActTree: unknown;
+  afterResumeTree: unknown;
+  residents: readonly PopulationResidentArtifacts<BodyWitness>[];
+  trajectories: ReadonlyMap<string, PopulationTrajectory>;
+}) {
+  return {
+    sourceTree: input.fixture.sourceTree,
+    baselineTree: input.fixture.baselineTree,
+    initialRuntimeTree: input.fixture.initialRuntimeTree,
+    afterActTree: input.afterActTree,
+    afterResumeTree: input.afterResumeTree,
+    independentWitness: input.act.independentWitness,
+    bodyWitnesses: Object.fromEntries(input.act.bodyWitnesses),
+    act: populationPhaseReport(input.act),
+    resume: populationPhaseReport(input.resume),
+    residents: Object.fromEntries(
+      input.residents.map((resident) => {
+        const trajectory = requiredMapValue(
+          input.trajectories,
+          resident.entityId,
+          'resident trajectory',
+        );
+        return [
+          resident.entityId,
+          {
+            actJournal: fileEvidence(resident.files.actJournal.file),
+            resumeJournal: fileEvidence(resident.files.resumeJournal.file),
+            loom: fileEvidence(resident.files.loom.file),
+            trajectory: fileEvidence(trajectory.trajectoryFile),
+          },
+        ];
+      }),
+    ),
+  };
 }
 
 export function populationPhaseReport(phase: PopulationPhase) {
