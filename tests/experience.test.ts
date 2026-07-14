@@ -40,6 +40,34 @@ function fakeBot() {
   return bot;
 }
 
+test('experience records before downstream delivery and contains observer failure', () => {
+  const bot = fakeBot();
+  let experience!: InhabitantExperience;
+  let recordedAtDelivery = false;
+  const failures: Array<{ error: unknown; event: any }> = [];
+  experience = new InhabitantExperience(bot, {
+    onEvent: (event) => {
+      recordedAtDelivery = experience
+        .observe()
+        .events.some((candidate) => candidate.sequence === event.sequence);
+      (event.data as any).observerMutation = true;
+      throw new Error('attention observer failed');
+    },
+    onEventError: (error, event) => failures.push({ error, event }),
+  });
+
+  bot.emit('entityHurt', bot.entity);
+
+  const recorded = experience.observe().events.find((event) => event.type === 'self_hurt');
+  assert.equal(recordedAtDelivery, true);
+  assert.equal(recorded?.data.observerMutation, undefined);
+  assert.equal(failures.length, 1);
+  assert.match(String(failures[0].error), /attention observer failed/);
+  assert.equal(failures[0].event.type, 'self_hurt');
+  assert.equal(failures[0].event.data.observerMutation, undefined);
+  experience.destroy();
+});
+
 test('inhabitant observation preserves embodied state, provenance, and new events', () => {
   let now = 1000;
   const bot = fakeBot();

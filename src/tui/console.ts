@@ -6,7 +6,7 @@ import { buildInterpreter } from '../agent/interpreter';
 import { buildFrame, renderFrame } from './render';
 import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
-import { startLLMPolicy } from '../policy/llm';
+import { isImmediateAttentionEvent, startLLMPolicy } from '../policy/llm';
 import { createAxResidentMind } from '../mind/ax';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
@@ -93,16 +93,23 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       ? createComeSeeDoReportRuntime(bot as any, taskTarget!)
       : null;
   const task = taskRuntime?.task ?? resolveTask(opts.task, opts.target);
+  let policy: ReturnType<typeof startLLMPolicy> | null = null;
+  let engine: ReturnType<typeof createEngine> | null = null;
+  let localWorldReady = false;
   const experience = new InhabitantExperience(bot as any, {
     circleId: cfg.circle.id,
     managedRunId: process.env.BEHOLD_RUN_ID || null,
     task,
     projects: () => projects.snapshot(),
     places: () => places.snapshot(),
+    onEvent: (event) => {
+      if (localWorldReady && isImmediateAttentionEvent(event)) policy?.wake();
+    },
+    onEventError: (error, event) =>
+      console.error(
+        `[console] attention observer failed for ${event.type}: ${error instanceof Error ? error.message : String(error)}`,
+      ),
   });
-  let policy: ReturnType<typeof startLLMPolicy> | null = null;
-  let engine: ReturnType<typeof createEngine> | null = null;
-  let localWorldReady = false;
   const startPolicyIfReady = () => {
     if (!localWorldReady || !policy) return;
     policy.start();

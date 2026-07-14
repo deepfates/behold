@@ -163,6 +163,8 @@ export type ExperienceOptions = {
   now?: () => number;
   projects?: () => InhabitantProject[];
   places?: () => InhabitantPlace[];
+  onEvent?: (event: Readonly<ExperienceEvent>) => unknown;
+  onEventError?: (error: unknown, event: Readonly<ExperienceEvent>) => void;
 };
 
 /**
@@ -242,7 +244,26 @@ export class InhabitantExperience {
     this.events.push(event);
     if (this.events.length > this.eventHistory)
       this.events.splice(0, this.events.length - this.eventHistory);
+    this.deliverEvent(event);
     return event;
+  }
+
+  private deliverEvent(event: ExperienceEvent) {
+    if (!this.options.onEvent) return;
+    const delivered = structuredClone(event);
+    const report = (error: unknown) => this.options.onEventError?.(error, structuredClone(event));
+    try {
+      const result = this.options.onEvent(delivered);
+      if (
+        result &&
+        (typeof result === 'object' || typeof result === 'function') &&
+        typeof (result as PromiseLike<unknown>).then === 'function'
+      ) {
+        void Promise.resolve(result).catch(report);
+      }
+    } catch (error) {
+      report(error);
+    }
   }
 
   recordEngineEvent(event: EngineEvent) {

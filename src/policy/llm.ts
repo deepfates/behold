@@ -1117,6 +1117,10 @@ export function modelDecisionInvalidation(frame: any, afterSequence: number) {
   };
 }
 
+export function isImmediateAttentionEvent(event: { salience?: unknown }) {
+  return event?.salience === 'high' || event?.salience === 'urgent';
+}
+
 export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {
   if (frame?.protocol !== 'behold.inhabitant.v1' || lastSequence === 0) return true;
   const relevant = new Set([

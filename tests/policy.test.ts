@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   hasDecisionRelevantEvent,
+  isImmediateAttentionEvent,
   modelDecisionInvalidation,
   startLLMPolicy,
 } from '../src/policy/llm';
@@ -33,6 +34,13 @@ test('task-directed attention wakes for the target or an addressed message', () 
   assert.equal(hasDecisionRelevantEvent(frame('importdf', false, 30), 4), false);
   assert.equal(hasDecisionRelevantEvent(frame('Director'), 4), true);
   assert.equal(hasDecisionRelevantEvent(frame('importdf', true), 4), true);
+});
+
+test('only high and urgent lived events demand immediate attention', () => {
+  assert.equal(isImmediateAttentionEvent({ salience: 'ambient' }), false);
+  assert.equal(isImmediateAttentionEvent({ salience: 'normal' }), false);
+  assert.equal(isImmediateAttentionEvent({ salience: 'high' }), true);
+  assert.equal(isImmediateAttentionEvent({ salience: 'urgent' }), true);
 });
 
 test('a model decision fails closed when its observation cursor has a gap', () => {
