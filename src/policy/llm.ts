@@ -1253,14 +1253,14 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
   }
   if (tools.has('move_direction')) {
     lines.push(
-      'Use move_direction for short local exploration relative to view; use move_to only for a visible, communicated, or remembered position. Looking and walking are not projects.',
+      'move_direction explores relative to view; move_to is for visible, communicated, or remembered positions. Looking and walking are not projects.',
     );
   }
   if (hasAny('find_blocks', 'dig_block')) {
     lines.push(
       'Terrain samples and find_blocks identify loaded local blocks, not line of sight. Move and look when that matters.',
       'If resources are elevated or unreachable, widen find_blocks to the material name; for wood use name "log", distance 32, and prefer likelyGrounded.',
-      'Block coordinates are solid targets, not standing places. dig_block approaches a chosen result into reach before mining.',
+      'Block coordinates are not feet. dig_block approaches one. If openedBodyPassages is nonempty, move through one before mining more.',
     );
   }
   if (hasAny('inspect_volume', 'place_block', 'place_against')) {

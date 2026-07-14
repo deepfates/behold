@@ -1201,6 +1201,74 @@ test('digging a distant loaded block approaches into reach before the confirmed 
   assert.equal(result.changes[0].verified, true);
 });
 
+test('digging reports only a body passage causally opened by that exact block change', async () => {
+  const bot = baseBot();
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.entity.yaw = 0;
+  const cells = new Map<string, any>();
+  const key = (position: Vec3 | { x: number; y: number; z: number }) =>
+    `${position.x},${position.y},${position.z}`;
+  const put = (name: string, x: number, y: number, z: number, stateId: number) => {
+    const position = new Vec3(x, y, z);
+    cells.set(key(position), {
+      name,
+      type: stateId,
+      stateId,
+      boundingBox: name === 'air' ? 'empty' : 'block',
+      position,
+    });
+  };
+  for (const [x, z] of [
+    [0, -1],
+    [0, 1],
+    [-1, 0],
+    [1, 0],
+  ]) {
+    put('stone', x, 63, z, 1);
+    put('air', x, 65, z, 0);
+  }
+  put('oak_leaves', 0, 64, -1, 18);
+  put('stone', 0, 64, 1, 1);
+  put('stone', -1, 64, 0, 1);
+  put('stone', 1, 64, 0, 1);
+  bot.blockAt = (position: Vec3) =>
+    cells.get(key(position)) || {
+      name: 'air',
+      type: 0,
+      stateId: 0,
+      boundingBox: 'empty',
+      position,
+    };
+  bot.canSeeBlock = () => true;
+  bot.dig = async (block: any) => {
+    const previous = block;
+    const air = {
+      name: 'air',
+      type: 0,
+      stateId: 0,
+      boundingBox: 'empty',
+      position: previous.position,
+    };
+    cells.set(key(previous.position), air);
+    bot.emit('blockUpdate', previous, air);
+  };
+
+  const result = await buildInterpreter(bot, { changeStabilityWindowMs: 1 }).run('dig_block', {
+    x: 0,
+    y: 64,
+    z: -1,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.openedBodyPassages.map((passage: any) => passage.direction),
+    ['forward'],
+  );
+  assert.equal(result.openedBodyPassages[0].enterable, true);
+  assert.deepEqual(result.openedBodyPassages[0].feet.position, { x: 0, y: 64, z: -1 });
+  assert.match(result.nextAffordance, /enter it with move_direction before mining farther/);
+});
+
 test('dig_block reports cancellation only after Mineflayer acknowledges diggingAborted', async () => {
   const bot = baseBot();
   const block: any = {

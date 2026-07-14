@@ -875,7 +875,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'dig_block',
     description:
-      'Break or mine one solid block. The body first walks within survival reach and faces it, then succeeds only after Minecraft confirms the block changed.',
+      'Break or mine one solid block. The body first walks within survival reach and faces it, then succeeds only after Minecraft confirms the block changed. If that exact change opens adjacent body-sized space, the terminal names the newly enterable direction relative to your current view.',
     parameters: {
       type: 'object',
       properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } },
@@ -962,6 +962,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           };
         }
       }
+      const passagesBefore = adjacentBodyPassages(bot);
       const result = await executeConfirmedWorldChange({
         bot,
         guard: opts.worldChangeExecutor,
@@ -975,16 +976,26 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         signal: execution?.signal,
       });
       const adjacentBlocks = result.ok ? adjacentSolidBlocks(bot, position) : [];
+      const openedBodyPassages = result.ok
+        ? newlyOpenedBodyPassages(passagesBefore, adjacentBodyPassages(bot))
+        : [];
       return {
         ...result,
         navigation,
         ...(result.ok
           ? {
               adjacentBlocks,
+              openedBodyPassages,
               nextAffordance:
-                adjacentBlocks.length > 0
-                  ? 'Choose an adjacent exposed block to inspect or mine next.'
-                  : 'The removed block exposed no adjacent solid continuation.',
+                openedBodyPassages.length > 0
+                  ? `This exact dig opened adjacent body space ${openedBodyPassages
+                      .map((passage) => passage.direction)
+                      .join(
+                        ', ',
+                      )} relative to the current view. You can intentionally enter it with move_direction before mining farther.`
+                  : adjacentBlocks.length > 0
+                    ? 'Choose an adjacent exposed block to inspect or mine next.'
+                    : 'The removed block exposed no adjacent solid continuation.',
             }
           : {}),
       };
@@ -4362,6 +4373,45 @@ function adjacentSolidBlocks(bot: Bot, position: BlockPosition) {
       };
     })
     .filter(Boolean);
+}
+
+type AdjacentBodyPassage = ReturnType<typeof adjacentBodyPassages>[number];
+
+/**
+ * Body-scale feedback for the four player-relative directions. This is not a
+ * route search: it inspects only the immediately adjacent feet, head, and
+ * support cells that move_direction itself will validate before moving.
+ */
+function adjacentBodyPassages(bot: Bot) {
+  const body = (bot as any).entity;
+  const yaw = body?.yaw == null ? null : finiteNumber(body.yaw);
+  const pitch = body?.pitch == null ? 0 : finiteNumber(body.pitch);
+  const start = positionOf(bot);
+  if (yaw == null || pitch == null || !start) return [];
+  return ['forward', 'back', 'left', 'right'].map((direction) => {
+    const vector = relativeHorizontalDirection(yaw, direction)!;
+    const evidence = relativeMovementEvidence(bot, start, vector);
+    return {
+      direction,
+      orientation: orientationRecord(yaw, pitch),
+      enterable: evidence.issue === 'immediate_path_clear',
+      issue: evidence.issue,
+      feet: evidence.feet,
+      head: evidence.head,
+      support: evidence.support,
+    };
+  });
+}
+
+function newlyOpenedBodyPassages(
+  before: readonly AdjacentBodyPassage[],
+  after: readonly AdjacentBodyPassage[],
+) {
+  const beforeByDirection = new Map(before.map((passage) => [passage.direction, passage]));
+  return after.filter((passage) => {
+    const previous = beforeByDirection.get(passage.direction);
+    return previous != null && !previous.enterable && passage.enterable;
+  });
 }
 
 function samePosition(value: any, expected: BlockPosition) {
