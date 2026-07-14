@@ -79,7 +79,7 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
         resumeRunId: input.resumeRunId,
       },
     );
-    const calls = modelCalls([...resident.actEvents, ...resident.resumeEvents]);
+    const calls = populationModelCalls([...resident.actEvents, ...resident.resumeEvents]);
     const usage = summarizeUsage(calls);
     return {
       entityId: resident.entityId,
@@ -95,10 +95,10 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
     };
   });
   const allCalls = input.residents.flatMap((resident) =>
-    modelCalls([...resident.actEvents, ...resident.resumeEvents]),
+    populationModelCalls([...resident.actEvents, ...resident.resumeEvents]),
   );
   const usage = summarizeUsage(allCalls);
-  const maxConcurrentModelCalls = measuredConcurrency(allCalls);
+  const maxConcurrentModelCalls = measuredModelConcurrency(allCalls);
   const maxResidentJournalBytes = Math.max(
     0,
     ...input.residents.map(
@@ -109,14 +109,14 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
     0,
     ...input.residents.map((resident) => resident.files.loom.bytes),
   );
-  const actLifecycle = assessLifecycle(
+  const actLifecycle = assessPopulationLifecycle(
     input.actLifecycle,
     input.worldId,
     input.actRunId,
     residentIds,
     input.budgets,
   );
-  const resumeLifecycle = assessLifecycle(
+  const resumeLifecycle = assessPopulationLifecycle(
     input.resumeLifecycle,
     input.worldId,
     input.resumeRunId,
@@ -133,9 +133,10 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
   const assertions = {
     exactlyTwoDistinctResidents:
       input.residents.length === 2 &&
-      new Set(residentIds.map(canonical)).size === input.residents.length,
+      new Set(residentIds.map(canonicalIdentity)).size === input.residents.length,
     distinctTargetConsequences:
-      targetItems.every(Boolean) && new Set(targetItems.map(canonical)).size === targetItems.length,
+      targetItems.every(Boolean) &&
+      new Set(targetItems.map(canonicalIdentity)).size === targetItems.length,
     sharedActEpoch:
       input.actRunId !== input.resumeRunId &&
       input.residents.every(
@@ -164,10 +165,12 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
       const foreignIds = [...allTurnIds.entries()]
         .filter(([entityId]) => entityId !== resident.entityId)
         .flatMap(([, ids]) => ids);
-      return modelCalls([...resident.actEvents, ...resident.resumeEvents]).every((call) => {
-        const request = JSON.stringify(call?.request?.body ?? null);
-        return foreignIds.every((turnId) => !request.includes(turnId));
-      });
+      return populationModelCalls([...resident.actEvents, ...resident.resumeEvents]).every(
+        (call) => {
+          const request = JSON.stringify(call?.request?.body ?? null);
+          return foreignIds.every((turnId) => !request.includes(turnId));
+        },
+      );
     }),
     evidenceFilesAreDistinct: distinctCanonicalPaths(
       input.residents.flatMap((resident) => [
@@ -178,10 +181,13 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
     ),
     freshBodiesRetainOnlyOwnTarget: input.residents.every((resident) => {
       const witness = resident.bodyWitness;
-      const own = inventoryCount(witness.inventory, resident.targetItem);
+      const own = populationInventoryCount(witness.inventory, resident.targetItem);
       const foreign = input.residents
         .filter((other) => other.entityId !== resident.entityId)
-        .reduce((count, other) => count + inventoryCount(witness.inventory, other.targetItem), 0);
+        .reduce(
+          (count, other) => count + populationInventoryCount(witness.inventory, other.targetItem),
+          0,
+        );
       return (
         witness.source === 'fresh_minecraft_connection' &&
         witness.entityId === resident.entityId &&
@@ -233,7 +239,7 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
   };
 }
 
-function assessLifecycle(
+export function assessPopulationLifecycle(
   events: readonly WorldLifecycleEvent[],
   worldId: string,
   runId: string,
@@ -311,14 +317,14 @@ function startupMetrics(events: readonly WorldLifecycleEvent[], residentIds: rea
   });
 }
 
-function modelCalls(events: readonly RunJournalEvent[]) {
+export function populationModelCalls(events: readonly RunJournalEvent[]) {
   return events
     .filter((event) => event.type === 'model_turn' || event.type === 'model_auxiliary_call')
     .map((event) => event.data?.call)
     .filter((call) => call?.protocol === 'behold.model-call.v1');
 }
 
-function measuredConcurrency(calls: readonly any[]) {
+export function measuredModelConcurrency(calls: readonly any[]) {
   const edges = calls.flatMap((call, index) => {
     const startedAt = Number(call?.startedAt);
     const completedAt = Number(call?.completedAt);
@@ -346,7 +352,7 @@ function lifecycleData(events: readonly WorldLifecycleEvent[], type: string): an
   return events.filter((event) => event.type === type).map((event) => event.data);
 }
 
-function inventoryCount(
+export function populationInventoryCount(
   inventory: readonly Readonly<{ name: string; count: number }>[],
   name: string,
 ) {
@@ -358,18 +364,20 @@ function inventoryCount(
 function sameSet(left: readonly string[], right: readonly string[]) {
   return (
     left.length === right.length &&
-    new Set(left.map(canonical)).size === left.length &&
-    left.every((value) => right.some((candidate) => canonical(candidate) === canonical(value)))
+    new Set(left.map(canonicalIdentity)).size === left.length &&
+    left.every((value) =>
+      right.some((candidate) => canonicalIdentity(candidate) === canonicalIdentity(value)),
+    )
   );
 }
 
-function distinctCanonicalPaths(files: readonly string[]) {
+export function distinctCanonicalPaths(files: readonly string[]) {
   return (
     files.every((file) => path.isAbsolute(file)) &&
-    new Set(files.map((file) => canonical(path.normalize(file)))).size === files.length
+    new Set(files.map((file) => canonicalIdentity(path.normalize(file)))).size === files.length
   );
 }
 
-function canonical(value: string) {
+export function canonicalIdentity(value: string) {
   return String(value).normalize('NFKC').toLocaleLowerCase('en-US');
 }
