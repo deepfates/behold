@@ -22,6 +22,7 @@ async function main() {
       port: { type: 'string' },
       world: { type: 'string' },
       model: { type: 'string' },
+      tickMs: { type: 'string' },
       task: { type: 'string' },
       target: { type: 'string' },
       allowTools: { type: 'string' },

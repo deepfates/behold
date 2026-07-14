@@ -46,6 +46,18 @@ test('lifecycle markers require exact positive protocol lines', () => {
   assert.equal(isMinecraftSaveAcknowledgement('Saved the game failed'), false);
 });
 
+test('the direct proof resident accepts the canonical managed-runner arguments', () => {
+  const result = spawnSync(
+    process.execPath,
+    [path.resolve('dist/scripts/owned-world-inhabitant.js'), '--tickMs', '4000'],
+    { encoding: 'utf8', env: { ...process.env, VIEWER_ENABLED: '0' } },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /owned-world inhabitant requires an entity name/);
+  assert.doesNotMatch(result.stderr, /Unknown option/);
+});
+
 test('the normal managed controller is an untasked resident with no benchmark allowlist', () => {
   assert.deepEqual(managedControllerProfile(), {});
   assert.deepEqual(managedControllerProfile('  ordinary-life  ', '  '), {
