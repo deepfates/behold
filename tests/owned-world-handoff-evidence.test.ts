@@ -53,6 +53,17 @@ test('handoff evidence rejects a privileged offer claim and missing recipient wi
   assert.ok(assessment.failed.includes('freshBodiesConfirmTransfer'));
 });
 
+test('handoff evidence rejects an admitted symbolic sensing power', () => {
+  const input = structuredClone(fixture()) as HandoffEvidenceInput;
+  const giver = input.residents.find((resident) => resident.role === 'giver') as any;
+  giver.actEvents[3].data.call.request.body.tools.push({
+    function: { name: 'inspect_volume' },
+  });
+
+  const assessment = assessOwnedWorldHandoffEvidence(input);
+  assert.ok(assessment.failed.includes('onlyNativeHandoffToolsAdmitted'));
+});
+
 test('handoff evidence rejects shared private history and repeated restart work', () => {
   const input = structuredClone(fixture()) as HandoffEvidenceInput;
   const giver = input.residents.find((resident) => resident.role === 'giver') as any;
@@ -297,7 +308,7 @@ function modelTurn(
           tools: [
             { function: { name: 'move_to' } },
             { function: { name: 'drop_item' } },
-            { function: { name: 'inspect_volume' } },
+            { function: { name: 'wait_for_event' } },
           ],
         },
       },

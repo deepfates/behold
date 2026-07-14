@@ -22,6 +22,7 @@ import {
 
 export const HANDOFF_PROOF_PROTOCOL = 'behold.owned-world-handoff-proof.v1' as const;
 export const HANDOFF_TRAJECTORY_PROTOCOL = 'behold.handoff-resident-trajectory.v1' as const;
+const NATIVE_HANDOFF_TOOLS = new Set(['move_to', 'drop_item', 'wait_for_event']);
 
 export type HandoffResidentEvidence = Readonly<{
   role: 'giver' | 'recipient';
@@ -59,6 +60,11 @@ export function assessOwnedWorldHandoffEvidence(input: HandoffEvidenceInput) {
   const residentIds = input.residents.map((resident) => resident.entityId);
   const allCalls = input.residents.flatMap((resident) =>
     populationModelCalls([...resident.actEvents, ...resident.resumeEvents]),
+  );
+  const admittedToolNames = allCalls.flatMap((call) =>
+    (Array.isArray(call?.request?.body?.tools) ? call.request.body.tools : [])
+      .map((tool: any) => String(tool?.function?.name || ''))
+      .filter(Boolean),
   );
   const usage = summarizeUsage(allCalls);
   const maxConcurrentModelCalls = measuredModelConcurrency(allCalls);
@@ -126,6 +132,9 @@ export function assessOwnedWorldHandoffEvidence(input: HandoffEvidenceInput) {
         (event) => !JSON.stringify(event).includes('offer_item_to_player'),
       ),
     ),
+    onlyNativeHandoffToolsAdmitted:
+      admittedToolNames.length > 0 &&
+      admittedToolNames.every((name) => NATIVE_HANDOFF_TOOLS.has(name)),
     independentMinecraftBodySawNoDroppedItem:
       input.independentWitness.source === 'fresh_minecraft_connection' &&
       input.independentWitness.worldId === input.worldId &&
@@ -447,7 +456,7 @@ function restartAnalysis(
       requestText.includes(input.item),
     restartDidNotRepeat:
       firstDecision?.call?.request?.toolChoice === 'auto' &&
-      ['inspect_volume', 'wait_for_event'].includes(action) &&
+      action === 'wait_for_event' &&
       !repeatedActions.includes(action),
   };
 }

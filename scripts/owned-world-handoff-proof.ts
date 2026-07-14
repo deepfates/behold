@@ -116,13 +116,13 @@ async function main() {
       role: 'giver',
       entityId: GIVER_ID,
       task: `Get the nearby dropped ${ITEM} to ${RECIPIENT_ID}. Use only ordinary Minecraft actions available to your body. The other resident must choose their own response: do not claim receipt until you observe it. Do not pick the item back up. Once you observe ${RECIPIENT_ID} collect it, yield. On a later life, remember your own side of the completed handoff and do not repeat it.`,
-      allowTools: Object.freeze(['move_to', 'drop_item', 'inspect_volume']),
+      allowTools: Object.freeze(['move_to', 'drop_item']),
     }),
     Object.freeze({
       role: 'recipient',
       entityId: RECIPIENT_ID,
       task: `Receive the ${ITEM} that ${GIVER_ID} makes available in the shared world. Do not take the original ${ITEM} before ${GIVER_ID} has handled it. Wait for their newly dropped item, then walk to it so Minecraft can pick it up for your body. Claim receipt only from your own inventory and collection event, then yield. On a later life, remember your own side and do not repeat the handoff.`,
-      allowTools: Object.freeze(['move_to', 'inspect_volume']),
+      allowTools: Object.freeze(['move_to']),
     }),
   ]);
   const residentSpecs: readonly ManagedResidentSpec[] = definitions.map((definition) => ({
