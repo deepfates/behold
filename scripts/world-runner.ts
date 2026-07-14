@@ -850,6 +850,10 @@ function spawnDefaultServer(options: ManagedWorldRunOptions) {
     {
       cwd: options.serverDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // A terminal interrupt belongs to the lifecycle owner. Keep managed
+      // children outside its foreground process group so they can finish the
+      // explicit controller-drain and Minecraft save/stop protocol.
+      detached: process.platform !== 'win32',
     },
   );
 }
@@ -886,6 +890,7 @@ function spawnDefaultController(
       BEHOLD_ENTITY_DIR: path.dirname(path.dirname(options.controllerLeasePath)),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   });
 }
 

@@ -460,7 +460,20 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     void requestShutdown?.('minecraft_error', error);
   });
 
-  return done;
+  const signalHandlers = new Map<NodeJS.Signals, () => void>();
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    const handler = () => {
+      void requestShutdown?.(signal);
+      rl.close();
+    };
+    signalHandlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+  try {
+    await done;
+  } finally {
+    for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
+  }
 }
 
 function resolveTask(taskName?: string, targetName?: string): TaskBrief | null {
