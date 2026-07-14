@@ -316,7 +316,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'move_to',
     description:
-      'Walk to a feet position and return only after arrival or failure. This is one bounded walking leg, not teleportation. A block coordinate is a solid interaction target, not a feet destination; use dig_block for a block you want to mine.',
+      'Walk to a feet position and return only after an observed body result. This is one bounded walking leg, not teleportation. If the body already satisfies the requested range, the result says no movement occurred instead of claiming progress. A block coordinate is a solid interaction target, not a feet destination; use dig_block for a block you want to mine.',
     parameters: {
       type: 'object',
       properties: {
@@ -360,18 +360,33 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       });
       const final = positionOf(bot);
       const remainingDistance = final ? distance(final, requestedDestination) : null;
+      const bodyDisplacement = start && final ? distance(start, final) : null;
+      const bodyMoved = bodyDisplacement != null && bodyDisplacement >= 0.1;
+      const progressDistance =
+        requestedDistance != null && remainingDistance != null
+          ? Math.max(0, requestedDistance - remainingDistance)
+          : null;
       const arrivedAtRequestedDestination =
         result.ok && remainingDistance != null && remainingDistance <= requestedNear + 0.75;
       return {
         ...result,
         ...(result.ok
-          ? { status: arrivedAtRequestedDestination ? 'arrived' : 'advanced_toward' }
+          ? {
+              status: !bodyMoved
+                ? 'already_within_requested_range'
+                : arrivedAtRequestedDestination
+                  ? 'arrived'
+                  : 'advanced_toward',
+            }
           : {}),
         requestedDestination,
         requestedNear,
         bodyLegLimit: travelLimit,
         legDestination: destination,
         remainingDistance,
+        bodyMoved,
+        bodyDisplacement,
+        progressDistance,
         arrivedAtRequestedDestination,
       };
     },

@@ -469,6 +469,29 @@ test('the body bounds one move_to leg without asking the resident for a travel b
   assert.equal(result.arrivedAtRequestedDestination, false);
 });
 
+test('move_to reports when its requested range caused no bodily movement', async () => {
+  const bot = baseBot();
+  bot.entity.position = new Vec3(49.5028, 65, 92.685);
+  bot.pathfinder = {
+    goto: async () => {},
+    stop: () => {},
+  };
+
+  const result = await buildInterpreter(bot).run('move_to', {
+    x: 49.5,
+    y: 65,
+    z: 91.5,
+    near: 1,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'already_within_requested_range');
+  assert.equal(result.bodyMoved, false);
+  assert.equal(result.bodyDisplacement, 0);
+  assert.equal(result.progressDistance, 0);
+  assert.equal(result.arrivedAtRequestedDestination, true);
+});
+
 test('move_direction derives all local destinations from the body view without coordinates', async () => {
   const bot = baseBot();
   bot.entity.yaw = 0;

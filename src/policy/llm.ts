@@ -323,24 +323,39 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       return;
     }
 
+    let frame: any = null;
     if (!contextPrepared) {
-      preparingContext = true;
-      try {
-        await loomContext.prepare();
-        if (stopped) return;
+      frame = observe();
+      const initialView = projectCurrentModelObservation(frame);
+      const initialAttention = attentionForObservation(initialView);
+      const initialBodyUrgency =
+        hasBodilyUrgency(initialAttention) || isCriticalBodyCondition(initialView?.self?.condition);
+      if (loomContext.state().needsFold && initialBodyUrgency) {
         rebuildMessagesFromLoom();
         contextPrepared = true;
-      } catch (error: any) {
-        if (!stopped)
-          log(`[policy] could not prepare loom context: ${error?.message || String(error)}`);
-        return;
-      } finally {
-        preparingContext = false;
-        settleStop();
+        log('[policy] deferred initial own-loom fold while bodily urgency remains unresolved');
+      } else {
+        preparingContext = true;
+        try {
+          await loomContext.prepare();
+          if (stopped) return;
+          rebuildMessagesFromLoom();
+          contextPrepared = true;
+          // Folding may take seconds while Minecraft continues. Reobserve
+          // after it settles rather than deciding from the pre-fold frame.
+          frame = null;
+        } catch (error: any) {
+          if (!stopped)
+            log(`[policy] could not prepare loom context: ${error?.message || String(error)}`);
+          return;
+        } finally {
+          preparingContext = false;
+          settleStop();
+        }
       }
     }
 
-    const frame = observe();
+    frame ??= observe();
     if (hasUnfinishedAction(frame)) {
       wakeQueued = true;
       return;
@@ -1034,7 +1049,7 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
   ];
   if (tools.has(MANAGE_PROJECT_TOOL)) {
     lines.push(
-      'self.projects is your bounded restart memory from your loom. Bookmark durable outcomes needing several actions—not walking, inspection, transfers, equipment, or cleanup. Keep one focus; resolve overlaps. Survey and choice are steps, not outcomes. doneWhen names a future Minecraft condition and player-observable evidence; already-true, waiting, and idle conditions are invalid. Use world_change for construction and time_elapsed for a concrete future time. Complete only after a matching post-start witness. Completion is your grounded conclusion, not external world certification.',
+      'self.projects is your bounded restart memory from your loom. Every listed project has status active_unfinished: doneWhen is a future Minecraft condition and completionRequires names the future evidence channel, never evidence that the condition is already true. Bookmark durable outcomes needing several actions—not walking, inspection, transfers, equipment, or cleanup. Keep one focus; resolve overlaps. Survey and choice are steps, not outcomes. Already-true, waiting, and idle conditions are invalid. Use world_change for construction and time_elapsed for a concrete future time. Complete only after a matching post-start witness. Completion is your grounded conclusion, not external world certification.',
     );
   }
   if (hasAny('cross_visible_door', 'cross_place_door', MANAGE_PROJECT_TOOL)) {

@@ -96,9 +96,10 @@ test('inhabitant observation preserves embodied state, provenance, and new event
       {
         id: 'shared-home',
         title: 'Build a shared home',
+        status: 'active_unfinished',
         nextStep: 'Gather eight logs',
         doneWhen: 'A lit enclosed home has a door, bed, and chest',
-        evidence: 'space_enclosed',
+        completionRequires: 'space_enclosed',
         needsDefinition: false,
         startedAtSequence: 4,
         updatedAtSequence: 5,
@@ -138,6 +139,9 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   assert.equal(initial.self.pose.yaw, 0);
   assert.equal(initial.self.condition.oxygen, 20);
   assert.equal(initial.self.projects[0]?.id, 'shared-home');
+  assert.equal(initial.self.projects[0]?.status, 'active_unfinished');
+  assert.equal(initial.self.projects[0]?.completionRequires, 'space_enclosed');
+  assert.equal((initial.self.projects[0] as any)?.evidence, undefined);
   assert.equal(initial.self.places[0]?.id, 'place:overworld:3:64:4');
   assert.equal(initial.self.places[0]?.source, 'memory');
   assert.equal(initial.self.places[0]?.sameDimension, true);

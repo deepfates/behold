@@ -563,9 +563,10 @@ function project(id: string, startedAtSequence: number, title: string) {
   return {
     id,
     title,
+    status: 'active_unfinished' as const,
     nextStep: 'Place the next wall',
     doneWhen: 'A sealed, covered shared shelter has a closable entrance',
-    evidence: 'space_enclosed' as const,
+    completionRequires: 'space_enclosed' as const,
     needsDefinition: false,
     startedAtSequence,
     updatedAtSequence: startedAtSequence,

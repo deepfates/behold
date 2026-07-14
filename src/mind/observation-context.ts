@@ -379,7 +379,7 @@ function projectHistoricalSelf(self: any) {
     condition: self.condition,
     heldItem: self.heldItem,
     inventory: self.inventory,
-    projects: self.projects,
+    projects: Array.isArray(self.projects) ? projectActiveProjects(self.projects) : self.projects,
   };
 }
 
@@ -388,7 +388,20 @@ function projectSelf(self: any) {
   return projectResidentVisibleValue({
     ...self,
     ...(self.pose ? { pose: projectCurrentPose(self.pose) } : {}),
+    ...(Array.isArray(self.projects) ? { projects: projectActiveProjects(self.projects) } : {}),
     currentAction: projectCurrentAction(self.currentAction),
+  });
+}
+
+function projectActiveProjects(projects: any[]) {
+  return projects.map((project) => {
+    if (!project || typeof project !== 'object' || Array.isArray(project)) return project;
+    const { evidence, status: _legacyStatus, ...current } = project;
+    return {
+      ...current,
+      status: 'active_unfinished',
+      completionRequires: current.completionRequires ?? evidence ?? null,
+    };
   });
 }
 

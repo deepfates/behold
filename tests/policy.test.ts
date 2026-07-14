@@ -446,7 +446,7 @@ test('critical body condition keeps urgent cognition through failure and release
       urgentModel: 'test/urgent-model',
       mind,
       acceptEngineEvent: () => true,
-      history: [failedTurn(1, 'move_to')],
+      history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
       foldRecentTurns: 1,
       foldBatchTurns: 1,
       foldTriggerTurns: 1,
@@ -462,6 +462,7 @@ test('critical body condition keeps urgent cognition through failure and release
     assert.equal(requests[0].model, 'test/urgent-model');
     assert.equal(requests[0].attention?.continuingCondition, undefined);
     assert.equal(attempted[0].tool, 'move_direction');
+    assert.equal(foldCalls, 0, 'initial private memory folding must not delay a body crisis');
 
     sequence = 2;
     currentAction = { ...currentAction, status: 'failed' };

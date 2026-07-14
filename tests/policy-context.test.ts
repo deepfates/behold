@@ -16,6 +16,9 @@ test('model context suppresses only duplicated own-success lifecycle events with
   assert.equal(projected.self.identity, 'Scout');
   assert.deepEqual(projected.self.inventory, [{ name: 'cobblestone', count: 1 }]);
   assert.equal(projected.self.projects[0].nextStep, 'Place the second block at 1,-60,0');
+  assert.equal(projected.self.projects[0].status, 'active_unfinished');
+  assert.equal(projected.self.projects[0].completionRequires, 'space_enclosed');
+  assert.equal(projected.self.projects[0].evidence, undefined);
   assert.equal(projected.self.currentAction.source, 'llm');
   assert.deepEqual(projected.self.currentAction.input, { x: 0, y: -60, z: 0 });
   assert.equal(projected.self.currentAction.result, undefined);
@@ -471,6 +474,8 @@ function observation() {
         {
           id: 'marker',
           nextStep: 'Place the second block at 1,-60,0',
+          doneWhen: 'A sealed landmark is independently observed later',
+          evidence: 'space_enclosed',
         },
       ],
       currentAction: {

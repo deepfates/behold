@@ -24,9 +24,10 @@ const LEGACY_REPLAY_LIMIT = 3;
 export type InhabitantProject = {
   id: string;
   title: string;
+  status: 'active_unfinished';
   nextStep: string;
   doneWhen: string | null;
-  evidence: ProjectEvidence | null;
+  completionRequires: ProjectEvidence | null;
   needsDefinition: boolean;
   startedAtSequence: number;
   updatedAtSequence: number;
@@ -186,7 +187,7 @@ function completionEvidence(
   turns: EntityTurn[],
   current: any,
 ): CompletionEvidence {
-  const expected = project.evidence!;
+  const expected = project.completionRequires!;
   const start = turns.find((turn) => turn.sequence === project.startedAtSequence);
   const sinceAt = start?.completedAt ?? 0;
   const afterStart = turns.filter((turn) => turn.sequence > project.startedAtSequence);
@@ -632,7 +633,11 @@ function definitionIssue(active: Map<string, InhabitantProject>, change: Project
   if (change.operation === 'update' && !change.doneWhen && !active.get(change.id)?.doneWhen) {
     return { error: 'project_done_when_required' };
   }
-  if (change.operation === 'update' && !change.evidence && !active.get(change.id)?.evidence) {
+  if (
+    change.operation === 'update' &&
+    !change.evidence &&
+    !active.get(change.id)?.completionRequires
+  ) {
     return { error: 'project_evidence_required' };
   }
   if (change.operation === 'complete') {
@@ -646,7 +651,7 @@ function definitionIssue(active: Map<string, InhabitantProject>, change: Project
     title: change.operation === 'start' ? change.title : change.title || previous!.title,
     nextStep: change.nextStep,
     doneWhen: change.doneWhen || previous?.doneWhen || null,
-    evidence: change.evidence || previous?.evidence || null,
+    completionRequires: change.evidence || previous?.completionRequires || null,
   });
 }
 
@@ -658,22 +663,22 @@ function preview(active: Map<string, InhabitantProject>, change: ProjectChange) 
     return {
       id: change.id,
       title: change.title,
+      status: 'active_unfinished',
       nextStep: change.nextStep,
       doneWhen: change.doneWhen,
-      evidence: change.evidence,
+      completionRequires: change.evidence,
       needsDefinition: false,
-      status: 'active',
     };
   }
   const previous = active.get(change.id)!;
   return {
     id: change.id,
     title: change.title || previous.title,
+    status: 'active_unfinished',
     nextStep: change.nextStep,
     doneWhen: change.doneWhen || previous.doneWhen,
-    evidence: change.evidence || previous.evidence,
+    completionRequires: change.evidence || previous.completionRequires,
     needsDefinition: false,
-    status: 'active',
   };
 }
 
@@ -686,9 +691,10 @@ function apply(active: Map<string, InhabitantProject>, change: ProjectChange, se
   const project: InhabitantProject = {
     id: change.id,
     title: change.operation === 'start' ? change.title : change.title || previous!.title,
+    status: 'active_unfinished',
     nextStep: change.nextStep,
     doneWhen: change.doneWhen || previous?.doneWhen || null,
-    evidence: change.evidence || previous?.evidence || null,
+    completionRequires: change.evidence || previous?.completionRequires || null,
     needsDefinition: false,
     startedAtSequence: previous?.startedAtSequence ?? sequence,
     updatedAtSequence: sequence,
@@ -698,11 +704,11 @@ function apply(active: Map<string, InhabitantProject>, change: ProjectChange, se
 }
 
 function projectDefinitionIssue(
-  project: Pick<InhabitantProject, 'title' | 'nextStep' | 'doneWhen' | 'evidence'>,
+  project: Pick<InhabitantProject, 'title' | 'nextStep' | 'doneWhen' | 'completionRequires'>,
 ) {
   if (!project.doneWhen) return { error: 'project_done_when_required' };
-  if (!project.evidence) return { error: 'project_evidence_required' };
-  if (project.evidence === 'space_enclosed') {
+  if (!project.completionRequires) return { error: 'project_evidence_required' };
+  if (project.completionRequires === 'space_enclosed') {
     return { error: 'project_evidence_external_only' };
   }
 
@@ -714,7 +720,7 @@ function projectDefinitionIssue(
     /\b(?:build|building|construct|constructing|create|creating|make|making|establish|establishing|repair|repairing|finish|finishing|complete|completing|expand|expanding|improve|improving|enclose|enclosing|seal|sealing|roof|roofing|wall|walling)\b/.test(
       language,
     );
-  if (namesEnclosure && changesEnclosure && project.evidence !== 'world_change') {
+  if (namesEnclosure && changesEnclosure && project.completionRequires !== 'world_change') {
     return { error: 'project_construction_requires_world_change' };
   }
   if (/\bidle\b|\bkeep still\b|\bnothing (?:needs|left)\b|\bno immediate hazard\b/.test(language)) {
@@ -727,7 +733,7 @@ function projectDefinitionIssue(
   ) {
     return { error: 'project_cannot_wait_for_assignment' };
   }
-  if (project.evidence === 'time_elapsed' && !hasConcreteTimeBoundary(project.doneWhen)) {
+  if (project.completionRequires === 'time_elapsed' && !hasConcreteTimeBoundary(project.doneWhen)) {
     return { error: 'project_time_boundary_required' };
   }
   if (
@@ -738,7 +744,7 @@ function projectDefinitionIssue(
     return { error: 'project_outcome_must_be_a_durable_state' };
   }
   if (
-    project.evidence === 'place_reached' &&
+    project.completionRequires === 'place_reached' &&
     !/\b(?:reach|reached|arrive|arrived|stand|standing|return|returned|travel|traveled|located at)\b/i.test(
       project.doneWhen,
     )

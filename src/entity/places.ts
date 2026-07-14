@@ -195,7 +195,7 @@ export function findProjectPlaceConflicts(
 ): ProjectPlaceConflict[] {
   const conflicts: ProjectPlaceConflict[] = [];
   for (const project of projects) {
-    if (project.evidence !== 'space_enclosed') continue;
+    if (project.completionRequires !== 'space_enclosed') continue;
     if (namesExistingOrAdditionalPlace(project)) continue;
     const place = places.find(
       (candidate) =>
@@ -232,7 +232,12 @@ function placeFromCompletedProject(turn: EntityTurn): InhabitantPlace | null {
     return null;
   }
   const result = turn.outcome.result;
-  const evidence = String(result?.evidence?.expected || result?.project?.evidence || '');
+  const evidence = String(
+    result?.evidence?.expected ||
+      result?.project?.completionRequires ||
+      result?.project?.evidence ||
+      '',
+  );
   if (!SPATIAL_PROJECT_EVIDENCE.has(evidence as ProjectEvidence)) return null;
   if (result?.evidence?.satisfied !== true) return null;
   if (

@@ -93,9 +93,10 @@ test('active projects are a bounded projection rebuilt from the inhabitant loom'
     {
       id: 'shared-home',
       title: 'Build a shared home',
+      status: 'active_unfinished',
       nextStep: 'Craft planks and place the first wall',
       doneWhen: 'A lit, enclosed shelter has a door, bed, and shared chest',
-      evidence: 'world_change',
+      completionRequires: 'world_change',
       needsDefinition: false,
       startedAtSequence: 1,
       updatedAtSequence: 2,
@@ -190,7 +191,7 @@ test('legacy projects remain immutable but require an observable completion defi
   const memory = createProjectMemory('Scout', [legacy]);
 
   assert.equal(memory.snapshot()[0]?.doneWhen, null);
-  assert.equal(memory.snapshot()[0]?.evidence, null);
+  assert.equal(memory.snapshot()[0]?.completionRequires, null);
   assert.equal(memory.snapshot()[0]?.needsDefinition, true);
   assert.equal(
     memory.propose({
