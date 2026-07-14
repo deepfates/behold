@@ -1045,7 +1045,7 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
     `Use ${WAIT_TOOL} only for a needed external event or when no useful self-directed action remains; Minecraft continues while you wait.`,
     'A task gives goals and constraints, not hidden next actions. Keep your own commitments. Its explicit ordering, preconditions, and prohibitions take precedence over the generic action heuristics below.',
     'Without a task, live: protect your body; learn the place; gain materials, tools, food, light, shelter, and sleep; improve useful shared places.',
-    'task, self, scene, and events are present experience; isNew marks unread events. scene.entities are only unoccluded bodies in current first-person view; scene.terrain is only first-hit visible surfaces. sound_heard has coarse direction and distance, never hidden coordinates.',
+    'task, self, scene, and events are present experience; isNew marks unread events. scene.entities are only unoccluded bodies in current first-person view. scene.terrain.visualField is a coarse top-down, left-right grid of current first-hit rays, not surrounding geometry; no-hit proves neither safety nor empty space. sound_heard has coarse direction and distance, never hidden coordinates.',
   ];
   if (tools.has(MANAGE_PROJECT_TOOL)) {
     lines.push(

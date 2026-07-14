@@ -248,13 +248,108 @@ test('terrain observation spends a fixed ray budget and reports only first-hit s
   );
   assert.equal(raycasts, terrain.raysCast);
   assert.equal(terrain.raysHit, terrain.raysCast);
+  assert.equal(terrain.failedRays, 0);
   assert.deepEqual(terrain.materials, [
     { name: 'stone', count: 1, nearest: { x: 0, y: 64, z: -2, distance: 2 } },
   ]);
+  assert.equal(terrain.visualField.protocol, 'behold.visual-field.v1');
+  assert.equal(terrain.visualField.available, true);
+  assert.deepEqual(terrain.visualField.dimensions, { rows: 5, columns: 9 });
+  assert.deepEqual(terrain.visualField.materialLegend, [{ symbol: 'a', name: 'stone' }]);
+  assert.deepEqual(terrain.visualField.materialRows, Array(5).fill('aaaaaaaaa'));
+  assert.deepEqual(terrain.visualField.depthRows, Array(5).fill('111111111'));
   assert.equal(
     terrain.materials.some((block) => block.name === 'diamond_ore'),
     false,
   );
+});
+
+test('visual terrain keeps player-relative layout that an aggregate material list loses', () => {
+  const body = {
+    id: 1,
+    position: new Vec3(0, 64, 0),
+    yaw: 0,
+    pitch: 0,
+    eyeHeight: 1.62,
+  };
+  const observe = (mirror: boolean) => {
+    let call = 0;
+    return summarizeVisibleTerrain({
+      entity: body,
+      world: {
+        raycast: (eye: Vec3, direction: Vec3) => {
+          const index = call++;
+          const left = mirror ? 'oak_leaves' : 'oak_planks';
+          const right = mirror ? 'oak_planks' : 'oak_leaves';
+          const name =
+            direction.y > 0.2
+              ? 'glass'
+              : direction.x < -0.2
+                ? left
+                : direction.x > 0.2
+                  ? right
+                  : 'stone';
+          return {
+            name,
+            position: new Vec3(index % 9, 64 + Math.floor(index / 9), -4),
+            intersect: eye.plus(direction.scaled(6)),
+          };
+        },
+      },
+    } as any);
+  };
+
+  const terrain = observe(false);
+  const mirrored = observe(true);
+  const symbol = Object.fromEntries(
+    terrain.visualField.materialLegend.map(({ symbol, name }) => [name, symbol]),
+  );
+  const middle = terrain.visualField.materialRows[2];
+
+  assert.equal(terrain.visualField.rowOrder, 'top_to_bottom');
+  assert.equal(terrain.visualField.columnOrder, 'left_to_right');
+  assert.equal(terrain.visualField.materialRows[0], symbol.glass.repeat(9));
+  assert.equal(middle[0], symbol.oak_planks);
+  assert.equal(middle[4], symbol.stone);
+  assert.equal(middle[8], symbol.oak_leaves);
+  assert.deepEqual(
+    terrain.materials.map(({ name, count }) => ({ name, count })),
+    [
+      { name: 'glass', count: 18 },
+      { name: 'oak_leaves', count: 11 },
+      { name: 'oak_planks', count: 11 },
+      { name: 'stone', count: 5 },
+    ],
+  );
+  assert.deepEqual(
+    mirrored.materials.map(({ name, count }) => ({ name, count })),
+    terrain.materials.map(({ name, count }) => ({ name, count })),
+  );
+  assert.notDeepEqual(mirrored.visualField.materialRows, terrain.visualField.materialRows);
+});
+
+test('visual terrain exposes a failed sensor instead of depicting an open world', () => {
+  const terrain = summarizeVisibleTerrain({
+    entity: {
+      id: 1,
+      position: new Vec3(0, 64, 0),
+      yaw: 0,
+      pitch: 0,
+      eyeHeight: 1.62,
+    },
+    world: {
+      raycast: () => {
+        throw new Error('chunk view unavailable');
+      },
+    },
+  } as any);
+
+  assert.equal(terrain.raysCast, 45);
+  assert.equal(terrain.raysHit, 0);
+  assert.equal(terrain.failedRays, 45);
+  assert.equal(terrain.visualField.available, false);
+  assert.deepEqual(terrain.visualField.materialRows, Array(5).fill('?????????'));
+  assert.deepEqual(terrain.visualField.depthRows, Array(5).fill('?????????'));
 });
 
 test('sanitizeName produces filesystem-safe agent names', () => {

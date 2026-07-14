@@ -39,7 +39,25 @@ export type VisibleTerrainSummary = {
   maxDistance: number;
   raysCast: number;
   raysHit: number;
+  failedRays: number;
   materials: NearbyBlockSummary[];
+  visualField: FirstPersonVisualField;
+};
+
+export type FirstPersonVisualField = {
+  protocol: 'behold.visual-field.v1';
+  available: boolean;
+  dimensions: { rows: number; columns: number };
+  rowOrder: 'top_to_bottom';
+  columnOrder: 'left_to_right';
+  materialRows: string[];
+  depthRows: string[];
+  materialLegend: Array<{ symbol: string; name: string }>;
+  depthLegend: Array<{ symbol: string; label: string; maxDistance: number }>;
+  noHitSymbol: '.';
+  unavailableSymbol: '?';
+  center: { row: number; column: number; alignedWith: 'current_view' };
+  note: string;
 };
 
 export type CursorTarget =
@@ -300,51 +318,73 @@ export function summarizeVisibleTerrain(
   const pos = body?.position;
   const eye = eyePosition(bot);
   const raycast = (bot as any).world?.raycast;
-  const raysCast = FIRST_PERSON_VISION.horizontalRays * FIRST_PERSON_VISION.verticalRays;
+  const rayBudget = FIRST_PERSON_VISION.horizontalRays * FIRST_PERSON_VISION.verticalRays;
   const empty = (): VisibleTerrainSummary => ({
     source: 'vision',
     horizontalFovDegrees: FIRST_PERSON_VISION.horizontalFovDegrees,
     verticalFovDegrees: FIRST_PERSON_VISION.verticalFovDegrees,
     maxDistance,
-    raysCast,
+    raysCast: 0,
     raysHit: 0,
+    failedRays: rayBudget,
     materials: [],
+    visualField: visualField(
+      Array.from({ length: FIRST_PERSON_VISION.verticalRays }, () =>
+        Array.from({ length: FIRST_PERSON_VISION.horizontalRays }, () => ({
+          state: 'unavailable' as const,
+        })),
+      ),
+      maxDistance,
+      false,
+    ),
   });
   if (!pos || !eye || typeof raycast !== 'function') return empty();
   const counts = new Map<string, number>();
   const nearest = new Map<string, { x: number; y: number; z: number; distance: number }>();
   const seen = new Set<string>();
+  const samples: VisualRaySample[][] = [];
+  let raysCast = 0;
   let raysHit = 0;
+  let failedRays = 0;
   const yaw = finiteNumber(body?.yaw) ?? 0;
   const pitch = finiteNumber(body?.pitch) ?? 0;
   const horizontalHalf = degreesToRadians(FIRST_PERSON_VISION.horizontalFovDegrees / 2);
   const verticalHalf = degreesToRadians(FIRST_PERSON_VISION.verticalFovDegrees / 2);
 
   for (let vertical = 0; vertical < FIRST_PERSON_VISION.verticalRays; vertical += 1) {
-    const verticalRatio = sampleRatio(vertical, FIRST_PERSON_VISION.verticalRays);
+    const row: VisualRaySample[] = [];
+    const verticalRatio = -sampleRatio(vertical, FIRST_PERSON_VISION.verticalRays);
     for (let horizontal = 0; horizontal < FIRST_PERSON_VISION.horizontalRays; horizontal += 1) {
-      const horizontalRatio = sampleRatio(horizontal, FIRST_PERSON_VISION.horizontalRays);
+      const horizontalRatio = -sampleRatio(horizontal, FIRST_PERSON_VISION.horizontalRays);
       const direction = viewDirection(
         clampPitch(pitch + verticalRatio * verticalHalf),
         normalizeAngle(yaw + horizontalRatio * horizontalHalf),
       );
       let block: any = null;
       try {
+        raysCast += 1;
         block = raycast.call((bot as any).world, eye, direction, maxDistance);
       } catch {
+        failedRays += 1;
+        row.push({ state: 'unavailable' });
         continue;
       }
-      if (!block?.position) continue;
+      if (!block?.position) {
+        row.push({ state: 'no_hit' });
+        continue;
+      }
       raysHit += 1;
       const blockPosition = block.position.floored?.() ?? block.position;
+      const intersection = block.intersect || blockPosition.offset?.(0.5, 0.5, 0.5);
+      const distance = intersection ? eye.distanceTo(intersection) : pos.distanceTo(blockPosition);
+      const name = String(block.name || 'unknown');
+      row.push({ state: 'hit', name, distance });
       const key = `${blockPosition.x}:${blockPosition.y}:${blockPosition.z}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const name = String(block.name || '');
+      if (name === 'unknown') continue;
       if (!name || name === 'air' || name === 'cave_air' || name === 'void_air') continue;
       counts.set(name, (counts.get(name) || 0) + 1);
-      const intersection = block.intersect || blockPosition.offset?.(0.5, 0.5, 0.5);
-      const distance = intersection ? eye.distanceTo(intersection) : pos.distanceTo(blockPosition);
       if (!nearest.has(name) || distance < nearest.get(name)!.distance) {
         nearest.set(name, {
           x: blockPosition.x,
@@ -354,6 +394,7 @@ export function summarizeVisibleTerrain(
         });
       }
     }
+    samples.push(row);
   }
 
   return {
@@ -363,11 +404,79 @@ export function summarizeVisibleTerrain(
     maxDistance,
     raysCast,
     raysHit,
+    failedRays,
     materials: [...counts.entries()]
       .map(([name, count]) => ({ name, count, nearest: nearest.get(name)! }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
       .slice(0, limit),
+    visualField: visualField(samples, maxDistance, failedRays < raysCast),
   };
+}
+
+type VisualRaySample =
+  { state: 'hit'; name: string; distance: number } | { state: 'no_hit' } | { state: 'unavailable' };
+
+const MATERIAL_SYMBOLS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+function visualField(
+  samples: VisualRaySample[][],
+  maxDistance: number,
+  available: boolean,
+): FirstPersonVisualField {
+  const names = [
+    ...new Set(
+      samples.flatMap((row) =>
+        row.flatMap((sample) => (sample.state === 'hit' ? [sample.name] : [])),
+      ),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+  const symbols = new Map(names.map((name, index) => [name, MATERIAL_SYMBOLS[index]]));
+  return {
+    protocol: 'behold.visual-field.v1',
+    available,
+    dimensions: {
+      rows: FIRST_PERSON_VISION.verticalRays,
+      columns: FIRST_PERSON_VISION.horizontalRays,
+    },
+    rowOrder: 'top_to_bottom',
+    columnOrder: 'left_to_right',
+    materialRows: samples.map((row) =>
+      row
+        .map((sample) =>
+          sample.state === 'hit'
+            ? symbols.get(sample.name) || '?'
+            : sample.state === 'no_hit'
+              ? '.'
+              : '?',
+        )
+        .join(''),
+    ),
+    depthRows: samples.map((row) => row.map(depthSymbol).join('')),
+    materialLegend: names.map((name) => ({ symbol: symbols.get(name)!, name })),
+    depthLegend: [
+      { symbol: '1', label: 'interaction', maxDistance: 4.5 },
+      { symbol: '2', label: 'near', maxDistance: 8 },
+      { symbol: '3', label: 'mid', maxDistance: 16 },
+      { symbol: '4', label: 'far', maxDistance },
+    ],
+    noHitSymbol: '.',
+    unavailableSymbol: '?',
+    center: {
+      row: Math.floor(FIRST_PERSON_VISION.verticalRays / 2),
+      column: Math.floor(FIRST_PERSON_VISION.horizontalRays / 2),
+      alignedWith: 'current_view',
+    },
+    note: 'Each cell is the first opaque/selectable surface on one current camera ray. A dot means no hit within range, not safety or empty loaded geometry.',
+  };
+}
+
+function depthSymbol(sample: VisualRaySample) {
+  if (sample.state === 'no_hit') return '.';
+  if (sample.state === 'unavailable') return '?';
+  if (sample.distance <= 4.5) return '1';
+  if (sample.distance <= 8) return '2';
+  if (sample.distance <= 16) return '3';
+  return '4';
 }
 
 export function blockIsVisible(bot: Bot, position: any) {

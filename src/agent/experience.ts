@@ -4,6 +4,7 @@ import {
   cursorTarget,
   entityIsVisible,
   type DroppedItemPickupGround,
+  type FirstPersonVisualField,
   type NearbyEntitySummary,
   worldPositionIsVisible,
 } from './observation';
@@ -108,11 +109,13 @@ export type InhabitantObservation = {
       maxDistance: number;
       raysCast: number;
       raysHit: number;
+      failedRays: number;
       materials: Array<{
         name: string;
         count: number;
         nearest?: { x: number; y: number; z: number; distance: number };
       }>;
+      visualField: FirstPersonVisualField;
       note: string;
     };
   };
@@ -434,8 +437,10 @@ export class InhabitantExperience {
           maxDistance: base.vision.maxDistance,
           raysCast: base.vision.raysCast,
           raysHit: base.vision.raysHit,
+          failedRays: base.vision.failedRays,
           materials: base.nearbyBlocks,
-          note: 'Unique first selectable surface blocks from a fixed camera-ray budget. This is a semantic sample, not pixels or a loaded-volume scan.',
+          visualField: base.vision.visualField,
+          note: 'The material summary and compact visual field contain only first selectable surfaces from the same fixed camera-ray budget. They are semantic vision, not pixels or a loaded-volume scan.',
         },
       },
       events,
