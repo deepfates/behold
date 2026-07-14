@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isCriticalBodyCondition } from '../agent/condition';
 import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
 import { historyMessages, type EntityTurn } from '../entity/loom';
@@ -39,7 +40,7 @@ export type Options = {
   apiKey: string;
   /** Default model for ordinary deliberation, social attention, and loom folding. */
   model: string;
-  /** Optional model used only for newly urgent bodily/world evidence. */
+  /** Optional model used for new bodily urgency and a still-critical body condition. */
   urgentModel?: string;
   endpoint?: string;
   tickMs?: number;
@@ -269,6 +270,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let failedEmbodiedCount = trailingFailures.count;
   let suspended = false;
   let activeDecision: ActiveDecision | null = null;
+  let continuingBodilyAttention: ResidentAttention | null = null;
 
   async function wake(force = false) {
     if (stopped || suspended) return;
@@ -405,7 +407,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const startedAt = now();
       const modelObservation =
         currentModelObservation ?? projectCurrentModelObservation(currentObservation);
-      const attention = attentionForObservation(modelObservation);
+      const attention = attentionForCurrentLife(modelObservation);
       const decisionModel = hasBodilyUrgency(attention)
         ? opts.urgentModel || opts.model
         : opts.model;
@@ -710,6 +712,22 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         setImmediate(() => void wake());
       }
     }
+  }
+
+  function attentionForCurrentLife(frame: any): ResidentAttention {
+    const fresh = attentionForObservation(frame);
+    if (hasBodilyUrgency(fresh)) {
+      continuingBodilyAttention = fresh;
+      return fresh;
+    }
+    if (continuingBodilyAttention && isCriticalBodyCondition(frame?.self?.condition)) {
+      return {
+        ...continuingBodilyAttention,
+        continuingCondition: 'critical_body_condition',
+      };
+    }
+    continuingBodilyAttention = null;
+    return fresh;
   }
 
   async function onEngineEvent(event: EngineEvent) {
@@ -1308,7 +1326,9 @@ function conversationForAttention(
   const urgentHandoff = {
     role: 'system',
     content: [
-      'Urgent attention handoff: slow deliberation was superseded by newly lived bodily evidence.',
+      attention.continuingCondition
+        ? 'Continuing bodily urgency: an earlier lived trigger remains unresolved in the current body condition.'
+        : 'Urgent attention handoff: slow deliberation was superseded by newly lived bodily evidence.',
       `Triggers: ${
         attention.triggers.map((trigger) => `${trigger.type}@${trigger.sequence}`).join(', ') ||
         'current urgent observation'

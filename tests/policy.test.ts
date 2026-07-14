@@ -345,6 +345,159 @@ test('social urgency keeps ordinary projects available without bodily-danger fra
   }
 });
 
+test('critical body condition keeps urgent cognition through failure and releases after mitigation', async () => {
+  let sequence = 1;
+  let health = 2;
+  let currentAction: any = null;
+  const attempted: any[] = [];
+  const requests: ResidentMindRequest[] = [];
+  const mind: ResidentMind = {
+    id: 'continuing-body-mind',
+    decide: async (request) => {
+      requests.push(request);
+      if (requests.length === 1) {
+        return {
+          protocol: 'behold.mind-decision.v1',
+          disposition: 'act',
+          utterance: 'I will try to move out of danger.',
+          action: { name: 'move_direction', input: {} },
+          call: modelCallEvidence('continuing-body-mind', request.model),
+        };
+      }
+      if (requests.length === 2) {
+        return {
+          protocol: 'behold.mind-decision.v1',
+          disposition: 'act',
+          utterance: 'That failed and my body is still critical, so I will eat.',
+          action: { name: 'consume', input: {} },
+          call: modelCallEvidence('continuing-body-mind', request.model),
+        };
+      }
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'My immediate bodily crisis is mitigated.',
+        action: null,
+        call: modelCallEvidence('continuing-body-mind', request.model),
+      };
+    },
+  };
+  const observe = (sinceSequence = 0) => ({
+    protocol: 'behold.inhabitant.v2',
+    sequence,
+    observedAt: 100 + sequence,
+    task: null,
+    self: {
+      currentAction,
+      condition: { health, food: 15, oxygen: 20 },
+      inventory: health <= 2 ? [{ name: 'apple', count: 1 }] : [],
+      projects: [],
+      places: [],
+      placeConflicts: [],
+    },
+    scene: { entities: [] },
+    events: [
+      {
+        sequence: 1,
+        type: 'condition_changed',
+        salience: 'urgent',
+        isNew: 1 > sinceSequence,
+        data: { current: { health: 2, food: 15, oxygen: 20 } },
+      },
+      ...(sequence >= 2
+        ? [
+            {
+              sequence: 2,
+              type: 'action_failed',
+              salience: 'high',
+              isNew: 2 > sinceSequence,
+              data: { error: 'immediate_direction_unavailable' },
+            },
+          ]
+        : []),
+      ...(sequence >= 3
+        ? [
+            {
+              sequence: 3,
+              type: 'condition_changed',
+              salience: 'high',
+              isNew: 3 > sinceSequence,
+              data: { previous: { health: 2 }, current: { health: 8 } },
+            },
+          ]
+        : []),
+    ],
+  });
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Wren',
+      actions: [tool('manage_project'), tool('move_direction'), tool('consume')],
+      attempt: (intent) => {
+        attempted.push(intent);
+        currentAction = { id: intent.id, tool: intent.tool, status: 'queued' };
+        return true;
+      },
+      observe,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/ordinary-model',
+      urgentModel: 'test/urgent-model',
+      mind,
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(requests[0].model, 'test/urgent-model');
+    assert.equal(requests[0].attention?.continuingCondition, undefined);
+    assert.equal(attempted[0].tool, 'move_direction');
+
+    sequence = 2;
+    currentAction = { ...currentAction, status: 'failed' };
+    await policy.onEngineEvent({
+      type: 'action_failed',
+      at: 20,
+      data: {
+        intent: attempted[0],
+        result: { ok: false, error: 'immediate_direction_unavailable' },
+      },
+    });
+    await until(() => requests.length === 2 && attempted.length === 2);
+    assert.equal(requests[1].model, 'test/urgent-model');
+    assert.equal(requests[1].attention?.continuingCondition, 'critical_body_condition');
+    assert.deepEqual(requests[1].attention?.triggers, requests[0].attention?.triggers);
+    assert.equal(
+      requests[1].actions.some((action) => action.name === 'manage_project'),
+      false,
+    );
+    assert.match(
+      requests[1].conversation.map((message: any) => String(message.content || '')).join('\n'),
+      /Continuing bodily urgency[\s\S]*remains unresolved/,
+    );
+
+    sequence = 3;
+    health = 8;
+    currentAction = { ...currentAction, status: 'completed' };
+    await policy.onEngineEvent({
+      type: 'action_completed',
+      at: 30,
+      data: { intent: attempted[1], result: { ok: true, healthBefore: 2, healthAfter: 8 } },
+    });
+    await until(() => requests.length === 3);
+    assert.equal(requests[2].model, 'test/ordinary-model');
+    assert.equal(requests[2].attention?.mode, 'deliberative');
+    assert.equal(requests[2].attention?.continuingCondition, undefined);
+    assert.equal(
+      requests[2].actions.some((action) => action.name === 'manage_project'),
+      true,
+    );
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('a merely high event waits for slow thought instead of cancelling it', async () => {
   let sequence = 1;
   let started!: () => void;

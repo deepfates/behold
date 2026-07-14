@@ -192,6 +192,14 @@ test('inhabitant observation preserves embodied state, provenance, and new event
     .observe(condition!.sequence)
     .events.find((event) => event.type === 'condition_changed' && event.data.current.oxygen === 4);
   assert.equal(lowOxygen?.salience, 'urgent');
+
+  bot.oxygenLevel = 20;
+  bot.food = 2;
+  bot.emit('health');
+  const starvation = experience
+    .observe(lowOxygen!.sequence)
+    .events.find((event) => event.type === 'condition_changed' && event.data.current.food === 2);
+  assert.equal(starvation?.salience, 'urgent');
   experience.destroy();
 });
 
