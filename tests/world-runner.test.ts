@@ -27,6 +27,8 @@ import {
   type OwnershipEvidence,
   type WorldLabDefinition,
 } from '../scripts/world-lab';
+import { verifyCognitionBrokerJournal } from '../src/mind/cognition-broker';
+import { COGNITION_TRANSPORT_PROTOCOL } from '../src/mind/cognition';
 
 const CLEAR: OwnershipEvidence = { state: 'clear', probe: 'fixture', owners: [] };
 const ARTIFACTS_OK = { artifactIntegrityOk: true, artifacts: {} };
@@ -129,6 +131,124 @@ test('resident configuration rejects canonical identity collisions and process-b
     (error: any) => error?.code === 'resident_start_delay_invalid',
   );
   assert.equal(inspections, 0);
+  await assert.rejects(
+    () => startManagedWorld({ ...fixture.options, maxConcurrentModelCalls: 2 }, dependencies),
+    (error: any) => error?.code === 'model_concurrency_limit_invalid',
+  );
+  assert.equal(inspections, 0);
+});
+
+test('managed cognition keeps the provider key in the runner and drains before Minecraft stops', async (t) => {
+  const fixture = makeFixture(t);
+  const captureFile = path.join(fixture.root, 'controller-environment.json');
+  const controllerEntry = path.join(fixture.root, 'fixture-controller.js');
+  fs.writeFileSync(
+    controllerEntry,
+    `
+      const fs = require('node:fs');
+      const os = require('node:os');
+      const path = require('node:path');
+      const crypto = require('node:crypto');
+      const entityId = process.argv[2];
+      const lease = path.join(process.env.BEHOLD_ENTITY_DIR, entityId, 'runtime.lock');
+      fs.mkdirSync(path.dirname(lease), { recursive: true });
+      fs.writeFileSync(lease, JSON.stringify({
+        protocol: 'behold.entity-runtime-lease.v1', entityId,
+        pid: process.pid, hostname: os.hostname(), managedRunId: process.env.BEHOLD_RUN_ID
+      }));
+      const localKey = String(process.env.OPENROUTER_API_KEY || '');
+      fs.writeFileSync(process.env.CAPTURE_FILE, JSON.stringify({
+        keySha256: crypto.createHash('sha256').update(localKey).digest('hex'),
+        keyLength: localKey.length,
+        endpoint: process.env.OPENROUTER_BASE_URL,
+        transport: process.env.BEHOLD_COGNITION_TRANSPORT,
+        refererPresent: process.env.OPENROUTER_REFERER != null,
+        titlePresent: process.env.OPENROUTER_TITLE != null
+      }));
+      console.log('[bot] Local world loaded.');
+      process.stdin.resume();
+      process.stdin.on('end', () => {
+        if (fs.existsSync(lease)) fs.unlinkSync(lease);
+        process.exit(0);
+      });
+    `,
+  );
+  const prior = {
+    key: process.env.OPENROUTER_API_KEY,
+    base: process.env.OPENROUTER_BASE_URL,
+    referer: process.env.OPENROUTER_REFERER,
+    title: process.env.OPENROUTER_TITLE,
+    capture: process.env.CAPTURE_FILE,
+  };
+  const providerSecret = 'provider-secret-never-in-child';
+  process.env.OPENROUTER_API_KEY = providerSecret;
+  process.env.OPENROUTER_BASE_URL = 'https://upstream.invalid/v1/chat/completions';
+  process.env.OPENROUTER_REFERER = 'https://private.example';
+  process.env.OPENROUTER_TITLE = 'private title';
+  process.env.CAPTURE_FILE = captureFile;
+  t.after(() => {
+    restoreTestEnvironment('OPENROUTER_API_KEY', prior.key);
+    restoreTestEnvironment('OPENROUTER_BASE_URL', prior.base);
+    restoreTestEnvironment('OPENROUTER_REFERER', prior.referer);
+    restoreTestEnvironment('OPENROUTER_TITLE', prior.title);
+    restoreTestEnvironment('CAPTURE_FILE', prior.capture);
+  });
+
+  let serverPid: number | null = null;
+  let serverAlive = false;
+  const spawnServer = () => {
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        `
+          const readline = require('node:readline');
+          console.log('[Server thread/INFO]: Done (0.1s)! For help, type "help"');
+          const rl = readline.createInterface({ input: process.stdin });
+          rl.on('line', (line) => {
+            if (line === 'save-all flush') console.log('[Server thread/INFO]: Saved the game');
+            if (line === 'stop') process.exit(0);
+          });
+        `,
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    ) as ChildProcessWithoutNullStreams;
+    serverPid = child.pid!;
+    serverAlive = true;
+    child.once('exit', () => {
+      serverAlive = false;
+    });
+    return child;
+  };
+  const run = await startManagedWorld(
+    { ...fixture.options, controllerEntry, maxConcurrentModelCalls: 1 },
+    {
+      spawnServer,
+      verifyArtifacts: async () => ARTIFACTS_OK,
+      inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+      stdout: () => {},
+      stderr: () => {},
+    },
+  );
+  assert.ok(run.cognition);
+  assert.equal(run.cognition.concurrencyLimit, 1);
+  const captured = JSON.parse(fs.readFileSync(captureFile, 'utf8'));
+  assert.notEqual(captured.keySha256, createHash('sha256').update(providerSecret).digest('hex'));
+  assert.ok(captured.keyLength >= 32);
+  assert.match(captured.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/v1\/chat\/completions$/);
+  assert.equal(captured.transport, COGNITION_TRANSPORT_PROTOCOL);
+  assert.equal(captured.refererPresent, false);
+  assert.equal(captured.titlePresent, false);
+
+  await run.stop('cognition_fixture_complete');
+  await run.finished;
+  const verified = verifyCognitionBrokerJournal(run.cognition.journalFile);
+  assert.equal(verified.peakActive, 0);
+  const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile).events;
+  const drained = lifecycle.findIndex((event) => event.type === 'cognition_broker_drained');
+  const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');
+  assert.ok(drained >= 0 && saved > drained);
+  assert.equal(lifecycle.at(-1)?.type, 'control_released');
 });
 
 test('recovery preserves evidence before releasing an exact dead same-host epoch', async (t) => {
@@ -1068,4 +1188,9 @@ function runtimeEvidence(ownerPid: number | null): any {
     safe: ownerPid == null,
     blockers: ownerPid == null ? [] : ['runtime_session_lock_owned', 'server_port_listening'],
   };
+}
+
+function restoreTestEnvironment(name: string, value: string | undefined) {
+  if (value == null) delete process.env[name];
+  else process.env[name] = value;
 }

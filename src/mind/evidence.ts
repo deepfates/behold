@@ -1,3 +1,5 @@
+import type { CognitionAdmissionEvidence } from './cognition';
+
 export type ModelCallEvidence = {
   protocol: 'behold.model-call.v1';
   requestId: string;
@@ -5,6 +7,8 @@ export type ModelCallEvidence = {
   startedAt: number;
   completedAt: number;
   latencyMs: number;
+  /** Aggregate compute admission(s), including adapter retries, when centrally scheduled. */
+  admissions?: readonly CognitionAdmissionEvidence[];
   adapter?: {
     name: string;
     version?: string;

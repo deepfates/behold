@@ -19,6 +19,11 @@ import type {
   ResidentMindRequest,
 } from '../mind/interface';
 import { directOpenRouterRequestBody } from '../mind/direct-wire';
+import {
+  cognitionClientHeaders,
+  parseCognitionAdmission,
+  type CognitionPriority,
+} from '../mind/cognition';
 import { validateResidentActionInput } from '../mind/schema';
 import {
   ResidentMindCallError,
@@ -46,6 +51,8 @@ export type Options = {
   summarizeLoom?: LoomFoldSummarizer;
   now?: () => number;
   recordModelIO?: boolean;
+  /** Requests use the runner-owned, authenticated aggregate cognition transport. */
+  cognitionTransport?: boolean;
   /** Alternate bounded decision implementation. Behold still owns the resident loop. */
   mind?: ResidentMind;
   log?: (s: string) => void;
@@ -279,7 +286,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       }
       return;
     }
-    if (pending || preparingContext) {
+    if (preparingContext) {
+      wakeQueued = true;
+      const latest = observe();
+      const triggers = urgentEventTriggers(latest, lastSequence);
+      if (activeModelRequest && triggers.length > 0) {
+        activeModelRequest.abort(abortError('urgent_world_attention_during_loom_fold'));
+      }
+      return;
+    }
+    if (pending) {
       wakeQueued = true;
       return;
     }
@@ -403,7 +419,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           requiredAction: requiredTool,
           attention,
         };
-        const proposed = await abortable(mind.decide(request, { signal }), signal);
+        // ResidentMind owns acknowledgement of its AbortSignal. Do not race it
+        // with a synthetic rejection: aggregate compute remains occupied until
+        // the adapter promise actually settles.
+        const proposed = await mind.decide(request, { signal });
         return validateMindDecision(proposed, availableTools, requiredTool);
       });
       if (stopped || suspended) {
@@ -1367,15 +1386,23 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     messages,
     ...(opts.model.includes('gpt-5') ? {} : { temperature: 0.1 }),
   };
+  const requestId = rid('model-aux');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${opts.apiKey}`,
+    ...(opts.cognitionTransport
+      ? cognitionClientHeaders({
+          requestId,
+          priority: 'auxiliary',
+          purpose: 'loom_fold',
+          urgentTriggerSequence: null,
+        })
+      : {}),
   };
   if (process.env.OPENROUTER_REFERER)
     headers['HTTP-Referer'] = String(process.env.OPENROUTER_REFERER);
   if (process.env.OPENROUTER_TITLE) headers['X-Title'] = String(process.env.OPENROUTER_TITLE);
   const endpoint = opts.endpoint || DEFAULT_ENDPOINT;
-  const requestId = rid('model-aux');
   const startedAt = opts.now ? opts.now() : Date.now();
   const requestBody = JSON.stringify(body);
   const requestEvidence = {
@@ -1428,6 +1455,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
       startedAt,
       completedAt,
       latencyMs: Math.max(0, completedAt - startedAt),
+      ...admissionEvidence(response),
       request: requestEvidence,
       response: { status: response.status, bodyPreview: text.slice(0, 200) || null },
     };
@@ -1450,6 +1478,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     startedAt,
     completedAt,
     latencyMs: Math.max(0, completedAt - startedAt),
+    ...admissionEvidence(response),
     request: requestEvidence,
     response: {
       id: stringOrNull(data?.id),
@@ -1637,16 +1666,31 @@ async function callLLM(
   const messages = body.messages as any[];
   const specs = body.tools as ToolSpec[];
 
+  const requestId = rid('model');
+  const priority: CognitionPriority =
+    residentRequest.attention?.mode === 'urgent' ? 'urgent' : 'deliberative';
+  const urgentTriggers = (residentRequest.attention?.triggers ?? []).map(
+    (trigger) => trigger.sequence,
+  );
+  const urgentTriggerSequence =
+    priority === 'urgent' && urgentTriggers.length > 0 ? Math.max(...urgentTriggers) : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${opts.apiKey}`,
+    ...(opts.cognitionTransport
+      ? cognitionClientHeaders({
+          requestId,
+          priority,
+          purpose: 'resident_decision',
+          urgentTriggerSequence,
+        })
+      : {}),
   };
   if (process.env.OPENROUTER_REFERER)
     headers['HTTP-Referer'] = String(process.env.OPENROUTER_REFERER);
   if (process.env.OPENROUTER_TITLE) headers['X-Title'] = String(process.env.OPENROUTER_TITLE);
 
   const endpoint = opts.endpoint || DEFAULT_ENDPOINT;
-  const requestId = rid('model');
   const startedAt = opts.now ? opts.now() : Date.now();
   const requestBody = JSON.stringify(body);
   const request = {
@@ -1689,6 +1733,7 @@ async function callLLM(
       startedAt,
       completedAt,
       latencyMs: Math.max(0, completedAt - startedAt),
+      ...admissionEvidence(res),
       request,
       response: { status: res.status, bodyPreview: text.slice(0, 200) || null },
     });
@@ -1703,6 +1748,7 @@ async function callLLM(
     startedAt,
     completedAt,
     latencyMs: Math.max(0, completedAt - startedAt),
+    ...admissionEvidence(res),
     request,
     response: {
       id: stringOrNull(data?.id),
@@ -1770,6 +1816,12 @@ function safeEndpoint(value: string) {
   } catch {
     return value.split('?')[0];
   }
+}
+
+function admissionEvidence(response: Response | undefined) {
+  if (!response?.headers || typeof response.headers.get !== 'function') return {};
+  const admission = parseCognitionAdmission(response.headers);
+  return admission ? { admissions: [admission] } : {};
 }
 
 function stringOrNull(value: unknown) {

@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ResidentMind, ResidentMindDecision, ResidentMindRequest } from './interface';
 import { ResidentMindCallError, type ModelCallFailureEvidence } from './evidence';
+import {
+  cognitionClientHeaders,
+  parseCognitionAdmission,
+  type CognitionAdmissionEvidence,
+} from './cognition';
 
 // Ax publishes a supported CommonJS entry, but its ESM-first declaration file
 // trips TypeScript's Node16 interop check in this deliberately CommonJS app.
@@ -27,6 +32,7 @@ export type AxResidentMindOptions = {
   apiURL?: string;
   maxRetries?: number;
   recordModelIO?: boolean;
+  cognitionTransport?: boolean;
   now?: () => number;
   fetch?: typeof fetch;
 };
@@ -41,9 +47,38 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
   const apiURL = options.apiURL || DEFAULT_OPENROUTER_URL;
   const baseFetch = options.fetch || globalThis.fetch;
   let activeProviderResponses: unknown[] | null = null;
+  let activeAdmissions: CognitionAdmissionEvidence[] | null = null;
+  let activeTransportRequest: {
+    requestId: string;
+    request: ResidentMindRequest;
+  } | null = null;
   let activeActionConstraint: { admitted: Set<string>; required: string | null } | null = null;
   const instrumentedFetch: typeof fetch = async (input, init) => {
-    const response = await baseFetch(input, init);
+    const headers = new Headers(init?.headers);
+    if (options.cognitionTransport && activeTransportRequest) {
+      const priority =
+        activeTransportRequest.request.attention?.mode === 'urgent'
+          ? ('urgent' as const)
+          : ('deliberative' as const);
+      const triggers = activeTransportRequest.request.attention?.triggers ?? [];
+      const urgentTriggerSequence =
+        priority === 'urgent' && triggers.length > 0
+          ? Math.max(...triggers.map((trigger) => trigger.sequence))
+          : null;
+      for (const [name, value] of Object.entries(
+        cognitionClientHeaders({
+          requestId: activeTransportRequest.requestId,
+          priority,
+          purpose: 'resident_decision',
+          urgentTriggerSequence,
+        }),
+      )) {
+        headers.set(name, value);
+      }
+    }
+    const response = await baseFetch(input, { ...init, headers });
+    const admission = parseCognitionAdmission(response.headers);
+    if (admission && activeAdmissions) activeAdmissions.push(admission);
     if (activeProviderResponses) {
       try {
         activeProviderResponses.push(await response.clone().json());
@@ -98,7 +133,10 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
       const traceOffset = program.getTraces().length;
       const chatOffset = program.getChatLog().length;
       const providerResponses: any[] = [];
+      const admissions: CognitionAdmissionEvidence[] = [];
       activeProviderResponses = providerResponses;
+      activeAdmissions = admissions;
+      activeTransportRequest = { requestId, request };
       activeActionConstraint = {
         admitted: new Set(request.actions.map((action) => action.name)),
         required: request.requiredAction,
@@ -125,6 +163,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           startedAt,
           completedAt,
           latencyMs: Math.max(0, completedAt - startedAt),
+          ...(admissions.length ? { admissions: cloneJson(admissions) } : {}),
           adapter: { name: 'ax', version: AX_VERSION },
           request: {
             model: options.model,
@@ -172,6 +211,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           startedAt,
           completedAt,
           latencyMs: Math.max(0, completedAt - startedAt),
+          ...(admissions.length ? { admissions: cloneJson(admissions) } : {}),
           adapter: { name: 'ax', version: AX_VERSION },
           request: {
             model: options.model,
@@ -193,6 +233,8 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
         );
       } finally {
         activeProviderResponses = null;
+        activeAdmissions = null;
+        activeTransportRequest = null;
         activeActionConstraint = null;
       }
     },

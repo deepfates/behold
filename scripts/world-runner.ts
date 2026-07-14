@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -33,6 +33,12 @@ import {
 } from '../src/runtime/world-control';
 import { DEFAULT_LLM_MODEL } from '../src/config';
 import { sanitizeName } from '../src/observability/journal';
+import {
+  startCognitionBroker,
+  verifyCognitionBrokerJournal,
+  type CognitionBroker,
+} from '../src/mind/cognition-broker';
+import { COGNITION_TRANSPORT_PROTOCOL } from '../src/mind/cognition';
 
 export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'chat',
@@ -120,6 +126,7 @@ export type ManagedWorldRunOptions = Readonly<{
   runRoot: string;
   residents: readonly ManagedResidentSpec[];
   maxResidents?: number;
+  maxConcurrentModelCalls?: number;
   residentStartupDelayMs?: number;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -155,6 +162,11 @@ export type ManagedWorldRun = Readonly<{
     leasePath: string;
     journalDirectory: string;
   }>[];
+  cognition: Readonly<{
+    brokerId: string;
+    concurrencyLimit: number;
+    journalFile: string;
+  }> | null;
   finished: Promise<void>;
   quiesceResidents(reason?: string): Promise<void>;
   stop(reason?: string): Promise<void>;
@@ -219,6 +231,12 @@ type ManagedResidentProcess = Readonly<{
   child: ChildProcessWithoutNullStreams;
   exit: Promise<ProcessExit>;
   output: OutputCapture;
+}>;
+
+type ManagedCognition = Readonly<{
+  broker: CognitionBroker;
+  clients: ReadonlyMap<string, Readonly<{ bearer: string; residentKey: string; model: string }>>;
+  concurrencyLimit: number;
 }>;
 
 function normalizeManagedResidents(
@@ -342,6 +360,18 @@ function normalizeManagedResidents(
   );
 }
 
+function managedModelConcurrencyLimit(options: ManagedWorldRunOptions, residentCount: number) {
+  const value = options.maxConcurrentModelCalls ?? Math.min(2, residentCount);
+  if (!Number.isSafeInteger(value) || value < 1 || value > residentCount) {
+    throw new WorldRunnerError(
+      `maxConcurrentModelCalls must be an integer from 1 through ${residentCount}`,
+      'model_concurrency_limit_invalid',
+      { value, residentCount },
+    );
+  }
+  return value;
+}
+
 function controllerRecords(residents: readonly ManagedResidentProcess[]) {
   return residents.map((entry) => ({
     entityId: entry.resident.entityId,
@@ -451,6 +481,7 @@ export async function startManagedWorld(
   dependencies: WorldRunnerDependencies = {},
 ): Promise<ManagedWorldRun> {
   const residents = normalizeManagedResidents(options);
+  const maxConcurrentModelCalls = managedModelConcurrencyLimit(options, residents.length);
   const inspectRuntime =
     dependencies.inspectRuntime ?? (() => statusWorld(options.worldId, options.world));
   const verifyArtifacts =
@@ -508,6 +539,7 @@ export async function startManagedWorld(
   let serverExit: Promise<ProcessExit> | null = null;
   let serverOutput: OutputCapture | null = null;
   const controllerProcesses: ManagedResidentProcess[] = [];
+  let cognition: ManagedCognition | null = null;
   let stopping = false;
   let residentsQuiescing = false;
 
@@ -522,6 +554,30 @@ export async function startManagedWorld(
         'server_jar_changed_before_launch',
         { before: jarSha256, after: launchJarSha256 },
       );
+    }
+    const upstreamApiKey = optionalText(process.env.OPENROUTER_API_KEY);
+    if (upstreamApiKey) {
+      const clients = new Map(
+        residents.map((resident) => [
+          resident.entityId,
+          Object.freeze({
+            bearer: randomBytes(32).toString('base64url'),
+            residentKey: createHash('sha256')
+              .update(`${managedRunId}\0${resident.entityId}`)
+              .digest('hex'),
+            model: resident.model,
+          }),
+        ]),
+      );
+      const journalFile = path.join(runRoot, managedRunId, '_cognition', 'broker.jsonl');
+      const broker = await startCognitionBroker({
+        upstreamEndpoint: chatCompletionEndpoint(process.env.OPENROUTER_BASE_URL),
+        upstreamApiKey,
+        clients: [...clients.values()],
+        maxConcurrent: maxConcurrentModelCalls,
+        journalFile,
+      });
+      cognition = Object.freeze({ broker, clients, concurrencyLimit: maxConcurrentModelCalls });
     }
     const sourceRevision = gitProvenance();
     control.append('run_configured', {
@@ -539,8 +595,17 @@ export async function startManagedWorld(
         })),
         residentCount: residents.length,
         maxResidentProcesses: Math.max(1, Math.floor(options.maxResidents ?? 16)),
-        maxConcurrentModelCalls: residents.length,
+        maxConcurrentModelCalls: cognition?.concurrencyLimit ?? 0,
         residentStartupDelayMs: options.residentStartupDelayMs ?? 0,
+        cognition: cognition
+          ? {
+              protocol: COGNITION_TRANSPORT_PROTOCOL,
+              brokerId: cognition.broker.brokerId,
+              journalFile: cognition.broker.journalFile,
+              credentialOwner: 'world_runner',
+              transport: 'loopback_chat_completions',
+            }
+          : null,
       },
       world: {
         id: options.worldId,
@@ -554,9 +619,17 @@ export async function startManagedWorld(
         observation: 'behold.inhabitant.v2',
         controller: 'behold.llm-policy.v1',
         mind: 'behold.mind-request.v1 / behold.mind-decision.v1',
+        cognition: cognition ? COGNITION_TRANSPORT_PROTOCOL : null,
         owner: 'behold.world-owner.v1',
       },
     });
+    if (cognition) {
+      control.append('cognition_broker_ready', {
+        brokerId: cognition.broker.brokerId,
+        concurrencyLimit: cognition.concurrencyLimit,
+        journalFile: cognition.broker.journalFile,
+      });
+    }
     control.update('starting', { server: null, controllers: [] });
 
     server = dependencies.spawnServer?.() ?? spawnDefaultServer(options);
@@ -596,7 +669,14 @@ export async function startManagedWorld(
           leasePath: resident.leasePath,
           journalDirectory,
         }) ??
-        spawnDefaultController(options, resident, managedRunId, control.file, journalDirectory);
+        spawnDefaultController(
+          options,
+          resident,
+          managedRunId,
+          control.file,
+          journalDirectory,
+          cognition,
+        );
       if (!controller.pid) {
         throw new WorldRunnerError(
           `Controller process for ${resident.entityId} has no PID`,
@@ -660,6 +740,16 @@ export async function startManagedWorld(
     const finished = Promise.race([
       serverExit,
       ...controllerProcesses.map((entry) => entry.exit),
+      ...(cognition
+        ? [
+            cognition.broker.failed.then((error) => {
+              throw new WorldRunnerError(
+                `Cognition broker failed: ${error.message}`,
+                'cognition_broker_failed',
+              );
+            }),
+          ]
+        : []),
     ]).then((exit) => {
       if (!stopping && !(exit.name.startsWith('controller:') && residentsQuiescing)) {
         throw new WorldRunnerError(
@@ -707,6 +797,7 @@ export async function startManagedWorld(
         timeoutMs: shutdownTimeoutMs,
         sleep,
         reason,
+        cognition,
       });
       return stopPromise;
     };
@@ -716,6 +807,13 @@ export async function startManagedWorld(
       control,
       serverPid: server.pid,
       residents: publicResidentRecords(controllerProcesses),
+      cognition: cognition
+        ? Object.freeze({
+            brokerId: cognition.broker.brokerId,
+            concurrencyLimit: cognition.concurrencyLimit,
+            journalFile: cognition.broker.journalFile!,
+          })
+        : null,
       finished,
       quiesceResidents,
       stop,
@@ -736,6 +834,7 @@ export async function startManagedWorld(
       circleIds,
       timeoutMs: shutdownTimeoutMs,
       sleep,
+      cognition,
     });
     if (!cleaned) {
       try {
@@ -939,8 +1038,10 @@ async function cleanupFailedStart(input: {
   circleIds: readonly string[];
   timeoutMs: number;
   sleep: (milliseconds: number) => Promise<void>;
+  cognition: ManagedCognition | null;
 }) {
   try {
+    let cognitionFailure: Error | null = null;
     input.control.update('stopping');
     input.control.append('failed_start_cleanup_started');
     if (input.residents.length > 0) {
@@ -968,6 +1069,22 @@ async function cleanupFailedStart(input: {
       );
       input.control.update('stopping', { controllers: [] });
     }
+    if (input.cognition) {
+      try {
+        await drainManagedCognition(
+          input.control,
+          input.cognition,
+          input.timeoutMs,
+          'failed_start',
+        );
+      } catch (error: any) {
+        cognitionFailure = error instanceof Error ? error : new Error(String(error));
+        input.control.append('cognition_broker_drain_failed', {
+          phase: 'failed_start',
+          error: cognitionFailure.message,
+        });
+      }
+    }
     if (input.server && input.serverExit) {
       if (!processExited(input.server) && input.serverOutput?.lines().some(isMinecraftReadyLine)) {
         const marker = input.serverOutput.mark();
@@ -988,6 +1105,7 @@ async function cleanupFailedStart(input: {
     const stopped = await input.inspectRuntime();
     assertStoppedEvidence(stopped, 'after_failed_start_cleanup');
     assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_failed_start_cleanup');
+    if (cognitionFailure) throw cognitionFailure;
     input.control.update('stopped_verified', { server: null, controllers: [] });
     input.control.append('failed_start_cleanup_completed');
     input.control.release();
@@ -1014,6 +1132,7 @@ async function stopManagedWorld(input: {
   timeoutMs: number;
   sleep: (milliseconds: number) => Promise<void>;
   reason: string;
+  cognition: ManagedCognition | null;
 }) {
   const { control, server } = input;
   control.update('stopping');
@@ -1049,6 +1168,19 @@ async function stopManagedWorld(input: {
       exits: residentExits,
     });
 
+    let cognitionFailure: Error | null = null;
+    if (input.cognition) {
+      try {
+        await drainManagedCognition(control, input.cognition, input.timeoutMs, 'managed_stop');
+      } catch (error: any) {
+        cognitionFailure = error instanceof Error ? error : new Error(String(error));
+        control.append('cognition_broker_drain_failed', {
+          phase: 'managed_stop',
+          error: cognitionFailure.message,
+        });
+      }
+    }
+
     if (!processExited(server)) {
       const outputMarker = input.serverOutput.mark();
       server.stdin.write('save-all flush\n');
@@ -1074,6 +1206,14 @@ async function stopManagedWorld(input: {
     const stopped = await input.inspectRuntime();
     assertStoppedEvidence(stopped, 'after_managed_shutdown');
     assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_managed_shutdown');
+    if (cognitionFailure) {
+      control.update('stopping', { server: null, controllers: [] });
+      throw new WorldRunnerError(
+        'Cognition broker did not drain cleanly',
+        'cognition_broker_shutdown_failed',
+        { error: cognitionFailure.message, snapshot: input.cognition?.broker.snapshot() ?? null },
+      );
+    }
     if (abnormalExits.length) {
       control.update('stopping', { server: null, controllers: [] });
       throw new WorldRunnerError(
@@ -1093,6 +1233,48 @@ async function stopManagedWorld(input: {
     } catch {}
     throw failure;
   }
+}
+
+async function drainManagedCognition(
+  control: HeldWorldControl,
+  cognition: ManagedCognition,
+  timeoutMs: number,
+  phase: string,
+) {
+  control.append('cognition_broker_draining', {
+    phase,
+    brokerId: cognition.broker.brokerId,
+    snapshot: cognition.broker.snapshot(),
+  });
+  const snapshot = await withTimeout(
+    cognition.broker.close(),
+    timeoutMs,
+    `cognition broker drain during ${phase}`,
+  );
+  if (!snapshot.healthy || snapshot.active !== 0 || snapshot.queued !== 0) {
+    throw new Error('cognition broker reported an unhealthy or nonempty drain');
+  }
+  if (!cognition.broker.journalFile) throw new Error('cognition broker has no evidence journal');
+  const verified = verifyCognitionBrokerJournal(cognition.broker.journalFile);
+  if (
+    verified.brokerId !== cognition.broker.brokerId ||
+    verified.peakActive > cognition.concurrencyLimit
+  ) {
+    throw new Error('cognition broker evidence violates its identity or concurrency limit');
+  }
+  control.append('cognition_broker_drained', {
+    phase,
+    brokerId: cognition.broker.brokerId,
+    snapshot,
+    verification: {
+      journalFile: verified.file,
+      tipDigest: verified.tipDigest,
+      accepted: verified.accepted,
+      admitted: verified.admitted,
+      terminal: verified.terminal,
+      measuredPeakActive: verified.peakActive,
+    },
+  });
 }
 
 function spawnDefaultServer(options: ManagedWorldRunOptions) {
@@ -1116,6 +1298,7 @@ function spawnDefaultController(
   runId: string,
   controlFile: string,
   journalDirectory: string,
+  cognition: ManagedCognition | null,
 ) {
   const args = [
     options.controllerEntry,
@@ -1134,10 +1317,27 @@ function spawnDefaultController(
   if (resident.task) args.push('--task', resident.task);
   if (resident.target) args.push('--target', resident.target);
   if (resident.allowTools?.length) args.push('--allowTools', resident.allowTools.join(','));
+  const env = { ...process.env };
+  if (cognition) {
+    const client = cognition.clients.get(resident.entityId);
+    if (!client) {
+      throw new WorldRunnerError(
+        `Cognition client missing for ${resident.entityId}`,
+        'cognition_client_missing',
+      );
+    }
+    delete env.OPENROUTER_API_KEY;
+    delete env.OPENROUTER_BASE_URL;
+    delete env.OPENROUTER_REFERER;
+    delete env.OPENROUTER_TITLE;
+    env.OPENROUTER_API_KEY = client.bearer;
+    env.OPENROUTER_BASE_URL = cognition.broker.endpoint;
+    env.BEHOLD_COGNITION_TRANSPORT = COGNITION_TRANSPORT_PROTOCOL;
+  }
   return spawn(process.execPath, args, {
     cwd: process.cwd(),
     env: {
-      ...process.env,
+      ...env,
       VIEWER_ENABLED: '0',
       BEHOLD_RUN_ID: runId,
       BEHOLD_WORLD_ID: options.worldId,
@@ -1687,6 +1887,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       mind: { type: 'string' },
       tickMs: { type: 'string' },
       maxResidents: { type: 'string' },
+      maxModelConcurrency: { type: 'string' },
       task: { type: 'string' },
       target: { type: 'string' },
       help: { type: 'boolean', default: false },
@@ -1759,6 +1960,9 @@ export async function runCli(argv = process.argv.slice(2)) {
   const mind = String(parsed.values.mind || process.env.BEHOLD_MIND || 'direct') as 'direct' | 'ax';
   const tickMs = Number(parsed.values.tickMs || process.env.AGENT_TICK_MS || 4000);
   const maxResidents = Number(parsed.values.maxResidents || 16);
+  const maxConcurrentModelCalls = Number(
+    parsed.values.maxModelConcurrency || Math.min(2, controllerEntityIds.length),
+  );
   const run = await startManagedWorld({
     worldId,
     world,
@@ -1778,6 +1982,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       ...controllerProfile,
     })),
     maxResidents,
+    maxConcurrentModelCalls,
   });
   process.stdout.write(
     `[world-runner] ready: ${worldId}, server ${run.serverPid}, residents ${run.residents
@@ -1811,7 +2016,7 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Without --task, the foreground runner starts untasked residents with the full safe inhabitant action surface.',
@@ -1824,6 +2029,17 @@ function usage() {
 function optionalText(value: unknown) {
   const text = typeof value === 'string' ? value.trim() : '';
   return text || undefined;
+}
+
+function chatCompletionEndpoint(value: unknown) {
+  const normalized = String(value || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+  const endpoint = normalized.endsWith('/chat/completions')
+    ? normalized
+    : `${normalized}/chat/completions`;
+  const url = new URL(endpoint);
+  url.search = '';
+  url.hash = '';
+  return url.toString();
 }
 
 if (require.main === module) {

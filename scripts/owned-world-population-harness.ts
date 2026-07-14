@@ -19,6 +19,10 @@ import {
   waitFor,
 } from './owned-world-fixture';
 import { startManagedWorld, type ManagedResidentSpec, type ManagedWorldRun } from './world-runner';
+import {
+  verifyCognitionBrokerJournal,
+  type CognitionBrokerEvent,
+} from '../src/mind/cognition-broker';
 
 export type PopulationPhase<IndependentWitness = unknown, BodyWitness = unknown> = Readonly<{
   managedRunId: string;
@@ -28,6 +32,13 @@ export type PopulationPhase<IndependentWitness = unknown, BodyWitness = unknown>
   lifecycleSha256: string;
   lifecycleTipDigest: string | null;
   lifecycleEvents: ReturnType<typeof verifyWorldLifecycleJournal>['events'];
+  cognitionJournal: Readonly<{
+    file: string;
+    sha256: string;
+    tipDigest: string;
+    peakActive: number;
+    events: readonly CognitionBrokerEvent[];
+  }> | null;
   independentWitness: IndependentWitness | null;
   bodyWitnesses: ReadonlyMap<string, BodyWitness>;
 }>;
@@ -44,6 +55,8 @@ export type PopulationReassessment<Definition, Resident> = Readonly<{
   definitions: readonly Definition[];
   actLifecycle: ReturnType<typeof verifyWorldLifecycleJournal>;
   resumeLifecycle: ReturnType<typeof verifyWorldLifecycleJournal>;
+  actCognition: ReturnType<typeof verifyCognitionBrokerJournal> | null;
+  resumeCognition: ReturnType<typeof verifyCognitionBrokerJournal> | null;
   integrity: Record<string, boolean>;
   residents: readonly Resident[];
 }>;
@@ -57,6 +70,7 @@ export async function runPopulationPhase<
   fixture: OwnedWorldFixture;
   residents: readonly ManagedResidentSpec[];
   maxResidents: number;
+  maxConcurrentModelCalls?: number;
   residentStartupDelayMs?: number;
   timeoutMs: number;
   transcript: string[];
@@ -92,6 +106,7 @@ export async function runPopulationPhase<
         runRoot,
         residents: input.residents,
         maxResidents: input.maxResidents,
+        maxConcurrentModelCalls: input.maxConcurrentModelCalls,
         residentStartupDelayMs: input.residentStartupDelayMs,
         startupTimeoutMs: 90_000,
         shutdownTimeoutMs: 90_000,
@@ -162,6 +177,9 @@ export async function runPopulationPhase<
       journals.set(resident.entityId, { file, events: readRunJournal(file) });
     }
     const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
+    const cognition = run.cognition
+      ? verifyCognitionBrokerJournal(run.cognition.journalFile)
+      : null;
     return {
       managedRunId: run.runId,
       durationMs: Date.now() - startedAt,
@@ -170,6 +188,15 @@ export async function runPopulationPhase<
       lifecycleSha256: sha256File(lifecycle.file),
       lifecycleTipDigest: lifecycle.tipDigest,
       lifecycleEvents: lifecycle.events,
+      cognitionJournal: cognition
+        ? {
+            file: cognition.file,
+            sha256: sha256File(cognition.file),
+            tipDigest: cognition.tipDigest!,
+            peakActive: cognition.peakActive,
+            events: cognition.events,
+          }
+        : null,
       independentWitness: witnessed.independentWitness ?? null,
       bodyWitnesses: witnessed.bodyWitnesses ?? new Map<string, BodyWitness>(),
     };
@@ -328,12 +355,27 @@ export async function loadPopulationReassessment<
 
   const actLifecycle = verifiedLifecycleFromReport(source.evidence.act);
   const resumeLifecycle = verifiedLifecycleFromReport(source.evidence.resume);
+  const actCognition = verifiedCognitionFromReport(source.evidence.act);
+  const resumeCognition = verifiedCognitionFromReport(source.evidence.resume);
   const integrity: Record<string, boolean> = {
     actLifecycle:
       sha256File(actLifecycle.file) === String(source.evidence.act.lifecycleSha256 || ''),
     resumeLifecycle:
       sha256File(resumeLifecycle.file) === String(source.evidence.resume.lifecycleSha256 || ''),
   };
+  for (const [phaseName, phase] of [
+    ['act', source.evidence.act],
+    ['resume', source.evidence.resume],
+  ] as const) {
+    if (!phase.cognitionJournalFile) continue;
+    const cognition = verifyCognitionBrokerJournal(
+      path.resolve(String(phase.cognitionJournalFile)),
+    );
+    integrity[`${phaseName}Cognition`] =
+      sha256File(cognition.file) === String(phase.cognitionJournalSha256 || '') &&
+      cognition.tipDigest === String(phase.cognitionJournalTipDigest || '') &&
+      cognition.peakActive === Number(phase.cognitionPeakActive);
+  }
   const residents: Resident[] = [];
   for (const definition of definitions) {
     const files = source.evidence.residents?.[definition.entityId];
@@ -399,6 +441,8 @@ export async function loadPopulationReassessment<
     definitions,
     actLifecycle,
     resumeLifecycle,
+    actCognition,
+    resumeCognition,
     integrity,
     residents,
   };
@@ -482,7 +526,25 @@ export function populationPhaseReport(phase: PopulationPhase) {
     lifecycleSha256: phase.lifecycleSha256,
     lifecycleTipDigest: phase.lifecycleTipDigest,
     lifecycleEvents: phase.lifecycleEvents.length,
+    cognitionJournalFile: phase.cognitionJournal?.file ?? null,
+    cognitionJournalSha256: phase.cognitionJournal?.sha256 ?? null,
+    cognitionJournalTipDigest: phase.cognitionJournal?.tipDigest ?? null,
+    cognitionPeakActive: phase.cognitionJournal?.peakActive ?? null,
+    cognitionEvents: phase.cognitionJournal?.events.length ?? 0,
   };
+}
+
+export function verifiedCognitionFromReport(phase: any) {
+  const file = phase?.cognitionJournalFile;
+  if (!file) return null;
+  const cognition = verifyCognitionBrokerJournal(path.resolve(String(file)));
+  if (
+    cognition.tipDigest !== String(phase?.cognitionJournalTipDigest || '') ||
+    cognition.peakActive !== Number(phase?.cognitionPeakActive)
+  ) {
+    throw new Error(`cognition journal evidence mismatch: ${cognition.file}`);
+  }
+  return cognition;
 }
 
 export function verifiedLifecycleFromReport(phase: any) {

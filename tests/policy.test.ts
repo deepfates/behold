@@ -10,6 +10,7 @@ import {
 } from '../src/policy/llm';
 import type { EntityTurn } from '../src/entity/loom';
 import type { ResidentMind } from '../src/mind/interface';
+import { cognitionHeaderNames } from '../src/mind/cognition';
 
 function frame(from: string, addressed = false, distance: number | null = null) {
   return {
@@ -509,6 +510,102 @@ test('stopping also interrupts a custom loom fold that cannot accept an AbortSig
   await tick;
   assert.equal(policy.state().stopped, true);
   assert.equal(policy.state().modelRequestActive, false);
+});
+
+test('urgent bodily evidence cancels a background loom fold before the resident decides', async () => {
+  const originalFetch = globalThis.fetch;
+  let foldStarted!: () => void;
+  const started = new Promise<void>((resolve) => (foldStarted = resolve));
+  let foldAborted = false;
+  const requests: Array<{ headers: Headers; body: any }> = [];
+  globalThis.fetch = (async (_url: any, init: any) => {
+    requests.push({
+      headers: new Headers(init?.headers),
+      body: JSON.parse(String(init?.body || '{}')),
+    });
+    if (requests.length === 1) {
+      foldStarted();
+      return await new Promise<Response>((_resolve, reject) => {
+        init.signal.addEventListener(
+          'abort',
+          () => {
+            foldAborted = true;
+            reject(init.signal.reason);
+          },
+          { once: true },
+        );
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: assistantTool('urgent-wait', 'wait_for_event', {
+              reason: 'I have reobserved the urgent body state.',
+            }),
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  }) as typeof fetch;
+  let sequence = 1;
+  const observe = (sinceSequence = 0) => ({
+    ...experience(sequence, null, sinceSequence),
+    events:
+      sequence === 1
+        ? []
+        : [
+            {
+              sequence: 2,
+              type: 'self_hurt',
+              salience: 'urgent',
+              isNew: 2 > sinceSequence,
+              data: {},
+            },
+          ],
+  });
+  const turns: any[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe,
+    },
+    {
+      apiKey: 'local-test-key',
+      model: 'test/model',
+      cognitionTransport: true,
+      acceptEngineEvent: () => true,
+      history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
+      foldRecentTurns: 1,
+      foldBatchTurns: 1,
+      foldTriggerTurns: 1,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    const firstTick = policy.tick();
+    await started;
+    sequence = 2;
+    policy.wake();
+    await until(() => turns.length === 1);
+    await firstTick;
+
+    assert.equal(foldAborted, true);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].headers.get(cognitionHeaderNames.priority), 'auxiliary');
+    assert.equal(requests[0].headers.get(cognitionHeaderNames.purpose), 'loom_fold');
+    assert.equal(requests[1].headers.get(cognitionHeaderNames.priority), 'urgent');
+    assert.equal(requests[1].headers.get(cognitionHeaderNames.purpose), 'resident_decision');
+    assert.equal(requests[1].headers.get(cognitionHeaderNames.urgentTrigger), '2');
+    assert.equal(turns[0].attention.mode, 'urgent');
+  } finally {
+    await policy.stop();
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('an alternate mind receives one bounded observation and the exact admitted action space', async () => {

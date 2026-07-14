@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { EntityTurn } from '../src/entity/loom';
 import type { WorldLifecycleEvent } from '../src/runtime/world-control';
+import type { CognitionBrokerEvent } from '../src/mind/cognition-broker';
 import {
   assessOwnedWorldModelEvidence,
   eventData,
@@ -59,6 +60,8 @@ export type PopulationEvidenceInput = Readonly<{
   resumeRunId: string;
   actLifecycle: readonly WorldLifecycleEvent[];
   resumeLifecycle: readonly WorldLifecycleEvent[];
+  actCognition?: readonly CognitionBrokerEvent[];
+  resumeCognition?: readonly CognitionBrokerEvent[];
   independentWitness: IndependentWorldWitness;
   residents: readonly PopulationResidentEvidence[];
   budgets: PopulationProofBudgets;
@@ -98,11 +101,14 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
       },
     };
   });
-  const allCalls = input.residents.flatMap((resident) =>
-    populationModelCalls([...resident.actEvents, ...resident.resumeEvents]),
+  const actCalls = input.residents.flatMap((resident) => populationModelCalls(resident.actEvents));
+  const resumeCalls = input.residents.flatMap((resident) =>
+    populationModelCalls(resident.resumeEvents),
   );
+  const allCalls = [...actCalls, ...resumeCalls];
   const usage = summarizeUsage(allCalls);
-  const maxConcurrentModelCalls = measuredModelConcurrency(allCalls);
+  const actCognition = cognitionMetrics(input.actCognition);
+  const resumeCognition = cognitionMetrics(input.resumeCognition);
   const maxResidentJournalBytes = Math.max(
     0,
     ...input.residents.map(
@@ -127,6 +133,13 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
     residentIds,
     input.budgets,
   );
+  const cognitionRequired =
+    lifecycleDeclaresCognition(input.actLifecycle) ||
+    lifecycleDeclaresCognition(input.resumeLifecycle);
+  const cognitionEvidencePresent = actCognition != null && resumeCognition != null;
+  const maxConcurrentModelCalls = cognitionEvidencePresent
+    ? Math.max(actCognition.peakActive, resumeCognition.peakActive)
+    : measuredModelConcurrency(allCalls);
   const allTurnIds = new Map(
     input.residents.map((resident) => [
       resident.entityId,
@@ -203,6 +216,13 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
     }),
     actLifecycleProvesPopulation: actLifecycle.failed.length === 0,
     resumeLifecycleProvesPopulation: resumeLifecycle.failed.length === 0,
+    cognitionEvidencePresentWhenConfigured: !cognitionRequired || cognitionEvidencePresent,
+    cognitionJournalsCloseEveryRequest:
+      !cognitionRequired || (actCognition?.valid === true && resumeCognition?.valid === true),
+    cognitionAdmissionsReconcileWithResidentCalls:
+      !cognitionRequired ||
+      (reconcilesCognition(actCalls, input.actCognition) &&
+        reconcilesCognition(resumeCalls, input.resumeCognition)),
     usageAndCostRecorded:
       usage.callCount > 0 &&
       usage.totalTokens > 0 &&
@@ -237,6 +257,7 @@ export function assessOwnedWorldPopulationEvidence(input: PopulationEvidenceInpu
       maxResidentJournalBytes,
       maxResidentLoomBytes,
       proofWallMs: input.proofWallMs,
+      cognition: { act: actCognition, resume: resumeCognition },
       callsPerSecond: input.proofWallMs > 0 ? usage.callCount / (input.proofWallMs / 1000) : null,
     },
     budgets: input.budgets,
@@ -276,8 +297,8 @@ export function assessPopulationLifecycle(
     configuredBudgets:
       Number(configuredPopulation?.residentCount) === residentIds.length &&
       Number(configuredPopulation?.maxResidentProcesses) === budgets.maxResidents &&
-      Number(configuredPopulation?.maxConcurrentModelCalls) === residentIds.length &&
-      residentIds.length <= budgets.maxConcurrentModelCalls,
+      Number(configuredPopulation?.maxConcurrentModelCalls) === budgets.maxConcurrentModelCalls &&
+      Number(configuredPopulation?.maxConcurrentModelCalls) <= residentIds.length,
     everyControllerStartedOnce:
       sameSet(started, residentIds) && started.length === residentIds.length,
     everyControllerReadyOnce: sameSet(ready, residentIds) && ready.length === residentIds.length,
@@ -350,6 +371,81 @@ export function measuredModelConcurrency(calls: readonly any[]) {
     maximum = Math.max(maximum, active);
   }
   return maximum;
+}
+
+function cognitionMetrics(events: readonly CognitionBrokerEvent[] | undefined) {
+  if (!events) return null;
+  const accepted = new Set<string>();
+  const admitted = new Set<string>();
+  const terminal = new Set<string>();
+  let active = 0;
+  let peakActive = 0;
+  let valid = events[0]?.type === 'started' && events.at(-1)?.type === 'drained';
+  for (const event of events) {
+    const id = event.request?.brokerRequestId;
+    if (event.type === 'accepted') {
+      if (!id || accepted.has(id)) valid = false;
+      else accepted.add(id);
+    } else if (event.type === 'admitted') {
+      if (!id || !accepted.has(id) || admitted.has(id)) valid = false;
+      else {
+        admitted.add(id);
+        active += 1;
+        peakActive = Math.max(peakActive, active);
+      }
+    } else if (event.type === 'completed' || event.type === 'cancelled') {
+      if (!id || !accepted.has(id) || terminal.has(id)) valid = false;
+      else {
+        terminal.add(id);
+        if (admitted.has(id)) active -= 1;
+        if (active < 0) valid = false;
+      }
+    }
+  }
+  if (active !== 0 || terminal.size !== accepted.size) valid = false;
+  return {
+    valid,
+    eventCount: events.length,
+    accepted: accepted.size,
+    admitted: admitted.size,
+    terminal: terminal.size,
+    peakActive,
+  };
+}
+
+function reconcilesCognition(
+  calls: readonly any[],
+  events: readonly CognitionBrokerEvent[] | undefined,
+) {
+  if (!events) return false;
+  const admitted = new Set(
+    events
+      .filter((event) => event.type === 'admitted')
+      .map((event) => event.request?.brokerRequestId)
+      .filter(Boolean),
+  );
+  const completed = new Set(
+    events
+      .filter((event) => event.type === 'completed')
+      .map((event) => event.request?.brokerRequestId)
+      .filter(Boolean),
+  );
+  const recorded = new Set(
+    calls.flatMap((call) =>
+      Array.isArray(call?.admissions)
+        ? call.admissions.map((admission: any) => String(admission?.brokerRequestId || ''))
+        : [],
+    ),
+  );
+  return (
+    completed.size === recorded.size &&
+    [...completed].every((id) => recorded.has(id)) &&
+    [...recorded].every((id) => admitted.has(id))
+  );
+}
+
+function lifecycleDeclaresCognition(events: readonly WorldLifecycleEvent[]) {
+  return lifecycleData(events, 'run_configured')[0]?.population?.cognition != null;
 }
 
 function lifecycleData(events: readonly WorldLifecycleEvent[], type: string): any[] {
