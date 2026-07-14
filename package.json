@@ -38,7 +38,7 @@
   "dependencies": {
     "@ax-llm/ax": "23.0.0",
     "@deepfates/lync": "^0.3.0",
-    "canvas": "^2.11.2",
+    "canvas": "^3.2.3",
     "dotenv": "^16.4.5",
     "minecraft-data": "^3.66.0",
     "mineflayer": "^4.20.0",
