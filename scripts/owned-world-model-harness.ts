@@ -195,7 +195,11 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
       try {
         bot = createBot(config, loom.connectionCapability);
         await waitForLocalWorld(bot, 45_000);
-        await delay(Math.max(0, input.settleMs ?? 500));
+        // Chunk readiness precedes a reliably interactive local scene. Use the
+        // same bounded synchronization window as resident policy startup so a
+        // fresh witness can open blocks and observe entities instead of racing
+        // post-spawn protocol state.
+        await delay(Math.max(0, input.settleMs ?? 4_000));
         const observed = await input.observe(bot);
         return {
           ...observed,
