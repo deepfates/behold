@@ -24,3 +24,7 @@ V1 remains independently verifiable; v2 accepts 3+ fixtures; canonical run selec
 **2026-07-13T23:50:57Z**
 
 Audit evidence: v1 package/verify and tests hard-code 2 fixtures, 12 cases, exact SF/LM paths and dated runs. Preserve frozen v1 verifier; v2 must derive cardinality/content from explicit evidence-set manifest. Place tree digest and Behold topology digest are intentionally distinct.
+
+**2026-07-14T00:09:59Z**
+
+Added dynamic evidence-plan derivation and a v2 evidence-set assembler/verifier. Canonical lane selection now derives place/profile/repetition cardinality, validates case identities, checks report/visual/progress/manifest digests, rejects path escape/tampering/incomplete focused runs, and records an explicit repository-relative file closure. Added evidence-set JSON schema and documentation. Frozen v1 package/verifier remains untouched. Remaining before close: dynamic findings/release packaging and a real canonical v2 set after repaired/third-place runs.

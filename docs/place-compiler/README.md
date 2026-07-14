@@ -85,6 +85,19 @@ node scripts/place-compiler/sweep-performance.mjs \
   --run-id FOCUSED_REGRESSION_ID
 ```
 
+Foundry v2 canonical runs are selected only through a verified evidence set. The assembler derives every expected place/profile/repetition case from the benchmark, verifies the report, visual, progress, and manifest digests, and records the exact repository-relative file closure. It refuses focused or incomplete runs:
+
+```bash
+node scripts/place-compiler/assemble-evidence-set.mjs \
+  --benchmark docs/place-compiler/benchmarks/FOUNDRY_BENCHMARK.json \
+  --inspection .behold-artifacts/place-benchmarks/BENCHMARK/INSPECTION_RUN \
+  --ecology .behold-artifacts/place-benchmarks/BENCHMARK/ECOLOGY_RUN \
+  --performance .behold-artifacts/place-benchmarks/BENCHMARK/PERFORMANCE_RUN \
+  --set-id CANONICAL_SET_ID
+node scripts/place-compiler/verify-evidence-set.mjs \
+  .behold-artifacts/place-benchmarks/BENCHMARK/evidence-sets/CANONICAL_SET_ID/evidence-set.json
+```
+
 The package contains the contract and reproduction code plus visual, structural, ecological, and performance evidence. It deliberately excludes disposable runtime clones and does not repackage either multi-gigabyte world.
 
 ## Compare and package

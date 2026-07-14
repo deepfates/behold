@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://behold.local/schemas/living-city-foundry-evidence-set-v1.json",
+  "title": "Living City Foundry evidence set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "setId", "benchmark", "plan", "lanes"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "living-city-foundry-evidence-set" },
+    "setId": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$" },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "benchmarkId",
+        "places",
+        "performanceProfiles",
+        "repetitions",
+        "lanes",
+        "expectedCaseCount"
+      ]
+    },
+    "lanes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inspection", "ecology", "performance"],
+      "properties": {
+        "inspection": { "$ref": "#/$defs/lane" },
+        "ecology": { "$ref": "#/$defs/lane" },
+        "performance": { "$ref": "#/$defs/lane" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "^(?:/|.*(?:^|/)\\.\\.(?:/|$))" }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "manifestPath", "manifestSha256", "referencedFiles"],
+      "properties": {
+        "root": { "$ref": "#/$defs/relativePath" },
+        "manifestPath": { "$ref": "#/$defs/relativePath" },
+        "manifestSha256": { "$ref": "#/$defs/sha256" },
+        "referencedFiles": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/relativePath" }
+        }
+      }
+    }
+  }
+}

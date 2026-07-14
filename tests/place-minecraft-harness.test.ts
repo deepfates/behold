@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 const root = path.resolve(__dirname, '..', '..');
+const digest = (file: string) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 test('runtime launch vector is the single JVM policy authority', async () => {
   const { formatProgressEvent, resolveRuntimeLaunch } = await import(
@@ -74,4 +78,66 @@ test('evidence plans scale from places, profiles, and repetitions', async () => 
     repetitions: 1,
   });
   assert.deepEqual(focused.lanes.performance, ['one:living:performance:r1']);
+});
+
+test('evidence lane verification derives closure and refuses report tampering', async (t) => {
+  const { verifyEvidenceLane } = await import(
+    pathToFileURL(path.join(root, 'scripts/place-compiler/evidence-set-core.mjs')).href
+  );
+  const evidenceRoot = mkdtempSync(path.join(os.tmpdir(), 'foundry-evidence-'));
+  t.after(() => rmSync(evidenceRoot, { recursive: true, force: true }));
+  const casesRoot = path.join(evidenceRoot, 'cases');
+  mkdirSync(casesRoot);
+  const benchmark = {
+    id: 'foundry-v2-test',
+    performanceSweep: { profiles: ['living'], repetitions: 1 },
+  };
+  const fixtures = [{ placeId: 'one' }, { placeId: 'two' }, { placeId: 'three' }];
+  const cases = [];
+  for (const fixture of fixtures) {
+    const reportPath = path.join(casesRoot, `${fixture.placeId}.json`);
+    writeFileSync(
+      reportPath,
+      `${JSON.stringify({
+        benchmarkId: benchmark.id,
+        placeId: fixture.placeId,
+        profileId: 'living',
+        repetition: 1,
+      })}\n`,
+    );
+    cases.push({
+      caseId: `${fixture.placeId}-living-r1`,
+      reportPath: path.relative(evidenceRoot, reportPath),
+      reportSha256: digest(reportPath),
+    });
+  }
+  const progressPath = path.join(evidenceRoot, 'progress.jsonl');
+  writeFileSync(progressPath, '{}\n');
+  writeFileSync(
+    path.join(evidenceRoot, 'performance-manifest.json'),
+    `${JSON.stringify({
+      status: 'completed',
+      benchmarkId: benchmark.id,
+      expectation: {
+        lane: 'performance',
+        expectedCaseIds: fixtures.map((fixture) => `${fixture.placeId}:living:performance:r1`),
+        expectedCaseCount: 3,
+      },
+      progress: { path: 'progress.jsonl', sha256: digest(progressPath) },
+      cases,
+    })}\n`,
+  );
+  const verified = await verifyEvidenceLane({
+    lane: 'performance',
+    root: evidenceRoot,
+    benchmark,
+    fixtures,
+  });
+  assert.equal(verified.expectation.expectedCaseCount, 3);
+  assert.equal(verified.referencedFiles.length, 5);
+  writeFileSync(path.join(casesRoot, 'two.json'), '{"tampered":true}\n');
+  await assert.rejects(
+    verifyEvidenceLane({ lane: 'performance', root: evidenceRoot, benchmark, fixtures }),
+    /report digest mismatch/,
+  );
 });
