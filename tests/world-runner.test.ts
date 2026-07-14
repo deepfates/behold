@@ -11,6 +11,7 @@ import {
   isMinecraftReadyLine,
   isMinecraftSaveAcknowledgement,
   managedControllerProfile,
+  managedSessionDurationMs,
   recoverAbandonedManagedWorld,
   resetHeldManagedWorldFixture,
   startManagedWorld,
@@ -82,6 +83,23 @@ test('Come-See-Do-Report is an explicit managed evaluation profile', () => {
     target: 'Builder',
     allowTools: COME_SEE_DO_REPORT_ALLOW_TOOLS,
   });
+});
+
+test('managed session duration is an optional post-readiness live-time boundary', () => {
+  assert.equal(managedSessionDurationMs(), null);
+  assert.equal(managedSessionDurationMs('45'), 45_000);
+  assert.throws(
+    () => managedSessionDurationMs('0'),
+    (error: any) => error?.code === 'session_duration_invalid',
+  );
+  assert.throws(
+    () => managedSessionDurationMs('1.5'),
+    (error: any) => error?.code === 'session_duration_invalid',
+  );
+  assert.throws(
+    () => managedSessionDurationMs(String(7 * 24 * 60 * 60 + 1)),
+    (error: any) => error?.code === 'session_duration_invalid',
+  );
 });
 
 test('resident configuration rejects canonical identity collisions and process-budget overflow before inspecting or mutating the world', async (t) => {

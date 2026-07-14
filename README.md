@@ -193,7 +193,8 @@ Managed population
 - `npm run swarm -- --config .behold-worlds.example.json --world sf-csdr --controller Scout --controller Builder` is an alias for the canonical managed-world runner.
 - Repeating `--controller` admits independently leased residents into one exact world epoch. They keep distinct observations, journals, Lync autobiographies, models, and body authority.
 - `--model`, `--mind direct|ax`, and `--tickMs` currently apply to every named resident on the CLI. Programmatic callers may configure them per resident.
-- `--maxResidents` is an explicit process and concurrent-model-call budget. The default is 16.
+- `--maxResidents` bounds resident processes (default 16), while `--maxModelConcurrency` independently bounds aggregate provider calls.
+- `--duration <seconds>` bounds post-readiness live time and then uses the normal resident drain, Minecraft save, and verified stop path.
 - Readiness requires every named resident's exact PID/entity/run lease. Any unexpected resident exit makes the shared run unhealthy; the owner drains every resident before saving and stopping Minecraft.
 - `npm run proof:owned-world-population` runs the clean-revision two-resident,
   two-epoch proof with fresh Minecraft witnesses, independent reassessment,

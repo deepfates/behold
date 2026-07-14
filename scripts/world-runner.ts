@@ -97,6 +97,24 @@ export function managedControllerProfile(
   return { task, ...(target ? { target } : {}) };
 }
 
+/**
+ * Optional live-time boundary for an operator session. The clock begins only
+ * after Minecraft and every configured resident have become ready; startup and
+ * graceful save/stop time therefore cannot consume the inhabitant's episode.
+ */
+export function managedSessionDurationMs(value?: unknown): number | null {
+  if (value == null || String(value).trim() === '') return null;
+  const seconds = Number(value);
+  if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 7 * 24 * 60 * 60) {
+    throw new WorldRunnerError(
+      '--duration must be a whole number of live seconds from 1 through 604800',
+      'session_duration_invalid',
+      { value },
+    );
+  }
+  return seconds * 1000;
+}
+
 type RuntimeInspection = RuntimeEvidence & {
   world?: string;
   baselineConfigured?: boolean;
@@ -1913,6 +1931,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       tickMs: { type: 'string' },
       maxResidents: { type: 'string' },
       maxModelConcurrency: { type: 'string' },
+      duration: { type: 'string' },
       task: { type: 'string' },
       target: { type: 'string' },
       help: { type: 'boolean', default: false },
@@ -1988,6 +2007,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   const maxConcurrentModelCalls = Number(
     parsed.values.maxModelConcurrency || Math.min(2, controllerEntityIds.length),
   );
+  const durationMs = managedSessionDurationMs(parsed.values.duration);
   const run = await startManagedWorld({
     worldId,
     world,
@@ -2014,12 +2034,26 @@ export async function runCli(argv = process.argv.slice(2)) {
       .map((resident) => `${resident.entityId}:${resident.pid}`)
       .join(', ')}\n`,
   );
+  if (durationMs != null) {
+    run.control.append('session_duration_armed', {
+      durationMs,
+      beginsAt: 'run_ready',
+      terminalReason: 'duration_elapsed',
+    });
+    process.stdout.write(`[world-runner] live-time boundary: ${durationMs / 1000}s\n`);
+  }
   let requestStop!: (reason: string) => void;
   const stopRequested = new Promise<string>((resolve) => {
     requestStop = resolve;
   });
-  process.once('SIGINT', () => requestStop('SIGINT'));
-  process.once('SIGTERM', () => requestStop('SIGTERM'));
+  const onSigint = () => requestStop('SIGINT');
+  const onSigterm = () => requestStop('SIGTERM');
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
+  let durationTimer: NodeJS.Timeout | null = null;
+  if (durationMs != null) {
+    durationTimer = setTimeout(() => requestStop('duration_elapsed'), durationMs);
+  }
   try {
     const outcome = await Promise.race([
       run.finished.then(() => ({ kind: 'children' as const })),
@@ -2032,6 +2066,10 @@ export async function runCli(argv = process.argv.slice(2)) {
   } catch (error) {
     await run.stop('managed_child_exit').catch(() => {});
     throw error;
+  } finally {
+    if (durationTimer) clearTimeout(durationTimer);
+    process.removeListener('SIGINT', onSigint);
+    process.removeListener('SIGTERM', onSigterm);
   }
   return 0;
 }
@@ -2041,10 +2079,11 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Without --task, the foreground runner starts untasked residents with the full safe inhabitant action surface.',
+    'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'Come-See-Do-Report remains available explicitly with --task come-see-do-report.',
     'Recovery releases only an exact same-host abandoned epoch after durable evidence and stopped-world verification.',
     'The foreground runner refuses foreign-owned ports, session locks, and owner records.',
