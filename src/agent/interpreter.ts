@@ -3338,7 +3338,11 @@ async function activateToggleBlock(
   const observer = observeBlockTransition(bot, position, beforeState);
   let commandError: string | null = null;
   try {
-    await (bot as any).activateBlock(block);
+    await (bot as any).activateBlock(
+      block,
+      interactionFaceFromBody(me, position),
+      new Vec3(0.5, 0.5, 0.5),
+    );
   } catch (error: any) {
     commandError = String(error?.message || error || 'block_activation_failed');
   }
@@ -3399,6 +3403,13 @@ async function activateToggleBlock(
     },
     confirmation: transition?.evidence ?? null,
   };
+}
+
+function interactionFaceFromBody(body: any, position: BlockPosition) {
+  const dx = Number(body?.x) - (position.x + 0.5);
+  const dz = Number(body?.z) - (position.z + 0.5);
+  if (Math.abs(dx) > Math.abs(dz)) return new Vec3(Math.sign(dx) || 1, 0, 0);
+  return new Vec3(0, 0, Math.sign(dz) || 1);
 }
 
 async function ensureDoorOpen(

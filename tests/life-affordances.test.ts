@@ -1338,6 +1338,7 @@ test('craft_item reports the inventory consequence Minecraft produced', async ()
 
 test('toggle_block confirms a persistent Minecraft door-state transition', async () => {
   const bot = baseBot();
+  let interaction: any = null;
   let door: any = {
     name: 'oak_door',
     type: 7,
@@ -1346,7 +1347,8 @@ test('toggle_block confirms a persistent Minecraft door-state transition', async
     getProperties: () => ({ open: false, half: 'lower' }),
   };
   bot.blockAt = () => door;
-  bot.activateBlock = async () => {
+  bot.activateBlock = async (_block: any, face: Vec3, cursor: Vec3) => {
+    interaction = { face, cursor };
     const previous = door;
     door = {
       ...door,
@@ -1368,6 +1370,10 @@ test('toggle_block confirms a persistent Minecraft door-state transition', async
     afterStateId: 71,
   });
   assert.equal(result.confirmation.source, 'mineflayer:blockUpdate');
+  assert.deepEqual(interaction, {
+    face: new Vec3(-1, 0, 0),
+    cursor: new Vec3(0.5, 0.5, 0.5),
+  });
 });
 
 test('toggle_block does not credit an observed transition to a failed activation', async () => {
