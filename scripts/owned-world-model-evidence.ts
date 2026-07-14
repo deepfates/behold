@@ -108,7 +108,7 @@ export function assessOwnedWorldModelEvidence(
     modelFreelyChoseCollection:
       collectionDecision?.intent?.source === 'llm' &&
       collectionDecision?.intent?.tool === 'collect_nearby_item' &&
-      collectionDecision?.call?.request?.toolChoice === 'auto',
+      modelChoseOfferedTool(collectionDecision, 'collect_nearby_item'),
     minecraftConfirmedCollection:
       collectionTurn?.outcome?.ok === true &&
       collectionTurn?.outcome?.eventType === 'action_completed' &&
@@ -118,7 +118,7 @@ export function assessOwnedWorldModelEvidence(
     firstLifeYieldedAfterConsequence:
       actYieldTurn?.action?.name === 'wait_for_event' &&
       decisionActionName(actYieldDecision) === 'wait_for_event' &&
-      actYieldDecision?.call?.request?.toolChoice === 'auto',
+      modelChoseOfferedTool(actYieldDecision, 'wait_for_event'),
     independentMinecraftBodySawConsequence:
       witness.source === 'fresh_minecraft_connection' &&
       witness.worldId === expected.worldId &&
@@ -139,7 +139,7 @@ export function assessOwnedWorldModelEvidence(
       sceneHasItem(resumePromptObservation, targetItem) ===
       requestToolNames(resumeRequestBody).includes('collect_nearby_item'),
     restartDidNotRepeatCompletedWork:
-      resumeFirstDecision?.call?.request?.toolChoice === 'auto' &&
+      modelChoseOfferedTool(resumeFirstDecision, String(resumeActionName)) &&
       ['inspect_volume', 'wait_for_event'].includes(String(resumeActionName)) &&
       resumeActionName !== 'collect_nearby_item',
     restartPromptCarriedOwnConsequences:
@@ -284,6 +284,17 @@ export function requestToolNames(body: any) {
   return (Array.isArray(body?.tools) ? body.tools : [])
     .map((tool: any) => String(tool?.function?.name || ''))
     .filter(Boolean);
+}
+
+export function modelChoseOfferedTool(decision: any, expectedTool: string) {
+  const toolChoice = decision?.call?.request?.toolChoice;
+  const offered = [...new Set(requestToolNames(decision?.call?.request?.body))];
+  return (
+    (toolChoice === 'auto' || toolChoice === 'required') &&
+    decisionActionName(decision) === expectedTool &&
+    offered.includes(expectedTool) &&
+    offered.length >= 2
+  );
 }
 
 export function promptedObservation(body: any) {

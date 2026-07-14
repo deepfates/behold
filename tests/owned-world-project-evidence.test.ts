@@ -511,9 +511,9 @@ function modelTurn(runId: string, turn: any, frame: any, resumed: boolean) {
               content: `New world experience:\n${JSON.stringify(prompt)}\nPrevious action: none`,
             },
           ],
-          tools: ['manage_project', 'collect_nearby_item', 'place_block'].map((name) => ({
-            function: { name },
-          })),
+          tools: ['manage_project', 'collect_nearby_item', 'place_block', 'wait_for_event'].map(
+            (name) => ({ function: { name } }),
+          ),
         },
       },
       response: {

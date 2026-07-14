@@ -1,7 +1,9 @@
 import {
+  decisionActionName,
   decisionMatchesEntityTurn,
   eventData,
   inventoryCount,
+  modelChoseOfferedTool,
   promptedObservation,
   requestToolNames,
   summarizeUsage,
@@ -290,7 +292,9 @@ export function assessOwnedWorldProjectEvidence(
       witnessHasBlock(finalWitness, secondPosition, expected.material),
     modelFreelyChoseEveryCriticalStep:
       criticalDecisions.length === criticalTurns.length &&
-      criticalDecisions.every((decision) => decision?.call?.request?.toolChoice === 'auto'),
+      criticalDecisions.every((decision) =>
+        modelChoseOfferedTool(decision, String(decisionActionName(decision))),
+      ),
     firstPersonWithoutLoadedWorldScan:
       actPromptObservation?.protocol === 'behold.inhabitant.v2' &&
       resumePromptObservation?.protocol === 'behold.inhabitant.v2' &&

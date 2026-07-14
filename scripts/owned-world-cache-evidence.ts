@@ -2,6 +2,7 @@ import type { WorldLifecycleEvent } from '../src/runtime/world-control';
 import {
   decisionMatchesEntityTurn,
   eventData,
+  modelChoseOfferedTool,
   promptedObservation,
   summarizeUsage,
   terminalMinecraftResult,
@@ -357,7 +358,7 @@ function analyzeResident(
     freelyChosePickup:
       pickupDecision?.intent?.source === 'llm' &&
       pickupDecision?.intent?.tool === 'collect_nearby_item' &&
-      pickupDecision?.call?.request?.toolChoice === 'auto',
+      modelChoseOfferedTool(pickupDecision, 'collect_nearby_item'),
     minecraftConfirmedPickup:
       pickupIndex >= 0 &&
       pickupResult?.confirmation === 'mineflayer:playerCollect' &&
@@ -366,7 +367,7 @@ function analyzeResident(
     freelyChoseDeposit:
       depositDecision?.intent?.source === 'llm' &&
       depositDecision?.intent?.tool === 'deposit_in_container' &&
-      depositDecision?.call?.request?.toolChoice === 'auto',
+      modelChoseOfferedTool(depositDecision, 'deposit_in_container'),
     minecraftConfirmedDeposit:
       depositIndex > pickupIndex &&
       depositResult?.confirmation === 'mineflayer:container_inventory_delta' &&
@@ -419,7 +420,7 @@ function restartAnalysis(resident: CacheResidentEvidence, input: CacheEvidenceIn
       requestText.includes('mineflayer:openContainer') &&
       requestText.includes('chat_received'),
     restartDidNotRepeatOrUndo:
-      firstDecision?.call?.request?.toolChoice === 'auto' &&
+      modelChoseOfferedTool(firstDecision, action) &&
       ['wait_for_event', 'inspect_container'].includes(action) &&
       entityTurns.every((turn) => !repeated.has(String(turn?.action?.name || ''))),
   };

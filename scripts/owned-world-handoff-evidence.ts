@@ -2,6 +2,7 @@ import type { WorldLifecycleEvent } from '../src/runtime/world-control';
 import {
   decisionMatchesEntityTurn,
   eventData,
+  modelChoseOfferedTool,
   promptedObservation,
   summarizeUsage,
   terminalMinecraftResult,
@@ -349,7 +350,7 @@ function analyzeGiver(
     freelyChoseDrop:
       dropDecision?.intent?.source === 'llm' &&
       dropDecision?.intent?.tool === 'drop_item' &&
-      dropDecision?.call?.request?.toolChoice === 'auto',
+      modelChoseOfferedTool(dropDecision, 'drop_item'),
     dropClaimsOnlyOwnBody:
       dropResult?.confirmation === 'mineflayer:inventory_delta' &&
       Number(dropResult?.inventoryRemoved) === 1 &&
@@ -405,7 +406,7 @@ function analyzeRecipient(
     freelyChoseMove:
       moveDecision?.intent?.source === 'llm' &&
       moveDecision?.intent?.tool === 'move_to' &&
-      moveDecision?.call?.request?.toolChoice === 'auto',
+      modelChoseOfferedTool(moveDecision, 'move_to'),
     observedOwnCollection: !!collectionObservation,
     yieldedAfterConsequence: !!yieldTurn,
     ...resume,
@@ -446,7 +447,7 @@ function restartAnalysis(
       requestText.includes(ownMarker) &&
       requestText.includes(input.item),
     restartDidNotRepeat:
-      firstDecision?.call?.request?.toolChoice === 'auto' &&
+      modelChoseOfferedTool(firstDecision, action) &&
       action === 'wait_for_event' &&
       !repeatedActions.includes(action),
   };

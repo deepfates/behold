@@ -70,6 +70,29 @@ test('model-world evidence requires a free choice, real consequence, and non-rep
   assert.equal(assessed.resume.firstActionName, 'wait_for_event');
   assert.equal(assessed.usage.totalTokens, 63);
 
+  const required = structuredClone(act);
+  for (const event of required.filter((entry) => entry.type === 'model_turn')) {
+    event.data.call.request.toolChoice = 'required';
+  }
+  const requiredResume = structuredClone(resume);
+  requiredResume[1].data.call.request.toolChoice = 'required';
+  assert.deepEqual(
+    assessOwnedWorldModelEvidence(
+      required,
+      requiredResume,
+      {
+        entityId: 'FreshWitness',
+        worldId: expected.worldId,
+        managedRunId: expected.actRunId,
+        source: 'fresh_minecraft_connection',
+        observedAt: 100,
+        droppedItems: [],
+      },
+      expected,
+    ).failed,
+    [],
+  );
+
   const forced = structuredClone(act);
   forced[1].data.call.request.toolChoice = {
     type: 'function',
@@ -78,6 +101,26 @@ test('model-world evidence requires a free choice, real consequence, and non-rep
   assert.ok(
     assessOwnedWorldModelEvidence(
       forced,
+      resume,
+      {
+        entityId: 'FreshWitness',
+        worldId: expected.worldId,
+        managedRunId: expected.actRunId,
+        source: 'fresh_minecraft_connection',
+        observedAt: 100,
+        droppedItems: [],
+      },
+      expected,
+    ).failed.includes('modelFreelyChoseCollection'),
+  );
+
+  const onlyCollectionWasOffered = structuredClone(act);
+  onlyCollectionWasOffered[1].data.call.request.body.tools = [
+    { function: { name: 'collect_nearby_item' } },
+  ];
+  assert.ok(
+    assessOwnedWorldModelEvidence(
+      onlyCollectionWasOffered,
       resume,
       {
         entityId: 'FreshWitness',
@@ -192,10 +235,11 @@ function modelTurn(
             },
           ],
           tools: resumed
-            ? [{ function: { name: 'inspect_volume' } }]
+            ? [{ function: { name: 'inspect_volume' } }, { function: { name: 'wait_for_event' } }]
             : [
                 { function: { name: 'collect_nearby_item' } },
                 { function: { name: 'inspect_volume' } },
+                { function: { name: 'wait_for_event' } },
               ],
         },
       },

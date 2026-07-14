@@ -269,10 +269,11 @@ function modelTurn(
             },
           ],
           tools: resumed
-            ? [{ function: { name: 'inspect_volume' } }]
+            ? [{ function: { name: 'inspect_volume' } }, { function: { name: 'wait_for_event' } }]
             : [
                 { function: { name: 'collect_nearby_item' } },
                 { function: { name: 'inspect_volume' } },
+                { function: { name: 'wait_for_event' } },
               ],
         },
       },
