@@ -1,6 +1,6 @@
 ---
 id: beh-w8qi
-status: open
+status: in_progress
 deps: [beh-uij3, beh-10lb]
 links: []
 created: 2026-07-13T23:49:26Z
@@ -24,3 +24,7 @@ Tracked reusable code replaces fixed SF/run/user/frame assumptions; at least one
 **2026-07-13T23:50:57Z**
 
 Audit evidence: BlueMap/capture/DH/route prototypes are strong SF proof-of-method but contain fixed landmarks, Civic Center, SF labels/bounds, accepted run IDs, usernames, coordinates/frames, and manual stages. Inspector transects are not routes. Generalize metadata and tracked route/sightline code; distinguish LOD reach from active simulation.
+
+**2026-07-14T00:23:36Z**
+
+Started from the strongest ignored SF proof rather than treating diagnostic transects as routes. Added tracked place-independent route specs/fetcher, frozen BRouter geometries, direct prismarine-nbt dependency, reusable Anvil reader, route policy, pure projection/reconciliation core, and non-mutating ground-route auditor. Real baseline results: SF Windmill-Ferry 568 samples/93.7% point resolution/97.6% swept traversability; Manhattan Battery-Bridge 133/99.2%/95.3%. Bridge diagnostics: Golden Gate 67.8% swept traversability despite sparse-point resolution; Manhattan checkpoint is isolated from routable approach and underwater, crossing diagnostic 71.4%. Next: tighten evidence semantics, add sightline/reveal, and rerun route reports.

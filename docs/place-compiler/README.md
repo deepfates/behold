@@ -98,6 +98,19 @@ node scripts/place-compiler/verify-evidence-set.mjs \
   .behold-artifacts/place-benchmarks/BENCHMARK/evidence-sets/CANONICAL_SET_ID/evidence-set.json
 ```
 
+Ground routes are separately versioned evidence, not generation identity and not cinematic splines. A route spec names geographic waypoints and a routing profile; the fetcher freezes the returned geometry, and the read-only auditor reconciles it against the immutable Anvil world using generated route surfaces, two-block headroom, bounded lateral alternatives, and continuous support/collision sampling:
+
+```bash
+node scripts/place-compiler/fetch-route.mjs \
+  --spec docs/place-compiler/routes/PLACE-ROUTE.spec.json
+node scripts/place-compiler/inspect-route.mjs \
+  --run-root .behold-artifacts/places/PLACE/runs/RUN_ID \
+  --route docs/place-compiler/routes/PLACE-ROUTE.json \
+  --run-id ROUTE_INSPECTION_ID
+```
+
+The report keeps point resolution, collision freedom, and true swept traversability separate. An unsupported bridge span therefore cannot look healthy merely because sparse endpoints or collision-only percentages pass.
+
 The package contains the contract and reproduction code plus visual, structural, ecological, and performance evidence. It deliberately excludes disposable runtime clones and does not repackage either multi-gigabyte world.
 
 ## Compare and package

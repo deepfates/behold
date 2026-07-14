@@ -1,6 +1,6 @@
 ---
 id: beh-10lb
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-07-13T23:49:26Z
@@ -28,3 +28,7 @@ Audit evidence: v1 package/verify and tests hard-code 2 fixtures, 12 cases, exac
 **2026-07-14T00:09:59Z**
 
 Added dynamic evidence-plan derivation and a v2 evidence-set assembler/verifier. Canonical lane selection now derives place/profile/repetition cardinality, validates case identities, checks report/visual/progress/manifest digests, rejects path escape/tampering/incomplete focused runs, and records an explicit repository-relative file closure. Added evidence-set JSON schema and documentation. Frozen v1 package/verifier remains untouched. Remaining before close: dynamic findings/release packaging and a real canonical v2 set after repaired/third-place runs.
+
+**2026-07-14T00:23:36Z**
+
+Contract slice complete: the evidence set is the deterministic package-input manifest, with dynamic cardinality, exact canonical run selection, schema, path/digest closure, independent verifier, 3-place tests, and incomplete-run/tamper refusal. A real canonical set and findings cannot honestly be minted until repairs and the third place exist; release archive assembly/verification remains the terminal beh-yxrh responsibility and will consume this closure rather than reintroduce counts.

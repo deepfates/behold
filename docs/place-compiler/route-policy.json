@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "minecraftVersion": "1.21.4",
+  "surfaceBlocks": {
+    "primary": [
+      "minecraft:gray_concrete_powder",
+      "minecraft:cyan_terracotta",
+      "minecraft:white_concrete",
+      "minecraft:yellow_concrete"
+    ],
+    "secondary": [
+      "minecraft:gray_concrete",
+      "minecraft:light_gray_concrete",
+      "minecraft:black_concrete",
+      "minecraft:smooth_stone",
+      "minecraft:dirt_path",
+      "minecraft:gravel",
+      "minecraft:bricks",
+      "minecraft:cobblestone",
+      "minecraft:oak_planks",
+      "minecraft:stone"
+    ]
+  },
+  "pointSpacingBlocks": 8,
+  "lateralSearchBlocks": 6,
+  "maximumSurfaceHeightDelta": 4,
+  "maximumStepBlocks": 1,
+  "minimumActorHeadroomBlocks": 2
+}

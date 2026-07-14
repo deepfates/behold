@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "placeRecipe": "docs/place-compiler/places/lower-manhattan.json",
+  "id": "brooklyn-bridge-crossing",
+  "name": "City Hall to Brooklyn Bridge span",
+  "mode": "ground",
+  "profile": "hiking-beta",
+  "waypoints": [
+    { "name": "City Hall Park", "lat": 40.7128, "lon": -74.006 },
+    { "name": "Brooklyn Bridge span", "lat": 40.7069, "lon": -73.9968 }
+  ]
+}

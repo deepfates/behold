@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "placeRecipe": "docs/place-compiler/places/san-francisco.json",
+  "id": "windmill-to-ferry",
+  "name": "Dutch Windmill to Ferry Building",
+  "mode": "ground",
+  "profile": "trekking",
+  "waypoints": [
+    { "name": "Dutch Windmill", "lat": 37.7704, "lon": -122.5096 },
+    { "name": "JFK and Chain of Lakes", "lat": 37.7716, "lon": -122.501 },
+    { "name": "JFK and Transverse", "lat": 37.7709, "lon": -122.482 },
+    { "name": "JFK and Conservatory", "lat": 37.7719, "lon": -122.466 },
+    { "name": "Panhandle West", "lat": 37.7725, "lon": -122.452 },
+    { "name": "Panhandle East", "lat": 37.773, "lon": -122.4422 },
+    { "name": "Scott and Haight", "lat": 37.7709, "lon": -122.4352 },
+    { "name": "Steiner and Duboce", "lat": 37.768, "lon": -122.431 },
+    { "name": "Market and Valencia", "lat": 37.7706, "lon": -122.423 },
+    { "name": "Market and Powell", "lat": 37.7845, "lon": -122.4079 },
+    { "name": "Ferry Building", "lat": 37.7955, "lon": -122.3937 }
+  ]
+}

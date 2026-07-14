@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "placeRecipe": "docs/place-compiler/places/san-francisco.json",
+  "id": "golden-gate-crossing",
+  "name": "Presidio to Golden Gate North Vista",
+  "mode": "ground",
+  "profile": "trekking",
+  "waypoints": [
+    { "name": "Presidio Golden Gate Approach", "lat": 37.8078, "lon": -122.4752 },
+    { "name": "Golden Gate North Vista", "lat": 37.8323, "lon": -122.4796 }
+  ]
+}

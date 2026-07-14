@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "placeRecipe": "docs/place-compiler/places/lower-manhattan.json",
+  "id": "harbor-to-bridge",
+  "name": "The Battery to Brooklyn Bridge",
+  "mode": "ground",
+  "profile": "trekking",
+  "waypoints": [
+    { "name": "The Battery", "lat": 40.7033, "lon": -74.017 },
+    { "name": "Bowling Green", "lat": 40.7046, "lon": -74.0137 },
+    { "name": "Broadway and Wall", "lat": 40.7076, "lon": -74.0119 },
+    { "name": "Fulton and Broadway", "lat": 40.7113, "lon": -74.0094 },
+    { "name": "City Hall Park", "lat": 40.7128, "lon": -74.006 },
+    { "name": "Brooklyn Bridge Promenade", "lat": 40.7114, "lon": -74.0047 }
+  ]
+}
