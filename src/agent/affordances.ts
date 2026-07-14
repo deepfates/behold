@@ -1,4 +1,5 @@
 import type { InhabitantActionSpec } from '../entity/interface';
+import { digPositionIssueForBody } from './body-geometry';
 
 /**
  * Publish Minecraft actions supported by one exact lived observation.
@@ -124,7 +125,10 @@ export function minecraftInhabitantActionsFor(
     }
     if (name === 'dig_block') {
       const targets = visibleBlocks.filter(
-        (target: any) => Number.isFinite(Number(target?.distance)) && Number(target.distance) <= 16,
+        (target: any) =>
+          Number.isFinite(Number(target?.distance)) &&
+          Number(target.distance) <= 16 &&
+          currentBodyCanDigTarget(frame, target),
       );
       return targets.length > 0
         ? [
@@ -278,6 +282,19 @@ function currentReachableBlockFocus(frame: any) {
     focus.id.length > 0
     ? focus
     : null;
+}
+
+function currentBodyCanDigTarget(frame: any, target: any) {
+  const body = frame?.self?.pose?.position;
+  const position = target?.position;
+  if (
+    ![body?.x, body?.y, body?.z, position?.x, position?.y, position?.z].every((value) =>
+      Number.isFinite(Number(value)),
+    )
+  ) {
+    return false;
+  }
+  return digPositionIssueForBody(body, position) == null;
 }
 
 function inventoryNamesForUse(inventory: any[], use: string) {

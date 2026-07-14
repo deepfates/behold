@@ -11,6 +11,7 @@ import {
   onlinePlayerNames,
 } from './observation';
 import { surveyArea } from '../skills/survey';
+import { digPositionIssueForBody } from './body-geometry';
 import {
   MANAGE_PROJECT_TOOL,
   RESIDENT_PROJECT_EVIDENCE_VALUES,
@@ -3846,20 +3847,7 @@ function rangesOverlap(aMin: number, aMax: number, bMin: number, bMax: number) {
 
 function digPositionIssue(bot: Bot, position: BlockPosition) {
   const entity = (bot as any).entity;
-  const body = entity?.position;
-  if (![body?.x, body?.y, body?.z].every((value) => Number.isFinite(Number(value)))) return null;
-  const feetY = Math.floor(body.y);
-  if (position.y === feetY - 1) {
-    const halfWidth = Math.max(0.1, Number(entity?.width) || 0.6) / 2;
-    if (
-      rangesOverlap(position.x, position.x + 1, body.x - halfWidth, body.x + halfWidth) &&
-      rangesOverlap(position.z, position.z + 1, body.z - halfWidth, body.z + halfWidth)
-    ) {
-      return 'supporting_body';
-    }
-  }
-  if (position.y < feetY - 1) return 'below_support_plane';
-  return null;
+  return digPositionIssueForBody(entity?.position, position, entity?.width);
 }
 
 function likelyGroundSupport(block: any) {

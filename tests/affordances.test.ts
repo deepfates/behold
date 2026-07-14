@@ -157,6 +157,7 @@ test('current inventory uses and cursor focus produce exact native action inputs
     protocol: 'behold.inhabitant.v2',
     self: {
       heldItem: 'oak_planks',
+      pose: { position: { x: 0.5, y: 64, z: 0.5 } },
       condition: { food: 16 },
       inventory: [
         { name: 'apple', count: 1, uses: ['consume', 'equip', 'drop'] },
@@ -205,7 +206,11 @@ test('visual mining selects exact bounded first-hit surfaces without requiring c
   const action = schemaTool('dig_block', { target: { type: 'string' } }, ['target']);
   const observation = {
     protocol: 'behold.inhabitant.v2',
-    self: { inventory: [], condition: {} },
+    self: {
+      inventory: [],
+      condition: {},
+      pose: { position: { x: 0.5, y: 64, z: 0.5 } },
+    },
     scene: {
       focus: null,
       entities: [],
@@ -213,6 +218,8 @@ test('visual mining selects exact bounded first-hit surfaces without requiring c
         targets: [
           { ...visibleBlock('block:overworld:1:64:0', 'oak_leaves', 1, 64, 0), distance: 2 },
           { ...visibleBlock('block:overworld:20:64:0', 'stone', 20, 64, 0), distance: 20 },
+          { ...visibleBlock('block:overworld:2:62:0', 'stone', 2, 62, 0), distance: 3 },
+          { ...visibleBlock('block:overworld:0:63:0', 'grass_block', 0, 63, 0), distance: 1 },
         ],
       },
     },
