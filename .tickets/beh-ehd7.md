@@ -1,6 +1,6 @@
 ---
 id: beh-ehd7
-status: open
+status: closed
 deps: [beh-10lb]
 links: []
 created: 2026-07-13T23:49:26Z
@@ -28,3 +28,7 @@ Boundary audit: Behold canonical input is WorldLabDefinition source+preparedBase
 **2026-07-14T03:48:00Z**
 
 Implemented the Behold-side `place-epoch` admission adapter and exercised it against the real Venice v1 release. It independently closed the release checksums, recomputed the declared Place tree `5f8805…b56b`, materialized `living`, and derived Behold source `f2d996…95cb`, baseline `10ce53…4bee`, server, profile, and world-definition digests under world `venice-core-9a802c78123ffd46`. Focused tamper/drift refusal and lifecycle gates are green. The real two-epoch inhabitant continuity run remains before closure.
+
+**2026-07-14T05:50:00Z**
+
+Closed with real packaged Venice proof `venice-place-epoch-proof-v1`. Epoch one collected an apple through the production action/safety path and a fresh Minecraft witness confirmed the consequence; epoch two restored the inventory, prior loom turn, and changed position without repeating collection. Both chained owner journals save/stop/release cleanly. The eight-file portable closure independently verifies at package digest `fcb01a…ae1`, and the full boundary/result is recorded in `2026-07-14-place-to-behold-epoch.md`.

@@ -75,6 +75,20 @@ node dist/scripts/place-epoch.js verify \
 
 Structured progress is written to stderr; the final descriptor is written to stdout. The admitted directory contains `place-epoch.json` plus an ordinary schema-v2 `world-definition.json` consumed by the unchanged Behold world owner. Source, baseline, and runtime are separate trees. Place identities remain provenance inputs rather than Behold inhabitant or epoch identities.
 
+The real continuity proof can consume that admitted definition directly. It runs the same embodied resident through two separately owned Minecraft epochs, requires an independently witnessed consequence in the first, and verifies the resident's Minecraft inventory plus authoritative loom on restart. Its evidence can be reduced to a portable, checksummed package and reverified without the runtime tree:
+
+```bash
+node dist/scripts/owned-world-proof.js \
+  --place-epoch .behold-runtime/place-epochs/RUN_ID-living \
+  --arrival X,Y,Z --affordance X,Y,Z --run PROOF_ID
+node dist/scripts/verify-owned-world-proof.js package \
+  --report .behold-runtime/place-epoch-proofs/PROOF_ID/evidence/report.json \
+  --release .behold-artifacts/places/PLACE/releases/RUN_ID \
+  --output .behold-artifacts/place-benchmarks/BENCHMARK/PROOF_ID
+node dist/scripts/verify-owned-world-proof.js verify-package \
+  .behold-artifacts/place-benchmarks/BENCHMARK/PROOF_ID
+```
+
 ## Living Places Benchmark
 
 The versioned benchmark contract binds accepted San Francisco and Lower Manhattan world-tree identities to six independent dimensions: correspondence, legibility, habitability, ecology, experience, and capacity. It never collapses them into one synthetic score.
