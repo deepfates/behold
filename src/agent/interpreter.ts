@@ -5,6 +5,7 @@ import { goals } from 'mineflayer-pathfinder';
 import mcDataLoader from 'minecraft-data';
 import {
   blockAtViewCursor,
+  blockIsVisible,
   droppedItemPickupGround,
   entityAtViewCursor,
   onlinePlayerNames,
@@ -1376,6 +1377,51 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   });
 
   add({
+    name: 'cross_visible_door',
+    description:
+      'Use and cross the exact wooden door currently under your first-person cursor. This owns opening, crossing the selected aperture, confirming body arrival on the opposite side, and optionally closing the door. It proves only a witnessed route between two sides, never that either side is inside, safe, sealed, or owned.',
+    parameters: {
+      type: 'object',
+      properties: {
+        focus: {
+          type: 'string',
+          description: 'Exact scene.focus.id for the reachable door currently under the cursor',
+        },
+        closeAfter: {
+          type: 'boolean',
+          description: 'Close the door after crossing; default true',
+        },
+        rememberAs: {
+          type: 'object',
+          description:
+            'Optional player-scale name for remembering this witnessed route after the next observation confirms arrival',
+          properties: {
+            label: { type: 'string' },
+            purpose: { type: 'string' },
+          },
+          required: ['label'],
+        },
+        timeoutMs: { type: 'number', minimum: 500, maximum: 10000 },
+      },
+      required: ['focus'],
+    },
+    run: async ({ focus, closeAfter = true, rememberAs = null, timeoutMs = 5000 }, execution) =>
+      crossSelectedVisibleDoor(
+        bot,
+        {
+          focus: String(focus || ''),
+          closeAfter: Boolean(closeAfter),
+          rememberAs,
+          timeoutMs: clamp(Number(timeoutMs), 500, 10_000),
+        },
+        opts,
+        execution?.signal,
+      ),
+    category: 'move',
+    effects: { blockMutation: 'state' },
+  });
+
+  add({
     name: 'toggle_block',
     description:
       'Use a nearby door, trapdoor, fence gate, or lever and succeed only when Minecraft confirms its state changed.',
@@ -1389,18 +1435,106 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z, maxDistance = 5 }) =>
+    run: async ({ x, y, z, maxDistance = 5 }, execution) =>
       activateToggleBlock(
         bot,
         { x: Number(x), y: Number(y), z: Number(z) },
         clamp(Number(maxDistance), 1, 6),
         opts,
+        execution?.signal,
       ),
     category: 'world',
     effects: { blockMutation: 'state' },
   });
 
   if (opts.places) {
+    add({
+      name: 'cross_place_door',
+      description:
+        'Re-use a door route learned by your own earlier crossing. You must already stand on one remembered side in the same exact world and dimension; the body turns back to the remembered door, re-acquires it under the current cursor, and then performs the same visible-door crossing. Either side may be the destination.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Exact doorway place id from self.places' },
+          closeAfter: {
+            type: 'boolean',
+            description: 'Close the door after crossing; default true',
+          },
+          timeoutMs: { type: 'number', minimum: 500, maximum: 10000 },
+        },
+        required: ['id'],
+      },
+      run: async ({ id, closeAfter = true, timeoutMs = 5000 }, execution) => {
+        if (execution?.signal?.aborted) return cancelledAction('remembered-door-crossing');
+        const place = opts.places!().find((candidate) => candidate.id === String(id));
+        if (!place) return { ok: false, error: 'remembered_place_not_found', id: String(id) };
+        const doorway = place.doorways?.find((candidate) => {
+          const body = (bot as any).entity?.position;
+          return (
+            !!body &&
+            (bodyOccupiesCell(body, candidate.sideAFeet) ||
+              bodyOccupiesCell(body, candidate.sideBFeet))
+          );
+        });
+        if (place.evidence !== 'doorway_crossed' || !doorway) {
+          return {
+            ok: false,
+            error:
+              place.evidence === 'space_enclosed'
+                ? 'legacy_place_route_requires_embodied_relearning'
+                : 'body_not_at_remembered_doorway_side',
+            place: { id: place.id, label: place.label },
+          };
+        }
+        const observation = opts.observe?.();
+        const circleId = boundedString(observation?.circle?.id, 160);
+        const dimension = boundedString(
+          observation?.self?.condition?.dimension ?? (bot as any).game?.dimension,
+          96,
+        );
+        if (!place.circleId || !circleId || place.circleId !== circleId) {
+          return {
+            ok: false,
+            error: 'remembered_doorway_belongs_to_another_world',
+            placeCircleId: place.circleId ?? null,
+            currentCircleId: circleId || null,
+          };
+        }
+        if (!place.anchor.dimension || !dimension || place.anchor.dimension !== dimension) {
+          return {
+            ok: false,
+            error: 'remembered_doorway_belongs_to_another_dimension',
+            placeDimension: place.anchor.dimension,
+            currentDimension: dimension || null,
+          };
+        }
+        if (typeof (bot as any).lookAt !== 'function') {
+          return { ok: false, error: 'body_look_control_unavailable' };
+        }
+        await (bot as any).lookAt(
+          new Vec3(doorway.lower.x + 0.5, doorway.lower.y + 0.7, doorway.lower.z + 0.5),
+          false,
+        );
+        const result = await crossSelectedVisibleDoor(
+          bot,
+          {
+            focus: doorway.focusId,
+            closeAfter: Boolean(closeAfter),
+            rememberAs: null,
+            timeoutMs: clamp(Number(timeoutMs), 500, 10_000),
+          },
+          opts,
+          execution?.signal,
+        );
+        return {
+          ...result,
+          rememberedPlace: { id: place.id, label: place.label },
+        };
+      },
+      category: 'move',
+      effects: { blockMutation: 'state' },
+    });
+
     add({
       name: 'enter_place',
       description:
@@ -1420,6 +1554,15 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       run: async ({ id, closeAfter = true, timeoutMs = 45_000 }) => {
         const place = opts.places!().find((candidate) => candidate.id === String(id));
         if (!place) return { ok: false, error: 'remembered_place_not_found', id: String(id) };
+        if (place.evidence === 'space_enclosed') {
+          return {
+            ok: false,
+            error: 'legacy_place_route_requires_embodied_relearning',
+            place: { id: place.id, label: place.label },
+            nextAffordance:
+              'Look at the actual door and use cross_visible_door; only that crossing can create a reusable resident-owned route.',
+          };
+        }
         const dimension = String((bot as any).game?.dimension || '');
         if (place.anchor.dimension && dimension && place.anchor.dimension !== dimension) {
           return {
@@ -1556,6 +1699,15 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       run: async ({ id, closeAfter = true, timeoutMs = 45_000 }) => {
         const place = opts.places!().find((candidate) => candidate.id === String(id));
         if (!place) return { ok: false, error: 'remembered_place_not_found', id: String(id) };
+        if (place.evidence === 'space_enclosed') {
+          return {
+            ok: false,
+            error: 'legacy_place_route_requires_embodied_relearning',
+            place: { id: place.id, label: place.label },
+            nextAffordance:
+              'Look at the actual door and use cross_visible_door; only that crossing can create a reusable resident-owned route.',
+          };
+        }
         const dimension = String((bot as any).game?.dimension || '');
         if (place.anchor.dimension && dimension && place.anchor.dimension !== dimension) {
           return {
@@ -2785,12 +2937,381 @@ function toggleProperty(block: any): 'open' | 'powered' | null {
   return null;
 }
 
+type SelectedDoorCrossingInput = {
+  focus: string;
+  closeAfter: boolean;
+  rememberAs: any;
+  timeoutMs: number;
+};
+
+async function crossSelectedVisibleDoor(
+  bot: Bot,
+  input: SelectedDoorCrossingInput,
+  opts: InterpreterOptions,
+  signal?: AbortSignal,
+) {
+  if (signal?.aborted) return cancelledAction('visible-door-crossing');
+  const observation = opts.observe?.();
+  const focus = observation?.scene?.focus;
+  if (!focus) return { ok: false, error: 'current_cursor_focus_unavailable' };
+  if (
+    focus.id !== input.focus ||
+    focus.kind !== 'block' ||
+    focus.source !== 'cursor' ||
+    focus.reachable !== true ||
+    !isPosition(focus.position)
+  ) {
+    return {
+      ok: false,
+      error: 'selected_door_is_not_current_reachable_cursor_focus',
+      requestedFocus: input.focus,
+      currentFocus: residentFocusSummary(focus),
+    };
+  }
+
+  const cursorBlock = blockAtViewCursor(bot, 6);
+  const cursorPosition = integerBlockPosition(cursorBlock?.position);
+  const focusPosition = integerBlockPosition(focus.position);
+  const dimension = boundedString(
+    observation?.self?.condition?.dimension ?? (bot as any).game?.dimension,
+    96,
+  );
+  const expectedFocusId = cursorPosition
+    ? observedBlockId(dimension || 'unknown', cursorPosition)
+    : null;
+  if (
+    !cursorBlock ||
+    !cursorPosition ||
+    !focusPosition ||
+    !samePosition(cursorPosition, focusPosition) ||
+    expectedFocusId !== input.focus ||
+    !blockIsVisible(bot, cursorPosition)
+  ) {
+    return {
+      ok: false,
+      error: 'selected_door_focus_changed_before_action',
+      requestedFocus: input.focus,
+      currentCursor: cursorBlock ? summarizeObservedBlock(cursorBlock) : null,
+    };
+  }
+
+  const resolved = resolveSelectedWoodenDoor(bot, cursorBlock);
+  if (!resolved.ok) return resolved;
+  if (normalizeRegistryName(String(focus.name || '')) !== resolved.name) {
+    return {
+      ok: false,
+      error: 'selected_door_focus_changed_before_action',
+      requestedFocus: input.focus,
+      currentCursor: summarizeObservedBlock(cursorBlock),
+    };
+  }
+  const body = integerFeetPosition((bot as any).entity?.position);
+  if (!body) return { ok: false, error: 'body_position_unavailable' };
+  const direction = CARDINAL_DIRECTIONS[resolved.facing];
+  const firstSide = {
+    x: resolved.lower.x + direction.x,
+    y: resolved.lower.y,
+    z: resolved.lower.z + direction.z,
+  };
+  const secondSide = {
+    x: resolved.lower.x - direction.x,
+    y: resolved.lower.y,
+    z: resolved.lower.z - direction.z,
+  };
+  const fromFeet = samePosition(body, firstSide)
+    ? firstSide
+    : samePosition(body, secondSide)
+      ? secondSide
+      : null;
+  const toFeet = fromFeet === firstSide ? secondSide : firstSide;
+  if (!fromFeet) {
+    return {
+      ok: false,
+      error: 'body_not_at_selected_door_side',
+      focus: residentFocusSummary(focus),
+      bodyFeet: body,
+      requiredSides: [firstSide, secondSide],
+    };
+  }
+
+  const rememberAs = normalizeDoorwayMemory(input.rememberAs);
+  const circleId = boundedString(observation?.circle?.id, 160);
+  if (input.rememberAs != null && !rememberAs) {
+    return { ok: false, error: 'invalid_doorway_memory_name' };
+  }
+  if (rememberAs && (!circleId || !dimension)) {
+    return {
+      ok: false,
+      error: 'doorway_memory_requires_exact_world_identity',
+      circleId: circleId || null,
+      dimension: dimension || null,
+    };
+  }
+  if (!bodySpaceAt(bot, toFeet).standable) {
+    return {
+      ok: false,
+      error: 'selected_door_destination_not_standable',
+      focus: residentFocusSummary(focus),
+      toFeet,
+    };
+  }
+
+  const opened = await ensureDoorOpen(bot, resolved.lower, opts, signal);
+  if (!opened.ok) return { ...opened, error: opened.error || 'selected_door_could_not_open' };
+  if (signal?.aborted) {
+    const doorRecovery =
+      opened.changed?.before === false ? await ensureDoorClosed(bot, resolved.lower, opts) : null;
+    return { ...cancelledAction('visible-door-crossing'), doorRecovery };
+  }
+  const crossing = await crossSelectedDoorAperture(
+    bot,
+    resolved.lower,
+    fromFeet,
+    toFeet,
+    input.timeoutMs,
+    signal,
+  );
+  if (!crossing.ok) {
+    const doorRecovery =
+      opened.changed?.before === false ? await ensureDoorClosed(bot, resolved.lower, opts) : null;
+    return {
+      ok: false,
+      error: crossing.error || 'selected_door_crossing_unconfirmed',
+      focus: residentFocusSummary(focus),
+      fromFeet,
+      toFeet,
+      crossing,
+      doorRecovery: publicDoorTransition(doorRecovery),
+    };
+  }
+
+  const closed = input.closeAfter
+    ? await ensureDoorClosed(bot, resolved.lower, opts, signal)
+    : null;
+  if (closed && !closed.ok) {
+    return {
+      ok: false,
+      error: closed.error || 'crossed_selected_door_but_close_unconfirmed',
+      crossed: true,
+      focus: residentFocusSummary(focus),
+      fromFeet,
+      toFeet,
+      crossing,
+      doorOpened: publicDoorTransition(opened),
+      doorClosed: publicDoorTransition(closed),
+    };
+  }
+
+  return {
+    ok: true,
+    protocol: 'behold.visible-door-crossing.v1',
+    crossed: true,
+    focus: residentFocusSummary(focus),
+    door: {
+      lower: resolved.lower,
+      upper: resolved.upper,
+    },
+    fromFeet,
+    toFeet,
+    doorOpened: publicDoorTransition(opened),
+    doorClosed: publicDoorTransition(closed),
+    crossing,
+    world: {
+      circleId: circleId || null,
+      dimension: dimension || null,
+      managedRunId: boundedString(observation?.circle?.managedRunId, 160) || null,
+      observationSequence: finiteIntegerOrNull(observation?.sequence),
+    },
+    ...(rememberAs ? { rememberAs } : {}),
+  };
+}
+
+function resolveSelectedWoodenDoor(
+  bot: Bot,
+  focusedBlock: any,
+):
+  | { ok: true; name: string; facing: string; lower: BlockPosition; upper: BlockPosition }
+  | { ok: false; error: string; [key: string]: unknown } {
+  const focusedPosition = integerBlockPosition(focusedBlock?.position);
+  const focusedProperties = blockProperties(focusedBlock);
+  const focusedName = normalizeRegistryName(String(focusedBlock?.name || ''));
+  if (
+    !focusedPosition ||
+    !focusedName.endsWith('_door') ||
+    focusedName.startsWith('iron_') ||
+    !['lower', 'upper'].includes(String(focusedProperties.half || ''))
+  ) {
+    return {
+      ok: false,
+      error: 'current_cursor_focus_is_not_a_wooden_door',
+      block: summarizeObservedBlock(focusedBlock),
+    };
+  }
+  const lower = {
+    ...focusedPosition,
+    y: focusedProperties.half === 'upper' ? focusedPosition.y - 1 : focusedPosition.y,
+  };
+  const upper = { ...lower, y: lower.y + 1 };
+  const lowerBlock = (bot as any).blockAt?.(new Vec3(lower.x, lower.y, lower.z));
+  const upperBlock = (bot as any).blockAt?.(new Vec3(upper.x, upper.y, upper.z));
+  const lowerProperties = blockProperties(lowerBlock);
+  const upperProperties = blockProperties(upperBlock);
+  const name = normalizeRegistryName(String(lowerBlock?.name || ''));
+  const facing = String(lowerProperties.facing || '');
+  if (
+    name !== focusedName ||
+    normalizeRegistryName(String(upperBlock?.name || '')) !== name ||
+    lowerProperties.half !== 'lower' ||
+    upperProperties.half !== 'upper' ||
+    !CARDINAL_DIRECTIONS[facing]
+  ) {
+    return {
+      ok: false,
+      error: 'selected_door_pair_changed_or_incomplete',
+      lower: summarizeObservedBlock(lowerBlock),
+      upper: summarizeObservedBlock(upperBlock),
+    };
+  }
+  return { ok: true, name, facing, lower, upper };
+}
+
+async function crossSelectedDoorAperture(
+  bot: Bot,
+  lower: BlockPosition,
+  fromFeet: BlockPosition,
+  toFeet: BlockPosition,
+  timeoutMs: number,
+  signal?: AbortSignal,
+) {
+  if (!bodyOccupiesCell((bot as any).entity?.position, fromFeet)) {
+    return { ok: false, error: 'selected_door_origin_unconfirmed' };
+  }
+  const door = (bot as any).blockAt?.(new Vec3(lower.x, lower.y, lower.z));
+  if (
+    blockProperties(door).open !== true ||
+    !bodySpaceAt(bot, lower).standable ||
+    !bodySpaceAt(bot, toFeet).standable
+  ) {
+    return { ok: false, error: 'selected_door_aperture_not_passable' };
+  }
+  if (typeof (bot as any).setControlState !== 'function') {
+    return { ok: false, error: 'bounded_body_control_unavailable' };
+  }
+  const startedAt = Date.now();
+  const aperture = await boundedDirectBodyMove(bot, lower, {
+    timeoutMs: Math.min(timeoutMs, 1800),
+    arrival: 'cell',
+    route: 'selected_door_aperture',
+    signal,
+  });
+  if (!aperture.ok) {
+    return {
+      ok: false,
+      error: aperture.error || 'selected_door_aperture_entry_unconfirmed',
+      doorCellOccupied: false,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+  const destination = await boundedDirectBodyMove(bot, toFeet, {
+    timeoutMs: Math.min(timeoutMs, 2200),
+    arrival: 'cell',
+    route: 'selected_door_opposite_side',
+    signal,
+  });
+  const arrived = destination.ok && bodyOccupiesCell((bot as any).entity?.position, toFeet);
+  return {
+    ok: arrived,
+    ...(arrived ? {} : { error: destination.error || 'selected_door_destination_unconfirmed' }),
+    method: 'bounded_direct_selected_aperture',
+    doorCellOccupied: true,
+    final: positionOf(bot),
+    durationMs: Date.now() - startedAt,
+    confirmation: arrived ? 'mineflayer:body_crossed_selected_door_cell' : null,
+  };
+}
+
+function publicDoorTransition(value: any) {
+  if (!value) return null;
+  return {
+    ok: value.ok === true,
+    status: boundedString(value.status, 64) || null,
+    changed: value.changed
+      ? {
+          property: value.changed.property,
+          before: value.changed.before,
+          after: value.changed.after,
+        }
+      : null,
+    confirmation: value.confirmation
+      ? { source: boundedString(value.confirmation.source, 96) || null }
+      : value.observed
+        ? { source: boundedString(value.observed.source, 96) || null }
+        : null,
+  };
+}
+
+function residentFocusSummary(focus: any) {
+  if (!focus) return null;
+  return {
+    id: boundedString(focus.id, 160),
+    kind: boundedString(focus.kind, 32),
+    name: boundedString(focus.name, 64),
+    source: boundedString(focus.source, 32),
+    position: integerBlockPosition(focus.position),
+  };
+}
+
+function normalizeDoorwayMemory(value: any) {
+  if (value == null) return null;
+  const label = boundedString(value?.label, 120);
+  if (!label) return null;
+  return {
+    label,
+    purpose: boundedString(value?.purpose, 240) || null,
+  };
+}
+
+function observedBlockId(dimension: string, position: BlockPosition) {
+  return `block:${dimension}:${position.x}:${position.y}:${position.z}`;
+}
+
+function isPosition(value: any) {
+  return [value?.x, value?.y, value?.z].every((part) => Number.isFinite(Number(part)));
+}
+
+function integerBlockPosition(value: any): BlockPosition | null {
+  if (!isPosition(value)) return null;
+  return {
+    x: Math.floor(Number(value.x)),
+    y: Math.floor(Number(value.y)),
+    z: Math.floor(Number(value.z)),
+  };
+}
+
+function integerFeetPosition(value: any): BlockPosition | null {
+  return integerBlockPosition(value);
+}
+
+function boundedString(value: any, limit: number) {
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit);
+}
+
+function finiteIntegerOrNull(value: any) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : null;
+}
+
 async function activateToggleBlock(
   bot: Bot,
   position: BlockPosition,
   maxDistance: number,
   opts: InterpreterOptions,
+  signal?: AbortSignal,
 ): Promise<any> {
+  if (signal?.aborted) return cancelledAction('minecraft-block-activation');
   const block = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
   if (!block) return { ok: false, error: 'no_block' };
   const me = (bot as any).entity?.position;
@@ -2840,6 +3361,19 @@ async function activateToggleBlock(
   const verified = observed && commandError == null;
   observer.close();
 
+  if (signal?.aborted) {
+    return {
+      ...cancelledAction('minecraft-block-activation'),
+      observed,
+      changed: {
+        property,
+        before: beforeProperties[property] ?? null,
+        after: afterProperties[property] ?? null,
+      },
+      confirmation: transition?.evidence ?? null,
+    };
+  }
+
   return {
     ok: verified,
     verified,
@@ -2867,7 +3401,13 @@ async function activateToggleBlock(
   };
 }
 
-async function ensureDoorOpen(bot: Bot, position: BlockPosition, opts: InterpreterOptions) {
+async function ensureDoorOpen(
+  bot: Bot,
+  position: BlockPosition,
+  opts: InterpreterOptions,
+  signal?: AbortSignal,
+) {
+  if (signal?.aborted) return cancelledAction('minecraft-door-open');
   const block = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
   const current = blockProperties(block).open;
   if (current === true) {
@@ -2885,7 +3425,7 @@ async function ensureDoorOpen(bot: Bot, position: BlockPosition, opts: Interpret
       block: summarizeObservedBlock(block),
     };
   }
-  const toggled = await activateToggleBlock(bot, position, 4.5, opts);
+  const toggled = await activateToggleBlock(bot, position, 4.5, opts, signal);
   return {
     ...toggled,
     ok: toggled.ok && toggled.changed?.property === 'open' && toggled.changed?.after === true,
@@ -2895,7 +3435,13 @@ async function ensureDoorOpen(bot: Bot, position: BlockPosition, opts: Interpret
   };
 }
 
-async function ensureDoorClosed(bot: Bot, position: BlockPosition, opts: InterpreterOptions) {
+async function ensureDoorClosed(
+  bot: Bot,
+  position: BlockPosition,
+  opts: InterpreterOptions,
+  signal?: AbortSignal,
+) {
+  if (signal?.aborted) return cancelledAction('minecraft-door-close');
   const block = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
   const current = blockProperties(block).open;
   if (current === false) {
@@ -2913,7 +3459,7 @@ async function ensureDoorClosed(bot: Bot, position: BlockPosition, opts: Interpr
       block: summarizeObservedBlock(block),
     };
   }
-  const toggled = await activateToggleBlock(bot, position, 4.5, opts);
+  const toggled = await activateToggleBlock(bot, position, 4.5, opts, signal);
   return {
     ...toggled,
     ok: toggled.ok && toggled.changed?.property === 'open' && toggled.changed?.after === false,
@@ -3117,7 +3663,12 @@ async function crossOpenRememberedEntrance(
 async function boundedDirectBodyMove(
   bot: Bot,
   target: BlockPosition,
-  options: { timeoutMs: number; arrival: 'cell' | 'center'; route: string },
+  options: {
+    timeoutMs: number;
+    arrival: 'cell' | 'center';
+    route: string;
+    signal?: AbortSignal;
+  },
 ) {
   const startedAt = Date.now();
   const start = positionOf(bot);
@@ -3129,13 +3680,23 @@ async function boundedDirectBodyMove(
     const horizontal = Math.hypot(Number(body.x) - targetCenter.x, Number(body.z) - targetCenter.z);
     return horizontal <= 0.28 && Math.abs(Number(body.y) - target.y) <= 0.65;
   };
+  if (options.signal?.aborted) {
+    return {
+      ...cancelledAction('bounded-direct-body-move'),
+      route: options.route,
+      target,
+      start,
+      final: positionOf(bot),
+      durationMs: Date.now() - startedAt,
+    };
+  }
   try {
     try {
       await (bot as any).lookAt(new Vec3(targetCenter.x, target.y + 1.2, targetCenter.z), true);
     } catch {}
     (bot as any).setControlState('forward', true);
     const deadline = startedAt + clamp(Number(options.timeoutMs), 100, 2000);
-    while (!arrived() && Date.now() < deadline) {
+    while (!arrived() && Date.now() < deadline && !options.signal?.aborted) {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   } finally {
@@ -3143,6 +3704,16 @@ async function boundedDirectBodyMove(
   }
   const final = positionOf(bot);
   const ok = arrived();
+  if (options.signal?.aborted) {
+    return {
+      ...cancelledAction('bounded-direct-body-move'),
+      route: options.route,
+      target,
+      start,
+      final,
+      durationMs: Date.now() - startedAt,
+    };
+  }
   return {
     ok,
     ...(ok ? {} : { error: 'bounded_direct_move_unconfirmed' }),

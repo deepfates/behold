@@ -189,6 +189,8 @@ const WAIT_TOOL_SPEC: ToolSpec = {
 const EMBODIED_ACTION_TOOLS = new Set<string>([
   'move_to',
   'move_direction',
+  'cross_visible_door',
+  'cross_place_door',
   'enter_place',
   'leave_place',
   'approach_entity',
@@ -1037,7 +1039,7 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
       'self.projects is your bounded restart memory from your loom. Bookmark durable outcomes needing several actions—not walking, inspection, transfers, equipment, or cleanup. Keep one focus; resolve overlaps. Survey and choice are steps, not outcomes. doneWhen names a future Minecraft condition and player-observable evidence; already-true, waiting, and idle conditions are invalid. Use world_change for construction and time_elapsed for a concrete future time. Complete only after a matching post-start witness. Completion is your grounded conclusion, not external world certification.',
     );
   }
-  if (hasAny('enter_place', 'leave_place', MANAGE_PROJECT_TOOL)) {
+  if (hasAny('cross_visible_door', 'cross_place_door', MANAGE_PROJECT_TOOL)) {
     lines.push(
       `self.places is bounded own-loom memory, not current server truth: re-observe near its anchor before relying on condition. Prefer using or improving a reachable known affordance over duplicating it.${
         tools.has(MANAGE_PROJECT_TOOL)
@@ -1046,9 +1048,14 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
       }`,
     );
   }
-  if (hasAny('enter_place', 'leave_place')) {
+  if (tools.has('cross_visible_door')) {
     lines.push(
-      'Use enter_place or leave_place for a known door-served place: it approaches the witnessed side, handles the door, crosses it, confirms arrival, and can close behind. Do not substitute a blind toggle and guessed movement.',
+      'Use cross_visible_door on the exact reachable scene.focus.id when you are facing a wooden door from an adjacent side. It owns opening, crossing that selected aperture, confirming arrival, and optional closing. rememberAs names only the route you actually crossed; it never proves inside, safety, enclosure, or ownership.',
+    );
+  }
+  if (tools.has('cross_place_door')) {
+    lines.push(
+      'Use cross_place_door only when you already stand on one side of a route in self.places. It turns to and re-observes the remembered door before crossing either direction; a stale or different world route fails closed.',
     );
   }
   if (tools.has(COLLECT_TOOL)) {
@@ -1205,6 +1212,45 @@ function availableModelTools(
     if (COMMUNICATION_TOOLS.has(spec.function.name)) {
       return !Array.isArray(roster) || roster.length > 0 ? [spec] : [];
     }
+    if (spec.function.name === 'enter_place' || spec.function.name === 'leave_place') return [];
+    if (spec.function.name === 'cross_visible_door') {
+      const focus = frame?.scene?.focus;
+      const name = String(focus?.name || '').toLowerCase();
+      return focus?.kind === 'block' &&
+        focus?.source === 'cursor' &&
+        focus?.reachable === true &&
+        typeof focus?.id === 'string' &&
+        name.endsWith('_door') &&
+        !name.startsWith('iron_')
+        ? [withExactStringEnum(spec, 'focus', [focus.id])]
+        : [];
+    }
+    if (spec.function.name === 'cross_place_door') {
+      const position = frame?.self?.pose?.position;
+      const dimension = String(frame?.self?.condition?.dimension || '');
+      const circleId = String(frame?.circle?.id || '');
+      const eligible = (Array.isArray(frame?.self?.places) ? frame.self.places : []).filter(
+        (place: any) =>
+          place?.evidence === 'doorway_crossed' &&
+          place?.circleId === circleId &&
+          place?.anchor?.dimension === dimension &&
+          Array.isArray(place?.doorways) &&
+          place.doorways.some(
+            (doorway: any) =>
+              sameFeetCell(position, doorway?.sideAFeet) ||
+              sameFeetCell(position, doorway?.sideBFeet),
+          ),
+      );
+      return eligible.length > 0
+        ? [
+            withExactStringEnum(
+              spec,
+              'id',
+              eligible.map((place: any) => String(place.id)),
+            ),
+          ]
+        : [];
+    }
     if (spec.function.name === COLLECT_TOOL) {
       return droppedItems.length > 0 ? [withExactTargetEnum(spec, targetIds(droppedItems))] : [];
     }
@@ -1225,18 +1271,37 @@ function availableModelTools(
 }
 
 function withExactTargetEnum(spec: ToolSpec, targets: string[]): ToolSpec {
+  return withExactStringEnum(spec, 'target', targets);
+}
+
+function withExactStringEnum(spec: ToolSpec, property: string, values: string[]): ToolSpec {
   const copy = cloneJson(spec) as ToolSpec;
   const parameters: any = copy.function.parameters || {
     type: 'object',
     properties: {},
   };
   parameters.properties = parameters.properties || {};
-  parameters.properties.target = {
-    ...(parameters.properties.target || { type: 'string' }),
-    enum: [...new Set(targets)],
+  parameters.properties[property] = {
+    ...(parameters.properties[property] || { type: 'string' }),
+    enum: [...new Set(values)],
   };
   copy.function.parameters = parameters;
   return copy;
+}
+
+function sameFeetCell(first: any, second: any) {
+  if (
+    ![first?.x, first?.y, first?.z, second?.x, second?.y, second?.z].every((value) =>
+      Number.isFinite(Number(value)),
+    )
+  ) {
+    return false;
+  }
+  return (
+    Math.floor(Number(first.x)) === Number(second.x) &&
+    Math.floor(Number(first.y)) === Number(second.y) &&
+    Math.floor(Number(first.z)) === Number(second.z)
+  );
 }
 
 function finiteAtMost(value: unknown, threshold: number) {

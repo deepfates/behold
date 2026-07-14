@@ -1015,6 +1015,94 @@ test('an alternate mind receives one bounded observation and the exact admitted 
   }
 });
 
+test('door affordances are admitted only at the player-visible focus and occupied remembered side', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const observation: any = {
+    ...experience(1, null, 0),
+    circle: { id: 'minecraft:test' },
+    self: {
+      currentAction: null,
+      pose: { position: { x: 0.5, y: 64, z: -0.5 } },
+      condition: { dimension: 'overworld', health: 20, food: 20, oxygen: 20 },
+      inventory: [],
+      projects: [],
+      places: [
+        {
+          id: 'doorway:minecraft-test:overworld:0:64:0',
+          evidence: 'doorway_crossed',
+          circleId: 'minecraft:test',
+          anchor: { dimension: 'overworld', x: 0, y: 64, z: -1 },
+          doorways: [
+            {
+              sideAFeet: { x: 0, y: 64, z: -1 },
+              sideBFeet: { x: 0, y: 64, z: 1 },
+            },
+          ],
+        },
+      ],
+      placeConflicts: [],
+    },
+    scene: {
+      ...experience(1, null, 0).scene,
+      focus: {
+        id: 'block:overworld:0:64:0',
+        kind: 'block',
+        name: 'oak_door',
+        source: 'cursor',
+        reachable: true,
+        position: { x: 0, y: 64, z: 0 },
+      },
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [
+        tool('cross_visible_door'),
+        tool('cross_place_door'),
+        tool('enter_place'),
+        tool('leave_place'),
+      ],
+      attempt: () => true,
+      observe: () => observation,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind: {
+        id: 'door-mind',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'wait',
+            utterance: 'I can use the door I am actually facing or the route at my feet.',
+            action: null,
+            call: modelCallEvidence('door-mind'),
+          };
+        },
+      },
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.deepEqual(
+      requests[0].actions.map((action: any) => action.name),
+      ['cross_visible_door', 'cross_place_door', 'wait_for_event'],
+    );
+    assert.deepEqual((requests[0].actions[0].inputSchema as any).properties.focus.enum, [
+      'block:overworld:0:64:0',
+    ]);
+    assert.deepEqual((requests[0].actions[1].inputSchema as any).properties.id.enum, [
+      'doorway:minecraft-test:overworld:0:64:0',
+    ]);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('every mind adapter receives the same bounded event projection as the conversation', async () => {
   const requests: any[] = [];
   const mind: ResidentMind = {

@@ -28,6 +28,7 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   assert.ok(inhabitantActions.includes('ascend_step'));
   assert.ok(inhabitantActions.includes('block_at_cursor'));
   assert.ok(inhabitantActions.includes('entity_at_cursor'));
+  assert.ok(inhabitantActions.includes('cross_visible_door'));
   assert.ok(inhabitantActions.includes('craft_item'));
   assert.ok(inhabitantActions.includes('attack_entity'));
   const move = interpreter.describe('move_to');
@@ -1403,7 +1404,224 @@ test('toggle_block does not credit an observed transition to a failed activation
   assert.equal(result.confirmation.source, 'mineflayer:blockUpdate');
 });
 
-test('place entry and exit route around a physical open door leaf and close behind', async () => {
+test('cross_visible_door owns one exact first-person doorway crossing without inferring a room', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0.5, 64, 1.5);
+  bot.entity.yaw = 0;
+  bot.entity.pitch = -0.7;
+  let open = false;
+  let stateId = 70;
+  const doorBlock = (y = 64) => ({
+    name: 'oak_door',
+    type: 7,
+    stateId,
+    position: new Vec3(0, y, 0),
+    getProperties: () => ({
+      open,
+      half: y === 64 ? 'lower' : 'upper',
+      facing: 'north',
+      hinge: 'left',
+    }),
+  });
+  bot.blockAt = (position: Vec3) => {
+    if (position.x === 0 && position.z === 0 && [64, 65].includes(position.y)) {
+      return doorBlock(position.y);
+    }
+    if (position.y === 63) {
+      return {
+        name: 'stone',
+        type: 1,
+        stateId: 1,
+        boundingBox: 'block',
+        position,
+      };
+    }
+    return { name: 'air', type: 0, stateId: 0, boundingBox: 'empty', position };
+  };
+  bot.world = { raycast: () => doorBlock() };
+  bot.activateBlock = async () => {
+    const previous = doorBlock();
+    open = !open;
+    stateId += 1;
+    bot.emit('blockUpdate', previous, doorBlock());
+  };
+  let lookTarget = new Vec3(0, 64, 0);
+  bot.lookAt = async (target: Vec3) => {
+    lookTarget = target;
+    const delta = target.minus(bot.entity.position.offset(0, 1.62, 0));
+    bot.entity.yaw = Math.atan2(-delta.x, -delta.z);
+    bot.entity.pitch = Math.atan2(delta.y, Math.hypot(delta.x, delta.z));
+  };
+  const controls: boolean[] = [];
+  bot.setControlState = (control: string, active: boolean) => {
+    if (control !== 'forward') return;
+    controls.push(active);
+    if (active) bot.entity.position = new Vec3(lookTarget.x, 64, lookTarget.z);
+  };
+  const observation = {
+    sequence: 12,
+    circle: { id: 'minecraft:test', managedRunId: 'run-7' },
+    self: { condition: { dimension: 'overworld' } },
+    scene: {
+      focus: {
+        id: 'block:overworld:0:64:0',
+        kind: 'block',
+        name: 'oak_door',
+        source: 'cursor',
+        position: { x: 0, y: 64, z: 0 },
+        reachable: true,
+      },
+    },
+  };
+  const interpreter = buildInterpreter(bot, {
+    observe: () => observation,
+    changeConfirmationTimeoutMs: 10,
+    changeStabilityWindowMs: 1,
+  });
+
+  const result = await interpreter.run('cross_visible_door', {
+    focus: observation.scene.focus.id,
+    closeAfter: true,
+    rememberAs: { label: 'Garden gate', purpose: 'The route toward the garden' },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.protocol, 'behold.visible-door-crossing.v1');
+  assert.equal(result.crossed, true);
+  assert.deepEqual(result.fromFeet, { x: 0, y: 64, z: 1 });
+  assert.deepEqual(result.toFeet, { x: 0, y: 64, z: -1 });
+  assert.equal(result.crossing.doorCellOccupied, true);
+  assert.equal(result.crossing.confirmation, 'mineflayer:body_crossed_selected_door_cell');
+  assert.equal(result.doorOpened.changed.after, true);
+  assert.equal(result.doorClosed.changed.after, false);
+  assert.deepEqual(result.rememberAs, {
+    label: 'Garden gate',
+    purpose: 'The route toward the garden',
+  });
+  assert.deepEqual(result.world, {
+    circleId: 'minecraft:test',
+    dimension: 'overworld',
+    managedRunId: 'run-7',
+    observationSequence: 12,
+  });
+  assert.equal('inside' in result, false);
+  assert.equal('protectedBodyCells' in result, false);
+  assert.equal(JSON.stringify(result).includes('standable'), false);
+  assert.deepEqual(controls, [true, false, true, false]);
+  assert.equal(open, false);
+
+  const place = {
+    id: 'doorway:minecraft-test:overworld:0:64:0',
+    label: 'Garden gate',
+    purpose: 'The route toward the garden',
+    circleId: 'minecraft:test',
+    anchor: { dimension: 'overworld', x: 0, y: 64, z: -1 },
+    affordances: ['witnessed-doorway-crossing'],
+    protectedBodyCells: [],
+    entrances: [],
+    doorways: [
+      {
+        name: 'oak_door',
+        focusId: 'block:overworld:0:64:0',
+        lower: { x: 0, y: 64, z: 0 },
+        upper: { x: 0, y: 65, z: 0 },
+        sideAFeet: { x: 0, y: 64, z: -1 },
+        sideBFeet: { x: 0, y: 64, z: 1 },
+        rememberedState: 'closed',
+      },
+    ],
+    evidence: 'doorway_crossed' as const,
+    learnedAtSequence: 12,
+    lastConfirmedAtSequence: 12,
+    provenance: {
+      source: 'own_entity_loom' as const,
+      kind: 'embodied_doorway' as const,
+      actionId: 'cross-door-12',
+      actionTurnSequence: 12,
+      witnessTurnSequence: 12,
+      witnessAction: 'cross_visible_door',
+    },
+  };
+  const reuse = await buildInterpreter(bot, {
+    observe: () => observation,
+    places: () => [place],
+    changeConfirmationTimeoutMs: 10,
+    changeStabilityWindowMs: 1,
+  }).run('cross_place_door', { id: place.id, closeAfter: true });
+
+  assert.equal(reuse.ok, true);
+  assert.deepEqual(reuse.fromFeet, { x: 0, y: 64, z: -1 });
+  assert.deepEqual(reuse.toFeet, { x: 0, y: 64, z: 1 });
+  assert.deepEqual(reuse.rememberedPlace, { id: place.id, label: place.label });
+  assert.equal(open, false);
+
+  bot.entity.yaw = 0;
+  bot.entity.pitch = -0.7;
+  const abort = new AbortController();
+  const controlsBeforeInterrupt = controls.length;
+  bot.setControlState = (control: string, active: boolean) => {
+    if (control !== 'forward') return;
+    controls.push(active);
+    if (active) abort.abort();
+  };
+  const interrupted = await buildInterpreter(bot, {
+    observe: () => observation,
+    changeConfirmationTimeoutMs: 10,
+    changeStabilityWindowMs: 1,
+  }).run(
+    'cross_visible_door',
+    { focus: observation.scene.focus.id, closeAfter: true },
+    { signal: abort.signal },
+  );
+
+  assert.equal(interrupted.ok, false);
+  assert.equal(interrupted.error, 'interrupted_by_human');
+  assert.deepEqual(controls.slice(controlsBeforeInterrupt), [true, false]);
+  assert.equal(open, false, 'interruption recovers the door after clearing forward control');
+});
+
+test('cross_visible_door fails before mutation when the selected cursor focus is stale', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0.5, 64, 1.5);
+  bot.entity.yaw = 0;
+  bot.entity.pitch = -0.7;
+  let activations = 0;
+  const door = {
+    name: 'oak_door',
+    type: 7,
+    stateId: 70,
+    position: new Vec3(0, 64, 0),
+    getProperties: () => ({ open: false, half: 'lower', facing: 'north' }),
+  };
+  bot.world = { raycast: () => door };
+  bot.blockAt = () => door;
+  bot.activateBlock = async () => {
+    activations += 1;
+  };
+  const result = await buildInterpreter(bot, {
+    observe: () => ({
+      self: { condition: { dimension: 'overworld' } },
+      scene: {
+        focus: {
+          id: 'block:overworld:4:64:0',
+          kind: 'block',
+          name: 'oak_door',
+          source: 'cursor',
+          position: { x: 4, y: 64, z: 0 },
+          reachable: true,
+        },
+      },
+    }),
+  }).run('cross_visible_door', { focus: 'block:overworld:4:64:0' });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'selected_door_focus_changed_before_action');
+  assert.equal(activations, 0);
+});
+
+test('legacy evaluator-derived place routes cannot authorize resident movement', async () => {
   const bot = baseBot();
   bot.game = { dimension: 'overworld' };
   bot.entity.position = new Vec3(0.5, 64, 1.5);
@@ -1494,44 +1712,26 @@ test('place entry and exit route around a physical open door leaf and close behi
     changeStabilityWindowMs: 1,
   });
 
-  assert.ok(interpreter.list('inhabitant').some((spec) => spec.name === 'enter_place'));
-  assert.ok(interpreter.list('inhabitant').some((spec) => spec.name === 'leave_place'));
+  assert.ok(interpreter.list('inhabitant').some((spec) => spec.name === 'cross_place_door'));
   const result = await interpreter.run('enter_place', {
     id: 'place:overworld:0:64:-1',
     closeAfter: true,
   });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.status, 'entered_and_closed_door');
-  assert.equal(result.arrivedInside, true);
-  assert.equal(result.doorOpened.changed.after, true);
-  assert.equal(result.insideNavigation.method, 'bounded_direct_doorway_crossing');
-  assert.equal(result.insideNavigation.attempts[0].ok, false);
-  assert.equal(result.insideNavigation.attempts[1].route, 'origin_side_around_open_leaf');
-  assert.equal(result.insideNavigation.attempts[1].ok, true);
-  assert.equal(result.doorClosed.changed.after, false);
-  assert.equal(activations, 2);
-  assert.equal(open, false);
-  assert.deepEqual(controls, [true, false, true, false, true, false, true, false]);
-  assert.deepEqual(result.final, { x: 0.5, y: 64, z: -0.5 });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'legacy_place_route_requires_embodied_relearning');
+  assert.equal(activations, 0);
+  assert.deepEqual(controls, []);
 
   const left = await interpreter.run('leave_place', {
     id: 'place:overworld:0:64:-1',
     closeAfter: true,
   });
 
-  assert.equal(left.ok, true);
-  assert.equal(left.status, 'left_and_closed_door');
-  assert.equal(left.arrivedOutside, true);
-  assert.equal(left.outsideNavigation.attempts[0].ok, false);
-  assert.ok(
-    left.outsideNavigation.attempts.some(
-      (attempt: any) => attempt.route === 'door_cell_around_open_leaf' && attempt.ok,
-    ),
-  );
-  assert.equal(activations, 4);
+  assert.equal(left.ok, false);
+  assert.equal(left.error, 'legacy_place_route_requires_embodied_relearning');
+  assert.equal(activations, 0);
   assert.equal(open, false);
-  assert.deepEqual(left.final, { x: 0.5, y: 64, z: 1.5 });
 });
 
 test('consume succeeds only after an observed body or inventory consequence', async () => {

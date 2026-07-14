@@ -96,6 +96,100 @@ test('ordinary world changes remember only the embodied site consequence', () =>
   assert.equal(place?.provenance.witnessAction, 'place_block');
 });
 
+test('a selected door crossing becomes direction-neutral own-life route memory after next observation', () => {
+  const crossed = doorwayCrossingTurn('Scout', 4, {
+    fromFeet: { x: 0, y: 64, z: 1 },
+    toFeet: { x: 0, y: 64, z: -1 },
+    label: 'Garden gate',
+    purpose: 'The route toward the garden',
+  });
+  const memory = createPlaceMemory('Scout', [crossed]);
+
+  assert.deepEqual(memory.snapshot(), [
+    {
+      id: 'doorway:minecraft-test:overworld:0:64:0',
+      label: 'Garden gate',
+      purpose: 'The route toward the garden',
+      circleId: 'minecraft:test',
+      anchor: { dimension: 'overworld', x: 0, y: 64, z: -1 },
+      affordances: ['witnessed-doorway-crossing'],
+      protectedBodyCells: [],
+      entrances: [],
+      doorways: [
+        {
+          name: 'oak_door',
+          focusId: 'block:overworld:0:64:0',
+          lower: { x: 0, y: 64, z: 0 },
+          upper: { x: 0, y: 65, z: 0 },
+          sideAFeet: { x: 0, y: 64, z: -1 },
+          sideBFeet: { x: 0, y: 64, z: 1 },
+          rememberedState: 'closed',
+        },
+      ],
+      evidence: 'doorway_crossed',
+      learnedAtSequence: 4,
+      lastConfirmedAtSequence: 4,
+      provenance: {
+        source: 'own_entity_loom',
+        kind: 'embodied_doorway',
+        actionId: 'cross-door-4',
+        actionTurnSequence: 4,
+        witnessTurnSequence: 4,
+        witnessAction: 'cross_visible_door',
+      },
+    },
+  ]);
+  assert.deepEqual(createPlaceMemory('Scout', [crossed]).snapshot(), memory.snapshot());
+
+  const reversed = doorwayCrossingTurn('Scout', 5, {
+    fromFeet: { x: 0, y: 64, z: -1 },
+    toFeet: { x: 0, y: 64, z: 1 },
+    label: 'Garden gate',
+    purpose: 'The same route in either direction',
+  });
+  memory.record(reversed);
+  assert.equal(memory.snapshot().length, 1);
+  assert.equal(memory.snapshot()[0]?.learnedAtSequence, 4);
+  assert.equal(memory.snapshot()[0]?.lastConfirmedAtSequence, 5);
+  assert.deepEqual(memory.snapshot()[0]?.doorways?.[0]?.sideAFeet, { x: 0, y: 64, z: -1 });
+  assert.deepEqual(memory.snapshot()[0]?.doorways?.[0]?.sideBFeet, { x: 0, y: 64, z: 1 });
+  assert.equal(memory.snapshot()[0]?.affordances.includes('sealed-space'), false);
+});
+
+test('doorway memory fails closed without exact world, action, and next-body evidence', () => {
+  const wrongArrival = doorwayCrossingTurn('Scout', 4, {
+    fromFeet: { x: 0, y: 64, z: 1 },
+    toFeet: { x: 0, y: 64, z: -1 },
+    label: 'Unconfirmed route',
+  });
+  wrongArrival.nextObservation.self.pose.position = { x: 0, y: 64, z: 1 };
+  assert.deepEqual(createPlaceMemory('Scout', [wrongArrival]).snapshot(), []);
+
+  const wrongCircle = doorwayCrossingTurn('Scout', 4, {
+    fromFeet: { x: 0, y: 64, z: 1 },
+    toFeet: { x: 0, y: 64, z: -1 },
+    label: 'Other world',
+  });
+  wrongCircle.outcome.result.world.circleId = 'minecraft:other';
+  assert.deepEqual(createPlaceMemory('Scout', [wrongCircle]).snapshot(), []);
+
+  const systemAction = doorwayCrossingTurn('Scout', 4, {
+    fromFeet: { x: 0, y: 64, z: 1 },
+    toFeet: { x: 0, y: 64, z: -1 },
+    label: 'System route',
+  });
+  systemAction.action.source = 'system';
+  assert.deepEqual(createPlaceMemory('Scout', [systemAction]).snapshot(), []);
+
+  const noName = doorwayCrossingTurn('Scout', 4, {
+    fromFeet: { x: 0, y: 64, z: 1 },
+    toFeet: { x: 0, y: 64, z: -1 },
+    label: 'Temporary route',
+  });
+  delete noName.outcome.result.rememberAs;
+  assert.deepEqual(createPlaceMemory('Scout', [noName]).snapshot(), []);
+});
+
 test('a worksite anchors to the verified mutation rather than later completion position', () => {
   const changed = completedWorldChangeTurn('Scout', 2, {
     projectId: 'first-wall',
@@ -368,6 +462,75 @@ function completedWorldChangeTurn(
     },
   };
   return turn;
+}
+
+function doorwayCrossingTurn(
+  entityId: string,
+  sequence: number,
+  options: {
+    fromFeet: { x: number; y: number; z: number };
+    toFeet: { x: number; y: number; z: number };
+    label: string;
+    purpose?: string;
+  },
+): EntityTurn {
+  const observation = worldObservation(entityId, options.fromFeet);
+  const nextObservation = worldObservation(entityId, options.toFeet);
+  (observation as any).circle = { id: 'minecraft:test', managedRunId: 'run-7' };
+  (nextObservation as any).circle = { id: 'minecraft:test', managedRunId: 'run-7' };
+  return {
+    protocol: 'behold.entity-turn.v1',
+    circleId: 'minecraft:test',
+    id: `${entityId}:turn:${sequence}`,
+    entityId,
+    sequence,
+    parentId: sequence === 1 ? null : `${entityId}:turn:${sequence - 1}`,
+    model: 'test/model',
+    startedAt: sequence * 10,
+    completedAt: sequence * 10 + 5,
+    observation,
+    utterance: { assistant: { role: 'assistant' } },
+    action: {
+      id: `cross-door-${sequence}`,
+      name: 'cross_visible_door',
+      input: { focus: 'block:overworld:0:64:0' },
+      source: 'script',
+      kind: 'exclusive',
+      toolCallId: null,
+    },
+    outcome: {
+      ok: true,
+      eventType: 'action_completed',
+      result: {
+        ok: true,
+        protocol: 'behold.visible-door-crossing.v1',
+        crossed: true,
+        focus: {
+          id: 'block:overworld:0:64:0',
+          kind: 'block',
+          name: 'oak_door',
+          source: 'cursor',
+          position: { x: 0, y: 64, z: 0 },
+        },
+        door: {
+          lower: { x: 0, y: 64, z: 0 },
+          upper: { x: 0, y: 65, z: 0 },
+        },
+        fromFeet: options.fromFeet,
+        toFeet: options.toFeet,
+        doorOpened: { ok: true, changed: { property: 'open', before: false, after: true } },
+        doorClosed: { ok: true, changed: { property: 'open', before: true, after: false } },
+        crossing: {
+          ok: true,
+          doorCellOccupied: true,
+          confirmation: 'mineflayer:body_crossed_selected_door_cell',
+        },
+        world: { circleId: 'minecraft:test', dimension: 'overworld' },
+        rememberAs: { label: options.label, purpose: options.purpose ?? null },
+      },
+    },
+    nextObservation,
+  };
 }
 
 function priorTurn(entityId: string, sequence: number): EntityTurn {

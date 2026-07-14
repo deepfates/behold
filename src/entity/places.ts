@@ -2,6 +2,8 @@ import type { EntityTurn } from './loom';
 import type { ProjectEvidence } from './projects';
 import type { InhabitantProject } from './projects';
 
+type BlockPositionLike = { x: number; y: number; z: number };
+
 const DEFAULT_PLACE_LIMIT = 8;
 const SPATIAL_PROJECT_EVIDENCE = new Set<ProjectEvidence>([
   'space_enclosed',
@@ -20,6 +22,16 @@ export type PlaceAnchor = {
   x: number;
   y: number;
   z: number;
+};
+
+export type RememberedDoorway = {
+  name: string;
+  focusId: string;
+  lower: { x: number; y: number; z: number };
+  upper: { x: number; y: number; z: number } | null;
+  sideAFeet: { x: number; y: number; z: number };
+  sideBFeet: { x: number; y: number; z: number };
+  rememberedState: string | null;
 };
 
 export type RememberedEntrance = {
@@ -42,17 +54,26 @@ export type InhabitantPlace = {
   id: string;
   label: string;
   purpose: string | null;
+  /** Exact world binding for resident-earned actionable routes. */
+  circleId?: string | null;
   anchor: PlaceAnchor;
   affordances: string[];
   protectedBodyCells: Array<{ x: number; y: number; z: number }>;
   entrances: RememberedEntrance[];
-  evidence: Extract<ProjectEvidence, 'space_enclosed' | 'place_reached' | 'world_change'>;
+  /** Direction-neutral routes learned by actually crossing a selected door. */
+  doorways?: RememberedDoorway[];
+  evidence:
+    | Extract<ProjectEvidence, 'space_enclosed' | 'place_reached' | 'world_change'>
+    | 'doorway_crossed';
   learnedAtSequence: number;
   lastConfirmedAtSequence: number;
   provenance: {
     source: 'own_entity_loom';
-    projectId: string;
-    completionTurnSequence: number;
+    kind?: 'project_completion' | 'embodied_doorway';
+    projectId?: string;
+    completionTurnSequence?: number;
+    actionId?: string;
+    actionTurnSequence?: number;
     witnessTurnSequence: number | null;
     witnessAction: string | null;
   };
@@ -102,7 +123,7 @@ export function createPlaceMemory(
 
   const record = (turn: EntityTurn) => {
     validate(turn);
-    const candidate = placeFromCompletedProject(turn);
+    const candidate = placeFromDoorwayCrossing(turn) ?? placeFromCompletedProject(turn);
     if (candidate) upsertPlace(places, candidate);
     refreshFromInspection(places, turn);
   };
@@ -251,6 +272,111 @@ function placeFromCompletedProject(turn: EntityTurn): InhabitantPlace | null {
   };
 }
 
+/**
+ * Remember only what the body and the next ordinary observation jointly prove:
+ * this inhabitant crossed this selected wooden door between these two feet
+ * cells. A crossing does not establish an inside, enclosure, ownership, or
+ * safety claim.
+ */
+function placeFromDoorwayCrossing(turn: EntityTurn): InhabitantPlace | null {
+  if (
+    !turn.outcome.ok ||
+    turn.action.name !== 'cross_visible_door' ||
+    !['human', 'llm', 'script'].includes(turn.action.source)
+  ) {
+    return null;
+  }
+  const result = turn.outcome.result;
+  if (
+    result?.protocol !== 'behold.visible-door-crossing.v1' ||
+    result?.crossed !== true ||
+    result?.focus?.source !== 'cursor' ||
+    !result?.rememberAs
+  ) {
+    return null;
+  }
+
+  const circleId =
+    stringOrNull(turn.circleId) ??
+    stringOrNull(turn.nextObservation?.circle?.id) ??
+    stringOrNull(turn.observation?.circle?.id);
+  const resultCircleId = stringOrNull(result?.world?.circleId);
+  const dimension =
+    stringOrNull(turn.nextObservation?.self?.condition?.dimension) ??
+    stringOrNull(turn.observation?.self?.condition?.dimension);
+  const resultDimension = stringOrNull(result?.world?.dimension);
+  if (
+    !circleId ||
+    !resultCircleId ||
+    circleId !== resultCircleId ||
+    !dimension ||
+    !resultDimension ||
+    dimension !== resultDimension
+  ) {
+    return null;
+  }
+
+  const lower = integerPosition(result?.door?.lower);
+  const upper = integerPosition(result?.door?.upper);
+  const fromFeet = integerPosition(result?.fromFeet);
+  const toFeet = integerPosition(result?.toFeet);
+  const nextFeet = integerPosition(turn.nextObservation?.self?.pose?.position);
+  if (
+    !lower ||
+    !fromFeet ||
+    !toFeet ||
+    !nextFeet ||
+    !samePositionValue(nextFeet, toFeet) ||
+    !validDoorwaySides(lower, fromFeet, toFeet)
+  ) {
+    return null;
+  }
+
+  const focusId = boundedText(result?.focus?.id, 160);
+  const name = boundedText(result?.focus?.name, 64);
+  const label = boundedText(result?.rememberAs?.label, 120);
+  if (!focusId || !name.endsWith('_door') || name.startsWith('iron_') || !label) return null;
+  const [sideAFeet, sideBFeet] = orderedSides(fromFeet, toFeet);
+  const anchor = { dimension, ...toFeet };
+  return {
+    id: doorwayPlaceId(circleId, dimension, lower),
+    label,
+    purpose: boundedText(result?.rememberAs?.purpose, 240) || null,
+    circleId,
+    anchor,
+    affordances: ['witnessed-doorway-crossing'],
+    protectedBodyCells: [],
+    entrances: [],
+    doorways: [
+      {
+        name,
+        focusId,
+        lower,
+        upper,
+        sideAFeet,
+        sideBFeet,
+        rememberedState:
+          result?.doorClosed?.ok === true
+            ? 'closed'
+            : result?.doorOpened?.ok === true
+              ? 'open'
+              : null,
+      },
+    ],
+    evidence: 'doorway_crossed',
+    learnedAtSequence: turn.sequence,
+    lastConfirmedAtSequence: turn.sequence,
+    provenance: {
+      source: 'own_entity_loom',
+      kind: 'embodied_doorway',
+      actionId: boundedText(turn.action.id, 160) || String(turn.sequence),
+      actionTurnSequence: turn.sequence,
+      witnessTurnSequence: turn.sequence,
+      witnessAction: 'cross_visible_door',
+    },
+  };
+}
+
 function witnessAnchor(
   witness: any,
   turn: EntityTurn,
@@ -383,8 +509,35 @@ function refreshFromInspection(places: Map<string, InhabitantPlace>, turn: Entit
 }
 
 function upsertPlace(places: Map<string, InhabitantPlace>, candidate: InhabitantPlace) {
+  if (candidate.evidence === 'doorway_crossed') {
+    const doorway = candidate.doorways?.[0];
+    const existing = doorway
+      ? [...places.values()].find(
+          (place) =>
+            place.evidence === 'doorway_crossed' &&
+            place.circleId === candidate.circleId &&
+            place.anchor.dimension === candidate.anchor.dimension &&
+            place.doorways?.some((remembered) =>
+              samePositionValue(remembered.lower, doorway.lower),
+            ),
+        )
+      : null;
+    if (!existing) {
+      places.set(candidate.id, candidate);
+      return;
+    }
+    places.set(existing.id, {
+      ...existing,
+      ...candidate,
+      id: existing.id,
+      learnedAtSequence: Math.min(existing.learnedAtSequence, candidate.learnedAtSequence),
+      doorways: mergeDoorways(existing.doorways ?? [], candidate.doorways ?? []),
+    });
+    return;
+  }
   const nearby = [...places.values()].find(
     (place) =>
+      place.evidence !== 'doorway_crossed' &&
       sameDimension(place.anchor.dimension, candidate.anchor.dimension) &&
       distance(place.anchor, candidate.anchor) <= 4,
   );
@@ -413,6 +566,9 @@ function upsertPlace(places: Map<string, InhabitantPlace>, candidate: Inhabitant
       ...candidate.protectedBodyCells,
     ]),
     entrances: mergeEntrances(nearby.entrances, candidate.entrances),
+    ...(nearby.doorways || candidate.doorways
+      ? { doorways: mergeDoorways(nearby.doorways ?? [], candidate.doorways ?? []) }
+      : {}),
     learnedAtSequence: Math.min(nearby.learnedAtSequence, candidate.learnedAtSequence),
     lastConfirmedAtSequence: Math.max(
       nearby.lastConfirmedAtSequence,
@@ -434,12 +590,24 @@ function clonePlace(place: InhabitantPlace): InhabitantPlace {
       insideFeet: entrance.insideFeet ? { ...entrance.insideFeet } : null,
       outsideFeet: entrance.outsideFeet ? { ...entrance.outsideFeet } : null,
     })),
+    ...(place.doorways
+      ? {
+          doorways: place.doorways.map((doorway) => ({
+            ...doorway,
+            lower: { ...doorway.lower },
+            upper: doorway.upper ? { ...doorway.upper } : null,
+            sideAFeet: { ...doorway.sideAFeet },
+            sideBFeet: { ...doorway.sideBFeet },
+          })),
+        }
+      : {}),
     provenance: { ...place.provenance },
   };
 }
 
 function evidencePriority(evidence: InhabitantPlace['evidence']) {
   if (evidence === 'space_enclosed') return 3;
+  if (evidence === 'doorway_crossed') return 2;
   if (evidence === 'world_change') return 2;
   return 1;
 }
@@ -480,6 +648,12 @@ function boundedText(value: unknown, limit: number) {
 function placeId(anchor: PlaceAnchor) {
   const dimension = boundedText(anchor.dimension || 'unknown', 96).replace(/[^a-zA-Z0-9_-]+/g, '-');
   return `place:${dimension}:${anchor.x}:${anchor.y}:${anchor.z}`;
+}
+
+function doorwayPlaceId(circleId: string, dimension: string, lower: BlockPositionLike) {
+  const world = boundedText(circleId, 96).replace(/[^a-zA-Z0-9_-]+/g, '-');
+  const realm = boundedText(dimension, 96).replace(/[^a-zA-Z0-9_-]+/g, '-');
+  return `doorway:${world}:${realm}:${lower.x}:${lower.y}:${lower.z}`;
 }
 
 function namesExistingOrAdditionalPlace(project: InhabitantProject) {
@@ -534,6 +708,42 @@ function mergeEntrances(previous: RememberedEntrance[], current: RememberedEntra
     merged.set(`${entrance.lower.x}:${entrance.lower.y}:${entrance.lower.z}`, entrance);
   }
   return [...merged.values()].slice(0, 8);
+}
+
+function mergeDoorways(previous: RememberedDoorway[], current: RememberedDoorway[]) {
+  const merged = new Map<string, RememberedDoorway>();
+  for (const doorway of [...previous, ...current]) {
+    merged.set(`${doorway.lower.x}:${doorway.lower.y}:${doorway.lower.z}`, doorway);
+  }
+  return [...merged.values()].slice(0, 8);
+}
+
+function validDoorwaySides(
+  lower: BlockPositionLike,
+  first: BlockPositionLike,
+  second: BlockPositionLike,
+) {
+  return (
+    first.y === second.y &&
+    lower.y === first.y &&
+    Math.abs(first.x - second.x) + Math.abs(first.z - second.z) === 2 &&
+    lower.x * 2 === first.x + second.x &&
+    lower.z * 2 === first.z + second.z
+  );
+}
+
+function orderedSides(first: BlockPositionLike, second: BlockPositionLike) {
+  return positionKey(first).localeCompare(positionKey(second)) <= 0
+    ? [{ ...first }, { ...second }]
+    : [{ ...second }, { ...first }];
+}
+
+function positionKey(position: BlockPositionLike) {
+  return `${position.x}:${position.y}:${position.z}`;
+}
+
+function samePositionValue(first: BlockPositionLike, second: BlockPositionLike) {
+  return first.x === second.x && first.y === second.y && first.z === second.z;
 }
 
 function integerPosition(value: any) {

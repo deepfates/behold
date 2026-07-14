@@ -17,6 +17,7 @@ export async function executeScriptedInhabitantTurn(input: {
   name: string;
   input: any;
   model?: string;
+  onEntityTurn?: (turn: EntityTurn) => unknown | Promise<unknown>;
 }) {
   const sequence = input.loom.turns().length + 1;
   const parentId = input.loom.turns().at(-1)?.id ?? null;
@@ -73,7 +74,9 @@ export async function executeScriptedInhabitantTurn(input: {
     nextObservation,
   };
   await input.loom.append(turn);
+  await input.onEntityTurn?.(turn);
   return {
+    turn,
     turnId: turn.id,
     action: turn.action,
     result: turn.outcome.result,
