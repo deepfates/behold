@@ -175,46 +175,59 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'look_direction',
     description:
-      'Turn your first-person view relative to where you are already facing. Use left, right, or around to reveal terrain outside the current camera view; use up, down, or level to change vertical attention. This changes only your view, never your position or the world.',
+      'Turn your first-person view in one ordinary glance. Choose a horizontal turn relative to where you face and a vertical band at the same time. This changes only your view, never your position or the world.',
     parameters: {
       type: 'object',
       properties: {
-        direction: {
+        horizontal: {
           type: 'string',
-          enum: ['left', 'right', 'around', 'up', 'down', 'level'],
+          enum: ['same', 'left', 'right', 'around'],
+          description: 'Keep facing the same way or turn left, right, or around.',
+        },
+        vertical: {
+          type: 'string',
+          enum: ['same', 'up', 'level', 'down'],
+          description: 'Keep the current tilt or look in the up, level, or down band.',
         },
       },
-      required: ['direction'],
+      required: ['horizontal', 'vertical'],
     },
-    run: async ({ direction }) => {
+    run: async ({ horizontal, vertical }) => {
       const body = (bot as any).entity;
       const yaw = body?.yaw == null ? null : finiteNumber(body.yaw);
       const pitch = body?.pitch == null ? null : finiteNumber(body.pitch);
       if (yaw == null || pitch == null || typeof (bot as any).look !== 'function') {
         return { ok: false, error: 'body_orientation_unavailable' };
       }
-      const requested = String(direction || '');
-      if (!['left', 'right', 'around', 'up', 'down', 'level'].includes(requested)) {
-        return { ok: false, error: 'unknown_look_direction', direction: requested };
+      const requested = {
+        horizontal: String(horizontal || ''),
+        vertical: String(vertical || ''),
+      };
+      if (!['same', 'left', 'right', 'around'].includes(requested.horizontal)) {
+        return { ok: false, error: 'unknown_horizontal_look_direction', ...requested };
+      }
+      if (!['same', 'up', 'level', 'down'].includes(requested.vertical)) {
+        return { ok: false, error: 'unknown_vertical_look_direction', ...requested };
+      }
+      if (requested.horizontal === 'same' && requested.vertical === 'same') {
+        return { ok: false, error: 'look_direction_unchanged', ...requested };
       }
       const horizontalTurns: Record<string, number> = {
         left: Math.PI / 2,
         right: -Math.PI / 2,
         around: Math.PI,
       };
-      const verticalTurns: Record<string, number> = {
+      const verticalBands: Record<string, number> = {
         up: Math.PI / 6,
+        level: 0,
         down: -Math.PI / 6,
       };
-      const targetYaw = normalizeYaw(yaw + (horizontalTurns[requested] ?? 0));
-      const targetPitch =
-        requested === 'level'
-          ? 0
-          : clamp(
-              pitch + (verticalTurns[requested] ?? 0),
-              -Math.PI / 2 + 0.001,
-              Math.PI / 2 - 0.001,
-            );
+      const targetYaw = normalizeYaw(yaw + (horizontalTurns[requested.horizontal] ?? 0));
+      const targetPitch = clamp(
+        verticalBands[requested.vertical] ?? pitch,
+        -Math.PI / 2 + 0.001,
+        Math.PI / 2 - 0.001,
+      );
       await (bot as any).look(targetYaw, targetPitch, false);
       const finalYaw = finiteNumber(body?.yaw);
       const finalPitch = finiteNumber(body?.pitch);
@@ -227,7 +240,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         return {
           ok: false,
           error: 'body_orientation_unconfirmed',
-          direction: requested,
+          ...requested,
           requested: orientationRecord(targetYaw, targetPitch),
           observed:
             finalYaw == null || finalPitch == null ? null : orientationRecord(finalYaw, finalPitch),
@@ -235,7 +248,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       }
       return {
         ok: true,
-        direction: requested,
+        ...requested,
         from: orientationRecord(yaw, pitch),
         orientation: orientationRecord(finalYaw, finalPitch),
         confirmation: 'mineflayer:body_orientation',
@@ -4901,8 +4914,6 @@ function orientationRecord(yaw: number, pitch: number) {
   return {
     facing,
     vertical,
-    yawDegrees: round((normalizeYaw(yaw) * 180) / Math.PI),
-    pitchDegrees: round((pitch * 180) / Math.PI),
   };
 }
 

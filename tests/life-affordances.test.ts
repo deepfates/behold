@@ -89,43 +89,47 @@ test('look_direction exposes bounded relative player orientation without raw ang
   const interpreter = buildInterpreter(bot);
   const spec = interpreter.describe('look_direction');
 
-  assert.deepEqual(spec?.parameters.required, ['direction']);
-  assert.deepEqual(spec?.parameters.properties.direction.enum, [
+  assert.deepEqual(spec?.parameters.required, ['horizontal', 'vertical']);
+  assert.deepEqual(spec?.parameters.properties.horizontal.enum, [
+    'same',
     'left',
     'right',
     'around',
-    'up',
-    'down',
-    'level',
   ]);
+  assert.deepEqual(spec?.parameters.properties.vertical.enum, ['same', 'up', 'level', 'down']);
 
-  const left = await interpreter.run('look_direction', { direction: 'left' });
-  assert.equal(left.ok, true);
-  assert.deepEqual(left.from, {
+  const leftDown = await interpreter.run('look_direction', {
+    horizontal: 'left',
+    vertical: 'down',
+  });
+  assert.equal(leftDown.ok, true);
+  assert.deepEqual(leftDown.from, {
     facing: 'north',
     vertical: 'level',
-    yawDegrees: 0,
-    pitchDegrees: 0,
   });
-  assert.deepEqual(left.orientation, {
+  assert.deepEqual(leftDown.orientation, {
     facing: 'west',
-    vertical: 'level',
-    yawDegrees: 90,
-    pitchDegrees: 0,
+    vertical: 'down',
   });
 
-  await interpreter.run('look_direction', { direction: 'around' });
-  const up = await interpreter.run('look_direction', { direction: 'up' });
+  await interpreter.run('look_direction', { horizontal: 'around', vertical: 'same' });
+  const up = await interpreter.run('look_direction', { horizontal: 'same', vertical: 'up' });
   assert.equal(up.ok, true);
   assert.equal(up.orientation.vertical, 'up');
-  assert.equal(up.orientation.pitchDegrees, 30);
-  const level = await interpreter.run('look_direction', { direction: 'level' });
+  assert.ok(Math.abs(calls.at(-1)!.pitch - Math.PI / 6) < 0.001);
+  const level = await interpreter.run('look_direction', {
+    horizontal: 'same',
+    vertical: 'level',
+  });
   assert.equal(level.orientation.vertical, 'level');
-  assert.equal(level.orientation.pitchDegrees, 0);
+  assert.equal(calls.at(-1)!.pitch, 0);
   bot.entity.pitch = (80 * Math.PI) / 180;
-  const bounded = await interpreter.run('look_direction', { direction: 'up' });
+  const bounded = await interpreter.run('look_direction', {
+    horizontal: 'same',
+    vertical: 'up',
+  });
   assert.equal(bounded.ok, true);
-  assert.ok(bounded.orientation.pitchDegrees < 90);
+  assert.ok(Math.abs(calls.at(-1)!.pitch - Math.PI / 6) < 0.001);
   assert.ok(calls.every((call) => call.force === false));
 });
 
@@ -135,7 +139,10 @@ test('look_direction fails closed when orientation is unavailable or unconfirmed
   unavailable.entity.pitch = 0;
   unavailable.look = async () => {};
   assert.deepEqual(
-    await buildInterpreter(unavailable).run('look_direction', { direction: 'left' }),
+    await buildInterpreter(unavailable).run('look_direction', {
+      horizontal: 'left',
+      vertical: 'same',
+    }),
     {
       ok: false,
       error: 'body_orientation_unavailable',
@@ -147,13 +154,46 @@ test('look_direction fails closed when orientation is unavailable or unconfirmed
   unchanged.entity.pitch = 0;
   unchanged.look = async () => {};
   const unconfirmed = await buildInterpreter(unchanged).run('look_direction', {
-    direction: 'right',
+    horizontal: 'right',
+    vertical: 'same',
   });
   assert.equal(unconfirmed.ok, false);
   assert.equal(unconfirmed.error, 'body_orientation_unconfirmed');
   assert.deepEqual(
-    await buildInterpreter(unchanged).run('look_direction', { direction: 'sideways' }),
-    { ok: false, error: 'unknown_look_direction', direction: 'sideways' },
+    await buildInterpreter(unchanged).run('look_direction', {
+      horizontal: 'sideways',
+      vertical: 'same',
+    }),
+    {
+      ok: false,
+      error: 'unknown_horizontal_look_direction',
+      horizontal: 'sideways',
+      vertical: 'same',
+    },
+  );
+  assert.deepEqual(
+    await buildInterpreter(unchanged).run('look_direction', {
+      horizontal: 'same',
+      vertical: 'sideways',
+    }),
+    {
+      ok: false,
+      error: 'unknown_vertical_look_direction',
+      horizontal: 'same',
+      vertical: 'sideways',
+    },
+  );
+  assert.deepEqual(
+    await buildInterpreter(unchanged).run('look_direction', {
+      horizontal: 'same',
+      vertical: 'same',
+    }),
+    {
+      ok: false,
+      error: 'look_direction_unchanged',
+      horizontal: 'same',
+      vertical: 'same',
+    },
   );
 
   let called = false;
@@ -164,7 +204,7 @@ test('look_direction fails closed when orientation is unavailable or unconfirmed
   abort.abort();
   const cancelled = await buildInterpreter(unchanged).run(
     'look_direction',
-    { direction: 'left' },
+    { horizontal: 'left', vertical: 'down' },
     { signal: abort.signal },
   );
   assert.equal(cancelled.ok, false);

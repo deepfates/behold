@@ -151,8 +151,23 @@ function projectSelf(self: any) {
   if (!self || typeof self !== 'object') return self;
   return {
     ...self,
+    ...(self.pose ? { pose: projectCurrentPose(self.pose) } : {}),
     currentAction: projectCurrentAction(self.currentAction),
   };
+}
+
+function projectCurrentPose(pose: any) {
+  if (!pose || typeof pose !== 'object') return pose;
+  const { yaw, pitch, ...embodied } = pose;
+  const numericYaw = Number(yaw);
+  const numericPitch = Number(pitch);
+  if (!Number.isFinite(numericYaw) || !Number.isFinite(numericPitch)) return embodied;
+  const x = -Math.sin(numericYaw) * Math.cos(numericPitch);
+  const z = -Math.cos(numericYaw) * Math.cos(numericPitch);
+  const facing = Math.abs(x) > Math.abs(z) ? (x > 0 ? 'east' : 'west') : z > 0 ? 'south' : 'north';
+  const vertical =
+    numericPitch > Math.PI / 12 ? 'up' : numericPitch < -Math.PI / 12 ? 'down' : 'level';
+  return { ...embodied, orientation: { facing, vertical } };
 }
 
 function projectCurrentAction(action: any) {

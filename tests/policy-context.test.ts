@@ -158,6 +158,23 @@ test('current task projection removes only exact duplicate and empty envelope fi
   assert.equal(projectCurrentModelObservation(frame).task.id, 'landmark-v1');
 });
 
+test('current body orientation is player-scale rather than raw angles', () => {
+  const frame: any = observation();
+  frame.self.pose = {
+    position: { x: 1, y: 64, z: 2 },
+    yaw: Math.PI / 2,
+    pitch: -Math.PI / 6,
+    velocity: { x: 0, y: 0, z: 0 },
+    onGround: true,
+  };
+
+  const pose = projectCurrentModelObservation(frame).self.pose;
+  assert.deepEqual(pose.orientation, { facing: 'west', vertical: 'down' });
+  assert.equal(pose.yaw, undefined);
+  assert.equal(pose.pitch, undefined);
+  assert.deepEqual(pose.position, { x: 1, y: 64, z: 2 });
+});
+
 test('protocol tool history retains exact consequences removed from duplicate observations', () => {
   const frame = observation();
   const turn: EntityTurn = {
