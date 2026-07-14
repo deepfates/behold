@@ -81,6 +81,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
   });
 
   let timer: NodeJS.Timeout | null = null;
+  let tickScheduled = false;
   let mutedLLM = false;
   let shuttingDown = false;
   let inFlight: {
@@ -127,7 +128,17 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
       return await execution;
     } finally {
       if (inFlight?.intent.id === intent.id) inFlight = null;
+      scheduleTick();
     }
+  }
+
+  function scheduleTick() {
+    if (!timer || tickScheduled || shuttingDown) return;
+    tickScheduled = true;
+    queueMicrotask(() => {
+      tickScheduled = false;
+      if (timer && !shuttingDown) void tick();
+    });
   }
 
   async function execute(intent: Intent, controller: AbortController) {
@@ -232,6 +243,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
   function start() {
     if (timer) return;
     timer = setInterval(tick, tickMs);
+    scheduleTick();
   }
 
   function stop() {
@@ -334,6 +346,7 @@ export function createEngine(registry: Registry, opts: EngineOptions = {}) {
     }
     const queued = arbiter.enqueue(intent);
     emit('intent_enqueued', { intent: queued });
+    scheduleTick();
     return true;
   }
 

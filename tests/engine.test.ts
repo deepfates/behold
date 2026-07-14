@@ -52,6 +52,69 @@ test('every active action holds execution ownership and deduplicates equivalent 
   assert.ok(events.includes('action_completed:move_to'));
 });
 
+test('a started engine dispatches admitted work immediately and drains it serially', async () => {
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => (releaseFirst = resolve));
+  let markFirstStarted!: () => void;
+  const firstStarted = new Promise<void>((resolve) => (markFirstStarted = resolve));
+  let markSecondStarted!: () => void;
+  const secondStarted = new Promise<void>((resolve) => (markSecondStarted = resolve));
+  const started: string[] = [];
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async (tool) => {
+        started.push(tool);
+        if (tool === 'first') {
+          markFirstStarted();
+          await firstGate;
+        } else {
+          markSecondStarted();
+        }
+        return { ok: true };
+      },
+    },
+    { tickMs: 60_000 },
+  );
+
+  engine.start();
+  try {
+    engine.enqueueIntent({ id: 'first', source: 'llm', tool: 'first' });
+    await firstStarted;
+    engine.enqueueIntent({ id: 'second', source: 'llm', tool: 'second' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(started, ['first']);
+
+    releaseFirst();
+    await secondStarted;
+    assert.deepEqual(started, ['first', 'second']);
+  } finally {
+    releaseFirst();
+    engine.stop();
+  }
+});
+
+test('stopping the engine cancels scheduled automatic dispatch', async () => {
+  let dispatches = 0;
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async () => {
+        dispatches += 1;
+        return { ok: true };
+      },
+    },
+    { tickMs: 60_000 },
+  );
+
+  engine.start();
+  engine.stop();
+  engine.enqueueIntent({ id: 'after-stop', source: 'llm', tool: 'move_to' });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(dispatches, 0);
+});
+
 test('an interpreter result with ok false emits a failed lifecycle', async () => {
   const events: string[] = [];
   const engine = createEngine(
