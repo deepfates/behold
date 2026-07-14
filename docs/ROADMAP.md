@@ -42,6 +42,11 @@ test, not the organizing purpose of the system.
 - Player-scale relative walking refuses an obstructed adjacent body step before
   pathfinding and enforces bounded time, horizontal displacement, and vertical
   displacement instead of silently taking an arbitrary route
+- A model-independent native-body conformance runner now exercises one admitted
+  player action through the production engine and a real managed server. Its
+  first gate proves that placement may own one bounded step-aside while
+  preserving the exact target, receiving Minecraft block-update confirmation,
+  appending one durable turn, and passing an independent fresh-client witness
 - One canonical causal, loss-visible observation projection shared by recent
   model history and disposable Lync folds; provider-free projection of the
   previously oversized Wren batch is 33,930 bytes
@@ -114,8 +119,9 @@ test, not the organizing purpose of the system.
 2. Compress and measure the ordinary recent-turn frontier without mutating its
    authoritative Lync source, then keep the hard aggregate call ceiling above
    expected episode demand as a safety boundary.
-3. Finish the player-grain action audit and prove bounded body skills against a
-   real server independently of whether a model happens to choose them.
+3. Extend the player-grain body conformance gate from the now-proved compound
+   placement case to the smallest representative set of movement, interaction,
+   self-care, and interruption semantics; do not create one runner per story.
 4. Move continuing projects beyond prepared exact cells: let a resident orient,
    choose an ordinary site, and resume recognizable work through native looking,
    movement, and first-person evidence.

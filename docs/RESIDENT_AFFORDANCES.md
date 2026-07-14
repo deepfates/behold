@@ -174,6 +174,15 @@ from missing observation, missing primitive, weak body skill, weak model
 choice, world content, or evaluation design. Add an affordance only when the
 native-player basis has a real hole.
 
+Body conformance and lived competence are separate gates. A deterministic
+driver may choose one ordinary action to prove that authorization, bounded
+motor work, Minecraft confirmation, durable consequence, independent witness,
+and teardown all compose on a real server. It must not be reported as evidence
+that a mind would choose that action. Conversely, a model failure does not
+falsify a body skill until the production-path conformance gate fails. The
+first such gate proved a body-intersection `place_block` without steering or
+paying a model.
+
 The Venice trial on July 14, 2026 is the example: an untasked resident chose a
 base project and persisted it across restart, but followed sparse façade
 coordinates and opened a one-block-high tunnel while ordinary doors existed

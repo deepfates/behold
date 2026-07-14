@@ -318,12 +318,39 @@ inside Wren's body, so the bounded step-aside branch was not exercised in the
 live run. It remains unit-proven and live-unproven. The run should not be
 repeated merely to coax that branch from the model.
 
+That branch was instead separated from model choice and tested through the
+production body path. The `native-body-conformance` runner admits one scripted
+`place_block` intent through the normal engine, authority decision, Mineflayer
+body, Minecraft server, terminal lifecycle, and entity Lync. A fresh second
+Minecraft body then observes the target independently, and the normal managed
+owner saves, stops, and proves that control, port, and leases are clear.
+
+The first real attempts exposed an evaluation error rather than earning a body
+change. At the world spawn and at `x=10`, Pathfinder performed the bounded
+step-aside, but Minecraft refused the placement without a block update. Moving
+the prepared body to `x=24`, beyond the conventional 16-block spawn-policy
+region, made the otherwise unchanged proof pass. This is consistent with a
+fixture/server-policy boundary; it does not prove which internal server check
+refused the earlier cells. At revision `66ac58f...`, all 12
+declared assertions: the body initially occupied `(24,-60,0)`, the same
+admitted action moved to a supported adjacent feet cell in 150 ms, the original
+cell changed from air to dirt under `mineflayer:blockUpdate`, inventory fell
+from one dirt to zero, a fresh client saw dirt state 10 at the exact target,
+the one turn was durable, and teardown was clean. The canonical report digest
+is `4a14aa36eea13eecebf510d97dd9773a92bfed73feeff74571353214ad128bcc`.
+
+This is now a live body-contract pass, not a recovery or mind-competence pass.
+It demonstrates the useful testing split: deterministic conformance proves
+that one admitted player intention can be carried through real physics, while
+Wren's untasked life tests whether a mind chooses and composes such intentions
+from bounded experience.
+
 ## Next gate
 
 The small paid tier, teardown validation, continuing urgency, canopy descent,
-player-scale mutation, bounded recent-outcome continuity, and public intention
-are now green. The composed recovery remains red, and the local compound
-placement correction remains unit-proven rather than live-proven.
+player-scale mutation, bounded recent-outcome continuity, public intention,
+and the local compound placement body contract are now green. The composed
+recovery remains red.
 The next danger gate should keep Gemini for ordinary cognition and Luna only
 for bodily urgency, and should prove all of the following from journals and
 Minecraft consequences:
@@ -336,9 +363,6 @@ Minecraft consequences:
 - recent successful placements and precise failures remain legible enough to
   revise the same plan instead of abandoning the structure or repeating an
   impossible placement;
-- a real body-intersection placement demonstrates one bounded reposition and
-  one Minecraft-confirmed mutation under the same admitted action, without
-  exceeding the movement envelope or hiding an intermediate failure;
 - a recovery pass requires food/health improvement or independently verified
   defensible cover, not disappearance of a hostile from the camera; and
 - exact prompt tokens, cost, latency, cancellation, body state, and resulting
@@ -359,3 +383,5 @@ problem and needs its own causal compression gate.
   evidence under `.behold-runtime/world-control/first-life-v1/`
 - provider-free request profiles and exact-frame candidate records under the
   two resident run directories
+- native body conformance:
+  `.behold-runtime/owned-world-proofs/placement-step-aside-v6/evidence/native-body-conformance.json`
