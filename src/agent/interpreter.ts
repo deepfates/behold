@@ -1264,7 +1264,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         // horizontal clearance; retain the adjacent fallback for confined
         // spaces where it is the only ordinary player stance.
         const stand =
-          conflict.suggestedFeetPositions.find(
+          safePlacementStandPositions(bot, position, 24).find(
             (candidate: BlockPosition) =>
               Math.hypot(candidate.x - position.x, candidate.z - position.z) >= 1.5,
           ) ?? conflict.suggestedFeetPositions[0];
@@ -3379,7 +3379,7 @@ function isInteriorAmenity(value: string) {
   );
 }
 
-function safePlacementStandPositions(bot: Bot, target: BlockPosition) {
+function safePlacementStandPositions(bot: Bot, target: BlockPosition, limit = 6) {
   const body = (bot as any).entity?.position;
   const candidates: Array<{ x: number; y: number; z: number; distance: number }> = [];
   for (const y of [target.y - 1, target.y, target.y + 1, target.y + 2]) {
@@ -3409,7 +3409,7 @@ function safePlacementStandPositions(bot: Bot, target: BlockPosition) {
   }
   return candidates
     .sort((a, b) => a.distance - b.distance || a.y - b.y || a.x - b.x || a.z - b.z)
-    .slice(0, 6)
+    .slice(0, Math.max(1, Math.min(24, limit)))
     .map(({ x, y, z }) => ({ x, y, z }));
 }
 
