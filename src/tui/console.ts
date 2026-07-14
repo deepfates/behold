@@ -39,6 +39,15 @@ export type ConsoleOptions = {
   allowTools?: string[] | null;
   task?: string;
   target?: string;
+  /**
+   * Programmatic world/evaluation setup after the native body has synchronized
+   * but before the resident is declared ready or cognition can begin. This is
+   * deliberately absent from the CLI and from the resident action surface.
+   */
+  beforeResidentReady?: (context: {
+    bot: ReturnType<typeof createBot>;
+    observe: () => ReturnType<InhabitantExperience['observe']>;
+  }) => Promise<void>;
 };
 
 export async function runConsole(opts: ConsoleOptions = {}) {
@@ -311,7 +320,12 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     void (bot as any)
       .waitForChunksToLoad()
       .then(() => waitForInitialWorldSync(bot as any, INITIAL_WORLD_SYNC_SETTLE_MS))
-      .then(() => {
+      .then(async () => {
+        if (shutdownStarted) return;
+        await opts.beforeResidentReady?.({
+          bot,
+          observe: () => experience.observe(),
+        });
         if (shutdownStarted) return;
         localWorldReady = true;
         experience.markLocalWorldReady(INITIAL_WORLD_SYNC_SETTLE_MS);
@@ -324,6 +338,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           appendJournal('local_world_readiness_failed', {
             error: error?.message || String(error),
           });
+          void requestShutdown?.(
+            'local_world_readiness_failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
         }
       });
     let lastObservationAt = 0;

@@ -16,6 +16,11 @@ function report() {
       entityId: 'WrenLife',
       worldId: 'first-life-v1',
       managedRunId: 'first-life-v1-50',
+      model: 'openai/gpt-5.4-mini',
+      urgentModel: 'openai/gpt-5.4-mini',
+      task: null,
+      target: null,
+      controller: { kind: 'llm', mindAdapter: 'direct', allowTools: null },
       initial: sample(2, { health: 2, food: 13, oxygen: 20 }),
       urgency: {
         journalSequence: 2,
@@ -43,6 +48,20 @@ function report() {
           positionAfter: { x: 53.5, y: 65, z: 91.5 },
           mutationPositions: [{ x: 53, y: 66, z: 92 }],
           confirmation: 'mineflayer:blockUpdate',
+          modelCall: {
+            protocol: 'behold.model-call.v1',
+            requestId: 'model-live-1',
+            adapter: 'direct-openrouter',
+            model: 'openai/gpt-5.4-mini',
+            provider: 'OpenAI',
+            admission: {
+              protocol: 'behold.cognition-admission.v1',
+              brokerId: 'cognition-live-1',
+              purpose: 'resident_decision',
+              priority: 'urgent',
+              urgentTriggerSequence: 3,
+            },
+          },
         },
       ],
       deathEvents: [],
@@ -131,6 +150,18 @@ test('a controller claim, displaced body, mutated autobiography, or witness-writ
   assert.equal(assessment.assertions.witnessDidNotWriteResidentMemory, false);
 });
 
+test('a task, allowlist, or scripted/unbrokered recovery choice cannot pass as untasked life', () => {
+  const input = report();
+  input.source.task = 'escape-the-test';
+  input.source.controller.allowTools = ['move_direction'];
+  input.source.recoveryActions[0].modelCall = null;
+  const assessment = assessResidentRecoveryWitness(input);
+  assert.equal(assessment.pass, false);
+  assert.equal(assessment.assertions.untaskedResident, false);
+  assert.equal(assessment.assertions.unrestrictedResidentSurface, false);
+  assert.equal(assessment.assertions.brokerAdmittedRealModelDecision, false);
+});
+
 test('death or missing body telemetry cannot masquerade as a completed recovery', () => {
   const input = report();
   input.source.nadir.condition = { health: null, food: null, oxygen: null };
@@ -201,7 +232,7 @@ test('source summarization binds body urgency, nadir, resident action, improveme
         triggers: [{ sequence: 3, type: 'condition_changed', salience: 'urgent' }],
       },
       observation: { sequence: 3, self: body(2), events: [] },
-      action: { name: 'consume', source: 'llm' },
+      action: { id: 'llm-recovery-1', name: 'consume', source: 'llm' },
       outcome: { ok: true, result: { ok: true, confirmation: 'mineflayer:health' } },
       nextObservation: { sequence: 8, self: body(6), events: [] },
     }),
@@ -213,6 +244,30 @@ test('source summarization binds body urgency, nadir, resident action, improveme
     }),
   ];
 
+  events.splice(
+    2,
+    0,
+    envelope(3, 'model_turn', {
+      intent: { id: 'llm-recovery-1', source: 'llm', tool: 'consume' },
+      call: {
+        protocol: 'behold.model-call.v1',
+        requestId: 'model-recovery-1',
+        adapter: { name: 'direct-openrouter' },
+        admissions: [
+          {
+            protocol: 'behold.cognition-admission.v1',
+            brokerId: 'cognition-recovery-1',
+            purpose: 'resident_decision',
+            priority: 'urgent',
+            urgentTriggerSequence: 3,
+          },
+        ],
+        request: { model: 'openai/gpt-5.4-mini' },
+        response: { provider: 'OpenAI' },
+      },
+    }),
+  );
+
   const source = summarizeResidentRecoverySource(events, 'WrenLife', 'first-life-v1');
   assert.equal(source.initial.condition.health, 2);
   assert.equal(source.urgency?.source, 'body');
@@ -220,6 +275,7 @@ test('source summarization binds body urgency, nadir, resident action, improveme
   assert.equal(source.final.condition.health, 6);
   assert.equal(source.recoveryActions.length, 1);
   assert.equal(source.recoveryActions[0].kind, 'nourishment');
+  assert.equal(source.recoveryActions[0].modelCall?.provider, 'OpenAI');
   assert.deepEqual(source.deathEvents, []);
 });
 

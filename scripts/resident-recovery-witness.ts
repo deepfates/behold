@@ -39,6 +39,16 @@ import {
 const WITNESS_MODEL = 'evaluator/resident-recovery-witness-v2';
 const PHASE_FILE = 'resident-recovery-witness-phase.json';
 
+export type ResidentRecoveryWitnessOptions = Readonly<{
+  configPath: string;
+  worldId: string;
+  entityId: string;
+  sourceJournal: string;
+  entityRoot?: string;
+  controlRoot?: string;
+  runRoot?: string;
+}>;
+
 async function runProof() {
   const parsed = parseArgs({
     args: process.argv.slice(2),
@@ -47,22 +57,35 @@ async function runProof() {
       world: { type: 'string' },
       entity: { type: 'string' },
       sourceJournal: { type: 'string' },
+      entityRoot: { type: 'string' },
+      controlRoot: { type: 'string' },
+      runRoot: { type: 'string' },
       help: { type: 'boolean', default: false },
     },
   });
   if (parsed.values.help) {
     process.stdout.write(
-      'Usage: resident-recovery-witness --config <worlds.json> --world <id> --entity <id> --sourceJournal <journal.jsonl>\n',
+      'Usage: resident-recovery-witness --config <worlds.json> --world <id> --entity <id> --sourceJournal <journal.jsonl> [--entityRoot <dir>] [--controlRoot <dir>] [--runRoot <dir>]\n',
     );
     return;
   }
+  await runResidentRecoveryWitness({
+    configPath: requiredOption(parsed.values.config, '--config'),
+    worldId: requiredOption(parsed.values.world, '--world'),
+    entityId: requiredOption(parsed.values.entity, '--entity'),
+    sourceJournal: requiredOption(parsed.values.sourceJournal, '--sourceJournal'),
+    ...(parsed.values.entityRoot ? { entityRoot: String(parsed.values.entityRoot) } : {}),
+    ...(parsed.values.controlRoot ? { controlRoot: String(parsed.values.controlRoot) } : {}),
+    ...(parsed.values.runRoot ? { runRoot: String(parsed.values.runRoot) } : {}),
+  });
+}
+
+export async function runResidentRecoveryWitness(options: ResidentRecoveryWitnessOptions) {
   assertCleanRepository();
-  const configPath = path.resolve(requiredOption(parsed.values.config, '--config'));
-  const worldId = requiredOption(parsed.values.world, '--world');
-  const entityId = requiredOption(parsed.values.entity, '--entity');
-  const sourceJournal = path.resolve(
-    requiredOption(parsed.values.sourceJournal, '--sourceJournal'),
-  );
+  const configPath = path.resolve(options.configPath);
+  const worldId = requiredOption(options.worldId, 'worldId');
+  const entityId = requiredOption(options.entityId, 'entityId');
+  const sourceJournal = path.resolve(options.sourceJournal);
   const config = loadWorldLabConfig(configPath);
   const world = config.worlds[worldId];
   if (!world) throw new Error(`unknown world ${worldId}`);
@@ -75,9 +98,9 @@ async function runProof() {
   const toolLock = JSON.parse(
     fs.readFileSync(path.resolve('docs/sf-world/tool-lock.json'), 'utf8'),
   );
-  const entityRoot = path.resolve('.behold-entities');
-  const controlRoot = path.resolve('.behold-runtime/world-control');
-  const runRoot = path.resolve('.behold-runs');
+  const entityRoot = path.resolve(options.entityRoot ?? '.behold-entities');
+  const controlRoot = path.resolve(options.controlRoot ?? '.behold-runtime/world-control');
+  const runRoot = path.resolve(options.runRoot ?? '.behold-runs');
   let run: Awaited<ReturnType<typeof startManagedWorld>> | null = null;
   try {
     run = await startManagedWorld(
@@ -165,6 +188,7 @@ async function runProof() {
     process.stdout.write(
       `[resident-recovery] PASS ${reportFile}\n[resident-recovery] sha256 ${sha256File(reportFile)}\n`,
     );
+    return { reportFile, report };
   } catch (error) {
     if (run) await run.stop('resident_recovery_witness_failed').catch(() => {});
     throw error;
@@ -293,16 +317,18 @@ function bundledJava() {
   return process.env.SERVER_JAVA || (fs.existsSync(candidate) ? candidate : 'java');
 }
 
-if (process.argv.slice(2).includes('--server')) {
-  void runWitness().catch((error) => {
-    process.stderr.write(
-      `[resident-recovery:witness] ${error instanceof Error ? error.stack : error}\n`,
-    );
-    process.exitCode = 1;
-  });
-} else {
-  void runProof().catch((error) => {
-    process.stderr.write(`[resident-recovery] ${error instanceof Error ? error.stack : error}\n`);
-    process.exitCode = 1;
-  });
+if (require.main === module) {
+  if (process.argv.slice(2).includes('--server')) {
+    void runWitness().catch((error) => {
+      process.stderr.write(
+        `[resident-recovery:witness] ${error instanceof Error ? error.stack : error}\n`,
+      );
+      process.exitCode = 1;
+    });
+  } else {
+    void runProof().catch((error) => {
+      process.stderr.write(`[resident-recovery] ${error instanceof Error ? error.stack : error}\n`);
+      process.exitCode = 1;
+    });
+  }
 }

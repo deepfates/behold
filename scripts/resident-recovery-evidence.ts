@@ -54,6 +54,15 @@ export function summarizeResidentRecoverySource(events: any[], entityId: string,
     worldId,
     managedRunId: String(started.data?.runId || ''),
     loomFile: String(started.data?.entityLoom || ''),
+    model: String(started.data?.model || ''),
+    urgentModel: started.data?.urgentModel == null ? null : String(started.data.urgentModel),
+    task: started.data?.task ?? null,
+    target: started.data?.target ?? null,
+    controller: {
+      kind: started.data?.controller?.kind ?? null,
+      mindAdapter: started.data?.controller?.mindAdapter ?? null,
+      allowTools: started.data?.controller?.allowTools ?? null,
+    },
     initial: projectConditionSample(samples[0]),
     urgency: urgency ? projectLivedEvent(urgency) : null,
     nadir: nadir ? projectConditionSample(nadir) : null,
@@ -89,6 +98,16 @@ export function assessResidentRecoveryWitness(report: any) {
     Number(inspection.protectedRegionCellCount) >= 1 &&
     Number(inspection.closableEntranceCount) >= 1;
   const recoveryActions = Array.isArray(source.recoveryActions) ? source.recoveryActions : [];
+  const realModelRecoveryDecision = recoveryActions.every(
+    (action: any) =>
+      action.modelCall?.protocol === 'behold.model-call.v1' &&
+      nonempty(action.modelCall?.requestId) &&
+      nonempty(action.modelCall?.adapter) &&
+      nonempty(action.modelCall?.provider) &&
+      action.modelCall?.model === source.model &&
+      action.modelCall?.admission?.purpose === 'resident_decision' &&
+      nonempty(action.modelCall?.admission?.brokerId),
+  );
   const nourishmentAction = recoveryActions.some(
     (action: any) => action.kind === 'nourishment' && action.selectedFromCriticalBody === true,
   );
@@ -137,6 +156,12 @@ export function assessResidentRecoveryWitness(report: any) {
       nonempty(source.managedRunId) &&
       source.entityId === witness.entityId &&
       source.worldId === witness.worldId,
+    untaskedResident: source.task == null && source.target == null,
+    unrestrictedResidentSurface:
+      source.controller?.kind === 'llm' &&
+      ['direct', 'ax'].includes(String(source.controller?.mindAdapter || '')) &&
+      source.controller?.allowTools == null,
+    brokerAdmittedRealModelDecision: recoveryActions.length > 0 && realModelRecoveryDecision,
     laterManagedEpoch:
       nonempty(witness.managedRunId) && witness.managedRunId !== source.managedRunId,
     bodyOriginUrgency:
@@ -306,6 +331,7 @@ function residentRecoveryActions(events: any[], urgency: any, nadir: any) {
     const result = turn.outcome?.result ?? {};
     const kind = recoveryActionKind(action.name, turn.outcome, result);
     if (!kind) return [];
+    const modelCall = residentModelCall(events, action.id);
     return [
       {
         journalSequence: Number(envelope.sequence),
@@ -325,9 +351,39 @@ function residentRecoveryActions(events: any[], urgency: any, nadir: any) {
         mutationPositions: mutationPositions(result),
         confirmation: result.confirmation ?? null,
         status: result.status ?? null,
+        modelCall,
       },
     ];
   });
+}
+
+function residentModelCall(events: any[], intentId: unknown) {
+  const id = String(intentId || '');
+  if (!id) return null;
+  const decision = events.find(
+    (envelope) => envelope?.type === 'model_turn' && String(envelope.data?.intent?.id || '') === id,
+  );
+  const call = decision?.data?.call;
+  if (call?.protocol !== 'behold.model-call.v1') return null;
+  const admission = Array.isArray(call.admissions)
+    ? call.admissions.find((candidate: any) => candidate?.purpose === 'resident_decision')
+    : null;
+  return {
+    protocol: call.protocol,
+    requestId: String(call.requestId || ''),
+    adapter: String(call.adapter?.name || ''),
+    model: String(call.request?.model || ''),
+    provider: String(call.response?.provider || ''),
+    admission: admission
+      ? {
+          protocol: String(admission.protocol || ''),
+          brokerId: String(admission.brokerId || ''),
+          purpose: String(admission.purpose || ''),
+          priority: String(admission.priority || ''),
+          urgentTriggerSequence: finiteOrNull(admission.urgentTriggerSequence),
+        }
+      : null,
+  };
 }
 
 function recoveryActionKind(name: unknown, outcome: any, result: any) {

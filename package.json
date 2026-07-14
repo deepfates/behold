@@ -32,6 +32,7 @@
     "proof:native-attention": "npm run build && node dist/scripts/native-attention-conformance.js",
     "proof:native-doorway": "npm run build && node dist/scripts/native-doorway-conformance.js",
     "proof:resident-recovery": "npm run build && node dist/scripts/resident-recovery-witness.js",
+    "proof:resident-recovery-live": "npm run build && node dist/scripts/resident-recovery-live.js",
     "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
