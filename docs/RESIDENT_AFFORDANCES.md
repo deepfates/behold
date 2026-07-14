@@ -92,23 +92,36 @@ current entity, block, inventory, roster, or own-memory references. The generic
 controller may further restrict that set for authorization or urgent attention,
 but it does not discover Minecraft objects or mechanics.
 
+For neutral model evaluation, “supported” must mean meaningfully attemptable,
+not advisable. The compiler may remove an absent inventory use or a target this
+body did not perceive. It must not hide a risky vanilla choice to improve the
+resident's apparent judgment. Non-vanilla safety policy and composite body
+skills require named profiles so every evaluated mind receives the same
+problem. See [A neutral Minecraft agent benchmark](MINECRAFT_BENCHMARK.md).
+
 Current camera rays retain a bounded list of exact first-hit block targets.
 `face_visible_target` can orient toward one selected visible surface after
 freshly checking its id and name, and must confirm the same block under the
-cursor afterward. It does not find an object, choose which object matters,
-approach it, or use it. Cursor-gated skills appear only after that separately
-observable relation is true. This is a target language shared by doors and
-future block interactions, not a block ontology or a new verb per material.
+cursor afterward. It does not find an object or choose which object matters.
+Mining can now carry one selected visual target through orientation, bounded
+approach, and independently confirmed breakage without another model decision.
+Cursor-gated door, container, bed, and toggle skills still appear only after
+the crosshair relation is separately observable. This is one target language
+shared by block interactions, not a block ontology or a new verb per material.
 
 The offer compiler now applies the same rule beyond doors. Inventory stacks
 publish their native item uses from the active registry plus Mineflayer's
 ordinary consume rules; empty or inapplicable inventory removes eating,
-equipment, dropping, placement, and crafting fiction. Digging, toggles,
+equipment, dropping, placement, and crafting fiction. Visual mining narrows its
+input to current first-hit target ids. The current resident profile also removes
+targets its support-plane safety rule would refuse, and the executor rechecks
+that predicate against the fresh body. That is disclosed resident policy, not
+yet a neutral benchmark surface: vanilla permits risky downward mining and a
+benchmark should normally let the consequence score the choice. Toggles,
 containers, and beds require an exact reachable cursor block, and their schemas
-carry that one current position. Sleeping and waking follow the body's current
-state. Operator `status`, cursor probes, and raw coordinate looking are not
-resident choices because the lived observation already contains their ordinary
-information.
+carry that one current position. Sleeping and waking follow the body's current state. Operator
+`status`, cursor probes, and raw coordinate looking are not resident choices
+because the lived observation already contains their ordinary information.
 
 Affordances also have a closing time. Newly urgent bodily attention now carries
 a five-second default decision budget and only three recent committed turns in
@@ -146,20 +159,20 @@ or whether to keep fighting belongs to the resident.
 This is the forward-looking census. “Partial” means we can already perform
 ordinary examples but have not covered the whole native family.
 
-| Player family                              | Current status               | Important missing native experiences                                                                                      |
-| ------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Seeing, hearing, HUD, and events           | Partial                      | exact-camera visual evidence; more legible obstruction and interaction feedback                                           |
-| Looking and facing                         | Live-proven basic coverage   | decide when images are worth their cost; face selected visible targets consistently                                       |
-| Walking and exploration                    | Live-proven walk and swim    | vertical swimming and climbing; intentional sneak/sprint when meaningful                                                  |
-| Breaking, placing, and ordinary use        | Partial                      | carry the exact visible-target language through mine/place/use; held-item use rather than block-specific controller verbs |
-| Inventory, equipment, pickup, and drop     | Strong basic coverage        | offhand and inventory arrangement only when gameplay makes them meaningful                                                |
-| Crafting and storage                       | Partial                      | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions                                    |
-| Food, sleep, hazards, death, and recovery  | Live-proven bounded recovery | continuous survival competence, varied hazards, and recovery across long lives                                            |
-| Creatures and combat                       | Partial                      | independently proven sustained combat; feed, breed, tame, leash, fish, and ordinary entity use                            |
-| Villagers and multiplayer relations        | Partial                      | inspect/select trades, exchange/gifts with witnessed transfer, longer collaboration                                       |
-| Books, signs, maps, and built culture      | Red                          | read/write native artifacts and understand visual builds without an oracle                                                |
-| Vehicles and world traversal               | Red                          | mount/dismount, boats/minecarts, portals/dimensions, and later elytra                                                     |
-| Projects, places, commitments, and restart | Strong core                  | evidence from longer lives and multiple concurrent residents                                                              |
+| Player family                              | Current status               | Important missing native experiences                                                                                        |
+| ------------------------------------------ | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Seeing, hearing, HUD, and events           | Partial                      | exact-camera visual evidence; more legible obstruction and interaction feedback                                             |
+| Looking and facing                         | Live-proven basic coverage   | decide when images are worth their cost; face selected visible targets consistently                                         |
+| Walking and exploration                    | Live-proven walk and swim    | vertical swimming and climbing; intentional sneak/sprint when meaningful                                                    |
+| Breaking, placing, and ordinary use        | Partial                      | extend the now-working visual mining reference through place/use; held-item use rather than block-specific controller verbs |
+| Inventory, equipment, pickup, and drop     | Strong basic coverage        | offhand and inventory arrangement only when gameplay makes them meaningful                                                  |
+| Crafting and storage                       | Partial                      | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions                                      |
+| Food, sleep, hazards, death, and recovery  | Live-proven bounded recovery | continuous survival competence, varied hazards, and recovery across long lives                                              |
+| Creatures and combat                       | Partial                      | independently proven sustained combat; feed, breed, tame, leash, fish, and ordinary entity use                              |
+| Villagers and multiplayer relations        | Partial                      | inspect/select trades, exchange/gifts with witnessed transfer, longer collaboration                                         |
+| Books, signs, maps, and built culture      | Red                          | read/write native artifacts and understand visual builds without an oracle                                                  |
+| Vehicles and world traversal               | Red                          | mount/dismount, boats/minecarts, portals/dimensions, and later elytra                                                       |
+| Projects, places, commitments, and restart | Strong core                  | evidence from longer lives and multiple concurrent residents                                                                |
 
 Mineflayer already exposes real Minecraft mechanisms for many red cells,
 including generic block/entity/item activation, furnaces, enchanting, anvils,
@@ -209,10 +222,17 @@ What remains red, in priority order:
    need equally useful body-scale evidence without revealing a hidden route or
    loaded-volume map.
 4. **Visible-target interaction.** Peripheral first-hit surfaces now have exact
-   ids and a resident can select and face one with stale-target checks. Carry
-   that same reference through mine, use, place, and approach. Coordinates
-   remain valid remembered-place evidence, not the only language of embodied
-   action.
+   ids. A resident can select and face one with stale-target checks, and a live
+   model has selected one directly for mining without a separate facing turn.
+   The body owns orientation and approach; the engine still revalidates target
+   identity, reach, action safety, and Minecraft's consequence. The first live
+   choices were refused by the resident profile because they were below the
+   body's support plane, so its offer compiler now excludes those targets before
+   cognition. Those targets are risky, not impossible in vanilla, and the
+   neutral benchmark must separate that safety policy. Successful direct mining
+   is covered by native conformance, not yet by an untasked live-mind success.
+   Carry the same reference through use and place. Coordinates remain valid
+   remembered-place evidence, not the only language of embodied action.
 5. **Authentic visual channel.** A bounded screenshot may be the honest way to
    understand façades, signs, maps, builds, and human visual communication.
    It should supplement—not erase—the cheap structured body/event channel and

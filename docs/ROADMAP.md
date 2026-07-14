@@ -5,6 +5,12 @@
 Make worlds agents can genuinely inhabit, and learn what becomes possible when
 they do.
 
+The far horizon is not a Minecraft benchmark by itself. It is a causal medium
+where interchangeable minds enter situated bodies, experience and change an
+authoritative world, develop persistent identities, and leave exact Lync-backed
+episodes that can support memory, evaluation, optimization, collaboration, and
+culture without confusing any of those authorities.
+
 The immediate milestone is [First Life](FIRST_LIFE.md): one convincing continuing
 Minecraft inhabitant. The San Francisco world is valuable terrain for that life,
 not the product goal by itself. Come–See–Do–Report remains a useful regression
@@ -43,6 +49,11 @@ test, not the organizing purpose of the system.
 - Player-scale relative walking refuses an obstructed adjacent body step before
   pathfinding and enforces bounded time, horizontal displacement, and vertical
   displacement instead of silently taking an arbitrary route
+- Exact visual mining lets a resident choose one first-person surface while the
+  body owns orientation, bounded approach, and Minecraft-confirmed breakage.
+  The current resident profile's offer compiler and executor share one
+  body-support safety predicate. A neutral benchmark profile must expose risky
+  vanilla attempts rather than treating this preference as world physics
 - A model-independent native-body conformance runner now exercises one admitted
   player action through the production engine and a real managed server. Its
   first gate proves that placement may own one bounded step-aside while
@@ -84,10 +95,11 @@ test, not the organizing purpose of the system.
   one disposable Lync fold accounted for 67,319 prompt tokens and $0.1049295.
   Causal fold projection and a hard call ceiling are implemented, but no new
   paid run has established their token and cost effect
-- Competent danger recovery: Luna now chooses embodied escape rather than
-  unrelated project bookkeeping in live endangered frames, but one over-routed
-  movement, one bounded path-choice failure, and one correctly refused blocked
-  step do not prove escape, healing, shelter, or survival
+- Competent long-life survival: one untasked resident now chose an ordinary
+  player-relative swim during a genuine oxygen crisis, recovered, saved, and
+  remained recovered in a fresh managed epoch. That bounded corridor proof does
+  not establish food, shelter, hostile danger, death recovery, or continuous
+  survival competence
 - Human-scale urgent cognition: the exact run-39 frame now profiles at 32,447
   bytes and 16 grounded actions instead of 42,390 bytes and 26 actions, and a
   late proposal cannot be admitted after its five-second controller deadline;
@@ -125,27 +137,36 @@ test, not the organizing purpose of the system.
 - ProjectResident used Luna to build one two-block Venice landmark across two
   world epochs. Its first resumed action restated the surviving project, it did
   not repeat the first placement, and independent bodies saw both stages.
+- Wren experienced a real oxygen crisis without a task or action allowlist,
+  selected an ordinary forward swim through GPT-5.4-mini, recovered from oxygen
+  4 to 15, and restarted at the persisted safe position with oxygen 17. See the
+  [untasked recovery report](reports/2026-07-14-untasked-resident-recovery.md).
 
 ## Immediate priorities
 
-1. Give the endangered resident a short native-player recovery trajectory:
+1. Separate the neutral Minecraft environment and benchmark from resident
+   coaching: minimal protocol prompt, no forced project action, no hidden
+   anti-loop policy, named action/safety profiles, and Ax-owned optimizable
+   instruction artifacts. See
+   [the neutral benchmark design](MINECRAFT_BENCHMARK.md).
+2. Give the endangered resident a short native-player recovery trajectory:
    descend safely, reduce exposure, find food or shelter from first-person
    evidence, and survive—with bounded body skills and exact consequences.
-2. Compress and measure the ordinary recent-turn frontier without mutating its
+3. Compress and measure the ordinary recent-turn frontier without mutating its
    authoritative Lync source, then keep the hard aggregate call ceiling above
    expected episode demand as a safety boundary.
-3. Extend the player-grain body conformance gate from the now-proved compound
+4. Extend the player-grain body conformance gate from the now-proved compound
    placement case to the smallest representative set of movement, interaction,
    self-care, and interruption semantics; do not create one runner per story.
-4. Move continuing projects beyond prepared exact cells: let a resident orient,
+5. Move continuing projects beyond prepared exact cells: let a resident orient,
    choose an ordinary site, and resume recognizable work through native looking,
    movement, and first-person evidence.
-5. Stop multiplying scripted exchange scenarios: compress the repeated proof
+6. Stop multiplying scripted exchange scenarios: compress the repeated proof
    machinery, then run a minimally scripted household with a human and several
    continuing residents maintaining one shared place.
-6. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
+7. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
    autobiography growth.
-7. Extend relationship and project memory only where lived tests show that the
+8. Extend relationship and project memory only where lived tests show that the
    bounded recent trajectory and continuity projection are insufficient.
 
 ## Useful world work

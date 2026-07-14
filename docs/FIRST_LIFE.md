@@ -304,7 +304,9 @@ good.
    interchangeable here. A mind has no body capability and cannot execute or
    certify an action.
 7. **The entity loom** is the append-only autobiography that survives process and
-   model changes. Run journals remain separate operational evidence.
+   model changes. The same Lync source can expose anchored episode ranges and
+   branches without truncating the continuing life. Run journals remain separate
+   operational evidence.
 
 These boundaries let us replace a model, add an action, improve sensing, or move
 the history store without changing what an observation-action consequence means.
@@ -314,6 +316,13 @@ server incarnation and its admitted resident set. A **resident life** owns one
 entity identity, body lease, observation cursor, controller, mind, journal, and
 loom. Population machinery coordinates these scopes; it does not create a
 shared private mind or weaken per-body authority.
+
+An **episode** is a bounded, addressable view of activity inside those longer
+scopes. A resident episode can be a range of turns on its Lync thread; a
+multi-resident, restart, or benchmark episode can be a small evaluator-owned
+Lync loom that references several life ranges plus world and evidence artifacts.
+Episode judgment never enters the private life unless the resident later learns
+it through an ordinary channel.
 
 ### The irreducible loop
 
