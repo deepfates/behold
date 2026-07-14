@@ -569,6 +569,76 @@ test('stopping a policy aborts an in-flight model request and waits until it is 
   }
 });
 
+test('stopping a policy waits for an in-flight terminal turn and then settles', async () => {
+  let attempted: any = null;
+  let persistenceStarted!: () => void;
+  const started = new Promise<void>((resolve) => (persistenceStarted = resolve));
+  let releasePersistence!: () => void;
+  const persistence = new Promise<void>((resolve) => (releasePersistence = resolve));
+  let persisted = false;
+  const mind: ResidentMind = {
+    id: 'terminal-drain-mind',
+    decide: async (request) => ({
+      protocol: 'behold.mind-decision.v1',
+      disposition: 'act',
+      utterance: 'I will try one local move.',
+      action: { name: 'move_direction', input: {} },
+      call: modelCallEvidence('terminal-drain-mind', request.model),
+    }),
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_direction')],
+      attempt: (intent) => {
+        attempted = intent;
+        return true;
+      },
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+      onEntityTurn: async () => {
+        persistenceStarted();
+        await persistence;
+        persisted = true;
+      },
+    },
+  );
+
+  await policy.tick();
+  assert.ok(attempted);
+  const terminal = policy.onEngineEvent({
+    type: 'action_failed',
+    at: 20,
+    data: { intent: attempted, result: { ok: false, error: 'no_path' } },
+  });
+  await started;
+
+  let stopped = false;
+  const stopping = policy.stop().then(() => {
+    stopped = true;
+  });
+  await drainImmediateQueue();
+  assert.equal(stopped, false);
+  assert.equal(persisted, false);
+
+  releasePersistence();
+  await Promise.race([
+    stopping,
+    new Promise<never>((_resolve, reject) =>
+      setTimeout(() => reject(new Error('terminal policy stop timed out')), 250),
+    ),
+  ]);
+  await terminal;
+  assert.equal(stopped, true);
+  assert.equal(persisted, true);
+  assert.equal(policy.state().stopped, true);
+});
+
 test('stopping also interrupts a custom loom fold that cannot accept an AbortSignal', async () => {
   let started!: () => void;
   const foldStarted = new Promise<void>((resolve) => {

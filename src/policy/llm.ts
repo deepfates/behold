@@ -778,6 +778,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       turnSteps = 0;
     } finally {
       preparingContext = false;
+      settleStop();
     }
     if (!stopped && turnActive && !suspended) setImmediate(() => void continueTurn());
     else if (!stopped && wakeQueued) {
