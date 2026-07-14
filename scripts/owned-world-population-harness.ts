@@ -44,6 +44,7 @@ export async function runPopulationPhase<
   fixture: OwnedWorldFixture;
   residents: readonly ManagedResidentSpec[];
   maxResidents: number;
+  residentStartupDelayMs?: number;
   timeoutMs: number;
   transcript: string[];
   milestoneLabel: string;
@@ -78,6 +79,7 @@ export async function runPopulationPhase<
         runRoot,
         residents: input.residents,
         maxResidents: input.maxResidents,
+        residentStartupDelayMs: input.residentStartupDelayMs,
         startupTimeoutMs: 90_000,
         shutdownTimeoutMs: 90_000,
       },

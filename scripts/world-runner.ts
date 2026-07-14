@@ -120,6 +120,7 @@ export type ManagedWorldRunOptions = Readonly<{
   runRoot: string;
   residents: readonly ManagedResidentSpec[];
   maxResidents?: number;
+  residentStartupDelayMs?: number;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
 }>;
@@ -236,6 +237,18 @@ function normalizeManagedResidents(
       'maxResidents must be a positive safe integer',
       'resident_limit_invalid',
       { maxResidents },
+    );
+  }
+  const residentStartupDelayMs = options.residentStartupDelayMs ?? 0;
+  if (
+    !Number.isSafeInteger(residentStartupDelayMs) ||
+    residentStartupDelayMs < 0 ||
+    residentStartupDelayMs > 60_000
+  ) {
+    throw new WorldRunnerError(
+      'residentStartupDelayMs must be a safe integer from 0 through 60000',
+      'resident_start_delay_invalid',
+      { residentStartupDelayMs },
     );
   }
   if (!Array.isArray(options.residents) || options.residents.length === 0) {
@@ -527,6 +540,7 @@ export async function startManagedWorld(
         residentCount: residents.length,
         maxResidentProcesses: Math.max(1, Math.floor(options.maxResidents ?? 16)),
         maxConcurrentModelCalls: residents.length,
+        residentStartupDelayMs: options.residentStartupDelayMs ?? 0,
       },
       world: {
         id: options.worldId,
@@ -628,6 +642,14 @@ export async function startManagedWorld(
         pid: controller.pid,
         entityId: resident.entityId,
       });
+      if (index < residents.length - 1 && (options.residentStartupDelayMs ?? 0) > 0) {
+        control.append('resident_start_stagger', {
+          afterEntityId: resident.entityId,
+          beforeEntityId: residents[index + 1].entityId,
+          milliseconds: options.residentStartupDelayMs,
+        });
+        await sleep(options.residentStartupDelayMs!);
+      }
     }
     control.update('running');
     control.append('run_ready', {

@@ -115,7 +115,7 @@ async function main() {
     Object.freeze({
       role: 'giver',
       entityId: GIVER_ID,
-      task: `Get the nearby dropped ${ITEM} to ${RECIPIENT_ID}. Use only ordinary Minecraft actions available to your body. The other resident must choose their own response: do not claim receipt until you observe it. Do not pick the item back up. Once you observe ${RECIPIENT_ID} collect it, yield. On a later life, remember your own side of the completed handoff and do not repeat it.`,
+      task: `First walk to and pick up the nearby dropped ${ITEM}; it is not yet the handoff. Then drop that owned ${ITEM} for ${RECIPIENT_ID}. Use only ordinary Minecraft actions available to your body. The other resident must choose their own response: do not claim receipt until you observe it. Do not pick the item back up. Once you observe ${RECIPIENT_ID} collect it, yield. On a later life, remember your own side of the completed handoff and do not repeat it.`,
       allowTools: Object.freeze(['move_to', 'drop_item']),
     }),
     Object.freeze({
@@ -149,6 +149,7 @@ async function main() {
     fixture,
     residents: residentSpecs,
     maxResidents: HANDOFF_BUDGETS.maxResidents,
+    residentStartupDelayMs: 8_000,
     timeoutMs,
     transcript,
     milestoneLabel: 'native two-resident handoff',

@@ -111,6 +111,12 @@ test('resident configuration rejects canonical identity collisions and process-b
   );
   assert.equal(inspections, 0);
   assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
+
+  await assert.rejects(
+    () => startManagedWorld({ ...fixture.options, residentStartupDelayMs: -1 }, dependencies),
+    (error: any) => error?.code === 'resident_start_delay_invalid',
+  );
+  assert.equal(inspections, 0);
 });
 
 test('recovery preserves evidence before releasing an exact dead same-host epoch', async (t) => {
@@ -234,6 +240,7 @@ test('managed world runner owns conjunctive readiness, distinct leases, drain, s
   const builderLease = path.join(fixture.options.entityRoot, 'Builder', 'runtime.lock');
   const options = {
     ...fixture.options,
+    residentStartupDelayMs: 1,
     residents: [
       ...fixture.options.residents,
       {
@@ -344,6 +351,11 @@ test('managed world runner owns conjunctive readiness, distinct leases, drain, s
   assert.ok(events.some((event) => event.type === 'server_ready'));
   assert.ok(events.some((event) => event.type === 'run_ready'));
   assert.equal(events.filter((event) => event.type === 'controller_ready').length, 2);
+  assert.deepEqual(events.find((event) => event.type === 'resident_start_stagger')?.data, {
+    afterEntityId: 'Scout',
+    beforeEntityId: 'Builder',
+    milliseconds: 1,
+  });
   assert.ok(events.some((event) => event.type === 'residents_quiesced'));
   assert.ok(events.some((event) => event.type === 'server_save_acknowledged'));
   assert.ok(events.some((event) => event.type === 'run_stopped'));
