@@ -86,6 +86,38 @@ and resource accounting. It does not prove that the residents can yet sustain
 a relationship, cooperate on a project, resolve contention, or live together
 for a long time.
 
+## The first native handoff proof
+
+On July 13, 2026, `GiverResident` entered a managed epoch first, walked to a
+prepared apple, and acquired it through Minecraft's ordinary proximity pickup.
+`ReceiverResident` then joined the same epoch. The giver chose `drop_item`, which
+confirmed only its own inventory loss. The recipient independently chose
+`move_to`, Minecraft collected the dropped apple into that body, and each
+resident later observed its own side of the consequence. Fresh Minecraft
+connections found zero apples with the giver, one with the recipient, and no
+dropped apple in the world.
+
+The admitted physical action surface was deliberately tiny: the giver had
+`move_to` and `drop_item`; the recipient had only `move_to`. Neither received a
+symbolic geometry probe, an item-collection macro, or a social command such as
+`offer_item_to_player`. `wait_for_event` remained an explicit controller yield,
+not a Minecraft power. The residents restarted together, recovered their
+separate experiences, and both yielded without repeating the exchange.
+
+The passing run used `openai/gpt-5.6-luna`, made 9 model calls, consumed 27,189
+tokens, cost $0.03723325, and completed its two live phases in 45.4 seconds. Its
+largest call took 2.8 seconds; model concurrency peaked at two. A separate
+reassessment reparsed and rehashed the evidence and reproduced every passing
+assertion.
+
+Two earlier attempts exposed a real observation bug. Mineflayer announced chunk
+readiness before the existing item entity arrived, so a resident could mistake
+late initial synchronization for a new drop. Residents now wait through a
+bounded initial synchronization window, and entity appearances say whether they
+belong to `initial_world_sync` or the live world. The final proof also stages the
+giver eight seconds before the recipient, so it tests a handoff instead of an
+unrelated race for an unowned item.
+
 ## The architecture we actually need
 
 The implementation has seven boundaries. They are useful because each corresponds
@@ -96,8 +128,8 @@ good.
    game events.
 2. **Experience** turns body state, local scene summaries, and changes over time
    into a versioned observation. Each inhabitant owns its own event state.
-3. **Affordances** are a discoverable command registry. A human, a model, or a
-   script can attempt the same ordinary Minecraft actions.
+3. **Embodied actions and skills** are a discoverable command registry. A human,
+   a model, or a script can attempt the same player-scale Minecraft acts.
 4. **The engine** admits and serializes intents. It prevents overlapping actions,
    deduplicates equivalent pending actions, and lets a human suspend the model.
    The active adapter command still runs to a terminal result; acknowledged
@@ -167,16 +199,54 @@ useful translations, not a reason to import their world objects or controller
 internals. We extract a shared package only after two live integrations need the
 same semantics and the shared part is smaller than their adapters.
 
+### The player's grain
+
+We want experiential parity, not literal keypress parity. A language model does
+not need to emit twenty movement packets per second, but it should live inside
+the same intelligible world as a player.
+
+- **Observation** is what this body can presently perceive or feel: its HUD-like
+  condition, inventory, local scene, chat, and changes over time. A symbolic
+  encoding may replace pixels, but it must preserve locality, uncertainty,
+  timing, and provenance. Loaded server data must not masquerade as sight.
+- **A body action** is something a Minecraft player naturally says they do:
+  walk there, look, break, place, use, attack, craft, equip, eat, drop, speak,
+  open a container, or sleep.
+- **A motor skill** may compose many keypresses or pathfinder steps for one body,
+  provided it is bounded and interruptible and does not absorb a new decision.
+  `move_to` is a motor skill; “build a home” is not.
+- **An intention** such as give, teach, help, follow, trade, explore, survive, or
+  build together belongs to the resident's multi-turn thinking. It succeeds
+  only as ordinary acts and new observations accumulate.
+- **Controller operations** such as yielding, managing a durable project, or
+  selecting a memory view are part of cognition and lifecycle. They are not
+  Minecraft affordances even when the model invokes them through the same wire
+  protocol.
+
+A body action passes the grain test when a player would recognize the verb, it
+spends only one body's agency, it has a bounded horizon, and its result claims
+only that body's or its direct target's terminal consequence. It fails when it
+contains another being's choice, certifies a downstream social outcome, grants
+unlabeled extra-sensory knowledge, or is named after an entire user story.
+
+The current registry is still transitional. It contains conveniences such as
+`collect_nearby_item` and explicitly symbolic local-geometry probes used by
+earlier experiments. They can be useful body skills or observation adapters,
+but their presence does not make them canonical player actions. Parity-critical
+proofs declare their exact admitted surface and exclude any convenience that
+would decide the question being tested.
+
 ### Where behavior belongs
 
 When a lived failure suggests a new capability, change the smallest boundary
 that owns the missing fact:
 
-- **Experience** owns facts available now, including relations such as whether
-  another body is within interaction, nearby, or distant range.
-- **An affordance** owns one reusable world transaction with a postcondition the
-  adapter can verify. It may contain several motor steps when composing them in
-  the controller would be unsafe or would lose the relevant world consequence.
+- **Experience** owns player-scale facts available now, including uncertainty,
+  provenance, and relations such as whether another body is within interaction,
+  nearby, or distant range.
+- **A body action** owns one culturally intelligible act and a postcondition the
+  adapter can verify. A motor skill may contain several mechanical steps only
+  while they remain one body's continuous act.
 - **The controller** owns multi-turn purposes such as showing, teaching,
   following, exploring, building, and surviving. These are not new commands.
 - **A loom view** carries earlier evidence, relationships, and unfinished
@@ -185,12 +255,12 @@ that owns the missing fact:
 - **A verifier** judges a trajectory from outside the life. It does not become
   an instruction or privileged action inside the circle.
 
-An affordance is justified when it is useful across many intentions, has a
+An action or skill is justified when it is useful across many intentions, has a
 world-verifiable consequence, and cannot be safely or honestly composed from
-smaller existing affordances. A command named after one user story is evidence
-that behavior has leaked out of the controller. Conversely, a long action that
-hides important changes should acquire a bounded, interruptible horizon rather
-than a new story-shaped replacement.
+smaller existing acts at the model's decision rate. A command named after one
+user story is evidence that behavior has leaked out of the controller.
+Conversely, a long action that hides important changes should acquire a bounded,
+interruptible horizon rather than a new story-shaped replacement.
 
 Consequences do not transfer between bodies. If Scout moves, speaks, enters a
 home, or crafts an item, that alone says nothing about whether another player
@@ -234,8 +304,15 @@ The useful architecture came from concrete failures:
 - Scout once repeated `move_to` because Pathfinder acknowledged a destination it
   had not reached. Movement now verifies final distance.
 - Raw dropped-item coordinates encouraged repeated navigation rather than
-  collection. Item collection is now a first-class affordance confirmed by a
-  Minecraft collection event.
+  collection. A bounded collection skill can confirm Minecraft attribution, but
+  the later handoff proof deliberately used walking plus automatic pickup when
+  that native sequence was the question under test.
+- The first policy decision once raced ahead of local entity synchronization.
+  Initial world sync and later live appearances now have distinct provenance,
+  and the mind does not start until a bounded synchronization window completes.
+- A proposed `offer_item_to_player` command swallowed the recipient's choice and
+  falsely made one body authoritative for a social outcome. The handoff now uses
+  walking, dropping, independent pickup, and observations from both bodies.
 - An unbounded transcript exceeded a 128,000-token context after roughly twenty
   actions. The durable loom remains complete, while model working context is now
   a bounded projection.
@@ -276,8 +353,8 @@ When one exposes a real bottleneck, we change the smallest boundary that owns it
    need or threat.
 2. Bring Scout back later and see whether it continues a named, multi-session
    building project and its relationship with the player.
-3. Give the two inhabitants one real joint activity and verify every handoff
-   through consequences observed by both bodies.
+3. Extend the proved handoff into a useful shared activity with interruption,
+   contention, and more than one exchange.
 4. Run the pair long enough to measure whether bounded attention still produces
    coherent behavior.
 5. Only then extract patterns that also explain our other inhabited worlds.

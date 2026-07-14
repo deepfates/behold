@@ -163,6 +163,12 @@ Managed population
   leakage checks, and explicit latency/token/cost/storage budgets. Its deliberate
   default model and comparison evidence are documented in
   `docs/RESIDENT_MODEL_SELECTION.md`.
+- `npm run proof:owned-world-handoff` runs a clean-revision player-grain exchange:
+  one resident walks to and drops an apple, the other independently walks over
+  the new drop, Minecraft establishes the pickup, fresh bodies verify the final
+  inventories, and both lives restart. The proof admits no social macro,
+  collection macro, or symbolic sensing tool and independently reassesses the
+  saved evidence.
 
 If you see "Connection throttled! Please wait before reconnecting."
 

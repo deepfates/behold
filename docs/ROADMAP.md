@@ -24,6 +24,8 @@ test, not the organizing purpose of the system.
 - Per-entity append-only autobiographies that survive controller restarts
 - Bounded model working context over an unbounded durable trajectory
 - Ordinary life affordances for finding, collecting, crafting, sleeping, and defense
+- One player-grain two-resident handoff using only walking, dropping, automatic
+  Minecraft pickup, independent observations, and restart continuity
 - Native Minecraft 1.21.4 client and isolated local server launch flow
 - World-lab status, topology, digest, lock-owner, port-owner, dry-run reset planning, and fixture-only atomic reset tests
 - TypeScript build and lint, with adversarial regression coverage for lifecycle authenticity, single terminals, deferred preemption, consequence attribution, and observation gaps
@@ -35,7 +37,7 @@ test, not the organizing purpose of the system.
 - A repeatable production-path Come–See–Do–Report runner; passing unit and fixture tests do not establish the live story
 - A real one-decision step control; the previous hook was dead and has been removed
 - Sustained multi-resident interaction, cooperation, contention, and soak behavior;
-  the two-resident proof establishes isolation and restart, not a society
+  one staged handoff establishes a causal exchange, not a society
 
 ### First Life proved so far
 
@@ -48,13 +50,16 @@ test, not the organizing purpose of the system.
   consequences and autobiographies, and restarted together without leakage or
   repeated work. The live and independently reassessed proof passed all declared
   process, concurrency, latency, token, cost, journal, loom, and wall-time budgets.
+- GiverResident and ReceiverResident completed a native walk/drop/walk/pickup
+  exchange, independently witnessed their own consequences, and restarted
+  without repeating it. No social macro or symbolic sensing tool was admitted.
 
 ## Immediate priorities
 
 1. Let Scout encounter and manage a bodily need or world threat.
 2. Continue a recognizable building project across another session.
-3. Give two inhabitants one joint activity whose handoffs are independently
-   observed by both bodies, then test resource contention and interruption.
+3. Turn the proved handoff into a longer shared activity, then test resource
+   contention, interruption, and repair after misunderstanding.
 4. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
    autobiography growth.
 5. Extend relationship and project memory only where lived tests show that the
