@@ -16,7 +16,7 @@ function baseBot() {
   return bot;
 }
 
-test('the inhabitant action space excludes raw motor controls and privileged survey', () => {
+test('the inhabitant action space excludes raw controls and privileged world scans', () => {
   const interpreter = buildInterpreter(baseBot());
   const inhabitantActions = interpreter.list('inhabitant').map((spec) => spec.name);
   const allActions = interpreter.list().map((spec) => spec.name);
@@ -24,7 +24,8 @@ test('the inhabitant action space excludes raw motor controls and privileged sur
   assert.ok(inhabitantActions.includes('move_to'));
   assert.ok(inhabitantActions.includes('descend_step'));
   assert.ok(inhabitantActions.includes('ascend_step'));
-  assert.ok(inhabitantActions.includes('inspect_volume'));
+  assert.ok(inhabitantActions.includes('block_at_cursor'));
+  assert.ok(inhabitantActions.includes('entity_at_cursor'));
   assert.ok(inhabitantActions.includes('craft_item'));
   assert.ok(inhabitantActions.includes('attack_entity'));
   const move = interpreter.describe('move_to');
@@ -42,11 +43,21 @@ test('the inhabitant action space excludes raw motor controls and privileged sur
   assert.equal(inhabitantActions.includes('set_control'), false);
   assert.equal(inhabitantActions.includes('clear_controls'), false);
   assert.equal(inhabitantActions.includes('survey_area'), false);
+  assert.equal(inhabitantActions.includes('find_blocks'), false);
+  assert.equal(inhabitantActions.includes('inspect_volume'), false);
+  assert.equal(inhabitantActions.includes('inspect_reachable_space'), false);
+  assert.equal(inhabitantActions.includes('nearest_entity'), false);
+  assert.equal(inhabitantActions.includes('get_nearby'), false);
   assert.equal(inhabitantActions.includes('guide_entity_to_place'), false);
   assert.equal(inhabitantActions.includes('teach_player'), false);
   assert.equal(inhabitantActions.includes('build_home'), false);
   assert.ok(allActions.includes('set_control'));
   assert.ok(allActions.includes('survey_area'));
+  assert.ok(allActions.includes('find_blocks'));
+  assert.ok(allActions.includes('inspect_volume'));
+  assert.ok(allActions.includes('inspect_reachable_space'));
+  assert.ok(allActions.includes('nearest_entity'));
+  assert.ok(allActions.includes('get_nearby'));
 });
 
 test('find_blocks returns actionable local positions without claiming visibility', async () => {
@@ -340,7 +351,7 @@ test('move_to reports cancellation only after Mineflayer pathfinding acknowledge
   assert.equal(result.remainingDistance, 8);
 });
 
-test('approach_entity follows the exact perceived entity as it moves and verifies current proximity', async () => {
+test('approach_entity updates a last-seen goal while the exact entity remains perceived', async () => {
   const bot = baseBot();
   const decoy = {
     id: 2,
@@ -357,12 +368,14 @@ test('approach_entity follows the exact perceived entity as it moves and verifie
   bot.entities[2] = decoy;
   bot.entities[3] = target;
   bot.lookAt = async () => {};
-  let followed: any = null;
-  let dynamic = false;
+  const goals: Array<{ x: number; y: number; z: number }> = [];
+  let movementScheduled = false;
   bot.pathfinder = {
-    setGoal: (goal: any, isDynamic: boolean) => {
-      followed = goal.entity;
-      dynamic = isDynamic;
+    setGoal: (goal: any) => {
+      if (!goal) return;
+      goals.push({ x: goal.x, y: goal.y, z: goal.z });
+      if (movementScheduled) return;
+      movementScheduled = true;
       setTimeout(() => {
         target.position = new Vec3(10, 64, 0);
         bot.entity.position = new Vec3(8, 64, 0);
@@ -382,8 +395,57 @@ test('approach_entity follows the exact perceived entity as it moves and verifie
   assert.equal(result.finalDistance, 2);
   assert.equal(result.confirmation, 'mineflayer:body_target_proximity');
   assert.equal(result.pathfinderStopAcknowledged, true);
-  assert.equal(followed, target);
-  assert.equal(dynamic, true);
+  assert.deepEqual(goals, [
+    { x: 8, y: 64, z: 0 },
+    { x: 10, y: 64, z: 0 },
+  ]);
+});
+
+test('approach_entity never follows a hidden live coordinate beyond the last-seen position', async () => {
+  const bot = baseBot();
+  const target = {
+    id: 3,
+    name: 'villager',
+    type: 'mob',
+    position: new Vec3(8, 64, 0),
+  };
+  bot.entities[3] = target;
+  bot.lookAt = async () => {};
+  let perceived = true;
+  const goals: number[] = [];
+  bot.pathfinder = {
+    setGoal: (goal: any) => {
+      if (!goal) return;
+      goals.push(goal.x);
+      if (goals.length !== 1) return;
+      setTimeout(() => {
+        perceived = false;
+        target.position = new Vec3(20, 64, 0);
+        bot.entity.position = new Vec3(6, 64, 0);
+      }, 5);
+    },
+    stop: () => bot.emit('path_stop'),
+  };
+  const interpreter = buildInterpreter(bot, {
+    approachTimeoutMs: 1000,
+    observe: () => ({
+      protocol: 'behold.inhabitant.v2',
+      scene: {
+        entities: perceived
+          ? [{ id: 'entity:3', kind: 'mob', source: 'vision', visibility: 'visible' }]
+          : [],
+      },
+    }),
+  });
+
+  const result = await interpreter.run('approach_entity', { target: 'entity:3' });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'target_lost_at_last_seen');
+  assert.deepEqual(result.lastSeenPosition, { x: 8, y: 64, z: 0 });
+  assert.equal(result.finalDistance, null);
+  assert.equal(result.targetPerceivedAtTerminal, false);
+  assert.deepEqual(goals, [8]);
 });
 
 test('approach_entity rechecks proximity after Mineflayer acknowledges the stop', async () => {
@@ -435,13 +497,65 @@ test('approach_entity fails closed for stale and wrong-kind exact targets', asyn
 
   assert.deepEqual(await interpreter.run('approach_entity', { target: 'entity:404' }), {
     ok: false,
-    error: 'target_not_observed',
+    error: 'target_not_perceived',
     target: 'entity:404',
   });
   const wrongKind = await interpreter.run('approach_entity', { target: 'entity:4' });
   assert.equal(wrongKind.ok, false);
   assert.equal(wrongKind.error, 'target_is_dropped_item');
   assert.equal(wrongKind.target, 'entity:4');
+});
+
+test('exact body targets are revalidated against a fresh visual observation', async () => {
+  const bot = baseBot();
+  const target = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(2, 64, 0),
+  };
+  const item = {
+    id: 3,
+    name: 'item',
+    type: 'object',
+    position: new Vec3(1, 64.125, 0),
+    getDroppedItem: () => ({ name: 'apple', count: 1 }),
+  };
+  bot.entities[2] = target;
+  bot.entities[3] = item;
+  bot.pathfinder = {
+    setGoal: () => assert.fail('hidden target started navigation'),
+    stop: () => {},
+  };
+  let entities: any[] = [];
+  const interpreter = buildInterpreter(bot, {
+    observe: () => ({ protocol: 'behold.inhabitant.v2', scene: { entities } }),
+  });
+
+  for (const [tool, reference] of [
+    ['approach_entity', 'entity:2'],
+    ['attack_entity', 'entity:2'],
+    ['collect_nearby_item', 'entity:3'],
+  ] as const) {
+    assert.deepEqual(await interpreter.run(tool, { target: reference }), {
+      ok: false,
+      error: 'target_not_perceived',
+      target: reference,
+    });
+  }
+
+  entities = [
+    {
+      id: 'entity:2',
+      kind: 'mob',
+      source: 'vision',
+      visibility: 'visible',
+    },
+  ];
+  bot.lookAt = async () => {};
+  const visible = await interpreter.run('approach_entity', { target: 'entity:2' });
+  assert.equal(visible.ok, true);
+  assert.equal(visible.status, 'arrived');
 });
 
 test('approach_entity reports interruption only after dynamic pathfinding acknowledges stop', async () => {
@@ -1427,7 +1541,7 @@ test('item collection fails closed for stale, wrong-kind, and body-out-of-range 
 
   assert.deepEqual(await interpreter.run('collect_nearby_item', { target: 'entity:404' }), {
     ok: false,
-    error: 'target_not_observed',
+    error: 'target_not_perceived',
     target: 'entity:404',
   });
   const wrongKind = await interpreter.run('collect_nearby_item', { target: 'player:Wren' });

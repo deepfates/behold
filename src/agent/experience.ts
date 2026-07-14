@@ -1,8 +1,11 @@
 import type { Bot } from 'mineflayer';
 import {
   collectObservation,
+  cursorTarget,
+  entityIsVisible,
   type DroppedItemPickupGround,
   type NearbyEntitySummary,
+  worldPositionIsVisible,
 } from './observation';
 import type { InhabitantProject } from '../entity/projects';
 import {
@@ -13,14 +16,7 @@ import {
 } from '../entity/places';
 
 export type ObservationSource =
-  | 'body'
-  | 'cursor'
-  | 'proximity'
-  | 'server_roster'
-  | 'local_volume'
-  | 'event'
-  | 'memory'
-  | 'privileged';
+  'body' | 'cursor' | 'vision' | 'sound' | 'server_roster' | 'event' | 'memory' | 'privileged';
 
 export type TaskBrief = {
   id: string;
@@ -56,7 +52,7 @@ export type ExperienceEvent = {
 };
 
 export type InhabitantObservation = {
-  protocol: 'behold.inhabitant.v1';
+  protocol: 'behold.inhabitant.v2';
   circle: {
     id: string;
     substrate: 'minecraft';
@@ -104,9 +100,12 @@ export type InhabitantObservation = {
     focus: SceneObject | null;
     entities: SceneEntity[];
     terrain: {
-      source: 'local_volume';
-      radius: number;
-      verticalRadius: number;
+      source: 'vision';
+      horizontalFovDegrees: number;
+      verticalFovDegrees: number;
+      maxDistance: number;
+      raysCast: number;
+      raysHit: number;
       materials: Array<{
         name: string;
         count: number;
@@ -135,7 +134,7 @@ export type SceneEntity = {
   heldItem?: string | null;
   count?: number;
   pickupGround?: DroppedItemPickupGround;
-  source: 'proximity';
+  source: 'vision';
   position: { x: number; y: number; z: number };
   distance: number;
   proximity: 'interaction' | 'nearby' | 'distant';
@@ -149,7 +148,7 @@ export type SceneEntity = {
     | 'behind-left'
     | 'left'
     | 'ahead-left';
-  visibility: 'unknown';
+  visibility: 'visible';
 };
 
 type EngineEvent = { type: string; at: number; data: any };
@@ -169,8 +168,9 @@ export type ExperienceOptions = {
 
 /**
  * Maintains the agent's continuity across otherwise stateless model turns.
- * It intentionally exposes embodied/proximity observations separately from
- * privileged server truth so a policy can reason about what it actually knows.
+ * It intentionally exposes embodied, visual, auditory, and remembered
+ * observations separately from privileged server truth so a policy can reason
+ * about what this body actually knows.
  */
 export class InhabitantExperience {
   private readonly events: ExperienceEvent[] = [];
@@ -188,6 +188,12 @@ export class InhabitantExperience {
   private lastDimension: string | null;
   private lastPulseAt: number;
   private localWorldReady = false;
+  private readonly visibleEntities = new Map<
+    string,
+    NonNullable<ReturnType<typeof nearbyEntityEvent>>
+  >();
+  private readonly lastSoundAt = new Map<string, number>();
+  private visualSceneInitialized = false;
 
   constructor(
     private readonly bot: Bot,
@@ -345,6 +351,17 @@ export class InhabitantExperience {
     const velocity = entity?.velocity;
     const focus = focusObject(this.bot);
     const yaw = finiteOrNull(entity?.yaw);
+    const projects = this.options.projects?.() ?? [];
+    const places = situatePlaces(
+      this.options.places?.() ?? [],
+      base.position,
+      base.dimension == null ? null : String(base.dimension),
+    );
+    const managedRunId = stringOrNull(this.options.managedRunId);
+    const sceneEntities = base.nearbyEntities.map((nearby) =>
+      sceneEntity(nearby, base.position, yaw),
+    );
+    this.syncVisibleEntities(sceneEntities);
     const events = this.events.map((event) => ({
       ...event,
       isNew: event.sequence > sinceSequence,
@@ -355,16 +372,9 @@ export class InhabitantExperience {
       oldestAvailableSequence == null
         ? 0
         : Math.max(0, oldestAvailableSequence - (Math.max(0, sinceSequence) + 1));
-    const projects = this.options.projects?.() ?? [];
-    const places = situatePlaces(
-      this.options.places?.() ?? [],
-      base.position,
-      base.dimension == null ? null : String(base.dimension),
-    );
-    const managedRunId = stringOrNull(this.options.managedRunId);
 
     return {
-      protocol: 'behold.inhabitant.v1',
+      protocol: 'behold.inhabitant.v2',
       circle: {
         id: this.options.circleId || 'minecraft:unknown',
         substrate: 'minecraft',
@@ -412,13 +422,16 @@ export class InhabitantExperience {
           note: 'Server presence only; it does not imply proximity, visibility, attention, or willingness to interact.',
         },
         focus,
-        entities: base.nearbyEntities.map((nearby) => sceneEntity(nearby, base.position, yaw)),
+        entities: sceneEntities,
         terrain: {
-          source: 'local_volume',
-          radius: 5,
-          verticalRadius: 4,
+          source: 'vision',
+          horizontalFovDegrees: base.vision.horizontalFovDegrees,
+          verticalFovDegrees: base.vision.verticalFovDegrees,
+          maxDistance: base.vision.maxDistance,
+          raysCast: base.vision.raysCast,
+          raysHit: base.vision.raysHit,
           materials: base.nearbyBlocks,
-          note: 'Material counts and nearest samples from a local volume; they are not a rendered view or proof of line of sight.',
+          note: 'Unique first selectable surface blocks from a fixed camera-ray budget. This is a semantic sample, not pixels or a loaded-volume scan.',
         },
       },
       events,
@@ -475,55 +488,64 @@ export class InhabitantExperience {
     const onBlockUpdate = (oldBlock: any, newBlock: any) => {
       const position = newBlock?.position || oldBlock?.position;
       const me = (this.bot as any).entity?.position;
-      if (!position || (me && me.distanceTo(position) > 32)) return;
+      if (
+        !position ||
+        (me && me.distanceTo(position) > 32) ||
+        !worldPositionIsVisible(this.bot, position)
+      ) {
+        return;
+      }
       const before = oldBlock?.name || null;
       const after = newBlock?.name || null;
       if (before === after) return;
       this.record(
-        'block_changed_nearby',
+        'visible_block_changed',
         {
           position: { x: position.x, y: position.y, z: position.z },
           before,
           after,
         },
         'normal',
-        'proximity',
+        'vision',
       );
     };
-    const onEntitySpawn = (entity: any) => {
-      const summary = nearbyEntityEvent(this.bot, entity);
-      if (!summary || summary.distance > 16) return;
-      this.record(
-        'entity_appeared_nearby',
-        {
-          ...summary,
-          observationPhase: this.localWorldReady ? 'live_world' : 'initial_world_sync',
-        },
-        summary.kind === 'player' || summary.distance <= 6 ? 'high' : 'ambient',
-        'proximity',
-      );
-    };
+    const onEntitySpawn = (entity: any) => this.captureEntityVisibility(entity);
+    const onEntityMoved = (entity: any) => this.captureEntityVisibility(entity);
     const onEntityGone = (entity: any) => {
-      const summary = nearbyEntityEvent(this.bot, entity);
-      if (!summary || summary.distance > 16) return;
-      this.record('entity_left_nearby', summary, 'ambient', 'proximity');
+      const reference = entityReference(entity);
+      const previous = this.visibleEntities.get(reference);
+      if (!previous) return;
+      this.visibleEntities.delete(reference);
+      this.record(
+        'entity_left_view',
+        {
+          id: previous.id,
+          name: previous.name,
+          kind: previous.kind,
+          lastSeenDistance: previous.distance,
+          reason: 'no_longer_rendered',
+        },
+        'ambient',
+        'vision',
+      );
     };
     const onEntityHurt = (entity: any) => {
-      const summary = nearbyEntityEvent(this.bot, entity);
-      if (!summary) return;
       const isSelf = entity?.id === (this.bot as any).entity?.id;
-      if (!isSelf && summary.distance > 16) return;
+      const summary = isSelf
+        ? nearbyEntityEvent(this.bot, entity)
+        : visibleEntityEvent(this.bot, entity);
+      if (!summary) return;
       this.record(
-        isSelf ? 'self_hurt' : 'entity_hurt_nearby',
+        isSelf ? 'self_hurt' : 'visible_entity_hurt',
         summary,
         isSelf ? 'urgent' : 'high',
-        'body',
+        isSelf ? 'body' : 'vision',
       );
     };
     const onEntityDead = (entity: any) => {
-      const summary = nearbyEntityEvent(this.bot, entity);
-      if (!summary || summary.distance > 16) return;
-      this.record('entity_died_nearby', summary, 'high', 'proximity');
+      const summary = visibleEntityEvent(this.bot, entity);
+      if (!summary) return;
+      this.record('visible_entity_died', summary, 'high', 'vision');
     };
     const onCollect = (collector: any, collected: any) => {
       if (collector?.id === (this.bot as any).entity?.id) {
@@ -538,25 +560,27 @@ export class InhabitantExperience {
         );
         return;
       }
-      const summary = nearbyEntityEvent(this.bot, collector);
-      if (!summary || summary.kind !== 'player' || summary.distance > 16) return;
+      const summary = visibleEntityEvent(this.bot, collector);
+      if (!summary || summary.kind !== 'player') return;
       this.record(
-        'nearby_player_collected_item',
+        'visible_player_collected_item',
         { collector: summary.name, item: entityLabel(collected), distance: summary.distance },
         'high',
-        'proximity',
+        'vision',
       );
     };
     const onEntityEquip = (entity: any) => {
-      const summary = nearbyEntityEvent(this.bot, entity);
-      if (!summary || summary.kind !== 'player' || summary.distance > 16) return;
+      const summary = visibleEntityEvent(this.bot, entity);
+      if (!summary || summary.kind !== 'player') return;
       this.record(
-        'nearby_player_equipment_changed',
+        'visible_player_equipment_changed',
         { ...summary, heldItem: itemLabel(entity?.heldItem) },
         'high',
-        'proximity',
+        'vision',
       );
     };
+    const onSound = (soundName: string, position: any, volume: number, pitch: number) =>
+      this.captureSound(soundName, position, volume, pitch);
     const onSleep = () => this.record('fell_asleep', {}, 'high', 'body');
     const onWake = () => this.record('woke_up', {}, 'high', 'body');
     const onRain = () => this.captureStateTransitions();
@@ -568,14 +592,135 @@ export class InhabitantExperience {
     this.bind('breath', onHealth);
     this.bind('blockUpdate', onBlockUpdate);
     this.bind('entitySpawn', onEntitySpawn);
+    this.bind('entityMoved', onEntityMoved);
     this.bind('entityGone', onEntityGone);
     this.bind('entityHurt', onEntityHurt);
     this.bind('entityDead', onEntityDead);
     this.bind('playerCollect', onCollect);
     this.bind('entityEquip', onEntityEquip);
+    this.bind('soundEffectHeard', onSound);
     this.bind('sleep', onSleep);
     this.bind('wake', onWake);
     this.bind('rain', onRain);
+  }
+
+  private syncVisibleEntities(entities: SceneEntity[]) {
+    const next = new Map<string, NonNullable<ReturnType<typeof nearbyEntityEvent>>>();
+    for (const entity of entities) {
+      next.set(entity.id, {
+        id: entity.id,
+        name: entity.name,
+        kind: entity.kind,
+        position: { ...entity.position },
+        distance: entity.distance,
+      });
+    }
+    const appeared = this.visualSceneInitialized
+      ? [...next.entries()].filter(([reference]) => !this.visibleEntities.has(reference))
+      : [];
+    const disappeared = this.visualSceneInitialized
+      ? [...this.visibleEntities.entries()].filter(([reference]) => !next.has(reference))
+      : [];
+    this.visibleEntities.clear();
+    for (const [reference, entity] of next) this.visibleEntities.set(reference, entity);
+    this.visualSceneInitialized = true;
+    if (appeared.length || disappeared.length) {
+      for (const [, entity] of appeared) {
+        this.record(
+          'entity_became_visible',
+          {
+            ...entity,
+            observationPhase: this.localWorldReady ? 'live_world' : 'initial_world_sync',
+          },
+          entity.kind === 'player' || entity.distance <= 6 ? 'high' : 'ambient',
+          'vision',
+        );
+      }
+      for (const [, entity] of disappeared) {
+        this.record(
+          'entity_left_view',
+          {
+            id: entity.id,
+            name: entity.name,
+            kind: entity.kind,
+            lastSeenDistance: entity.distance,
+            reason: 'outside_current_view',
+          },
+          'ambient',
+          'vision',
+        );
+      }
+    }
+  }
+
+  private captureEntityVisibility(entity: any) {
+    const reference = entityReference(entity);
+    const previous = this.visibleEntities.get(reference);
+    const visible = visibleEntityEvent(this.bot, entity);
+    if (visible) {
+      this.visibleEntities.set(reference, visible);
+      if (previous) return;
+      this.record(
+        'entity_became_visible',
+        {
+          ...visible,
+          observationPhase: this.localWorldReady ? 'live_world' : 'initial_world_sync',
+        },
+        visible.kind === 'player' || visible.distance <= 6 ? 'high' : 'ambient',
+        'vision',
+      );
+      return;
+    }
+    if (!previous) return;
+    this.visibleEntities.delete(reference);
+    this.record(
+      'entity_left_view',
+      {
+        id: previous.id,
+        name: previous.name,
+        kind: previous.kind,
+        lastSeenDistance: previous.distance,
+        reason: 'outside_current_view',
+      },
+      'ambient',
+      'vision',
+    );
+  }
+
+  private captureSound(soundName: string, position: any, volume: number, pitch: number) {
+    const me = (this.bot as any).entity?.position;
+    if (!me || !position) return;
+    const distance = me.distanceTo(position);
+    if (!Number.isFinite(distance) || distance > 64) return;
+    const band = distance <= 4 ? 'immediate' : distance <= 12 ? 'nearby' : 'distant';
+    const dx = position.x - me.x;
+    const dz = position.z - me.z;
+    const targetYaw = Math.atan2(-dx, -dz);
+    const relative = normalizeAngle(targetYaw - (finiteOrNull((this.bot as any).entity?.yaw) ?? 0));
+    const direction = directionLabel(relative);
+    const sound = boundedText(soundName, 160) || 'unknown';
+    const key = `${sound}:${band}:${direction}`;
+    const now = this.now();
+    const previous = this.lastSoundAt.get(key) ?? -Infinity;
+    if (now - previous < 750) return;
+    this.lastSoundAt.set(key, now);
+    if (this.lastSoundAt.size > 64) {
+      for (const [candidate, at] of this.lastSoundAt) {
+        if (now - at > 10_000) this.lastSoundAt.delete(candidate);
+      }
+    }
+    this.record(
+      'sound_heard',
+      {
+        sound,
+        distanceBand: band,
+        relativeDirection: direction,
+        volume: round(volume),
+        pitch: round(pitch),
+      },
+      soundSalience(sound, band),
+      'sound',
+    );
   }
 
   private captureStateTransitions() {
@@ -630,24 +775,9 @@ export class InhabitantExperience {
 
 function focusObject(bot: Bot): SceneObject | null {
   try {
-    const block: any = (bot as any).blockAtCursor?.(6);
-    if (block?.position) {
-      const me = (bot as any).entity?.position;
-      const distance = me ? round(me.distanceTo(block.position)) : undefined;
-      return {
-        id: blockId((bot as any).game?.dimension, block.position),
-        kind: 'block',
-        name: String(block.name || 'block'),
-        source: 'cursor',
-        position: { x: block.position.x, y: block.position.y, z: block.position.z },
-        distance,
-        reachable: distance == null ? undefined : distance <= 6,
-      };
-    }
-    const entity: any = (bot as any).entityAtCursor?.(3.5);
-    if (entity?.position) {
-      const me = (bot as any).entity?.position;
-      const distance = me ? round(me.distanceTo(entity.position)) : undefined;
+    const target = cursorTarget(bot, 6, 3.5);
+    if (target?.kind === 'entity' && target.entity?.position) {
+      const entity = target.entity;
       return {
         id: entityId(entity),
         kind: 'entity',
@@ -658,8 +788,24 @@ function focusObject(bot: Bot): SceneObject | null {
           y: round(entity.position.y),
           z: round(entity.position.z),
         },
-        distance,
-        reachable: distance == null ? undefined : distance <= 3.5,
+        distance: target.distance,
+        reachable: target.distance <= 3.5,
+      };
+    }
+    if (target?.kind === 'block' && target.block?.position) {
+      const block = target.block;
+      return {
+        id: blockId((bot as any).game?.dimension, block.position),
+        kind: 'block',
+        name: String(block.name || 'block'),
+        source: 'cursor',
+        position: {
+          x: block.position.x,
+          y: block.position.y,
+          z: block.position.z,
+        },
+        distance: target.distance,
+        reachable: target.distance <= 6,
       };
     }
   } catch {}
@@ -685,13 +831,13 @@ function sceneEntity(
     heldItem: entity.heldItem,
     ...(entity.count != null ? { count: entity.count } : {}),
     ...(entity.pickupGround ? { pickupGround: entity.pickupGround } : {}),
-    source: 'proximity',
+    source: 'vision',
     position: entity.position,
     distance: entity.distance,
     proximity: entity.distance <= 4 ? 'interaction' : entity.distance <= 12 ? 'nearby' : 'distant',
     relativeBearingRadians: round(relativeBearingRadians),
     relativeDirection: directionLabel(relativeBearingRadians),
-    visibility: 'unknown',
+    visibility: 'visible',
   };
 }
 
@@ -784,6 +930,43 @@ function nearbyEntityEvent(bot: Bot, entity: any) {
   };
 }
 
+function visibleEntityEvent(bot: Bot, entity: any) {
+  const summary = nearbyEntityEvent(bot, entity);
+  if (!summary || !entityIsVisible(bot, entity)) return null;
+  const maxDistance = summary.kind === 'player' ? 64 : 24;
+  return summary.distance <= maxDistance ? summary : null;
+}
+
+function entityReference(entity: any) {
+  return entity?.username
+    ? `player:${String(entity.username)}`
+    : `entity:${String(entity?.id ?? 'unknown')}`;
+}
+
+function soundSalience(
+  sound: string,
+  distanceBand: 'immediate' | 'nearby' | 'distant',
+): ExperienceEvent['salience'] {
+  const normalized = sound.toLowerCase();
+  if (
+    distanceBand === 'immediate' &&
+    ['explode', 'creeper', 'hurt', 'attack', 'arrow', 'fire'].some((token) =>
+      normalized.includes(token),
+    )
+  ) {
+    return 'urgent';
+  }
+  if (
+    distanceBand !== 'distant' &&
+    ['zombie', 'skeleton', 'spider', 'guardian', 'warden', 'hurt', 'death'].some((token) =>
+      normalized.includes(token),
+    )
+  ) {
+    return 'high';
+  }
+  return normalized.includes('step') || normalized.includes('ambient') ? 'ambient' : 'normal';
+}
+
 function entityLabel(entity: any) {
   try {
     const dropped = entity?.getDroppedItem?.();
@@ -797,6 +980,14 @@ function entityLabel(entity: any) {
 
 function itemLabel(item: any) {
   return item?.name || item?.displayName ? String(item.name || item.displayName) : null;
+}
+
+function boundedText(value: unknown, limit: number) {
+  return String(value ?? '')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit);
 }
 
 function round(value: any) {

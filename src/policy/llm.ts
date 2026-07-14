@@ -133,6 +133,8 @@ const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const WAIT_TOOL = 'wait_for_event';
 const COLLECT_TOOL = 'collect_nearby_item';
 const DROP_TOOL = 'drop_item';
+const APPROACH_TOOL = 'approach_entity';
+const ATTACK_TOOL = 'attack_entity';
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
 const WAIT_TOOL_SPEC: ToolSpec = {
   type: 'function',
@@ -941,7 +943,7 @@ function controllerSystemPrompt(specs: readonly ToolSpec[]) {
     `Choose ${WAIT_TOOL} only when you need an external event or have no useful self-directed action; Minecraft continues while you wait.`,
     'The task brief gives goals and constraints, not hidden next actions. Maintain your own commitments. Its explicit ordering, preconditions, and prohibitions take precedence over the generic action heuristics below.',
     'Without a task, live autonomously: care for your body; learn the place; gain materials, tools, food, light, shelter, and sleep; improve useful shared places.',
-    'task, self, scene, and events are present experience; isNew events arrived since the preceding update. proximity and local_volume are sensed summaries, not visual-line-of-sight proof.',
+    'task, self, scene, and events are present experience; isNew events arrived since the preceding update. scene.entities contains only entities currently inside this first-person view with an unoccluded camera ray. scene.terrain contains only first-hit visible surface samples. sound_heard is auditory evidence with coarse direction and distance, never hidden coordinates.',
   ];
   if (tools.has(MANAGE_PROJECT_TOOL)) {
     lines.push(
@@ -1076,23 +1078,59 @@ function requiredSelfDirectionTool(frame: any, specs: ToolSpec[], allow: Set<str
 function availableModelTools(specs: ToolSpec[], frame: any) {
   const roster = frame?.scene?.social?.playersOnline;
   const inventory = Array.isArray(frame?.self?.inventory) ? frame.self.inventory : [];
-  const droppedItems = Array.isArray(frame?.scene?.entities)
-    ? frame.scene.entities.filter(
-        (entity: any) => String(entity?.kind || entity?.type || '').toLowerCase() === 'item',
-      )
-    : [];
-  return specs.filter((spec) => {
+  const perceivedEntities =
+    frame?.protocol === 'behold.inhabitant.v2' && Array.isArray(frame?.scene?.entities)
+      ? frame.scene.entities.filter(
+          (entity: any) =>
+            entity?.source === 'vision' &&
+            entity?.visibility === 'visible' &&
+            typeof entity?.id === 'string' &&
+            entity.id.length > 0,
+        )
+      : [];
+  const droppedItems = perceivedEntities.filter(
+    (entity: any) => String(entity?.kind || entity?.type || '').toLowerCase() === 'item',
+  );
+  const embodiedEntities = perceivedEntities.filter(
+    (entity: any) => String(entity?.kind || entity?.type || '').toLowerCase() !== 'item',
+  );
+  const targetIds = (entities: any[]) => entities.map((entity) => String(entity.id));
+  return specs.flatMap((spec) => {
     if (COMMUNICATION_TOOLS.has(spec.function.name)) {
-      return !Array.isArray(roster) || roster.length > 0;
+      return !Array.isArray(roster) || roster.length > 0 ? [spec] : [];
     }
-    if (spec.function.name === COLLECT_TOOL) return droppedItems.length > 0;
+    if (spec.function.name === COLLECT_TOOL) {
+      return droppedItems.length > 0 ? [withExactTargetEnum(spec, targetIds(droppedItems))] : [];
+    }
+    if (spec.function.name === APPROACH_TOOL || spec.function.name === ATTACK_TOOL) {
+      return embodiedEntities.length > 0
+        ? [withExactTargetEnum(spec, targetIds(embodiedEntities))]
+        : [];
+    }
     if (spec.function.name === DROP_TOOL) {
       return inventory.some(
         (item: any) => Number(item?.count) > 0 && String(item?.name || '').length > 0,
-      );
+      )
+        ? [spec]
+        : [];
     }
-    return true;
+    return [spec];
   });
+}
+
+function withExactTargetEnum(spec: ToolSpec, targets: string[]): ToolSpec {
+  const copy = cloneJson(spec) as ToolSpec;
+  const parameters: any = copy.function.parameters || {
+    type: 'object',
+    properties: {},
+  };
+  parameters.properties = parameters.properties || {};
+  parameters.properties.target = {
+    ...(parameters.properties.target || { type: 'string' }),
+    enum: [...new Set(targets)],
+  };
+  copy.function.parameters = parameters;
+  return copy;
 }
 
 function finiteAtMost(value: unknown, threshold: number) {
@@ -1219,11 +1257,17 @@ function conversationForAttention(messages: readonly any[], attention: ResidentA
 }
 
 export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {
-  if (frame?.protocol !== 'behold.inhabitant.v1' || lastSequence === 0) return true;
+  if (
+    (frame?.protocol !== 'behold.inhabitant.v1' && frame?.protocol !== 'behold.inhabitant.v2') ||
+    lastSequence === 0
+  ) {
+    return true;
+  }
   const relevant = new Set([
     'spawned',
     'chat_received',
     'condition_changed',
+    'visible_block_changed',
     'block_changed_nearby',
     'time_passed',
     'day_phase_changed',
@@ -1232,7 +1276,14 @@ export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {
     'item_collected',
     'nearby_player_collected_item',
     'nearby_player_equipment_changed',
+    'visible_player_collected_item',
+    'visible_player_equipment_changed',
     'self_hurt',
+    'visible_entity_hurt',
+    'visible_entity_died',
+    'entity_became_visible',
+    'entity_left_view',
+    'sound_heard',
     'entity_hurt_nearby',
     'entity_died_nearby',
     'entity_appeared_nearby',
@@ -1253,7 +1304,12 @@ export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {
       return false;
     }
     if (
-      event.type === 'entity_appeared_nearby' &&
+      [
+        'entity_appeared_nearby',
+        'entity_became_visible',
+        'entity_left_view',
+        'sound_heard',
+      ].includes(event.type) &&
       !['high', 'urgent'].includes(String(event.salience))
     ) {
       return false;

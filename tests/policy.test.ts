@@ -12,11 +12,22 @@ import type { ResidentMind } from '../src/mind/interface';
 
 function frame(from: string, addressed = false, distance: number | null = null) {
   return {
-    protocol: 'behold.inhabitant.v1',
+    protocol: 'behold.inhabitant.v2',
     task: { target: 'Director' },
     scene: {
       entities:
-        distance == null ? [] : [{ id: `player:${from}`, name: from, kind: 'player', distance }],
+        distance == null
+          ? []
+          : [
+              {
+                id: `player:${from}`,
+                name: from,
+                kind: 'player',
+                distance,
+                source: 'vision',
+                visibility: 'visible',
+              },
+            ],
     },
     events: [
       {
@@ -35,6 +46,20 @@ test('task-directed attention wakes for the target or an addressed message', () 
   assert.equal(hasDecisionRelevantEvent(frame('importdf', false, 30), 4), false);
   assert.equal(hasDecisionRelevantEvent(frame('Director'), 4), true);
   assert.equal(hasDecisionRelevantEvent(frame('importdf', true), 4), true);
+});
+
+test('v2 perception events wake only when their lived salience merits a model turn', () => {
+  const observed = (type: string, salience: string) => ({
+    protocol: 'behold.inhabitant.v2',
+    events: [{ sequence: 8, type, salience, isNew: true, data: {} }],
+  });
+
+  assert.equal(hasDecisionRelevantEvent(observed('entity_became_visible', 'ambient'), 7), false);
+  assert.equal(hasDecisionRelevantEvent(observed('entity_became_visible', 'high'), 7), true);
+  assert.equal(hasDecisionRelevantEvent(observed('sound_heard', 'ambient'), 7), false);
+  assert.equal(hasDecisionRelevantEvent(observed('sound_heard', 'urgent'), 7), true);
+  assert.equal(hasDecisionRelevantEvent(observed('visible_block_changed', 'normal'), 7), true);
+  assert.equal(hasDecisionRelevantEvent(observed('visible_entity_died', 'high'), 7), true);
 });
 
 test('only high and urgent lived events demand immediate attention', () => {
@@ -65,7 +90,7 @@ test('only a newly urgent lived event selects compact urgent cognition', () => {
   );
 });
 
-test('an urgent body event preempts slow thought without choosing or narrowing an action', async () => {
+test('urgent attention preserves resident choice while fresh perception updates affordances', async () => {
   let worldSequence = 1;
   let firstStarted!: () => void;
   const firstRequestStarted = new Promise<void>((resolve) => (firstStarted = resolve));
@@ -97,7 +122,7 @@ test('an urgent body event preempts slow thought without choosing or narrowing a
     },
   };
   const observe = (sinceSequence = 0) => ({
-    protocol: 'behold.inhabitant.v1',
+    protocol: 'behold.inhabitant.v2',
     sequence: worldSequence,
     observedAt: 100 + worldSequence,
     eventWindow: {
@@ -119,7 +144,16 @@ test('an urgent body event preempts slow thought without choosing or narrowing a
       entities:
         worldSequence === 1
           ? []
-          : [{ id: 'entity:7', kind: 'hostile', name: 'zombie', distance: 2.2 }],
+          : [
+              {
+                id: 'entity:7',
+                kind: 'hostile',
+                name: 'zombie',
+                distance: 2.2,
+                source: 'vision',
+                visibility: 'visible',
+              },
+            ],
     },
     events: [
       {
@@ -197,8 +231,12 @@ test('an urgent body event preempts slow thought without choosing or narrowing a
       [2],
     );
     assert.deepEqual(
-      requests[1].actions.map((action: any) => action.name),
       requests[0].actions.map((action: any) => action.name),
+      ['move_to', 'wait_for_event'],
+    );
+    assert.deepEqual(
+      requests[1].actions.map((action: any) => action.name),
+      ['move_to', 'attack_entity', 'wait_for_event'],
     );
     assert.equal(requests[1].requiredAction, null);
     assert.equal(modelTurns[0].attention.mode, 'urgent');
@@ -556,7 +594,7 @@ test('every mind adapter receives the same bounded event projection as the conve
       actions: [],
       attempt: () => true,
       observe: (sinceSequence = 0) => ({
-        protocol: 'behold.inhabitant.v1',
+        protocol: 'behold.inhabitant.v2',
         sequence: 20,
         eventWindow: {
           requestedAfterSequence: sinceSequence,
@@ -1279,6 +1317,90 @@ test('a nearby-item action is admitted only while a dropped item is currently ob
   }
 });
 
+test('exact entity actions advertise only target ids in the current visual scene', async () => {
+  const originalFetch = globalThis.fetch;
+  let request: any = null;
+  globalThis.fetch = (async (_url, init) => {
+    request = JSON.parse(String(init?.body));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: assistantTool('visual-target-wait', 'wait_for_event', {
+              reason: 'target schema inspected',
+            }),
+          },
+        ],
+        usage: { total_tokens: 10 },
+      }),
+      text: async () => '',
+    } as any;
+  }) as typeof fetch;
+
+  const base = experience(1, null, 0);
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('approach_entity'), tool('attack_entity'), tool('collect_nearby_item')],
+      attempt: () => true,
+      observe: () => ({
+        ...base,
+        scene: {
+          entities: [
+            {
+              id: 'player:Wren',
+              kind: 'player',
+              source: 'vision',
+              visibility: 'visible',
+            },
+            {
+              id: 'entity:7',
+              kind: 'hostile',
+              source: 'vision',
+              visibility: 'visible',
+            },
+            {
+              id: 'entity:8',
+              kind: 'item',
+              source: 'vision',
+              visibility: 'visible',
+            },
+            {
+              id: 'entity:99',
+              kind: 'hostile',
+              source: 'proximity',
+              visibility: 'unknown',
+            },
+          ],
+        },
+      }),
+    },
+    { apiKey: 'test-key', model: 'test/model', acceptEngineEvent: () => true },
+  );
+
+  try {
+    await policy.tick();
+    const byName = new Map<string, any>(
+      request.tools.map((spec: any) => [spec.function.name, spec.function.parameters]),
+    );
+    assert.deepEqual(byName.get('approach_entity').properties.target.enum, [
+      'player:Wren',
+      'entity:7',
+    ]);
+    assert.deepEqual(byName.get('attack_entity').properties.target.enum, [
+      'player:Wren',
+      'entity:7',
+    ]);
+    assert.deepEqual(byName.get('collect_nearby_item').properties.target.enum, ['entity:8']);
+    assert.equal(JSON.stringify(request.tools).includes('entity:99'), false);
+  } finally {
+    policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('drop is admitted only while the body owns an inventory item', async () => {
   const originalFetch = globalThis.fetch;
   const requests: any[] = [];
@@ -1490,6 +1612,8 @@ test('controller breaks a communication-only loop until the body acts or a human
               kind: 'item',
               name: 'spruce_log',
               distance: 2,
+              source: 'vision',
+              visibility: 'visible',
               pickupGround: { status: 'supported' },
             },
           ],
@@ -1558,7 +1682,7 @@ test('a safe untasked life may act directly without wrapping one step in a proje
         return true;
       },
       observe: () => ({
-        protocol: 'behold.inhabitant.v1',
+        protocol: 'behold.inhabitant.v2',
         sequence,
         task: null,
         self: {
@@ -1699,7 +1823,7 @@ test('a dropped stack on supported ground stays available without becoming a con
         return true;
       },
       observe: () => ({
-        protocol: 'behold.inhabitant.v1',
+        protocol: 'behold.inhabitant.v2',
         sequence: 1,
         task: null,
         self: {
@@ -1716,6 +1840,8 @@ test('a dropped stack on supported ground stays available without becoming a con
               kind: 'item',
               name: 'birch_log',
               distance: 2,
+              source: 'vision',
+              visibility: 'visible',
               pickupGround: { status: 'supported' },
             },
           ],
@@ -2319,13 +2445,22 @@ function failedTurn(sequence: number, actionName: string): EntityTurn {
 
 function experience(sequence: number, currentAction: any, sinceSequence: number) {
   return {
-    protocol: 'behold.inhabitant.v1',
+    protocol: 'behold.inhabitant.v2',
     sequence,
     observedAt: 100 + sequence,
     task: { id: 'come-see-do-report', target: 'importdf' },
     self: { currentAction },
     scene: {
-      entities: [{ id: 'player:importdf', name: 'importdf', kind: 'player', distance: 2.1 }],
+      entities: [
+        {
+          id: 'player:importdf',
+          name: 'importdf',
+          kind: 'player',
+          distance: 2.1,
+          source: 'vision',
+          visibility: 'visible',
+        },
+      ],
       terrain: { materials: [{ name: 'gray_concrete', count: 12 }] },
     },
     events: [

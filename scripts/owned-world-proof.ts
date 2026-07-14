@@ -21,6 +21,10 @@ import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 
 const PROTOCOL = 'behold.owned-world-proof.v1' as const;
 const ENTITY_ID = 'ProofResident';
+const OBSERVATION_LATENCY_BUDGET_MS = 50;
+const OCCLUSION_WALL = Object.freeze(
+  [-1, 0, 1].flatMap((x) => [-60, -59].map((y) => Object.freeze({ x, y, z: 3, block: 'stone' }))),
+);
 
 async function main() {
   const parsed = parseArgs({
@@ -41,7 +45,14 @@ async function main() {
     parsed.values.run || `run-${new Date().toISOString().replace(/[:.]/g, '-')}`,
   );
   const port = Number(parsed.values.port || 25575);
-  const fixture = await prepareOwnedWorld(requestedRunId, port);
+  const fixture = await prepareOwnedWorld(
+    requestedRunId,
+    port,
+    'owned-world',
+    TARGET,
+    [],
+    OCCLUSION_WALL,
+  );
   const {
     runId,
     repository,
@@ -92,7 +103,7 @@ async function main() {
               entityId: ENTITY_ID,
               model: 'script/behold-owned-world-proof-v1',
               task: 'owned-world-continuity-proof',
-              allowTools: ['move_to', 'approach_entity', 'collect_nearby_item', 'inspect_volume'],
+              allowTools: ['move_to', 'approach_entity', 'collect_nearby_item', 'status'],
             },
           ],
           startupTimeoutMs: 90_000,
@@ -157,7 +168,24 @@ async function main() {
     throw new Error(`expected one authoritative Lync log, found ${loomFiles.length}`);
   const assertions = {
     initialAffordanceObserved:
-      act.proof.initialDroppedItems?.filter((item: any) => item?.name === TARGET.item).length === 1,
+      act.proof.initialDroppedItems?.filter((item: any) => item?.name === TARGET.item).length ===
+        1 &&
+      act.proof.initialObservation?.scene?.entities?.some(
+        (entity: any) => entity?.kind === 'item' && entity?.name === TARGET.item,
+      ),
+    observationProtocolV2:
+      act.proof.initialObservation?.protocol === 'behold.inhabitant.v2' &&
+      resume.proof.initialObservation?.protocol === 'behold.inhabitant.v2' &&
+      act.proof.initialObservation?.scene?.terrain?.source === 'vision' &&
+      act.proof.initialObservation?.scene?.terrain?.raysCast === 45,
+    inhabitantSurfaceHasNoLoadedWorldScans: [
+      'find_blocks',
+      'inspect_volume',
+      'inspect_reachable_space',
+      'nearest_entity',
+      'get_nearby',
+      'survey_area',
+    ].every((tool) => !act.proof.inhabitantActions?.includes(tool)),
     locomotionBudgetOwnedByBody:
       act.proof.locomotion?.result?.ok === true &&
       act.proof.locomotion?.result?.status === 'advanced_toward' &&
@@ -178,6 +206,32 @@ async function main() {
       act.proof.approach?.turn?.result?.finalDistance <=
         act.proof.approach?.turn?.result?.bodyStopDistance + 0.75 &&
       Object.keys(act.proof.approach?.turn?.action?.input || {}).join(',') === 'target',
+    occludedEntityTrackedButNotPerceived:
+      act.proof.approach?.hidden?.rawTracked === true &&
+      act.proof.approach?.hidden?.observation?.scene?.social?.playersOnline?.includes(
+        'ProofWitness',
+      ) &&
+      !act.proof.approach?.hidden?.observation?.scene?.entities?.some(
+        (entity: any) => entity?.id === 'player:ProofWitness',
+      ) &&
+      act.proof.approach?.hidden?.eventsNamingTarget === 0,
+    occludedTargetDeniedBeforeMotion:
+      act.proof.approach?.hidden?.turn?.result?.ok === false &&
+      act.proof.approach?.hidden?.turn?.result?.error === 'target_not_perceived' &&
+      positionDistance(
+        act.proof.approach?.hidden?.residentBefore,
+        act.proof.approach?.hidden?.residentAfter,
+      ) < 0.1,
+    visibleEntityEarnedExactTarget: act.proof.approach?.visibleObservation?.scene?.entities?.some(
+      (entity: any) =>
+        entity?.id === 'player:ProofWitness' &&
+        entity?.source === 'vision' &&
+        entity?.visibility === 'visible',
+    ),
+    boundedObservationLatency:
+      act.proof.approach?.observationPerformance?.samples === 20 &&
+      act.proof.approach?.observationPerformance?.raysPerObservation === 45 &&
+      act.proof.approach?.observationPerformance?.p95Ms <= OBSERVATION_LATENCY_BUDGET_MS,
     collectionConfirmedByMinecraft:
       act.proof.collection?.result?.ok === true &&
       act.proof.collection?.result?.item === TARGET.item &&
@@ -204,14 +258,14 @@ async function main() {
       act.managedRunId !== resume.managedRunId &&
       act.managedRunId.startsWith(`${WORLD_ID}-`) &&
       resume.managedRunId.startsWith(`${WORLD_ID}-`),
-    firstLifePersistedThreeTurns: act.proof.resultingTurns === 3,
-    restartLoadedPriorLife: resume.proof.priorTurns === 3,
+    firstLifePersistedFourTurns: act.proof.resultingTurns === 4,
+    restartLoadedPriorLife: resume.proof.priorTurns === 4,
     consequencePersistedAcrossRestart:
       resume.proof.initialObservation?.self?.inventory?.some(
         (item: any) => item?.name === TARGET.item && item?.count === TARGET.count,
       ) && !resume.proof.initialDroppedItems?.some((item: any) => item?.name === TARGET.item),
     restartDidNotRepeatCollection: resume.proof.collectionAttempts === 0,
-    restartExtendedSameLoom: resume.proof.resultingTurns === 4,
+    restartExtendedSameLoom: resume.proof.resultingTurns === 5,
     lifecycleOwnedBothRuns: act.lifecycleEvents > 0 && resume.lifecycleEvents > 0,
   };
   const failed = Object.entries(assertions)
@@ -242,6 +296,12 @@ async function main() {
       seed: LEVEL_SEED,
     },
     target: TARGET,
+    budgets: {
+      visualTerrainRaysPerObservation: 45,
+      observationP95Ms: OBSERVATION_LATENCY_BUDGET_MS,
+      modelCalls: 0,
+      modelCostUsd: 0,
+    },
     artifacts: {
       root,
       sourceTree,

@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  cursorTarget,
   droppedItemPickupGround,
+  FIRST_PERSON_VISION,
+  summarizeVisibleEntities,
+  summarizeVisibleTerrain,
   summarizeInventory,
-  summarizeNearbyEntities,
 } from '../src/agent/observation';
 import { sanitizeName } from '../src/observability/journal';
 import { buildInterpreter, minecraftChat } from '../src/agent/interpreter';
@@ -26,21 +29,22 @@ test('summarizeInventory aggregates and orders stacks', () => {
 
 test('nearby dropped stacks expose their item identity and count', () => {
   const bot: any = {
-    entity: { id: 1, position: new Vec3(0, 64, 0) },
+    entity: { id: 1, position: new Vec3(0, 64, 0), yaw: 0, pitch: 0, eyeHeight: 1.62 },
     blockAt: (position: Vec3) => ({ name: 'stone', boundingBox: 'block', position }),
+    world: { raycast: () => null },
     entities: {
       1: { id: 1, position: new Vec3(0, 64, 0) },
       2: {
         id: 2,
         name: 'item',
         type: 'object',
-        position: new Vec3(2, 64.125, 0),
+        position: new Vec3(0, 64.125, -2),
         getDroppedItem: () => ({ name: 'birch_log', count: 3 }),
       },
     },
   };
 
-  assert.deepEqual(summarizeNearbyEntities(bot), [
+  assert.deepEqual(summarizeVisibleEntities(bot), [
     {
       id: 2,
       name: 'birch_log',
@@ -49,11 +53,11 @@ test('nearby dropped stacks expose their item identity and count', () => {
       count: 3,
       pickupGround: {
         status: 'supported',
-        feet: { x: 2, y: 64, z: 0 },
-        support: { x: 2, y: 63, z: 0, name: 'stone' },
+        feet: { x: 0, y: 64, z: -2 },
+        support: { x: 0, y: 63, z: -2, name: 'stone' },
       },
       distance: 2,
-      position: { x: 2, y: 64.1, z: 0 },
+      position: { x: 0, y: 64.1, z: -2 },
     },
   ]);
 });
@@ -85,16 +89,170 @@ test('loaded players remain observable at companion range without widening every
     };
   }
   const bot: any = {
-    entity: entities[1],
+    entity: { ...entities[1], yaw: -Math.PI / 2, pitch: 0, eyeHeight: 1.62 },
     entities,
+    world: { raycast: () => null },
   };
 
-  const observed = summarizeNearbyEntities(bot);
+  const observed = summarizeVisibleEntities(bot);
 
   assert.equal(observed.length, 8);
   assert.ok(observed.some((entity) => entity.name === 'importdf' && entity.distance === 48));
   assert.equal(
     observed.some((entity) => entity.name === 'zombie'),
+    false,
+  );
+});
+
+test('first-person entity projection excludes bodies behind the camera and behind blocks', () => {
+  const front = { id: 2, type: 'mob', name: 'cow', position: new Vec3(0, 64, -5) };
+  const behind = { id: 3, type: 'mob', name: 'pig', position: new Vec3(0, 64, 5) };
+  const body = {
+    id: 1,
+    type: 'player',
+    username: 'Scout',
+    position: new Vec3(0, 64, 0),
+    yaw: 0,
+    pitch: 0,
+    eyeHeight: 1.62,
+  };
+  const open: any = {
+    entity: body,
+    entities: { 1: body, 2: front, 3: behind },
+    world: { raycast: () => null },
+    blockAt: () => null,
+  };
+  assert.deepEqual(
+    summarizeVisibleEntities(open).map((entity) => entity.name),
+    ['cow'],
+  );
+
+  const occluded = {
+    ...open,
+    world: {
+      raycast: (eye: Vec3, direction: Vec3) => ({
+        name: 'stone',
+        position: new Vec3(0, 64, -2),
+        intersect: eye.plus(direction.scaled(2)),
+      }),
+    },
+  };
+  assert.deepEqual(summarizeVisibleEntities(occluded), []);
+});
+
+test('visual entity occlusion distinguishes transparent surfaces from opaque blocks', () => {
+  const body = {
+    id: 1,
+    type: 'player',
+    position: new Vec3(0, 64, 0),
+    yaw: 0,
+    pitch: 0,
+    eyeHeight: 1.62,
+  };
+  const cow = {
+    id: 2,
+    type: 'mob',
+    name: 'cow',
+    position: new Vec3(0, 64, -5),
+    width: 0.9,
+    height: 1.4,
+  };
+  const withSurface = (transparent: boolean) => ({
+    entity: body,
+    entities: { 1: body, 2: cow },
+    world: {
+      raycast: (eye: Vec3, direction: Vec3, _range: number, matcher?: any) => {
+        const surface = {
+          name: transparent ? 'glass' : 'stone',
+          transparent,
+          shapes: [[0, 0, 0, 1, 1, 1]],
+          position: new Vec3(0, 64, -2),
+          intersect: eye.plus(direction.scaled(2)),
+        };
+        return !matcher || matcher(surface) ? surface : null;
+      },
+    },
+  });
+
+  assert.deepEqual(
+    summarizeVisibleEntities(withSurface(true) as any).map((entity) => entity.name),
+    ['cow'],
+  );
+  assert.deepEqual(summarizeVisibleEntities(withSurface(false) as any), []);
+});
+
+test('cursor targeting treats zero yaw and pitch as valid and chooses a nearer entity', () => {
+  const body = {
+    id: 1,
+    type: 'player',
+    position: new Vec3(0, 64, 0),
+    yaw: 0,
+    pitch: 0,
+    eyeHeight: 1.62,
+  };
+  const cow = {
+    id: 2,
+    type: 'mob',
+    name: 'villager',
+    position: new Vec3(0, 64, -2),
+    width: 0.6,
+    height: 1.95,
+  };
+  const bot: any = {
+    entity: body,
+    entities: { 1: body, 2: cow },
+    world: {
+      raycast: (eye: Vec3, direction: Vec3) => ({
+        name: 'stone',
+        position: new Vec3(0, 64, -4),
+        intersect: eye.plus(direction.scaled(4)),
+      }),
+    },
+  };
+
+  const target = cursorTarget(bot, 6, 3.5);
+  assert.equal(target?.kind, 'entity');
+  assert.equal(target?.kind === 'entity' ? target.entity.id : null, 2);
+  assert.ok(target!.distance < 2);
+});
+
+test('terrain observation spends a fixed ray budget and reports only first-hit surfaces', () => {
+  let raycasts = 0;
+  const body = {
+    id: 1,
+    position: new Vec3(0, 64, 0),
+    yaw: 0,
+    pitch: 0,
+    eyeHeight: 1.62,
+  };
+  const bot: any = {
+    entity: body,
+    world: {
+      raycast: (eye: Vec3, direction: Vec3) => {
+        raycasts += 1;
+        return {
+          name: 'stone',
+          position: new Vec3(0, 64, -2),
+          intersect: eye.plus(direction.scaled(2)),
+        };
+      },
+    },
+  };
+
+  const terrain = summarizeVisibleTerrain(bot);
+  assert.equal(terrain.source, 'vision');
+  assert.equal(terrain.raysCast, 45);
+  assert.equal(
+    terrain.raysCast,
+    FIRST_PERSON_VISION.horizontalRays * FIRST_PERSON_VISION.verticalRays,
+  );
+  assert.equal(raycasts, terrain.raysCast);
+  assert.equal(terrain.raysHit, terrain.raysCast);
+  assert.deepEqual(terrain.materials, [
+    { name: 'stone', count: 1, nearest: { x: 0, y: 64, z: -2, distance: 2 } },
+  ]);
+  assert.equal(
+    terrain.materials.some((block) => block.name === 'diamond_ore'),
     false,
   );
 });

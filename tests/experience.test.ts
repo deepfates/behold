@@ -33,6 +33,16 @@ function fakeBot() {
       position: new Vec3(0, 64, -5),
     },
   };
+  bot.world = {
+    raycast: (eye: Vec3, direction: Vec3, _range: number, matcher?: any) =>
+      matcher
+        ? null
+        : {
+            name: 'stone',
+            position: new Vec3(0, 63, -1),
+            intersect: eye.plus(direction.scaled(1)),
+          },
+  };
   bot.players = { Scout: { username: 'Scout' }, importdf: { username: 'importdf' } };
   bot.blockAt = () => ({ name: 'grass_block' });
   bot.blockAtCursor = () => ({ name: 'stone', position: new Vec3(0, 63, -1) });
@@ -118,7 +128,7 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   });
 
   const initial = experience.observe();
-  assert.equal(initial.protocol, 'behold.inhabitant.v1');
+  assert.equal(initial.protocol, 'behold.inhabitant.v2');
   assert.deepEqual(initial.circle, {
     id: 'minecraft:test-world',
     substrate: 'minecraft',
@@ -140,8 +150,11 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   assert.equal(initial.scene.entities[0].id, 'player:importdf');
   assert.equal(initial.scene.entities[0].relativeDirection, 'ahead');
   assert.equal(initial.scene.entities[0].proximity, 'nearby');
-  assert.equal(initial.scene.entities[0].visibility, 'unknown');
+  assert.equal(initial.scene.entities[0].source, 'vision');
+  assert.equal(initial.scene.entities[0].visibility, 'visible');
   assert.equal(initial.scene.entities[0].heldItem, 'wooden_pickaxe');
+  assert.equal(initial.scene.terrain.source, 'vision');
+  assert.equal(initial.scene.terrain.raysCast, 45);
 
   now = 1200;
   bot.emit('chat', 'importdf', 'Scout, come here');
@@ -198,14 +211,14 @@ test('entity proximity is a bounded relation to this body, not server presence',
   experience.destroy();
 });
 
-test('entity appearances distinguish initial world synchronization from live events', () => {
+test('entity visibility distinguishes initial world synchronization from live events', () => {
   const bot = fakeBot();
   const experience = new InhabitantExperience(bot);
 
   bot.emit('entitySpawn', bot.entities[2]);
   const initialAppearance = experience
     .observe()
-    .events.find((event) => event.type === 'entity_appeared_nearby');
+    .events.find((event) => event.type === 'entity_became_visible');
   assert.equal(initialAppearance?.data.observationPhase, 'initial_world_sync');
 
   experience.markLocalWorldReady(4000);
@@ -213,19 +226,101 @@ test('entity appearances distinguish initial world synchronization from live eve
     id: 3,
     name: 'item',
     type: 'object',
-    position: new Vec3(2, 64, 0),
+    position: new Vec3(0, 64, -2),
   };
   bot.entities[3] = liveEntity;
   bot.emit('entitySpawn', liveEntity);
   const observation = experience.observe();
   const ready = observation.events.find((event) => event.type === 'local_world_ready');
   const liveAppearance = observation.events
-    .filter((event) => event.type === 'entity_appeared_nearby')
+    .filter((event) => event.type === 'entity_became_visible')
     .at(-1);
   assert.equal(ready?.data.initialSceneSynchronized, true);
   assert.equal(ready?.data.settleMs, 4000);
   assert.equal(liveAppearance?.data.observationPhase, 'live_world');
 
+  experience.destroy();
+});
+
+test('visual scene diffs notice a stationary entity when the body turns away and back', () => {
+  const bot = fakeBot();
+  const experience = new InhabitantExperience(bot);
+  const initial = experience.observe();
+  assert.equal(initial.scene.entities[0]?.id, 'player:importdf');
+
+  bot.entity.yaw = Math.PI;
+  const turnedAway = experience.observe(initial.sequence);
+  assert.deepEqual(turnedAway.scene.entities, []);
+  assert.equal(turnedAway.events.find((event) => event.type === 'entity_left_view')?.isNew, true);
+
+  bot.entity.yaw = 0;
+  const turnedBack = experience.observe(turnedAway.sequence);
+  assert.equal(turnedBack.scene.entities[0]?.id, 'player:importdf');
+  assert.equal(
+    turnedBack.events.find((event) => event.type === 'entity_became_visible')?.isNew,
+    true,
+  );
+  experience.destroy();
+});
+
+test('hidden lifecycle packets do not leak entity or block state, while sound stays egocentric', () => {
+  let now = 1000;
+  const bot = fakeBot();
+  const hidden = bot.entities[2];
+  bot.world.raycast = (eye: Vec3, direction: Vec3) => ({
+    name: 'stone',
+    position: new Vec3(0, 64, -2),
+    intersect: eye.plus(direction.scaled(2)),
+  });
+  const experience = new InhabitantExperience(bot, { now: () => now });
+
+  assert.equal(Object.values(bot.entities).includes(hidden), true);
+  assert.deepEqual(experience.observe().scene.entities, []);
+  bot.emit('entitySpawn', hidden);
+  bot.emit('entityHurt', hidden);
+  bot.emit('entityEquip', hidden);
+  bot.emit(
+    'blockUpdate',
+    { name: 'stone', position: new Vec3(0, 64, -5) },
+    { name: 'air', position: new Vec3(0, 64, -5) },
+  );
+  bot.emit('soundEffectHeard', 'minecraft:entity.zombie.ambient', hidden.position, 1, 1);
+  bot.emit('soundEffectHeard', 'minecraft:entity.zombie.ambient', hidden.position, 1, 1);
+
+  const hiddenObservation = experience.observe();
+  assert.equal(
+    hiddenObservation.events.some((event) =>
+      [
+        'entity_became_visible',
+        'visible_entity_hurt',
+        'visible_player_equipment_changed',
+        'block_changed_nearby',
+      ].includes(event.type),
+    ),
+    false,
+  );
+  const sounds = hiddenObservation.events.filter((event) => event.type === 'sound_heard');
+  assert.equal(sounds.length, 1);
+  assert.equal(sounds[0].source, 'sound');
+  assert.deepEqual(sounds[0].data, {
+    sound: 'minecraft:entity.zombie.ambient',
+    distanceBand: 'nearby',
+    relativeDirection: 'ahead',
+    volume: 1,
+    pitch: 1,
+  });
+  assert.equal('position' in sounds[0].data, false);
+
+  now += 1000;
+  bot.world.raycast = () => null;
+  bot.emit('entityMoved', hidden);
+  const revealed = experience.observe(hiddenObservation.sequence);
+  assert.equal(revealed.scene.entities[0]?.id, 'player:importdf');
+  assert.ok(
+    revealed.events.some(
+      (event) => event.type === 'entity_became_visible' && event.data.id === 'player:importdf',
+    ),
+  );
   experience.destroy();
 });
 
@@ -316,7 +411,7 @@ test('ordinary world changes become attention events and instances stay isolated
   assert.ok(
     changed.events.some(
       (event) =>
-        event.type === 'nearby_player_equipment_changed' &&
+        event.type === 'visible_player_equipment_changed' &&
         event.data.heldItem === 'wooden_axe' &&
         event.isNew,
     ),
@@ -324,7 +419,7 @@ test('ordinary world changes become attention events and instances stay isolated
   assert.ok(
     changed.events.some(
       (event) =>
-        event.type === 'nearby_player_collected_item' &&
+        event.type === 'visible_player_collected_item' &&
         event.data.item === 'oak_log' &&
         event.isNew,
     ),

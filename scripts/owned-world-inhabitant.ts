@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { goals } from 'mineflayer-pathfinder';
+import { Vec3 } from 'vec3';
 import { getConfig } from '../src/config';
 import { createBot } from '../src/bot';
 import { openEntityLoom, type EntityTurn } from '../src/entity/loom';
@@ -74,7 +75,7 @@ async function main() {
         list: () => interpreter.list('inhabitant'),
       },
       {
-        allowTools: ['move_to', 'approach_entity', 'collect_nearby_item', 'inspect_volume'],
+        allowTools: ['move_to', 'approach_entity', 'collect_nearby_item', 'status'],
         onEvent: (event) => {
           events.push(event);
           experience!.recordEngineEvent(event);
@@ -83,10 +84,23 @@ async function main() {
     );
 
     await waitForLocalWorld(bot, 45_000);
-    if (phase === 'act') await waitForDroppedItem(bot, 'apple', 5_000);
-    else await delay(500);
+    if (phase === 'act') {
+      await waitForDroppedItem(bot, 'apple', 5_000);
+      const preparedApple = observedDroppedItems(bot).find((item) => item.name === 'apple');
+      if (!preparedApple) throw new Error('prepared apple disappeared before first observation');
+      await (bot as any).lookAt(
+        new Vec3(
+          preparedApple.position.x,
+          preparedApple.position.y + 0.15,
+          preparedApple.position.z,
+        ),
+        true,
+      );
+      await waitForPerceivedEntity(experience, `entity:${preparedApple.id}`, 5_000);
+    } else await delay(500);
     const initialObservation = experience.observe();
     const initialDroppedItems = observedDroppedItems(bot);
+    const inhabitantActions = interpreter.list('inhabitant').map((spec) => spec.name);
     let locomotion: Awaited<ReturnType<typeof executeTurn>> | null = null;
     let approach: Awaited<ReturnType<typeof proveExactApproach>> | null = null;
     let collection: Awaited<ReturnType<typeof executeTurn>> | null = null;
@@ -145,6 +159,11 @@ async function main() {
       if (!currentApple) {
         throw new Error('the prepared apple disappeared before its exact pickup action');
       }
+      await (bot as any).lookAt(
+        new Vec3(currentApple.position.x, currentApple.position.y + 0.15, currentApple.position.z),
+        true,
+      );
+      await waitForPerceivedEntity(experience, `entity:${currentApple.id}`, 5_000);
       collection = await executeTurn({
         entityId,
         loom,
@@ -184,8 +203,8 @@ async function main() {
         experience,
         engine,
         events,
-        name: 'inspect_volume',
-        input: { radius: 2, verticalRadius: 2 },
+        name: 'status',
+        input: {},
       });
       if (
         events.some(
@@ -209,6 +228,7 @@ async function main() {
       resultingTurns: loom.turns().length,
       initialObservation,
       initialDroppedItems,
+      inhabitantActions,
       locomotion,
       approach,
       collection,
@@ -267,6 +287,38 @@ async function proveExactApproach(input: {
     await waitForLocalWorld(witness, 45_000);
     const target = await waitForPlayerEntity(input.resident, WITNESS_ID, 5_000);
     const targetEntityId = Number(target.id);
+    await (input.resident as any).lookAt(
+      target.position.offset(0, Math.max(0.5, Number(target.height || 1.8) * 0.8), 0),
+      true,
+    );
+    await delay(100);
+    const observationPerformance = measureObservation(input.experience, 20);
+    const hiddenObservation = input.experience.observe();
+    const residentBefore = positionSnapshot(input.resident);
+    const hiddenTurn = await executeTurn({
+      entityId: input.entityId,
+      loom: input.loom,
+      experience: input.experience,
+      engine: input.engine,
+      events: input.events,
+      name: 'approach_entity',
+      input: { target: `player:${WITNESS_ID}` },
+    });
+    const residentAfter = positionSnapshot(input.resident);
+    if (hiddenTurn.result?.ok || hiddenTurn.result?.error !== 'target_not_perceived') {
+      throw new Error(`occluded target was not denied: ${JSON.stringify(hiddenTurn)}`);
+    }
+
+    await (witness as any).pathfinder.goto(new (goals as any).GoalBlock(-4, -60, 0));
+    await (input.resident as any).lookAt(
+      target.position.offset(0, Math.max(0.5, Number(target.height || 1.8) * 0.8), 0),
+      true,
+    );
+    const visibleObservation = await waitForPerceivedEntity(
+      input.experience,
+      `player:${WITNESS_ID}`,
+      5_000,
+    );
     const witnessStartedAt = positionSnapshot(witness);
     const turnPromise = executeTurn({
       entityId: input.entityId,
@@ -278,9 +330,22 @@ async function proveExactApproach(input: {
       input: { target: `player:${WITNESS_ID}` },
     });
     await delay(100);
-    await (witness as any).pathfinder.goto(new (goals as any).GoalBlock(-4, -60, 0));
+    await (witness as any).pathfinder.goto(new (goals as any).GoalBlock(-8, -60, 0));
     const turn = await turnPromise;
     return {
+      hidden: {
+        rawTracked: !!target,
+        targetEntityId,
+        observation: hiddenObservation,
+        eventsNamingTarget: hiddenObservation.events.filter((event: any) =>
+          JSON.stringify(event?.data || {}).includes(WITNESS_ID),
+        ).length,
+        turn: hiddenTurn,
+        residentBefore,
+        residentAfter,
+      },
+      visibleObservation,
+      observationPerformance,
       turn,
       targetEntityId,
       witnessStartedAt,
@@ -335,6 +400,51 @@ async function waitForPlayerEntity(
     await delay(25);
   }
   throw new Error(`resident did not observe exact player ${username}`);
+}
+
+async function waitForPerceivedEntity(
+  experience: InhabitantExperience,
+  reference: string,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const observation = experience.observe();
+    if (
+      observation.scene.entities.some(
+        (entity) =>
+          entity.id === reference && entity.source === 'vision' && entity.visibility === 'visible',
+      )
+    ) {
+      return observation;
+    }
+    await delay(25);
+  }
+  throw new Error(`resident did not visually perceive exact entity ${reference}`);
+}
+
+function measureObservation(experience: InhabitantExperience, samples: number) {
+  const durations: number[] = [];
+  let raysPerObservation = 0;
+  for (let index = 0; index < samples; index += 1) {
+    const startedAt = process.hrtime.bigint();
+    const observation = experience.observe();
+    const completedAt = process.hrtime.bigint();
+    durations.push(Number(completedAt - startedAt) / 1_000_000);
+    raysPerObservation = observation.scene.terrain.raysCast;
+  }
+  durations.sort((a, b) => a - b);
+  const percentile = (ratio: number) =>
+    durations[Math.max(0, Math.min(durations.length - 1, Math.ceil(durations.length * ratio) - 1))];
+  return {
+    samples,
+    raysPerObservation,
+    minMs: durations[0],
+    meanMs: durations.reduce((sum, value) => sum + value, 0) / durations.length,
+    p50Ms: percentile(0.5),
+    p95Ms: percentile(0.95),
+    maxMs: durations.at(-1),
+  };
 }
 
 function positionSnapshot(bot: ReturnType<typeof createBot>) {

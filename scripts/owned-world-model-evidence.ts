@@ -98,7 +98,7 @@ export function assessOwnedWorldModelEvidence(
       actStarted?.task === expected.task &&
       Number(actStarted?.priorEntityTurns) === 0,
     modelReceivedBoundedOwnedObservation:
-      actPromptObservation?.protocol === 'behold.inhabitant.v1' &&
+      ['behold.inhabitant.v1', 'behold.inhabitant.v2'].includes(actPromptObservation?.protocol) &&
       actPromptObservation?.circle?.id === expected.worldId &&
       actPromptObservation?.circle?.managedRunId === expected.actRunId &&
       actPromptObservation?.self?.identity === expected.entityId &&

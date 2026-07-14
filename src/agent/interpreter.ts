@@ -2,7 +2,12 @@ import { Vec3 } from 'vec3';
 import type { Bot } from 'mineflayer';
 import { goals } from 'mineflayer-pathfinder';
 import mcDataLoader from 'minecraft-data';
-import { droppedItemPickupGround, onlinePlayerNames } from './observation';
+import {
+  blockAtViewCursor,
+  droppedItemPickupGround,
+  entityAtViewCursor,
+  onlinePlayerNames,
+} from './observation';
 import { surveyArea } from '../skills/survey';
 import {
   MANAGE_PROJECT_TOOL,
@@ -301,7 +306,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       const targetReference = String(requestedTarget || '');
       const target = observedSceneEntity(bot, targetReference);
       if (!target?.position) {
-        return { ok: false, error: 'target_not_observed', target: targetReference };
+        return { ok: false, error: 'target_not_perceived', target: targetReference };
       }
       if (isDroppedItem(target)) {
         return {
@@ -315,6 +320,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return runBoundedApproach(bot, target, {
         targetReference,
         targetAtStart: summarizeEntity(target),
+        isTargetPerceived: () => sceneCurrentlyPerceives(targetReference),
         stopDistance: clamp(Number(opts.approachDistance ?? 2.5), 1, 12),
         maxDistance: clamp(Number(opts.approachPursuitDistance ?? 16), 1, 32),
         timeoutMs: clamp(Number(opts.approachTimeoutMs ?? 45_000), 1000, 120_000),
@@ -342,14 +348,9 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       const targetReference = String(requestedTarget || '');
       const me = (bot as any).entity?.position;
       const pursuitLimit = clamp(Number(opts.fightPursuitDistance ?? 16), 1, 16);
-      const selectedTarget = (Object.values((bot as any).entities || {}) as any[]).find(
-        (entity) =>
-          entity?.position &&
-          entity?.id !== (bot as any).entity?.id &&
-          sceneEntityReference(entity) === targetReference,
-      );
+      const selectedTarget = observedSceneEntity(bot, targetReference);
       if (!selectedTarget) {
-        return { ok: false, error: 'target_not_observed', target: targetReference };
+        return { ok: false, error: 'target_not_perceived', target: targetReference };
       }
       const startedDistance = me?.distanceTo(selectedTarget.position) ?? Infinity;
       if (startedDistance > pursuitLimit) {
@@ -363,7 +364,9 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       }
 
       return runBoundedFight(bot, selectedTarget, {
+        targetReference,
         targetAtStart: summarizeEntity(selectedTarget),
+        isTargetPerceived: () => sceneCurrentlyPerceives(targetReference),
         startedDistance,
         maxDistance: pursuitLimit,
         timeoutMs: clamp(Number(opts.fightTimeoutMs ?? 15_000), 100, 30_000),
@@ -393,7 +396,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       const targetReference = String(requestedTarget || '');
       const entity = observedSceneEntity(bot, targetReference);
       if (!entity?.position) {
-        return { ok: false, error: 'target_not_observed', target: targetReference };
+        return { ok: false, error: 'target_not_perceived', target: targetReference };
       }
       if (!isDroppedItem(entity)) {
         return { ok: false, error: 'target_not_dropped_item', target: targetReference };
@@ -454,7 +457,13 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       let collected = await watcher.wait(navigation.ok ? 400 : 100);
       let pickupRecovery: any = null;
       if (!collected) {
-        pickupRecovery = await boundedPickupNudge(bot, target.entity, watcher, 2000);
+        pickupRecovery = sceneCurrentlyPerceives(targetReference)
+          ? await boundedPickupNudge(bot, target.entity, watcher, 2000)
+          : {
+              attempted: false,
+              collected: false,
+              reason: 'target_not_perceived_at_recovery',
+            };
         collected = pickupRecovery.collected;
       }
       watcher.close();
@@ -1869,6 +1878,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       };
     },
     category: 'sense',
+    audience: 'privileged',
   });
 
   add({
@@ -1876,7 +1886,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     description: 'Get block currently under crosshair within maxDistance',
     parameters: { type: 'object', properties: { maxDistance: { type: 'number' } } },
     run: async ({ maxDistance = 6 }) => {
-      const b = (bot as any).blockAtCursor?.(Number(maxDistance));
+      const b = blockAtViewCursor(bot, Number(maxDistance));
       if (!b) return { ok: true, block: null };
       return { ok: true, block: summarizeBlock(b) };
     },
@@ -1940,6 +1950,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       });
     },
     category: 'sense',
+    audience: 'privileged',
   });
 
   add({
@@ -1996,6 +2007,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       );
     },
     category: 'sense',
+    audience: 'privileged',
   });
 
   add({
@@ -2003,7 +2015,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     description: 'Get entity under crosshair within maxDistance',
     parameters: { type: 'object', properties: { maxDistance: { type: 'number' } } },
     run: async ({ maxDistance = 3.5 }) => {
-      const e = (bot as any).entityAtCursor?.(Number(maxDistance));
+      const e = entityAtViewCursor(bot, Number(maxDistance));
       if (!e) return { ok: true, entity: null };
       return { ok: true, entity: summarizeEntity(e) };
     },
@@ -2026,6 +2038,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return { ok: true, entity: e ? summarizeEntity(e) : null };
     },
     category: 'sense',
+    audience: 'privileged',
   });
 
   add({
@@ -2051,6 +2064,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return { ok: true, entities };
     },
     category: 'sense',
+    audience: 'privileged',
   });
 
   add({
@@ -2124,11 +2138,27 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   }
 
   function observedSceneEntity(subject: Bot, reference: string) {
+    if (!sceneCurrentlyPerceives(reference)) return undefined;
     return (Object.values((subject as any).entities || {}) as any[]).find(
       (entity) =>
         entity?.position &&
         entity?.id !== (subject as any).entity?.id &&
         sceneEntityReference(entity) === reference,
+    );
+  }
+
+  function sceneCurrentlyPerceives(reference: string) {
+    if (!opts.observe) return true;
+    const observation = opts.observe();
+    return (
+      observation?.protocol === 'behold.inhabitant.v2' &&
+      Array.isArray(observation?.scene?.entities) &&
+      observation.scene.entities.some(
+        (entity: any) =>
+          entity?.id === reference &&
+          entity?.source === 'vision' &&
+          entity?.visibility === 'visible',
+      )
     );
   }
 
@@ -3974,6 +4004,7 @@ async function runBoundedApproach(
   options: {
     targetReference: string;
     targetAtStart: any;
+    isTargetPerceived: () => boolean;
     stopDistance: number;
     maxDistance: number;
     timeoutMs: number;
@@ -3985,6 +4016,11 @@ async function runBoundedApproach(
   const pathfinder = (bot as any).pathfinder;
   const startedDistance =
     (bot as any).entity?.position?.distanceTo(selectedTarget.position) ?? null;
+  let lastSeenPosition = selectedTarget.position.clone();
+  let lastGoalPosition = lastSeenPosition.clone();
+  let lastPerceivedAt = startedAt;
+  let lastPerceivedDistance = startedDistance;
+  let currentlyPerceived = true;
   let pathfinderEngaged = false;
   let finalized = false;
   let pathFailure: string | null = null;
@@ -3992,13 +4028,20 @@ async function runBoundedApproach(
   const pathResets: string[] = [];
 
   const currentTarget = () => (bot as any).entities?.[targetId] ?? null;
-  const currentDistance = () => {
+  const refreshPerception = () => {
     const me = (bot as any).entity?.position;
     const target = currentTarget();
-    return me && target?.position ? me.distanceTo(target.position) : null;
+    if (!me || !target?.position || !options.isTargetPerceived()) {
+      currentlyPerceived = false;
+      return null;
+    }
+    currentlyPerceived = true;
+    lastSeenPosition = target.position.clone();
+    lastPerceivedAt = Date.now();
+    lastPerceivedDistance = me.distanceTo(target.position);
+    return target;
   };
   const evidence = () => {
-    const finalDistance = currentDistance();
     return {
       target: options.targetReference,
       targetEntityId: targetId,
@@ -4007,7 +4050,11 @@ async function runBoundedApproach(
       ),
       targetAtStart: options.targetAtStart,
       startedDistance: startedDistance == null ? null : round(startedDistance),
-      finalDistance: finalDistance == null ? null : round(finalDistance),
+      finalDistance:
+        currentlyPerceived && lastPerceivedDistance != null ? round(lastPerceivedDistance) : null,
+      lastSeenPosition: positionRecord(lastSeenPosition),
+      lastPerceivedAt,
+      targetPerceivedAtTerminal: currentlyPerceived,
       bodyStopDistance: options.stopDistance,
       bodyPursuitLimit: options.maxDistance,
       pathUpdates,
@@ -4039,7 +4086,8 @@ async function runBoundedApproach(
         pathfinderStopAcknowledged: false,
       };
     }
-    const finalDistance = currentDistance();
+    refreshPerception();
+    const finalDistance = currentlyPerceived ? lastPerceivedDistance : null;
     const terminal =
       requestedTerminal.ok === true &&
       (finalDistance == null || finalDistance > options.stopDistance + 0.75)
@@ -4047,6 +4095,10 @@ async function runBoundedApproach(
             ok: false,
             error: 'arrival_unconfirmed',
             confirmation: null,
+            reason:
+              finalDistance == null
+                ? 'The selected entity was not in the current visual scene at arrival.'
+                : 'The selected entity was still outside the body stop distance at arrival.',
             claimedTerminal: requestedTerminal,
           }
         : requestedTerminal;
@@ -4092,7 +4144,14 @@ async function runBoundedApproach(
   (bot as any).on?.('path_update', onPathUpdate);
   (bot as any).on?.('path_reset', onPathReset);
   try {
-    pathfinder.setGoal(new (goals as any).GoalFollow(selectedTarget, options.stopDistance), true);
+    pathfinder.setGoal(
+      new (goals as any).GoalNear(
+        lastSeenPosition.x,
+        lastSeenPosition.y,
+        lastSeenPosition.z,
+        options.stopDistance,
+      ),
+    );
     pathfinderEngaged = true;
     while (true) {
       if (options.signal?.aborted) {
@@ -4103,14 +4162,24 @@ async function runBoundedApproach(
       }
       if (pathFailure) return fail(pathFailure);
       if (Date.now() - startedAt >= options.timeoutMs) return fail('approach_timeout');
-      const target = currentTarget();
-      if (!target?.position) return fail('target_lost');
-      const distanceToTarget = currentDistance();
-      if (distanceToTarget == null) return fail('body_or_target_position_unavailable');
-      if (distanceToTarget > options.maxDistance) {
-        return fail('target_escaped', { distance: round(distanceToTarget) });
+      const target = refreshPerception();
+      if (target && lastPerceivedDistance != null) {
+        if (lastPerceivedDistance > options.maxDistance) {
+          return fail('target_escaped', { distance: round(lastPerceivedDistance) });
+        }
+        if (lastSeenPosition.distanceTo(lastGoalPosition) > 0.75) {
+          lastGoalPosition = lastSeenPosition.clone();
+          pathfinder.setGoal(
+            new (goals as any).GoalNear(
+              lastGoalPosition.x,
+              lastGoalPosition.y,
+              lastGoalPosition.z,
+              options.stopDistance,
+            ),
+          );
+        }
       }
-      if (distanceToTarget <= options.stopDistance + 0.75) {
+      if (target && lastPerceivedDistance! <= options.stopDistance + 0.75) {
         const result = await finish({
           ok: true,
           status: 'arrived',
@@ -4129,7 +4198,43 @@ async function runBoundedApproach(
         }
         return result;
       }
-      await waitForFightTick(25, options.signal);
+      const me = (bot as any).entity?.position;
+      if (!me) return fail('body_or_target_position_unavailable');
+      if (!target && me.distanceTo(lastSeenPosition) <= options.stopDistance + 0.75) {
+        try {
+          await (bot as any).lookAt(
+            lastSeenPosition.offset(
+              0,
+              Math.max(0.5, Number(selectedTarget.height || 1.6) * 0.8),
+              0,
+            ),
+          );
+        } catch {}
+        await waitForFightTick(50, options.signal);
+        const reacquired = refreshPerception();
+        if (!reacquired) {
+          return fail('target_lost_at_last_seen', {
+            lastSeenPosition: positionRecord(lastSeenPosition),
+          });
+        }
+        if (lastPerceivedDistance! <= options.stopDistance + 0.75) {
+          return finish({
+            ok: true,
+            status: 'arrived',
+            confirmation: 'mineflayer:body_target_proximity',
+          });
+        }
+        lastGoalPosition = lastSeenPosition.clone();
+        pathfinder.setGoal(
+          new (goals as any).GoalNear(
+            lastGoalPosition.x,
+            lastGoalPosition.y,
+            lastGoalPosition.z,
+            options.stopDistance,
+          ),
+        );
+      }
+      await waitForFightTick(100, options.signal);
     }
   } catch (error: any) {
     return fail(navigationError(error));
@@ -4184,7 +4289,9 @@ async function runBoundedFight(
   bot: Bot,
   selectedTarget: any,
   options: {
+    targetReference: string;
     targetAtStart: any;
+    isTargetPerceived: () => boolean;
     startedDistance: number;
     maxDistance: number;
     timeoutMs: number;
@@ -4205,9 +4312,13 @@ async function runBoundedFight(
   let pursuing = false;
   let pathfinderEngaged = false;
   let stopIssued = false;
+  let currentlyPerceived = true;
+  let lastSeenPosition = selectedTarget.position.clone();
+  let pursuitGoalPosition: Vec3 | null = null;
 
   const currentTarget = () => (bot as any).entities?.[targetId] ?? null;
   const currentDistance = () => {
+    if (!currentlyPerceived) return null;
     const me = (bot as any).entity?.position;
     const target = currentTarget();
     return me && target?.position ? me.distanceTo(target.position) : null;
@@ -4217,9 +4328,12 @@ async function runBoundedFight(
     return {
       ...terminal,
       target: targetAtStart,
+      targetReference: options.targetReference,
       targetEntityId: targetId,
       startedDistance: round(options.startedDistance),
       finalDistance: finalDistance == null ? null : round(finalDistance),
+      lastSeenPosition: positionRecord(lastSeenPosition),
+      targetPerceivedAtTerminal: currentlyPerceived,
       attacksAttempted,
       targetHurtEvents,
       attributedHits,
@@ -4304,6 +4418,14 @@ async function runBoundedFight(
       if (!target?.position) {
         return fail('target_lost');
       }
+      currentlyPerceived = options.isTargetPerceived();
+      if (!currentlyPerceived) {
+        requestStop();
+        return fail('target_lost_from_view', {
+          lastSeenPosition: positionRecord(lastSeenPosition),
+        });
+      }
+      lastSeenPosition = target.position.clone();
       const me = (bot as any).entity?.position;
       const distanceToTarget = me?.distanceTo(target.position) ?? Infinity;
       if (distanceToTarget > options.maxDistance) {
@@ -4318,9 +4440,31 @@ async function runBoundedFight(
         }
         if (!pursuing) {
           try {
-            pathfinder.setGoal(new (goals as any).GoalFollow(target, 2.25), true);
+            pursuitGoalPosition = lastSeenPosition.clone();
+            pathfinder.setGoal(
+              new (goals as any).GoalNear(
+                pursuitGoalPosition.x,
+                pursuitGoalPosition.y,
+                pursuitGoalPosition.z,
+                2.25,
+              ),
+            );
             pursuing = true;
             pathfinderEngaged = true;
+          } catch (error: any) {
+            return fail(navigationError(error));
+          }
+        } else if (pursuitGoalPosition && lastSeenPosition.distanceTo(pursuitGoalPosition) > 0.75) {
+          try {
+            pursuitGoalPosition = lastSeenPosition.clone();
+            pathfinder.setGoal(
+              new (goals as any).GoalNear(
+                pursuitGoalPosition.x,
+                pursuitGoalPosition.y,
+                pursuitGoalPosition.z,
+                2.25,
+              ),
+            );
           } catch (error: any) {
             return fail(navigationError(error));
           }
@@ -4340,6 +4484,8 @@ async function runBoundedFight(
         );
       } catch {}
       if (options.signal?.aborted || targetDead || selfDead) continue;
+      currentlyPerceived = options.isTargetPerceived();
+      if (!currentlyPerceived) continue;
       try {
         (bot as any).attack(target);
         attacksAttempted += 1;
@@ -4486,6 +4632,10 @@ function cancelledAction(adapter: string) {
 function positionOf(bot: Bot) {
   const position = (bot as any).entity?.position;
   return position ? { x: position.x, y: position.y, z: position.z } : null;
+}
+
+function positionRecord(position: { x: number; y: number; z: number }) {
+  return { x: round(position.x), y: round(position.y), z: round(position.z) };
 }
 
 function distance(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) {

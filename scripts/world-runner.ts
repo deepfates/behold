@@ -551,7 +551,7 @@ export async function startManagedWorld(
       serverJarSha256: jarSha256,
       sourceRevision,
       contracts: {
-        observation: 'behold.inhabitant.v1',
+        observation: 'behold.inhabitant.v2',
         controller: 'behold.llm-policy.v1',
         mind: 'behold.mind-request.v1 / behold.mind-decision.v1',
         owner: 'behold.world-owner.v1',
