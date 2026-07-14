@@ -229,12 +229,24 @@ only that body's or its direct target's terminal consequence. It fails when it
 contains another being's choice, certifies a downstream social outcome, grants
 unlabeled extra-sensory knowledge, or is named after an entire user story.
 
-The current registry is still transitional. It contains conveniences such as
-`collect_nearby_item` and explicitly symbolic local-geometry probes used by
-earlier experiments. They can be useful body skills or observation adapters,
-but their presence does not make them canonical player actions. Parity-critical
-proofs declare their exact admitted surface and exclude any convenience that
-would decide the question being tested.
+The test is cultural, not packet-level. A player says “pick up the apple,” “put
+the apple in the chest,” and “walk to the tree.” Those are honest embodied
+affordances even when the adapter composes pathfinding, a GUI interaction, or
+several movement packets. Forcing a mind to aim at raw collision coordinates is
+not more native merely because it exposes lower-level mechanics. The skill must
+remain local, bounded, interruptible, and authoritative only for this body and
+the directly manipulated Minecraft object.
+
+The current registry is still transitional. Its technical wire names are not
+the ontology: `collect_nearby_item` means the player act “pick up this dropped
+item,” while `deposit_in_container` means “put this item in that chest.”
+Explicitly symbolic local-geometry probes from earlier experiments remain
+different: they are privileged sensing unless we can ground their information
+in a player's viewpoint. Parity-critical proofs declare their exact admitted
+surface and exclude any skill whose verified postcondition would decide the
+specific question under test. The handoff proof therefore used walking plus
+automatic pickup to expose recipient choice and attribution; ordinary lives may
+honestly use the bounded pick-up skill.
 
 ### Where behavior belongs
 

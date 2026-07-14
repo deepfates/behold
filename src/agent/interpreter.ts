@@ -210,7 +210,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'move_to',
     description:
-      'Pathfind to a feet position and return only after arrival or failure. A block coordinate is a solid interaction target, not a feet destination; use dig_block for a block you want to mine.',
+      'Walk to a feet position and return only after arrival or failure. This is one bounded walking leg, not teleportation. A block coordinate is a solid interaction target, not a feet destination; use dig_block for a block you want to mine.',
     parameters: {
       type: 'object',
       properties: {
@@ -394,7 +394,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'collect_nearby_item',
     description:
-      'Walk to one nearby dropped item stack and report success only when Minecraft attributes collection to this body. If several dropped entities remain, collect them with additional actions before they expire.',
+      'Pick up one nearby dropped item stack by walking this body over to it. Succeed only when Minecraft attributes the pickup to this body. If several dropped stacks remain, pick them up with additional actions before they expire.',
     parameters: {
       type: 'object',
       properties: {
@@ -543,7 +543,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'dig_block',
     description:
-      'Mine the solid block at x,y,z. The body first approaches until the block is visible and within survival reach, then succeeds only after Minecraft confirms the block changed.',
+      'Break or mine one solid block. The body first walks within survival reach and faces it, then succeeds only after Minecraft confirms the block changed.',
     parameters: {
       type: 'object',
       properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } },
@@ -1490,7 +1490,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
 
   add({
     name: 'equip_item',
-    description: 'Equip an inventory item by name substring',
+    description: 'Hold an inventory item in a hand, or wear it in an armor slot.',
     parameters: {
       type: 'object',
       properties: {
@@ -1520,14 +1520,14 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'inspect_container',
     description:
-      'Open a nearby chest or other storage block, report its observed contents, then close it.',
+      'Look inside the nearby chest or other storage block: open it, observe its contents, then close it.',
     parameters: {
       type: 'object',
       properties: {
         x: { type: 'number' },
         y: { type: 'number' },
         z: { type: 'number' },
-        maxDistance: { type: 'number', minimum: 1, maximum: 16 },
+        maxDistance: { type: 'number', minimum: 1, maximum: 6 },
       },
     },
     run: async ({ x, y, z, maxDistance = 6 }) => {
@@ -1551,7 +1551,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'deposit_in_container',
     description:
-      'Deposit an inventory item into a nearby storage block and verify both body and container inventory deltas.',
+      'Put an owned inventory item into the nearby chest or other storage block, then verify that it left this body and appeared inside.',
     parameters: {
       type: 'object',
       properties: {
@@ -1560,7 +1560,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         x: { type: 'number' },
         y: { type: 'number' },
         z: { type: 'number' },
-        maxDistance: { type: 'number', minimum: 1, maximum: 16 },
+        maxDistance: { type: 'number', minimum: 1, maximum: 6 },
       },
       required: ['name'],
     },
@@ -1626,7 +1626,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'withdraw_from_container',
     description:
-      'Withdraw an item from a nearby storage block and verify both container and body inventory deltas.',
+      'Take an item from the nearby chest or other storage block, then verify that it left the container and entered this body.',
     parameters: {
       type: 'object',
       properties: {
@@ -1635,7 +1635,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         x: { type: 'number' },
         y: { type: 'number' },
         z: { type: 'number' },
-        maxDistance: { type: 'number', minimum: 1, maximum: 16 },
+        maxDistance: { type: 'number', minimum: 1, maximum: 6 },
       },
       required: ['name'],
     },
@@ -2190,7 +2190,7 @@ function resolveContainerBlock(
     return { ok: false, error: 'incomplete_container_coordinates' };
   }
 
-  const maxDistance = clamp(Number(args.maxDistance ?? 6), 1, 16);
+  const maxDistance = clamp(Number(args.maxDistance ?? 6), 1, 6);
   const explicit = provided === 3;
   const block = explicit
     ? (bot as any).blockAt?.(new Vec3(Number(args.x), Number(args.y), Number(args.z)))
