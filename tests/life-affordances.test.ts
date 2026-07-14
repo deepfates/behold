@@ -345,7 +345,10 @@ test('find_blocks returns actionable local positions without claiming visibility
     likelyGrounded: true,
   });
   assert.equal(result.coordinateMeaning, 'solid_block_target_not_feet_position');
-  assert.equal(result.nextAffordance, 'use dig_block on a chosen returned position');
+  assert.equal(
+    result.nextAffordance,
+    'Approach and look until a chosen lead becomes a current scene.terrain target, then mine that exact visible target.',
+  );
 });
 
 test('find_blocks scans past unsafe nearest matches to expose a useful target', async () => {

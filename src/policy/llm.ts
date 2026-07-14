@@ -1260,7 +1260,7 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
     lines.push(
       'Terrain samples and find_blocks identify loaded local blocks, not line of sight. Move and look when that matters.',
       'If resources are elevated or unreachable, widen find_blocks to the material name; for wood use name "log", distance 32, and prefer likelyGrounded.',
-      'Block coordinates are not feet. dig_block approaches one. If openedBodyPassages is nonempty, move through one before mining more.',
+      'dig_block selects one current visual target and owns facing and approach. If openedBodyPassages is nonempty, move through one before mining more.',
     );
   }
   if (hasAny('inspect_volume', 'place_block', 'place_against')) {

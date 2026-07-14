@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
 import type { InhabitantActionSpec } from '../src/entity/interface';
+import { isActionSchemaNarrowing } from '../src/policy/llm';
 
 test('a peripheral visible door offers exact orientation before cursor-gated crossing', () => {
   const actions = [tool('face_visible_target'), tool('cross_visible_door')];
@@ -142,7 +143,7 @@ test('current inventory uses and cursor focus produce exact native action inputs
     schemaTool('drop_item', { name: { type: 'string' } }),
     schemaTool('equip_item', { name: { type: 'string' } }),
     schemaTool('consume', { name: { type: 'string' } }),
-    schemaTool('dig_block', coordinateProperties({ target: { type: 'string' } })),
+    schemaTool('dig_block', { target: { type: 'string' } }, ['target']),
     schemaTool('place_against', {
       on: {
         type: 'object',
@@ -201,7 +202,7 @@ test('current inventory uses and cursor focus produce exact native action inputs
 });
 
 test('visual mining selects exact bounded first-hit surfaces without requiring cursor focus', () => {
-  const action = schemaTool('dig_block', coordinateProperties({ target: { type: 'string' } }));
+  const action = schemaTool('dig_block', { target: { type: 'string' } }, ['target']);
   const observation = {
     protocol: 'behold.inhabitant.v2',
     self: { inventory: [], condition: {} },
@@ -222,6 +223,7 @@ test('visual mining selects exact bounded first-hit surfaces without requiring c
   assert.deepEqual(Object.keys(dig.function.parameters.properties), ['target']);
   assert.deepEqual(dig.function.parameters.properties.target.enum, ['block:overworld:1:64:0']);
   assert.deepEqual(dig.function.parameters.required, ['target']);
+  assert.equal(isActionSchemaNarrowing(action.function.parameters, dig.function.parameters), true);
 });
 
 test('consumption follows Mineflayer hunger and always-consumable semantics', () => {
@@ -262,12 +264,16 @@ function tool(name: string): InhabitantActionSpec {
   };
 }
 
-function schemaTool(name: string, properties: Record<string, unknown>): InhabitantActionSpec {
+function schemaTool(
+  name: string,
+  properties: Record<string, unknown>,
+  required?: string[],
+): InhabitantActionSpec {
   return {
     type: 'function',
     function: {
       name,
-      parameters: { type: 'object', properties },
+      parameters: { type: 'object', properties, ...(required ? { required } : {}) },
     },
   };
 }

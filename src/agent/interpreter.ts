@@ -408,7 +408,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'move_to',
     description:
-      'Walk to a feet position and return only after an observed body result. This is one bounded walking leg, not teleportation. If the body already satisfies the requested range, the result says no movement occurred instead of claiming progress. A block coordinate is a solid interaction target, not a feet destination; use dig_block for a block you want to mine.',
+      'Walk to a feet position and return only after an observed body result. This is one bounded walking leg, not teleportation. If the body already satisfies the requested range, the result says no movement occurred instead of claiming progress. A block coordinate is a solid interaction target, not a feet destination; approach and look before selecting a visible block to mine.',
     parameters: {
       type: 'object',
       properties: {
@@ -875,7 +875,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'dig_block',
     description:
-      'Break or mine one solid block, selected either as an exact current first-person target or an internal remembered position. The body turns and walks within survival reach, then succeeds only after Minecraft confirms the block changed. If that exact change opens adjacent body-sized space, the terminal names the newly enterable direction relative to your current view.',
+      'Break or mine one exact current first-person block target. The body turns and walks within survival reach, then succeeds only after Minecraft confirms the block changed. If that exact change opens adjacent body-sized space, the terminal names the newly enterable direction relative to your current view.',
     parameters: {
       type: 'object',
       properties: {
@@ -883,11 +883,8 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           type: 'string',
           description: 'Exact current id from scene.terrain.targets',
         },
-        x: { type: 'number' },
-        y: { type: 'number' },
-        z: { type: 'number' },
       },
-      required: ['x', 'y', 'z'],
+      required: ['target'],
     },
     run: async ({ target, x, y, z }, execution) => {
       const targetReference = typeof target === 'string' ? target.trim() : '';
@@ -2145,7 +2142,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'find_blocks',
     description:
-      'Locate nearby solid blocks by exact or broad registry name in loaded terrain. Broad names such as "log" search across wood species; log results prioritize likely grounded trunk bases over closer floating canopy pieces. Returned coordinates are interaction targets, not feet positions: pass one to dig_block to approach and mine it.',
+      'Locate nearby solid blocks by exact or broad registry name in loaded terrain. Broad names such as "log" search across wood species; log results prioritize likely grounded trunk bases over closer floating canopy pieces. Results are loaded-terrain leads, not visible surfaces or feet positions: approach and look until a block becomes a current scene target before mining it.',
     parameters: {
       type: 'object',
       properties: {
@@ -2216,7 +2213,8 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         source: 'loaded_local_terrain',
         visibility: 'unknown',
         coordinateMeaning: 'solid_block_target_not_feet_position',
-        nextAffordance: 'use dig_block on a chosen returned position',
+        nextAffordance:
+          'Approach and look until a chosen lead becomes a current scene.terrain target, then mine that exact visible target.',
         omittedUnsafeTargets: positions.length - safePositions.length,
         searchedCandidates: positions.length,
         blocks: candidates.slice(0, requestedCount),
