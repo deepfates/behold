@@ -128,6 +128,7 @@ export async function generate(argv) {
       binaryPath: arnis.path,
       binarySha256: arnis.sha256,
       patchPath: arnis.patchPath,
+      patchPaths: arnis.patchPaths ?? [arnis.patchPath],
       toolLockPath: recipe.toolLock,
       toolLockSha256: await sha256(toolLockPath),
       minecraftVersion: toolLock.tools.minecraftServer.version,

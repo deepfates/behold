@@ -324,6 +324,7 @@ export function draftRecipe(seed, selectedLandmarks, spawns) {
       spawn: { name: spawns[0].name, lat: spawns[0].lat, lon: spawns[0].lon },
     },
     generation: {
+      cartographyPolicy: 'literal-v1',
       terrain: true,
       interiors: true,
       overture: false,

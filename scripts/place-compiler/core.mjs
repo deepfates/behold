@@ -3,6 +3,7 @@ import { createReadStream, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const CARTOGRAPHY_POLICIES = Object.freeze(['literal-v1', 'minecraft-legible-v1']);
 
 function finite(value, label) {
   if (!Number.isFinite(value)) throw new Error(`${label} must be finite`);
@@ -66,6 +67,11 @@ export function validatePlaceRecipe(recipe, source = '<recipe>') {
   ])
     if (typeof recipe.generation?.[key] !== 'boolean')
       throw new Error(`${source} generation.${key} must be boolean`);
+  recipe.generation.cartographyPolicy ??= 'literal-v1';
+  if (!CARTOGRAPHY_POLICIES.includes(recipe.generation.cartographyPolicy))
+    throw new Error(
+      `${source} generation.cartographyPolicy must be one of ${CARTOGRAPHY_POLICIES.join(', ')}`,
+    );
   if (
     !['creative', 'survival'].includes(recipe.generation.gameMode) ||
     !Number.isSafeInteger(recipe.generation.worldTime)
@@ -110,6 +116,8 @@ export function compileArnisArguments(recipe, outputRoot, osmJson, snapshot) {
     String(geo.scaleBlocksPerMeter),
     '--projection',
     geo.projection,
+    '--cartography-policy',
+    gen.cartographyPolicy,
   ];
   if (gen.terrain) args.push('--terrain');
   args.push(`--interior=${gen.interiors}`, `--overture=${gen.overture}`);

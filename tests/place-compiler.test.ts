@@ -31,6 +31,7 @@ test('one place compiler emits both place commands and the same locked tool', ()
   assert.equal(sf.command[sf.command.indexOf('--bbox') + 1], '37.707,-122.516,37.834,-122.349');
   assert.equal(ny.command[ny.command.indexOf('--bbox') + 1], '40.697,-74.021,40.721,-73.989');
   assert.equal(ny.command[ny.command.indexOf('--overture=false')], '--overture=false');
+  assert.equal(sf.command[sf.command.indexOf('--cartography-policy') + 1], 'literal-v1');
 });
 
 test('living profile leaves ecology to Minecraft', () => {

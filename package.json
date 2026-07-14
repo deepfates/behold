@@ -21,6 +21,8 @@
     "world": "npm run build && node dist/scripts/world-runner.js",
     "place:epoch": "npm run build && node dist/scripts/place-epoch.js",
     "place:resolve": "node scripts/place-compiler/resolve-place.mjs",
+    "place:build-arnis": "node scripts/place-compiler/build-arnis.mjs",
+    "place:experiment-cartography": "node scripts/place-compiler/cartography-experiment.mjs",
     "place:bootstrap": "node scripts/place-compiler/bootstrap-place.mjs",
     "place:interpret": "node scripts/place-compiler/semantic-place.mjs",
     "place:review-interpretation": "node scripts/place-compiler/review-semantic-place.mjs",

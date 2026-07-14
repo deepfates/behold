@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "id": "minecraft-legible-v1",
+  "question": "Does one deterministic canopy policy make Minecraft-scale places easier to read without damaging structurally different urban fabrics?",
+  "policies": ["literal-v1", "minecraft-legible-v1"],
+  "windows": [
+    {
+      "id": "san-francisco-presidio",
+      "name": "San Francisco · Presidio / Golden Gate",
+      "structure": "wooded coastal park, bridge approach, steep terrain",
+      "osmSnapshot": ".behold-artifacts/sf/runs/validation/golden-gate-v3-local-20260713T085113Z/inputs/golden-gate-osm.json",
+      "bounds": {
+        "minLat": 37.803,
+        "minLon": -122.488,
+        "maxLat": 37.833,
+        "maxLon": -122.47
+      },
+      "spawn": {
+        "name": "Golden Gate overlook",
+        "lat": 37.8199,
+        "lon": -122.4783
+      },
+      "landmarks": [
+        {
+          "id": "golden-gate-overlook",
+          "name": "Golden Gate overlook",
+          "lat": 37.8199,
+          "lon": -122.4783
+        },
+        {
+          "id": "crissy-field",
+          "name": "Crissy Field",
+          "lat": 37.8058,
+          "lon": -122.4708
+        }
+      ]
+    },
+    {
+      "id": "lower-manhattan-civic",
+      "name": "Lower Manhattan · Civic / Financial",
+      "structure": "dense orthogonal towers, broad roads, civic open space",
+      "osmSnapshot": ".behold-artifacts/places/lower-manhattan/runs/lower-manhattan-v3/inputs/lower-manhattan-overpass.json",
+      "bounds": {
+        "minLat": 40.706,
+        "minLon": -74.016,
+        "maxLat": 40.716,
+        "maxLon": -74.004
+      },
+      "spawn": {
+        "name": "One World Trade Center",
+        "lat": 40.7127,
+        "lon": -74.0134
+      },
+      "landmarks": [
+        {
+          "id": "one-world-trade-center",
+          "name": "One World Trade Center",
+          "lat": 40.7127,
+          "lon": -74.0134
+        },
+        {
+          "id": "city-hall",
+          "name": "City Hall",
+          "lat": 40.7128,
+          "lon": -74.006
+        }
+      ]
+    },
+    {
+      "id": "venice-core",
+      "name": "Venice · Historic Core",
+      "structure": "fine-grained canal fabric, narrow pedestrian ways, plazas",
+      "osmSnapshot": ".behold-artifacts/places/venice-core/runs/venice-core-v1/inputs/venice-core-overpass.json",
+      "bounds": {
+        "minLat": 45.428,
+        "minLon": 12.316,
+        "maxLat": 45.447,
+        "maxLon": 12.3545
+      },
+      "spawn": {
+        "name": "Campo San Polo",
+        "lat": 45.4376,
+        "lon": 12.3296
+      },
+      "landmarks": [
+        {
+          "id": "campo-san-polo",
+          "name": "Campo San Polo",
+          "lat": 45.4376,
+          "lon": 12.3296
+        },
+        {
+          "id": "st-marks-square",
+          "name": "St Mark's Square",
+          "lat": 45.434,
+          "lon": 12.3387
+        }
+      ]
+    }
+  ]
+}

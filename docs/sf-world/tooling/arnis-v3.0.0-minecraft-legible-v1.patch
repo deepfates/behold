@@ -1,0 +1,226 @@
+# Arnis v3.0.0 Minecraft-legible cartography policy
+# Apply after arnis-v3.0.0-tall-heightmap.patch.
+--- a/src/args.rs
++++ b/src/args.rs
+@@ -40,6 +40,12 @@
+     #[arg(long, default_value_t = 1.0)]
+     pub scale: f64,
+
++    /// Versioned cartography policy. Literal preserves the source-facing Arnis
++    /// defaults; Minecraft-legible reduces canopy crowding without changing
++    /// geographic coordinates or building footprints.
++    #[arg(long, value_enum, default_value_t = CartographyPolicy::LiteralV1)]
++    pub cartography_policy: CartographyPolicy,
++
+     /// Projection mode for coordinate mapping
+     /// local: each generation starts at Minecraft (0,0) (default)
+     /// web_mercator: global projection for multi-generation worlds
+@@ -140,6 +146,44 @@
+     Spectator,
+ }
+
++#[derive(Clone, Copy, PartialEq, Eq, Debug, clap::ValueEnum)]
++pub enum CartographyPolicy {
++    #[value(name = "literal-v1")]
++    LiteralV1,
++    #[value(name = "minecraft-legible-v1")]
++    MinecraftLegibleV1,
++}
++
++impl CartographyPolicy {
++    pub fn tree_size_filter(self) -> crate::trees::tree_library::SizeFilter {
++        use crate::trees::tree_library::SizeFilter;
++        match self {
++            Self::LiteralV1 => SizeFilter::default(),
++            Self::MinecraftLegibleV1 => SizeFilter {
++                small: true,
++                medium: true,
++                big: true,
++                tall: false,
++                giant: false,
++            },
++        }
++    }
++
++    pub fn tree_spacing_bonus(self) -> i32 {
++        match self {
++            Self::LiteralV1 => 0,
++            Self::MinecraftLegibleV1 => 2,
++        }
++    }
++
++    pub fn tree_density_multiplier(self) -> f64 {
++        match self {
++            Self::LiteralV1 => 1.0,
++            Self::MinecraftLegibleV1 => 0.70,
++        }
++    }
++}
++
+ impl GameMode {
+     pub fn from_str_lossy(s: &str) -> Self {
+         match s {
+@@ -286,9 +330,34 @@
+         assert!(!args.disable_height_limit);
+         assert!(!args.bake_lighting);
+         assert!(!args.map_preview);
++        assert_eq!(args.cartography_policy, CartographyPolicy::LiteralV1);
+         // interior is opt-in (off by default); overture defaults to true
+         assert!(!args.interior);
+         assert!(args.overture);
++    }
++
++    #[test]
++    fn test_minecraft_legible_cartography_policy() {
++        let tmpdir = tempfile::tempdir().unwrap();
++        let cmd = [
++            "arnis",
++            "--output-dir",
++            tmpdir.path().to_str().unwrap(),
++            "--bbox",
++            "1,2,3,4",
++            "--cartography-policy",
++            "minecraft-legible-v1",
++        ];
++        let args = Args::parse_from(cmd.iter());
++        assert_eq!(
++            args.cartography_policy,
++            CartographyPolicy::MinecraftLegibleV1
++        );
++        let sizes = args.cartography_policy.tree_size_filter();
++        assert!(sizes.small && sizes.medium && sizes.big);
++        assert!(!sizes.tall && !sizes.giant);
++        assert_eq!(args.cartography_policy.tree_spacing_bonus(), 2);
++        assert_eq!(args.cartography_policy.tree_density_multiplier(), 0.70);
+     }
+
+     #[test]
+--- a/src/gui.rs
++++ b/src/gui.rs
+@@ -1184,6 +1184,7 @@
+                 luanti: world_format == WorldFormat::LuantiWorld,
+                 downloader: "requests".to_string(),
+                 scale: world_scale,
++                cartography_policy: crate::args::CartographyPolicy::LiteralV1,
+                 projection: crate::projection::ProjectionKind::Local,
+                 ground_level,
+                 terrain: terrain_enabled,
+--- a/src/trees/region.rs
++++ b/src/trees/region.rs
+@@ -109,6 +109,8 @@
+     scale: f64,
+     ground_level: i32,
+     sizes: SizeFilter,
++    spacing_bonus: i32,
++    density_multiplier: f64,
+     total_realm: usize,
+     total_vanilla: usize,
+ }
+@@ -186,6 +188,8 @@
+         ground_level: i32,
+         sizes: SizeFilter,
+         exclude_palms: bool,
++        spacing_bonus: i32,
++        density_multiplier: f64,
+     ) -> Result<RegionLibrary, String> {
+         let mbytes = source
+             .realm_manifest()
+@@ -224,6 +228,8 @@
+             scale,
+             ground_level,
+             sizes,
++            spacing_bonus,
++            density_multiplier,
+             total_realm,
+             total_vanilla,
+         })
+@@ -402,13 +408,14 @@
+
+     fn base_spacing(&self) -> i32 {
+         // Wider schem-pack canopies need more spacing to avoid overcrowded forests.
+-        if self.scale < 0.3 {
++        let base = if self.scale < 0.3 {
+             7
+         } else if self.scale < 0.7 {
+             6
+         } else {
+             5
+-        }
++        };
++        base + self.spacing_bonus
+     }
+
+     /// WorldPainter community density (~10..150) -> fraction of slots that keep a tree.
+@@ -448,7 +455,9 @@
+         };
+         let grove = crate::ground_generation::value_noise_01(sx, sz, Self::GROVE_PERIOD);
+         let jitter = (coord_hash(sx ^ 0x71c3, sz ^ 0x2d9b) % 1000) as f64 / 1000.0;
+-        if grove * 0.82 + jitter * 0.18 >= Self::keep_prob(community.density) {
++        let keep_probability =
++            (Self::keep_prob(community.density) * self.density_multiplier).clamp(0.0, 1.0);
++        if grove * 0.82 + jitter * 0.18 >= keep_probability {
+             return None;
+         }
+         let idx = idx?;
+@@ -507,8 +516,10 @@
+     #[test]
+     fn ena_palm_gate_removes_trees() {
+         let src = TreePackSource::embedded("ena");
+-        let incl = RegionLibrary::load(&src, 1.0, -62, SizeFilter::default(), false).unwrap();
+-        let excl = RegionLibrary::load(&src, 1.0, -62, SizeFilter::default(), true).unwrap();
++        let incl =
++            RegionLibrary::load(&src, 1.0, -62, SizeFilter::default(), false, 0, 1.0).unwrap();
++        let excl =
++            RegionLibrary::load(&src, 1.0, -62, SizeFilter::default(), true, 0, 1.0).unwrap();
+         assert!(
+             excl.total_realm < incl.total_realm,
+             "palm gate should drop ena palm trees ({} vs {})",
+@@ -520,8 +531,8 @@
+     #[test]
+     fn embedded_eur_loads_and_picks() {
+         let src = TreePackSource::embedded("eur");
+-        let lib =
+-            RegionLibrary::load(&src, 1.0, -62, SizeFilter::default(), false).expect("load eur");
++        let lib = RegionLibrary::load(&src, 1.0, -62, SizeFilter::default(), false, 0, 1.0)
++            .expect("load eur");
+         assert!(lib.total_realm > 0);
+         for k in 0..200 {
+             if let Some((_, _, idx, _)) = lib.pick_slot(k * 3, k * 7, Habitat::Lowland, 0) {
+--- a/src/trees/tree_pack.rs
++++ b/src/trees/tree_pack.rs
+@@ -6,7 +6,6 @@
+
+ use crate::args::Args;
+ use crate::trees::region::RegionLibrary;
+-use crate::trees::tree_library::SizeFilter;
+
+ // The bundled region tree packs (gzipped Sponge .schem grouped by realm/community).
+ static EMBEDDED: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/assets/tree-packs");
+@@ -72,7 +71,9 @@
+     if args.legacy_trees {
+         return None;
+     }
+-    let sizes = SizeFilter::default();
++    let sizes = args.cartography_policy.tree_size_filter();
++    let spacing_bonus = args.cartography_policy.tree_spacing_bonus();
++    let density_multiplier = args.cartography_policy.tree_density_multiplier();
+     let lat = (args.bbox.min().lat() + args.bbox.max().lat()) / 2.0;
+     let lon = (args.bbox.min().lng() + args.bbox.max().lng()) / 2.0;
+     let realm = realm_for_latlon(lat, lon);
+@@ -80,7 +81,15 @@
+     // No palms outside the subtropics (the wide ena realm also spans the Caribbean).
+     let exclude_palms = lat.abs() > 35.0;
+
+-    match RegionLibrary::load(&source, scale, ground_level, sizes, exclude_palms) {
++    match RegionLibrary::load(
++        &source,
++        scale,
++        ground_level,
++        sizes,
++        exclude_palms,
++        spacing_bonus,
++        density_multiplier,
++    ) {
+         Ok(lib) => {
+             lib.report();
+             Some(lib)
