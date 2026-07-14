@@ -26,8 +26,76 @@ type VerifiedWorldLifecycle = Readonly<{
   events: readonly Readonly<{ type: string; data: any }>[];
 }>;
 
+export type TurnAssessmentInput = Readonly<{
+  expected: Readonly<{
+    worldId: string;
+    managedRunId: string;
+    entityId: string;
+    policyProfile: string;
+    actionProfile: string;
+    safetyProfile: string;
+  }>;
+  runStarted: JournalEnvelope;
+  modelTurn: JournalEnvelope;
+  entityTurn: JournalEnvelope;
+  life: EntityLifeRangeReference;
+  lifeTurn: Readonly<EntityTurn>;
+  episode: Readonly<{
+    definition: EvaluationEpisodeDefinition;
+    loomReference: EvaluationLoomReference;
+    definitionReference: EvaluationTurnReference;
+  }>;
+  lifecycle: VerifiedWorldLifecycle;
+  runJournalSha256: string;
+  worldLifecycleSha256: string;
+}>;
+
+export type DecisionTurnBinding = Readonly<{
+  protocol: 'behold.decision-turn-binding.v1';
+  suite: EvaluationEpisodeDefinition['suite'];
+  world: Readonly<{
+    id: string;
+    epoch: number;
+    managedRunId: string;
+    lifecycleTipDigest: string;
+  }>;
+  entity: Readonly<{
+    id: string;
+    life: EntityLifeRangeReference;
+    turnSequence: number;
+  }>;
+  episode: Readonly<{
+    loom: EvaluationLoomReference;
+    definition: EvaluationTurnReference;
+  }>;
+  mind: Readonly<{
+    adapter: string;
+    model: string;
+    requestArtifactProtocol: ResidentMindRequestArtifact['protocol'];
+    requestSha256: string;
+    program: MindProgramIdentity | null;
+  }>;
+  decision: Readonly<{
+    modelTurnJournalSequence: number;
+    entityTurnJournalSequence: number;
+    actionName: string;
+    actionKind: EntityTurn['action']['kind'];
+    actionInputSha256: string;
+  }>;
+  record: Readonly<{
+    eventType: string;
+    ok: boolean;
+    resultSha256: string;
+    nextObservationSha256: string;
+  }>;
+  artifacts: Readonly<{
+    runJournalSha256: string;
+    worldLifecycleSha256: string;
+  }>;
+}>;
+
 export type CausalTurnBinding = Readonly<{
-  protocol: 'behold.causal-turn-binding.v1';
+  protocol: 'behold.world-action-turn-binding.v1';
   suite: EvaluationEpisodeDefinition['suite'];
   world: Readonly<{
     id: string;
@@ -56,12 +124,13 @@ export type CausalTurnBinding = Readonly<{
     actionName: string;
     actionInputSha256: string;
   }>;
-  consequence: Readonly<{
+  worldAction: Readonly<{
     entityTurnJournalSequence: number;
+    startedEventSequence: number;
     terminalEvent: string;
     ok: boolean;
     resultSha256: string;
-    nextObservationSha256: string;
+    freshObservationSha256: string;
     witnessEventSequence: number;
   }>;
   artifacts: Readonly<{
@@ -70,51 +139,11 @@ export type CausalTurnBinding = Readonly<{
   }>;
 }>;
 
-export function assessCausalTurn(
-  input: Readonly<{
-    expected: Readonly<{
-      worldId: string;
-      managedRunId: string;
-      entityId: string;
-      policyProfile: string;
-      actionProfile: string;
-      safetyProfile: string;
-    }>;
-    runStarted: JournalEnvelope;
-    modelTurn: JournalEnvelope;
-    entityTurn: JournalEnvelope;
-    life: EntityLifeRangeReference;
-    lifeTurn: Readonly<EntityTurn>;
-    episode: Readonly<{
-      definition: EvaluationEpisodeDefinition;
-      loomReference: EvaluationLoomReference;
-      definitionReference: EvaluationTurnReference;
-    }>;
-    lifecycle: VerifiedWorldLifecycle;
-    runJournalSha256: string;
-    worldLifecycleSha256: string;
-  }>,
-) {
+export function assessDecisionTurn(input: TurnAssessmentInput) {
+  const context = deriveContext(input);
   const { expected } = input;
-  const call = input.modelTurn.data?.call as ModelCallEvidence | undefined;
-  let requestArtifact: ResidentMindRequestArtifact | null = null;
-  try {
-    if (call?.request?.mindRequest != null) {
-      requestArtifact = createResidentMindRequestArtifact(call.request.mindRequest);
-    }
-  } catch {}
-  const request = requestArtifact?.request;
-  const intent = input.modelTurn.data?.intent;
-  const turn = input.entityTurn.data as EntityTurn;
-  const matchingTerminalEvents = (turn?.nextObservation?.events ?? []).filter(
-    (event: any) =>
-      event?.type === turn?.outcome?.eventType && event?.data?.intent?.id === turn?.action?.id,
-  );
-  const terminalEvent = matchingTerminalEvents[0] ?? null;
+  const { call, requestArtifact, request, intent, turn, configuredResident } = context;
   const configured = input.lifecycle.events.find((event) => event.type === 'run_configured');
-  const configuredResident = configured?.data?.population?.residents?.find(
-    (resident: any) => resident?.entityId === expected.entityId,
-  );
   const lifecycleReady = input.lifecycle.events.some((event) => event.type === 'run_ready');
   const lifecycleStopped = input.lifecycle.events.some((event) => event.type === 'run_stopped');
   const admittedAction = request?.actions.find((action) => action.name === intent?.tool);
@@ -132,17 +161,17 @@ export function assessCausalTurn(
       configured?.data?.world?.id === expected.worldId &&
       lifecycleReady &&
       lifecycleStopped,
-    neutralUncoachedConfiguration:
+    authenticatedConfiguration:
       input.runStarted.type === 'run_started' &&
       input.runStarted.agent === expected.entityId &&
       input.runStarted.data?.runId === expected.managedRunId &&
-      input.runStarted.data?.task == null &&
-      input.runStarted.data?.controller?.allowTools == null &&
+      stableJson(input.runStarted.data?.task ?? null) ===
+        stableJson(configuredResident?.task ?? null) &&
+      stableJson(input.runStarted.data?.controller?.allowTools ?? null) ===
+        stableJson(configuredResident?.allowTools ?? null) &&
       input.runStarted.data?.controller?.policyProfile === expected.policyProfile &&
       input.runStarted.data?.controller?.actionProfile === expected.actionProfile &&
       input.runStarted.data?.controller?.safetyProfile === expected.safetyProfile &&
-      configuredResident?.task == null &&
-      configuredResident?.allowTools == null &&
       configuredResident?.policyProfile === expected.policyProfile &&
       configuredResident?.actionProfile === expected.actionProfile &&
       configuredResident?.safetyProfile === expected.safetyProfile,
@@ -158,13 +187,12 @@ export function assessCausalTurn(
       request?.actionProfile === expected.actionProfile &&
       request?.safetyProfile === expected.safetyProfile &&
       stableJson(request?.observation) === stableJson(input.modelTurn.data?.observation),
-    admittedProposal:
+    admittedDecision:
       intent?.source === 'llm' &&
       typeof intent?.id === 'string' &&
       admittedAction != null &&
-      actionInputValidation?.ok === true &&
-      intent.tool !== 'wait_for_event',
-    terminalWorldResult:
+      actionInputValidation?.ok === true,
+    recordedDecision:
       input.entityTurn.type === 'entity_turn' &&
       input.entityTurn.agent === expected.entityId &&
       input.modelTurn.sequence < input.entityTurn.sequence &&
@@ -175,19 +203,9 @@ export function assessCausalTurn(
       turn?.action?.id === intent?.id &&
       turn?.action?.name === intent?.tool &&
       stableJson(turn?.action?.input) === stableJson(intent?.input) &&
-      ['action_completed', 'action_failed', 'intent_blocked'].includes(
-        String(turn?.outcome?.eventType),
-      ) &&
+      ['exclusive', 'parallel', 'yield'].includes(String(turn?.action?.kind)) &&
+      typeof turn?.outcome?.eventType === 'string' &&
       typeof turn?.outcome?.ok === 'boolean',
-    independentlyObservedConsequence:
-      turn?.nextObservation?.protocol === 'behold.inhabitant.v2' &&
-      Number(turn?.nextObservation?.sequence) >= Number(turn?.observation?.sequence) &&
-      matchingTerminalEvents.length === 1 &&
-      stableJson(terminalEvent?.data?.result ?? null) ===
-        stableJson(turn?.outcome?.result ?? null) &&
-      turn?.nextObservation?.self?.currentAction?.id === turn?.action?.id &&
-      terminalStatus(turn?.nextObservation?.self?.currentAction?.status) ===
-        turn?.outcome?.eventType,
     exactLyncTurn:
       input.life.entityId === expected.entityId &&
       input.life.circleId === expected.worldId &&
@@ -199,13 +217,173 @@ export function assessCausalTurn(
       input.episode.loomReference.loomId === input.episode.definitionReference.loomId,
     artifactDigests: digest(input.runJournalSha256) && digest(input.worldLifecycleSha256),
   };
-  const failed = Object.entries(assertions)
-    .filter(([, value]) => !value)
-    .map(([name]) => name);
+  const failed = failedAssertions(assertions);
   const binding =
-    failed.length === 0 && requestArtifact && call && terminalEvent
+    failed.length === 0 && requestArtifact && call
       ? deepFreeze({
-          protocol: 'behold.causal-turn-binding.v1' as const,
+          protocol: 'behold.decision-turn-binding.v1' as const,
+          suite: structuredClone(input.episode.definition.suite),
+          world: {
+            id: expected.worldId,
+            epoch: input.lifecycle.epoch!,
+            managedRunId: expected.managedRunId,
+            lifecycleTipDigest: input.lifecycle.tipDigest!,
+          },
+          entity: {
+            id: expected.entityId,
+            life: structuredClone(input.life),
+            turnSequence: turn.sequence,
+          },
+          episode: {
+            loom: structuredClone(input.episode.loomReference),
+            definition: structuredClone(input.episode.definitionReference),
+          },
+          mind: {
+            adapter: String(call.adapter?.name || 'unknown'),
+            model: requestArtifact.request.model,
+            requestArtifactProtocol: requestArtifact.protocol,
+            requestSha256: requestArtifact.requestSha256,
+            program: call.program ? structuredClone(call.program) : null,
+          },
+          decision: {
+            modelTurnJournalSequence: input.modelTurn.sequence,
+            entityTurnJournalSequence: input.entityTurn.sequence,
+            actionName: turn.action.name,
+            actionKind: turn.action.kind,
+            actionInputSha256: sha256(stableJson(turn.action.input)),
+          },
+          record: {
+            eventType: turn.outcome.eventType,
+            ok: turn.outcome.ok,
+            resultSha256: sha256(stableJson(turn.outcome.result ?? null)),
+            nextObservationSha256: sha256(stableJson(turn.nextObservation)),
+          },
+          artifacts: {
+            runJournalSha256: input.runJournalSha256,
+            worldLifecycleSha256: input.worldLifecycleSha256,
+          },
+        })
+      : null;
+  return deepFreeze({
+    status: failed.length === 0 ? ('passed' as const) : ('failed' as const),
+    assertions,
+    failed,
+    binding,
+  });
+}
+
+/**
+ * Suite-level evidence that the recorded decision was not selected by a task,
+ * action allowlist, required action, or provider tool-choice override. This is
+ * intentionally separate from the reusable decision binding: tasked minds are
+ * still valid inhabitants, but they are not evidence of an uncoached choice.
+ */
+export function assessUncoachedDecisionTurn(input: TurnAssessmentInput) {
+  const decisionAssessment = assessDecisionTurn(input);
+  const { call, request } = deriveContext(input);
+  const configured = input.lifecycle.events.find((event) => event.type === 'run_configured');
+  const configuredResident = configured?.data?.population?.residents?.find(
+    (resident: any) => resident?.entityId === input.expected.entityId,
+  );
+  const program = call?.program;
+  const axProgramIdentity =
+    call?.adapter?.name !== 'ax' ||
+    (program?.protocol === 'behold.mind-program-identity.v1' &&
+      program.runtime?.name === 'ax' &&
+      digest(program.artifactSha256) &&
+      digest(program.signatureSha256));
+  const assertions = {
+    ...decisionAssessment.assertions,
+    untasked:
+      input.runStarted.data?.task == null &&
+      configuredResident?.task == null &&
+      (request?.observation as any)?.task == null,
+    unrestrictedActionCatalog:
+      input.runStarted.data?.controller?.allowTools == null &&
+      configuredResident?.allowTools == null,
+    noRequiredAction: request?.requiredAction == null,
+    noProviderToolChoice: call?.request?.toolChoice == null,
+    contentAddressedMindProgram: axProgramIdentity,
+  };
+  const failed = failedAssertions(assertions);
+  return deepFreeze({
+    status: failed.length === 0 ? ('passed' as const) : ('failed' as const),
+    assertions,
+    failed,
+    binding: failed.length === 0 ? decisionAssessment.binding : null,
+  });
+}
+
+export function assessCausalTurn(input: TurnAssessmentInput) {
+  const { expected } = input;
+  const decisionAssessment = assessDecisionTurn(input);
+  const {
+    call,
+    requestArtifact,
+    turn,
+    matchingStartEvents,
+    startEvent,
+    matchingTerminalEvents,
+    terminalEvent,
+  } = deriveContext(input);
+  const assertions = {
+    ...decisionAssessment.assertions,
+    worldActionProposed: turn?.action?.kind !== 'yield',
+    worldActionStarted:
+      turn?.action?.kind !== 'yield' &&
+      matchingStartEvents.length === 1 &&
+      startEvent?.source === 'event' &&
+      startEvent?.isNew === true,
+    terminalWorldResult:
+      decisionAssessment.assertions.recordedDecision &&
+      turn?.action?.kind !== 'yield' &&
+      matchingStartEvents.length === 1 &&
+      ['action_completed', 'action_failed'].includes(String(turn?.outcome?.eventType)) &&
+      matchingTerminalEvents.length === 1,
+    freshTerminalReobservation:
+      turn?.action?.kind !== 'yield' &&
+      matchingStartEvents.length === 1 &&
+      turn?.nextObservation?.protocol === 'behold.inhabitant.v2' &&
+      Number(turn?.nextObservation?.sequence) > Number(turn?.observation?.sequence) &&
+      turn?.nextObservation?.eventWindow?.complete === true &&
+      matchingTerminalEvents.length === 1 &&
+      terminalEvent?.source === 'event' &&
+      terminalEvent?.isNew === true &&
+      stableJson(terminalEvent?.data?.result ?? null) ===
+        stableJson(turn?.outcome?.result ?? null) &&
+      turn?.nextObservation?.self?.currentAction?.id === turn?.action?.id &&
+      terminalStatus(turn?.nextObservation?.self?.currentAction?.status) ===
+        turn?.outcome?.eventType,
+  };
+  const decisionPassed = decisionAssessment.failed.length === 0;
+  const worldActionExercised =
+    decisionPassed && assertions.worldActionProposed && assertions.worldActionStarted;
+  const status = !decisionPassed
+    ? 'failed'
+    : !worldActionExercised
+      ? 'not_exercised'
+      : assertions.terminalWorldResult && assertions.freshTerminalReobservation
+        ? 'passed'
+        : 'failed';
+  const failed =
+    status === 'not_exercised'
+      ? []
+      : failedAssertions(assertions).filter(
+          (name) => name !== 'worldActionProposed' && name !== 'worldActionStarted',
+        );
+  const notExercised =
+    status === 'not_exercised'
+      ? [
+          ...(assertions.worldActionProposed ? [] : ['worldActionProposed']),
+          ...(assertions.worldActionStarted ? [] : ['worldActionStarted']),
+          'terminalWorldResult',
+          'freshTerminalReobservation',
+        ]
+      : [];
+  const binding =
+    status === 'passed' && requestArtifact && call && startEvent && terminalEvent
+      ? deepFreeze({
+          protocol: 'behold.world-action-turn-binding.v1' as const,
           suite: structuredClone(input.episode.definition.suite),
           world: {
             id: expected.worldId,
@@ -234,12 +412,13 @@ export function assessCausalTurn(
             actionName: turn.action.name,
             actionInputSha256: sha256(stableJson(turn.action.input)),
           },
-          consequence: {
+          worldAction: {
             entityTurnJournalSequence: input.entityTurn.sequence,
+            startedEventSequence: Number(startEvent.sequence),
             terminalEvent: turn.outcome.eventType,
             ok: turn.outcome.ok,
             resultSha256: sha256(stableJson(turn.outcome.result ?? null)),
-            nextObservationSha256: sha256(stableJson(turn.nextObservation)),
+            freshObservationSha256: sha256(stableJson(turn.nextObservation)),
             witnessEventSequence: Number(terminalEvent.sequence),
           },
           artifacts: {
@@ -248,7 +427,59 @@ export function assessCausalTurn(
           },
         })
       : null;
-  return deepFreeze({ assertions, failed, binding });
+  return deepFreeze({
+    status,
+    assertions,
+    failed,
+    notExercised,
+    binding,
+    decisionBinding: decisionAssessment.binding,
+  });
+}
+
+function deriveContext(input: TurnAssessmentInput) {
+  const call = input.modelTurn.data?.call as ModelCallEvidence | undefined;
+  let requestArtifact: ResidentMindRequestArtifact | null = null;
+  try {
+    if (call?.request?.mindRequest != null) {
+      requestArtifact = createResidentMindRequestArtifact(call.request.mindRequest);
+    }
+  } catch {}
+  const request = requestArtifact?.request;
+  const intent = input.modelTurn.data?.intent;
+  const turn = input.entityTurn.data as EntityTurn;
+  const matchingTerminalEvents = (turn?.nextObservation?.events ?? []).filter(
+    (event: any) =>
+      event?.type === turn?.outcome?.eventType && event?.data?.intent?.id === turn?.action?.id,
+  );
+  const matchingStartEvents = (turn?.nextObservation?.events ?? []).filter(
+    (event: any) =>
+      event?.type === 'action_started' && event?.data?.intent?.id === turn?.action?.id,
+  );
+  const startEvent = matchingStartEvents[0] ?? null;
+  const terminalEvent = matchingTerminalEvents[0] ?? null;
+  const configured = input.lifecycle.events.find((event) => event.type === 'run_configured');
+  const configuredResident = configured?.data?.population?.residents?.find(
+    (resident: any) => resident?.entityId === input.expected.entityId,
+  );
+  return {
+    call,
+    requestArtifact,
+    request,
+    intent,
+    turn,
+    matchingStartEvents,
+    startEvent,
+    matchingTerminalEvents,
+    terminalEvent,
+    configuredResident,
+  };
+}
+
+function failedAssertions(assertions: Readonly<Record<string, unknown>>) {
+  return Object.entries(assertions)
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
 }
 
 function terminalStatus(value: unknown) {

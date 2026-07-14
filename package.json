@@ -34,6 +34,7 @@
     "proof:resident-recovery": "npm run build && node dist/scripts/resident-recovery-witness.js",
     "proof:resident-recovery-live": "npm run build && node dist/scripts/resident-recovery-live.js",
     "proof:neutral-causal-turn": "npm run build && node dist/scripts/neutral-causal-turn-proof.js",
+    "proof:neutral-decision-turn": "npm run build && node dist/scripts/neutral-causal-turn-proof.js --claim decision",
     "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",
     "eval:mind-extract": "npm run build && node dist/scripts/extract-mind-request.js",
     "eval:mind-pair": "npm run build && node dist/scripts/mind-compare.js",

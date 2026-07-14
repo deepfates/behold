@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assessCausalTurn } from '../src/evaluation/causal-turn';
+import {
+  assessCausalTurn,
+  assessDecisionTurn,
+  assessUncoachedDecisionTurn,
+} from '../src/evaluation/causal-turn';
 import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
 
 test('a causal turn binds one exact mind input through world consequence and Lync life', () => {
@@ -11,15 +15,17 @@ test('a causal turn binds one exact mind input through world consequence and Lyn
   assert.equal(assessment.binding?.mind.requestSha256, evidence.request.requestSha256);
   assert.equal(assessment.binding?.mind.program?.runtime.name, 'ax');
   assert.equal(assessment.binding?.decision.actionName, 'move_direction');
-  assert.equal(assessment.binding?.consequence.terminalEvent, 'action_completed');
+  assert.equal(assessment.status, 'passed');
+  assert.equal(assessment.binding?.worldAction.terminalEvent, 'action_completed');
   assert.equal(assessment.binding?.entity.life.end.turnId, 'life-turn-1');
 });
 
-test('causal turn assessment locates coaching, request drift, copied life, and missing witness', () => {
-  const coached = fixture();
-  coached.runStarted.data.task = 'Walk forward now';
-  coached.lifecycle.events[0].data.population.residents[0].task = 'Walk forward now';
-  assert.ok(assessCausalTurn(coached as any).failed.includes('neutralUncoachedConfiguration'));
+test('causal turn assessment locates configuration drift, request drift, copied life, and missing witness', () => {
+  const configurationDrift = fixture();
+  configurationDrift.runStarted.data.task = 'Walk forward now';
+  assert.ok(
+    assessCausalTurn(configurationDrift as any).failed.includes('authenticatedConfiguration'),
+  );
 
   const drifted = fixture();
   drifted.modelTurn.data.call.request.mindRequestSha256 = 'f'.repeat(64);
@@ -32,9 +38,122 @@ test('causal turn assessment locates coaching, request drift, copied life, and m
   const unwitnessed = fixture();
   unwitnessed.entityTurn.data.nextObservation.events = [];
   unwitnessed.lifeTurn.nextObservation.events = [];
-  assert.ok(
-    assessCausalTurn(unwitnessed as any).failed.includes('independentlyObservedConsequence'),
-  );
+  assert.ok(assessCausalTurn(unwitnessed as any).notExercised.includes('worldActionStarted'));
+});
+
+test('a matching task is authenticated without making tasklessness a framework invariant', () => {
+  const tasked = fixture();
+  tasked.runStarted.data.task = 'Walk forward now';
+  tasked.lifecycle.events[0].data.population.residents[0].task = 'Walk forward now';
+  assert.deepEqual(assessCausalTurn(tasked as any).failed, []);
+  assert.ok(assessUncoachedDecisionTurn(tasked as any).failed.includes('untasked'));
+});
+
+test('uncoached decision evidence excludes required actions and provider tool forcing', () => {
+  const required = fixture();
+  const request = structuredClone(required.request.request) as any;
+  request.requiredAction = 'move_direction';
+  const requiredArtifact = createResidentMindRequestArtifact(request);
+  required.modelTurn.data.call.request.mindRequest = requiredArtifact.request;
+  required.modelTurn.data.call.request.mindRequestSha256 = requiredArtifact.requestSha256;
+  assert.deepEqual(assessDecisionTurn(required as any).failed, []);
+  assert.ok(assessUncoachedDecisionTurn(required as any).failed.includes('noRequiredAction'));
+
+  const forced = fixture();
+  forced.modelTurn.data.call.request.toolChoice = 'required';
+  assert.deepEqual(assessDecisionTurn(forced as any).failed, []);
+  assert.ok(assessUncoachedDecisionTurn(forced as any).failed.includes('noProviderToolChoice'));
+});
+
+test('an explicit yield is a valid recorded decision but not evidence of a world consequence', () => {
+  const yielded = fixture();
+  const intent = {
+    id: 'yield-1',
+    source: 'llm',
+    tool: 'wait_for_event',
+    input: { reason: 'Nothing currently calls for action.' },
+  };
+  (yielded.modelTurn.data as any).intent = intent;
+  yielded.entityTurn.data.action = {
+    id: intent.id,
+    name: intent.tool,
+    input: intent.input,
+    source: 'llm',
+    kind: 'yield',
+    toolCallId: 'tool-yield-1',
+  };
+  yielded.entityTurn.data.outcome = {
+    ok: true,
+    eventType: 'wait_for_event',
+    result: { ok: true, status: 'waiting_for_world_event' },
+  };
+  yielded.entityTurn.data.nextObservation = {
+    ...structuredClone(yielded.entityTurn.data.observation),
+    self: {
+      ...structuredClone(yielded.entityTurn.data.observation.self),
+      currentAction: null,
+    },
+  };
+  yielded.lifeTurn = structuredClone(yielded.entityTurn.data);
+
+  const decision = assessDecisionTurn(yielded as any);
+  assert.deepEqual(decision.failed, []);
+  assert.equal(decision.binding?.decision.actionKind, 'yield');
+  assert.equal(decision.binding?.record.eventType, 'wait_for_event');
+  assert.equal(assessUncoachedDecisionTurn(yielded as any).status, 'passed');
+
+  const causal = assessCausalTurn(yielded as any);
+  assert.ok(causal.decisionBinding);
+  assert.equal(causal.status, 'not_exercised');
+  assert.deepEqual(causal.failed, []);
+  assert.ok(causal.notExercised.includes('worldActionProposed'));
+  assert.ok(causal.notExercised.includes('worldActionStarted'));
+  assert.ok(causal.notExercised.includes('terminalWorldResult'));
+  assert.ok(causal.notExercised.includes('freshTerminalReobservation'));
+  assert.equal(causal.binding, null);
+});
+
+test('a pre-world block records the decision without claiming the world edge was exercised', () => {
+  const blocked = fixture();
+  const intent = blocked.modelTurn.data.intent;
+  blocked.entityTurn.data.outcome = {
+    ok: false,
+    eventType: 'intent_blocked',
+    result: { ok: false, error: 'tool_not_allowed' },
+  };
+  blocked.entityTurn.data.nextObservation.events = [
+    {
+      sequence: 9,
+      type: 'intent_blocked',
+      source: 'event',
+      isNew: true,
+      data: { intent, result: blocked.entityTurn.data.outcome.result },
+    },
+  ];
+  blocked.entityTurn.data.nextObservation.self.currentAction = {
+    id: intent.id,
+    tool: intent.tool,
+    status: 'failed',
+    result: blocked.entityTurn.data.outcome.result,
+  };
+  blocked.lifeTurn = structuredClone(blocked.entityTurn.data);
+
+  const assessment = assessCausalTurn(blocked as any);
+  assert.equal(assessment.status, 'not_exercised');
+  assert.ok(assessment.decisionBinding);
+  assert.ok(assessment.notExercised.includes('worldActionStarted'));
+  assert.equal(assessment.binding, null);
+});
+
+test('a started world action fails causal verification when terminal delivery is not fresh', () => {
+  const stale = fixture();
+  stale.entityTurn.data.nextObservation.events[1].isNew = false;
+  stale.lifeTurn = structuredClone(stale.entityTurn.data);
+
+  const assessment = assessCausalTurn(stale as any);
+  assert.equal(assessment.status, 'failed');
+  assert.ok(assessment.failed.includes('freshTerminalReobservation'));
+  assert.equal(assessment.binding, null);
 });
 
 function fixture() {
@@ -89,6 +208,13 @@ function fixture() {
   const nextObservation = {
     protocol: 'behold.inhabitant.v2',
     sequence: 10,
+    eventWindow: {
+      requestedAfterSequence: 5,
+      oldestAvailableSequence: 1,
+      newestAvailableSequence: 10,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
     circle: { id: worldId, managedRunId },
     self: {
       identity: entityId,
@@ -102,8 +228,17 @@ function fixture() {
     },
     events: [
       {
+        sequence: 9,
+        type: 'action_started',
+        source: 'event',
+        isNew: true,
+        data: { intent },
+      },
+      {
         sequence: 10,
         type: 'action_completed',
+        source: 'event',
+        isNew: true,
         data: { intent, result: { ok: true, distance: 2 } },
       },
     ],
