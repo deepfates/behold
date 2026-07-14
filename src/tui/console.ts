@@ -132,7 +132,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     places: () => places.snapshot(),
     onEvent: (event) => {
       if (!localWorldReady) return;
-      if (isBodilyUrgencyEvent(event)) {
+      if (isBodilyUrgencyEvent(event) && (policy?.shouldReclaimModelAction(event) ?? true)) {
         engine?.requestModelActionCancellation('bodily_urgent_attention', {
           eventSequence: event.sequence,
           eventType: event.type,

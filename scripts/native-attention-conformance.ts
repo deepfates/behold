@@ -235,7 +235,7 @@ async function runResident() {
       eventHistory: 100,
       onEvent: (event) => {
         if (!localWorldReady) return;
-        if (isBodilyUrgencyEvent(event)) {
+        if (isBodilyUrgencyEvent(event) && (policy?.shouldReclaimModelAction(event) ?? true)) {
           if (!bodilyUrgency) {
             bodilyUrgency = {
               event: JSON.parse(JSON.stringify(event)),

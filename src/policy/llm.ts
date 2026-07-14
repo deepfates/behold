@@ -1158,6 +1158,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     suspend,
     resume,
     onEngineEvent,
+    shouldReclaimModelAction: (event: { type?: unknown; salience?: unknown }) =>
+      bodilyUrgencyReclaimsModelAction(event, pending?.draft.attention ?? null),
     state: () => ({
       turnActive,
       turnSteps,
@@ -1586,6 +1588,21 @@ export function isImmediateAttentionEvent(event: { salience?: unknown }) {
 
 export function isBodilyUrgencyEvent(event: { type?: unknown; salience?: unknown }) {
   return event?.salience === 'urgent' && BODILY_URGENCY_EVENT_TYPES.has(String(event?.type || ''));
+}
+
+/**
+ * Reclaim stale ordinary work for a new body crisis, but do not repeatedly
+ * cancel the bounded response that urgent cognition already selected for that
+ * crisis. Its terminal result and accumulated events force a fresh observation
+ * immediately afterward. Life-boundary events remain preemptive regardless.
+ */
+export function bodilyUrgencyReclaimsModelAction(
+  event: { type?: unknown; salience?: unknown },
+  selectedAttention: Pick<ResidentAttention, 'mode'> | null | undefined,
+) {
+  if (!isBodilyUrgencyEvent(event)) return false;
+  if (['died', 'dimension_changed'].includes(String(event?.type || ''))) return true;
+  return selectedAttention?.mode !== 'urgent';
 }
 
 export function attentionForObservation(frame: any): ResidentAttention {

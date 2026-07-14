@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   attentionForObservation,
+  bodilyUrgencyReclaimsModelAction,
   controllerSystemPrompt,
   hasDecisionRelevantEvent,
   isActionSchemaNarrowing,
@@ -88,6 +89,24 @@ test('only bodily urgent events can reclaim a model-owned body action', () => {
   assert.equal(isBodilyUrgencyEvent({ type: 'sound_heard', salience: 'urgent' }), true);
   assert.equal(isBodilyUrgencyEvent({ type: 'self_hurt', salience: 'high' }), false);
   assert.equal(isBodilyUrgencyEvent({ type: 'chat_received', salience: 'urgent' }), false);
+});
+
+test('new harm reclaims stale deliberative work but not its already urgent bounded response', () => {
+  const harm = { type: 'self_hurt', salience: 'urgent' as const };
+  assert.equal(bodilyUrgencyReclaimsModelAction(harm, null), true);
+  assert.equal(bodilyUrgencyReclaimsModelAction(harm, { mode: 'deliberative' }), true);
+  assert.equal(bodilyUrgencyReclaimsModelAction(harm, { mode: 'urgent' }), false);
+  assert.equal(
+    bodilyUrgencyReclaimsModelAction({ type: 'died', salience: 'urgent' }, { mode: 'urgent' }),
+    true,
+  );
+  assert.equal(
+    bodilyUrgencyReclaimsModelAction(
+      { type: 'chat_received', salience: 'urgent' },
+      { mode: 'deliberative' },
+    ),
+    false,
+  );
 });
 
 test('synchronous urgency during enqueue closes the policy turn instead of stranding it', async () => {
