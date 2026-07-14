@@ -30,6 +30,7 @@
     "proof:owned-world-portfolio": "npm run build && node dist/scripts/owned-world-portfolio.js",
     "proof:native-body": "npm run build && node dist/scripts/native-body-conformance.js",
     "proof:native-doorway": "npm run build && node dist/scripts/native-doorway-conformance.js",
+    "proof:resident-recovery": "npm run build && node dist/scripts/resident-recovery-witness.js",
     "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
