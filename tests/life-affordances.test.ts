@@ -651,6 +651,36 @@ test('move_direction derives all local destinations from the body view without c
   assert.deepEqual(right.intendedFeet, { x: 8, y: 64, z: 0 });
 });
 
+test('move_direction treats water as traversable locomotion without requiring dry support', async () => {
+  const bot = baseBot();
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  let pathfinderCalls = 0;
+  bot.pathfinder = {
+    goto: async (goal: any) => {
+      pathfinderCalls += 1;
+      bot.entity.position = new Vec3(goal.x + 0.5, 64, goal.z + 0.5);
+    },
+    stop: () => {},
+  };
+  bot.blockAt = (position: Vec3) => ({
+    name: position.y === 64 || position.y === 65 ? 'water' : 'air',
+    boundingBox: 'empty',
+    position,
+  });
+
+  const result = await buildInterpreter(bot).run('move_direction', {
+    direction: 'forward',
+    distance: 3,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.bodyMoved, true);
+  assert.equal(pathfinderCalls, 1);
+  assert.deepEqual(result.intendedFeet, { x: 0, y: 64, z: -3 });
+});
+
 test('move_direction fails closed and explains only adjacent player-scale obstruction', async () => {
   const unavailable = baseBot();
   unavailable.entity.yaw = null;

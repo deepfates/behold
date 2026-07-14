@@ -141,6 +141,34 @@ test('death or missing body telemetry cannot masquerade as a completed recovery'
   assert.equal(assessment.assertions.noDeathBeforeRestart, false);
 });
 
+test('a resident-authored escape can recover oxygen and persist through restart', () => {
+  const input = report();
+  input.source.initial.condition = { health: 20, food: 20, oxygen: 20 };
+  input.source.urgency.condition = { health: 20, food: 20, oxygen: 5 };
+  input.source.nadir.condition = { health: 20, food: 20, oxygen: 5 };
+  input.source.final.condition = { health: 20, food: 20, oxygen: 20 };
+  input.source.recoveryActions = [
+    {
+      ...input.source.recoveryActions[0],
+      name: 'move_direction',
+      kind: 'movement',
+      outcomeOk: true,
+      bodyMoved: true,
+      bodyDisplacement: 3,
+      positionAfter: { x: 53.5, y: 65, z: 91.5 },
+      mutationPositions: [],
+    },
+  ];
+  input.witness.condition = { health: 20, food: 20, oxygen: 20 };
+
+  const assessment = assessResidentRecoveryWitness(input);
+
+  assert.equal(assessment.pass, true);
+  assert.equal(assessment.measurements.sourceOxygenImproved, true);
+  assert.equal(assessment.measurements.witnessedOxygenPersisted, true);
+  assert.equal(assessment.measurements.vitalityRecovery, true);
+});
+
 test('source summarization binds body urgency, nadir, resident action, improvement, and final state', () => {
   const events = [
     envelope(1, 'run_started', {

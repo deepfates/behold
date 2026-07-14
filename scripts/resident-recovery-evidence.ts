@@ -77,8 +77,10 @@ export function assessResidentRecoveryWitness(report: any) {
   const positionDelta = distance(final.position, witness.position);
   const sourceHealthImproved = improved(nadirCondition.health, finalCondition.health);
   const sourceFoodImproved = improved(nadirCondition.food, finalCondition.food);
+  const sourceOxygenImproved = improved(nadirCondition.oxygen, finalCondition.oxygen);
   const witnessedHealthPersisted = notWorse(finalCondition.health, witnessedCondition.health);
   const witnessedFoodPersisted = notWorse(finalCondition.food, witnessedCondition.food);
+  const witnessedOxygenPersisted = notWorse(finalCondition.oxygen, witnessedCondition.oxygen);
   const defensibleCover =
     inspection.ok === true &&
     inspection.source === 'loaded_local_terrain' &&
@@ -102,10 +104,11 @@ export function assessResidentRecoveryWitness(report: any) {
       actionNearFinal(action, final.position),
   );
   const vitalityRecovery =
-    (sourceHealthImproved || sourceFoodImproved) &&
+    (sourceHealthImproved || sourceFoodImproved || sourceOxygenImproved) &&
     (nourishmentAction || vitalityAction) &&
     (!sourceHealthImproved || witnessedHealthPersisted) &&
-    (!sourceFoodImproved || witnessedFoodPersisted);
+    (!sourceFoodImproved || witnessedFoodPersisted) &&
+    (!sourceOxygenImproved || witnessedOxygenPersisted);
   const shelterRecovery = defensibleCover && spatialRecoveryAction;
   const recoveryActionCompletedAt = recoveryActions
     .map((action: any) => finiteOrNull(action.completedAt))
@@ -182,8 +185,10 @@ export function assessResidentRecoveryWitness(report: any) {
       positionDelta,
       sourceHealthImproved,
       sourceFoodImproved,
+      sourceOxygenImproved,
       witnessedHealthPersisted,
       witnessedFoodPersisted,
+      witnessedOxygenPersisted,
       vitalityRecovery,
       shelterRecovery,
       defensibleCover,

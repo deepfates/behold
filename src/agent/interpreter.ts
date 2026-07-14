@@ -508,7 +508,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'move_direction',
     description:
-      'Walk a short distance relative to your current first-person view. Choose forward, back, left, or right and optionally a distance from 1 to 8 blocks. Use this for local exploration; use move_to for a known world position or remembered place. The body may perform ordinary path corrections but never digs or places, and returns only after confirmed arrival or a legible failure.',
+      'Move a short distance relative to your current first-person view, walking on land or swimming through water as the body requires. Choose forward, back, left, or right and optionally a distance from 1 to 8 blocks. Use this for local exploration; use move_to for a known world position or remembered place. The body may perform ordinary path corrections but never digs or places, and returns only after confirmed arrival or a legible failure.',
     parameters: {
       type: 'object',
       properties: {
@@ -5384,7 +5384,7 @@ function relativeMovementEvidence(
     y: Math.floor(start.y),
     z: Math.floor(start.z) + dz,
   };
-  const space = bodySpaceAt(bot, feet);
+  const space = locomotionSpaceAt(bot, feet);
   const issue = !space.feetPassable
     ? 'feet_blocked'
     : !space.headPassable
@@ -5406,6 +5406,32 @@ function relativeMovementEvidence(
       block: space.support,
       safe: space.supportSafe,
     },
+  };
+}
+
+/**
+ * Adjacent locomotion is broader than a dry standable cell. Water is ordinary
+ * traversable body space for a player who is already swimming, while lava and
+ * every solid collision remain closed. Keep this separate from bodySpaceAt:
+ * shelter, doorway, and staircase inspection must not relabel water as dry
+ * support merely because locomotion can cross it.
+ */
+function locomotionSpaceAt(bot: Bot, feet: BlockPosition) {
+  const feetBlock = (bot as any).blockAt?.(new Vec3(feet.x, feet.y, feet.z));
+  const headBlock = (bot as any).blockAt?.(new Vec3(feet.x, feet.y + 1, feet.z));
+  const supportBlock = (bot as any).blockAt?.(new Vec3(feet.x, feet.y - 1, feet.z));
+  const feetWater = normalizeRegistryName(String(feetBlock?.name || '')) === 'water';
+  const headWater = normalizeRegistryName(String(headBlock?.name || '')) === 'water';
+  const feetPassable = feetWater || bodyPassable(feetBlock);
+  const headPassable = headWater || bodyPassable(headBlock);
+  const supportSafe = feetWater || safeStairSupport(supportBlock);
+  return {
+    feet: String(feetBlock?.name || 'unloaded'),
+    head: String(headBlock?.name || 'unloaded'),
+    support: String(supportBlock?.name || 'unloaded'),
+    feetPassable,
+    headPassable,
+    supportSafe,
   };
 }
 
