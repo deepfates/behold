@@ -317,12 +317,25 @@ entity identity, body lease, observation cursor, controller, mind, journal, and
 loom. Population machinery coordinates these scopes; it does not create a
 shared private mind or weaken per-body authority.
 
+A third scope is now clearly required but not yet implemented in Behold: a
+**world history** is one persistent writable continuation that can survive many
+server epochs. It descends from an immutable place artifact or exact checkpoint.
+Its lineage, checkpoints, and branch-local clock are distinct from both the
+server process and any inhabitant's autobiography. A packaged city is therefore
+a possible beginning, not a timeline, and an epoch restart is not a world fork.
+
+Forking a world history, crossing into an existing history, and forking an
+inhabitant are separate acts. The same resident may cross while remaining one
+non-concurrent life; independently active copies require new identities,
+leases, and explicit memory-transfer decisions. Lync can relate these histories
+without implying that divergent Minecraft saves can be generically merged.
+
 An **episode** is a bounded, addressable view of activity inside those longer
 scopes. A resident episode can be a range of turns on its Lync thread; a
-multi-resident, restart, or benchmark episode can be a small evaluator-owned
-Lync loom that references several life ranges plus world and evidence artifacts.
-Episode judgment never enters the private life unless the resident later learns
-it through an ordinary channel.
+multi-resident, restart, fork, crossing, or benchmark episode can be a small
+evaluator-owned Lync loom that references several life ranges plus exact world
+history and evidence ranges. Episode judgment never enters the private life
+unless the resident later learns it through an ordinary channel.
 
 ### The irreducible loop
 

@@ -94,7 +94,59 @@ a better persistent character. They should be evaluated as optional agent
 features over the neutral environment. They must not silently become the
 benchmark baseline.
 
-## Lync lives and Lync episodes
+## A world is not an episode
+
+The current proofs use a linear-looking path from a packaged place to a managed
+server run. That is enough for one resident proof, but it is not the long-term
+lifecycle. Four different things can vary or branch, for different reasons:
+
+1. **World making.** One intent can produce revised source selections, recipes,
+   generated artifacts, and accepted builds. The Place Compiler owns this
+   design and provenance history. A place artifact is a reusable possible
+   beginning, not a lived timeline.
+2. **World history.** An exact committed save can become an immutable checkpoint
+   with one or more isolated writable continuations. Minecraft owns every
+   continuation's subsequent facts and clock.
+3. **Inhabitant life.** A resident can cross between histories, remain dormant
+   while another history advances, or itself be copied into concurrent lives.
+   Crossing and copying are not the same identity operation.
+4. **Learning.** Evaluators and optimizers can select ranges, compare sibling
+   rollouts, branch prompt candidates, and change judgments without rewriting
+   either the world or the lives that produced the evidence.
+
+These are related graphs, not one universal graph. They should meet through
+typed references to exact artifacts, turns, bodies, clocks, and evidence. They
+should not share one mutable “current timeline” record.
+
+The runtime terms should remain small:
+
+- A **place artifact** is an immutable compiled starting world with provenance.
+- A **checkpoint** is an immutable image of one exact committed state in a
+  lived world history.
+- A **history** is one isolated writable continuation descended from a place
+  artifact or checkpoint.
+- A **world epoch** is one server-process incarnation that may advance exactly
+  one history. A history can survive many epochs.
+- A **crossing** changes which existing history a person or resident inhabits;
+  it does not create a history.
+- A **fork** commits an exact source state and creates a new writable history;
+  it does not select which history is current and does not itself advance play.
+- An **episode** is a bounded reference over activity in one or more histories
+  and lives. It is not a save, server, or identity.
+
+A trustworthy fork therefore needs a fresh exact source identity and clock, a
+committed immutable checkpoint digest, an isolated writable destination,
+idempotent gesture or request identity, and a receipt. Forking must not issue
+gameplay or advance the simulation. Each history keeps its own local clock.
+Crossing should separately pause or fence the history being left, attach the
+chosen one, and confirm its identity before presenting it as current.
+
+World-state merge is intentionally absent. Lync logs can be united without
+losing events, but two divergent Minecraft saves cannot be generically merged.
+A future world-specific reconciliation would have to earn its own semantics and
+evidence rather than borrowing the word “merge” from an event store.
+
+## Lync lives, world lineages, and episodes
 
 Lync is not only long-term memory. Its append-only turns, branches, thread
 references, computed views, and indexes are also a natural episode substrate.
@@ -102,8 +154,11 @@ We do not need a second mutable “episode database.”
 
 The scopes should remain explicit:
 
-- A **world epoch** is one authoritative server incarnation and its admitted
-  bodies. Minecraft lifecycle evidence owns this fact.
+- A **world-lineage loom** records checkpoint and history lineage, immutable
+  artifact references, selection/crossing receipts, and exact clocks. It does
+  not contain the Minecraft save bytes or pretend to be world truth.
+- A **world epoch** is one authoritative server incarnation over one selected
+  history and its admitted bodies. Minecraft lifecycle evidence owns this fact.
 - A **resident life** is one identity's continuing Lync loom. Its selected
   thread can cross controller stops, model changes, and many world epochs.
 - A **controller episode** is a bounded range of lived turns between anchors in
@@ -111,17 +166,26 @@ The scopes should remain explicit:
   run-bound ranges can be derived without rewriting history. Finer wake-to-yield
   boundaries can be appended as explicit episode events when they become useful.
 - A **benchmark episode** is an evaluator-owned record that references one or
-  more resident-life ranges plus the immutable world start, policy profile,
-  mind artifact, budgets, and verifier results.
+  more resident-life ranges and world-lineage ranges plus the immutable world
+  start, policy profile, mind artifact, budgets, and verifier results.
 - A **dataset** is a Lync index of episode looms or references, with an explicit
   train/validation/held-out partition.
 
 An episode is therefore a durable view over source events, not a replacement
-source of truth. For a single-life episode, start and terminal turn references
-are enough. A multi-resident or restart episode can use its own small Lync loom
-whose events reference each participant's life range, the world lifecycle, and
-the evidence artifacts. Evaluator judgments and privileged witnesses stay on
-that evaluator loom; the resident sees only its own life view.
+source of truth. For a single-life episode on one history, start and terminal
+turn references are enough. A multi-resident, restart, fork, or crossing
+episode can use its own small Lync loom whose events reference each
+participant's life range, the relevant world-lineage subgraph, and the evidence
+artifacts. Evaluator judgments and privileged witnesses stay on that evaluator
+loom; the resident sees only its own life view.
+
+A world fork does not automatically fork a resident. One continuing resident
+may cross between histories while only one body lease is active. If a resident
+snapshot is copied and both descendants can act independently, they are two
+active identities with explicit lineage, new leases, and an explicit memory
+transfer policy. Benchmark candidates cloned from one checkpoint are trial
+inhabitants; they must not be represented as one continuing person merely
+because they received the same prompt or memory packet.
 
 This is especially useful for optimization. We can append candidate mind
 artifacts, rollout references, objective metrics, selections, and retractions
@@ -198,9 +262,11 @@ Use two gates:
 1. **Cheap proposal replay.** Captured lived frames test schema validity,
    grounding, latency, cost, and obvious one-step causal mistakes without world
    mutation. This is fast feedback, not the final score.
-2. **Disposable real-world rollout.** Each candidate receives a clean world
-   instance and is scored by post-episode Minecraft evidence. Held-out artifacts,
-   seeds, placements, and tasks decide selection.
+2. **Disposable real-world rollout.** Each candidate receives an isolated
+   history descended from the same checkpoint and is scored by post-episode
+   Minecraft evidence. Held-out artifacts, seeds, placements, and tasks decide
+   selection. Sibling rollouts are comparable only for declared metrics and
+   budgets; their clocks and subsequent random events remain branch-local.
 
 Do not train on one expected action per frame. Several actions may be sensible,
 and long-horizon quality is determined by consequences. Prefer deterministic
@@ -238,19 +304,32 @@ world fact, a memory, or a judgment.
 In that telos:
 
 ```text
-place artifact -> world epoch -> embodied lives -> Lync life threads
-                                      |                  |
-                                      +-> consequences <-+
-                                             |
-                                      episode references
-                                             |
-                              evaluation / learning / culture
+world intent -> compilation loom -> immutable place artifact
+                                      |
+                                      v
+world-lineage loom: checkpoint -> history A -> later checkpoint
+                                  \\-> history B -> later checkpoint
+                                         |
+                           one or more runtime epochs
+                                         |
+                                  embodied lives
+                                         |
+                               Lync life threads
+
+episode and evaluation looms reference exact subgraphs above;
+they never replace or rewrite them.
 ```
 
 Minecraft supplies the living medium. Behold supplies the narrow causal waist
-and runtime authority. Lync supplies durable lives, episodes, branches, and
-portable corpora. Ax and other mind systems supply replaceable, optimizable
-cognition. None of those libraries is the telos by itself.
+and runtime authority. The Place Compiler supplies reproducible possible
+beginnings. Lync supplies durable compilation, lineage, life, and evaluation
+graphs plus portable corpora. Ax and other mind systems supply replaceable,
+optimizable cognition. None of those libraries is the telos by itself.
+
+Forkability is a power of the medium, not its purpose. The purpose is to make
+worlds and lives inhabitable enough that choosing another history, returning to
+an old one, comparing possible lives, or declining to fork at all can matter to
+the people and agents living there.
 
 ## First implementation cut
 

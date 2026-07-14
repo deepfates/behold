@@ -11,6 +11,14 @@ authoritative world, develop persistent identities, and leave exact Lync-backed
 episodes that can support memory, evaluation, optimization, collaboration, and
 culture without confusing any of those authorities.
 
+That medium is not limited to one linear save or even to runtime forks. A world
+may begin as one of several reproducible compiled possibilities, continue as
+several isolated histories from exact checkpoints, and be entered again across
+many runtime epochs. World-making provenance, world-history lineage, resident
+identity, and evaluator episodes remain separate graphs joined by exact
+references. Forking, crossing, and copying a resident are distinct operations;
+divergent world states are never assumed mergeable.
+
 The immediate milestone is [First Life](FIRST_LIFE.md): one convincing continuing
 Minecraft inhabitant. The San Francisco world is valuable terrain for that life,
 not the product goal by itself. Come–See–Do–Report remains a useful regression
@@ -83,6 +91,11 @@ test, not the organizing purpose of the system.
 
 ### Still red
 
+- Persistent world histories above server epochs: exact committed checkpoints,
+  isolated writable children, branch-local clocks, separate fork and crossing
+  receipts, and honest resident identity behavior when a life crosses or is
+  copied. Armok Lab proves the interaction pattern in Dwarf Fortress; Behold has
+  not yet earned the corresponding Minecraft lifecycle.
 - Immediate in-flight cancellation with an acknowledgement from each long-running Mineflayer action family
 - Production reset/recovery with an exclusive operation fence, durable journal, managed server lifecycle, and two real resets
 - A repeatable production-path Come–See–Do–Report runner; passing unit and fixture tests do not establish the live story
