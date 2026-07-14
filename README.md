@@ -143,13 +143,17 @@ an executable command or mutating Minecraft:
 npm run eval:mind-differential -- \
   --journal .behold-runs/<run>/<resident>/<journal>.jsonl \
   --model-turn <journal-sequence> \
+  --model <optional-candidate-slug> \
   --candidate direct \
   --out .behold-runs/<run>/<resident>/<comparison>.json
 ```
 
 The report binds the captured and replayed observation hashes, records any
 explicit observation migration, and rejects the candidate proposal at the
-admission boundary.
+admission boundary. Omit `--model` to replay the captured model. Use
+`--profile-only` instead of `--candidate` to write an exact request-byte
+partition without requiring a provider credential, making a provider call, or
+exposing executable functions.
 
 For a matched fast/slow attention measurement, select a captured turn that
 contains a newly urgent event:
