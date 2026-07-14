@@ -1657,117 +1657,14 @@ test('cross_visible_door fails before mutation when the selected cursor focus is
   assert.equal(activations, 0);
 });
 
-test('legacy evaluator-derived place routes cannot authorize resident movement', async () => {
-  const bot = baseBot();
-  bot.game = { dimension: 'overworld' };
-  bot.entity.position = new Vec3(0.5, 64, 1.5);
-  let open = false;
-  let stateId = 70;
-  let activations = 0;
-  const doorBlock = () => ({
-    name: 'oak_door',
-    type: 7,
-    stateId,
-    position: new Vec3(0, 64, 0),
-    getProperties: () => ({ open, half: 'lower' }),
-  });
-  bot.blockAt = (position: Vec3) =>
-    position.x === 0 && position.y === 64 && position.z === 0
-      ? doorBlock()
-      : [64, 65].includes(position.y) &&
-          ((position.x === 1 && position.z === 0) || (position.x === -1 && position.z === -1))
-        ? { name: 'spruce_planks', type: 2, stateId: 2, boundingBox: 'block', position }
-        : position.y === 63
-          ? { name: 'stone', type: 1, stateId: 1, boundingBox: 'block', position }
-          : { name: 'air', type: 0, stateId: 0, boundingBox: 'empty', position };
-  bot.activateBlock = async () => {
-    const previous = doorBlock();
-    open = !open;
-    stateId += 1;
-    activations += 1;
-    bot.emit('blockUpdate', previous, doorBlock());
-  };
-  bot.pathfinder = {
-    goto: async () => {
-      throw new Error('Took to long to decide path to goal!');
-    },
-    stop: () => {},
-  };
-  let lookTarget = new Vec3(0, 64, 0);
-  bot.lookAt = async (target: Vec3) => {
-    lookTarget = target;
-  };
-  const controls: boolean[] = [];
-  bot.setControlState = (control: string, active: boolean) => {
-    if (control !== 'forward') return;
-    controls.push(active);
-    if (!active) return;
-    if (
-      lookTarget.x === 0.5 &&
-      bot.entity.position.x > 0 &&
-      ((lookTarget.z === -0.5 && bot.entity.position.z > 0.9) ||
-        (lookTarget.z === 1.5 && bot.entity.position.z < 0))
-    ) {
-      bot.entity.position = new Vec3(0.5, 64, lookTarget.z === -0.5 ? 1.3 : 0.3);
-    } else {
-      bot.entity.position = new Vec3(lookTarget.x, 64, lookTarget.z);
-    }
-  };
-  const interpreter = buildInterpreter(bot, {
-    places: () => [
-      {
-        id: 'place:overworld:0:64:-1',
-        label: 'Shared home',
-        purpose: 'Survive together',
-        anchor: { dimension: 'overworld', x: 0, y: 64, z: -1 },
-        affordances: ['sealed-space', 'closable-entrance'],
-        protectedBodyCells: [{ x: 0, y: 64, z: -1 }],
-        entrances: [
-          {
-            name: 'oak_door',
-            lower: { x: 0, y: 64, z: 0 },
-            upper: { x: 0, y: 65, z: 0 },
-            insideFeet: { x: 0, y: 64, z: -1 },
-            outsideFeet: { x: 0, y: 64, z: 1 },
-            rememberedState: 'closed',
-          },
-        ],
-        evidence: 'space_enclosed',
-        learnedAtSequence: 1,
-        lastConfirmedAtSequence: 2,
-        provenance: {
-          source: 'own_entity_loom',
-          projectId: 'home',
-          completionTurnSequence: 2,
-          witnessTurnSequence: 1,
-          witnessAction: 'inspect_reachable_space',
-        },
-      },
-    ],
-    changeConfirmationTimeoutMs: 10,
-    changeStabilityWindowMs: 1,
-  });
+test('legacy evaluator-derived place routes are not resident affordances', () => {
+  const names = buildInterpreter(baseBot(), { places: () => [] })
+    .list('inhabitant')
+    .map((spec) => spec.name);
 
-  assert.ok(interpreter.list('inhabitant').some((spec) => spec.name === 'cross_place_door'));
-  const result = await interpreter.run('enter_place', {
-    id: 'place:overworld:0:64:-1',
-    closeAfter: true,
-  });
-
-  assert.equal(result.ok, false);
-  assert.equal(result.error, 'legacy_place_route_requires_embodied_relearning');
-  assert.equal(activations, 0);
-  assert.deepEqual(controls, []);
-
-  const left = await interpreter.run('leave_place', {
-    id: 'place:overworld:0:64:-1',
-    closeAfter: true,
-  });
-
-  assert.equal(left.ok, false);
-  assert.equal(left.error, 'legacy_place_route_requires_embodied_relearning');
-  assert.equal(activations, 0);
-  assert.equal(open, false);
+  assert.ok(names.includes('cross_place_door'));
+  assert.ok(!names.includes('enter_place'));
+  assert.ok(!names.includes('leave_place'));
 });
 
 test('consume succeeds only after an observed body or inventory consequence', async () => {

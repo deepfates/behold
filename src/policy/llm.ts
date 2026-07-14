@@ -191,8 +191,6 @@ const EMBODIED_ACTION_TOOLS = new Set<string>([
   'move_direction',
   'cross_visible_door',
   'cross_place_door',
-  'enter_place',
-  'leave_place',
   'approach_entity',
   'attack_entity',
   'collect_nearby_item',
@@ -1212,7 +1210,6 @@ function availableModelTools(
     if (COMMUNICATION_TOOLS.has(spec.function.name)) {
       return !Array.isArray(roster) || roster.length > 0 ? [spec] : [];
     }
-    if (spec.function.name === 'enter_place' || spec.function.name === 'leave_place') return [];
     if (spec.function.name === 'cross_visible_door') {
       const focus = frame?.scene?.focus;
       const name = String(focus?.name || '').toLowerCase();

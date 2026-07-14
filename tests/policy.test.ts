@@ -1057,12 +1057,7 @@ test('door affordances are admitted only at the player-visible focus and occupie
   const policy = startLLMPolicy(
     {
       entityId: 'Scout',
-      actions: [
-        tool('cross_visible_door'),
-        tool('cross_place_door'),
-        tool('enter_place'),
-        tool('leave_place'),
-      ],
+      actions: [tool('cross_visible_door'), tool('cross_place_door')],
       attempt: () => true,
       observe: () => observation,
     },
@@ -2192,8 +2187,6 @@ test('the complete controller guidance stays bounded without losing causal invar
     'place_against',
     'place_block',
     'toggle_block',
-    'enter_place',
-    'leave_place',
     'craft_item',
     'equip_item',
     'inspect_container',
