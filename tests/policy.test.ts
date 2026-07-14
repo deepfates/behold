@@ -732,6 +732,68 @@ test('a nearby-item action is admitted only while a dropped item is currently ob
   }
 });
 
+test('drop is admitted only while the body owns an inventory item', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: any[] = [];
+  globalThis.fetch = (async (_url, init) => {
+    requests.push(JSON.parse(String(init?.body)));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: `drop-affordance-${requests.length}`,
+        choices: [
+          {
+            message: assistantTool(`drop-affordance-wait-${requests.length}`, 'wait_for_event', {
+              reason: 'action-space inspected',
+            }),
+          },
+        ],
+        usage: { total_tokens: 10 },
+      }),
+      text: async () => '',
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    for (const inventory of [[], [{ name: 'apple', count: 1 }]]) {
+      const turns: EntityTurn[] = [];
+      const base = experience(1, null, 0);
+      const policy = startLLMPolicy(
+        {
+          entityId: 'Giver',
+          actions: [tool('inspect_volume'), tool('drop_item')],
+          attempt: () => true,
+          observe: () => ({ ...base, self: { ...base.self, inventory } }),
+        },
+        {
+          apiKey: 'test-key',
+          model: 'test/model',
+          acceptEngineEvent: () => true,
+          onEntityTurn: (turn) => turns.push(turn),
+        },
+      );
+      try {
+        await policy.tick();
+        await until(() => turns.length === 1);
+      } finally {
+        policy.stop();
+      }
+    }
+
+    assert.deepEqual(
+      requests[0].tools.map((spec: any) => spec.function.name),
+      ['inspect_volume', 'wait_for_event'],
+    );
+    assert.deepEqual(
+      requests[1].tools.map((spec: any) => spec.function.name),
+      ['inspect_volume', 'drop_item', 'wait_for_event'],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('system guidance follows the admitted affordances instead of describing absent tools', async () => {
   const originalFetch = globalThis.fetch;
   let request: any = null;

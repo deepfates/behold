@@ -481,35 +481,18 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   });
 
   add({
-    name: 'offer_item_to_player',
+    name: 'drop_item',
     description:
-      'Offer an inventory item to a nearby player and report success only when Minecraft attributes collection to that player.',
+      "Drop an owned inventory item into the Minecraft world. This confirms only the dropping body's inventory change; another being must independently choose and confirm any pickup.",
     parameters: {
       type: 'object',
       properties: {
-        username: { type: 'string' },
         name: { type: 'string' },
         count: { type: 'number', minimum: 1, maximum: 64 },
-        maxDistance: { type: 'number', minimum: 1, maximum: 8 },
-        timeoutMs: { type: 'number', minimum: 1000, maximum: 30000 },
       },
-      required: ['username', 'name'],
+      required: ['name'],
     },
-    run: async ({ username, name, count = 1, maxDistance = 5, timeoutMs = 10_000 }) => {
-      const me = (bot as any).entity?.position;
-      const targetName = String(username).toLowerCase();
-      const target = (Object.values((bot as any).entities || {}) as any[])
-        .filter(
-          (entity) =>
-            entity?.position && String(entity?.username || '').toLowerCase() === targetName,
-        )
-        .map((entity) => ({ entity, distance: me?.distanceTo(entity.position) ?? Infinity }))
-        .filter(({ distance }) => distance <= clamp(Number(maxDistance), 1, 8))
-        .sort((a, b) => a.distance - b.distance)[0];
-      if (!target) {
-        return { ok: false, error: 'player_not_in_reach', username: String(username) };
-      }
-
+    run: async ({ name, count = 1 }) => {
       const query = normalizeRegistryName(String(name));
       const item = ((bot as any).inventory?.items?.() || []).find((candidate: any) =>
         normalizeRegistryName(String(candidate?.name || '')).includes(query),
@@ -522,32 +505,23 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           inventory: inventorySnapshot(bot),
         };
       }
-      const offeredCount = Math.min(
+      const dropCount = Math.min(
         Math.max(1, Math.floor(Number(count) || 1)),
         Math.max(1, Number(item.count) || 1),
       );
       const before = inventoryCount(bot, String(item.name));
-      const watcher = observePlayerCollection(bot, target.entity.id, String(item.name));
-      try {
-        await (bot as any).lookAt?.(
-          target.entity.position.offset?.(0, Number(target.entity.height || 1.6) * 0.7, 0) ||
-            target.entity.position,
-        );
-        await (bot as any).toss(item.type, item.metadata ?? null, offeredCount);
-        const collected = await watcher.wait(clamp(Number(timeoutMs), 1000, 30_000));
-        const after = inventoryCount(bot, String(item.name));
-        return {
-          ok: collected,
-          ...(collected ? {} : { error: 'offered_item_not_collected' }),
-          username: String(target.entity.username || username),
-          item: String(item.name),
-          count: offeredCount,
-          inventoryRemoved: Math.max(0, before - after),
-          confirmation: collected ? 'mineflayer:playerCollect' : null,
-        };
-      } finally {
-        watcher.close();
-      }
+      await (bot as any).toss(item.type, item.metadata ?? null, dropCount);
+      const after = inventoryCount(bot, String(item.name));
+      const inventoryRemoved = Math.max(0, before - after);
+      const confirmed = inventoryRemoved === dropCount;
+      return {
+        ok: confirmed,
+        ...(confirmed ? {} : { error: 'drop_unconfirmed' }),
+        item: String(item.name),
+        count: dropCount,
+        inventoryRemoved,
+        confirmation: confirmed ? 'mineflayer:inventory_delta' : null,
+      };
     },
     category: 'inventory',
   });
@@ -3900,41 +3874,6 @@ async function boundedPickupNudge(
   } finally {
     (bot as any).setControlState('forward', false);
   }
-}
-
-function observePlayerCollection(bot: Bot, collectorId: any, requestedItem: string) {
-  let collected = false;
-  let resolvePending: ((value: boolean) => void) | null = null;
-  const pending = new Promise<boolean>((resolve) => {
-    resolvePending = resolve;
-  });
-  const query = normalizeRegistryName(requestedItem);
-  const listener = (collector: any, itemEntity: any) => {
-    if (String(collector?.id) !== String(collectorId)) return;
-    if (!normalizeRegistryName(droppedItemName(itemEntity)).includes(query)) return;
-    collected = true;
-    resolvePending?.(true);
-  };
-  (bot as any).on?.('playerCollect', listener);
-  return {
-    async wait(timeoutMs: number) {
-      if (collected) return true;
-      let timer: NodeJS.Timeout | null = null;
-      try {
-        return await Promise.race([
-          pending,
-          new Promise<boolean>((resolve) => {
-            timer = setTimeout(() => resolve(false), Math.max(1, timeoutMs));
-          }),
-        ]);
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-    },
-    close() {
-      (bot as any).removeListener?.('playerCollect', listener);
-    },
-  };
 }
 
 function normalizeRegistryName(value: string) {

@@ -116,6 +116,7 @@ class MindDecisionError extends Error {
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const WAIT_TOOL = 'wait_for_event';
 const COLLECT_TOOL = 'collect_nearby_item';
+const DROP_TOOL = 'drop_item';
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
 const WAIT_TOOL_SPEC: ToolSpec = {
   type: 'function',
@@ -144,7 +145,7 @@ const EMBODIED_ACTION_TOOLS = new Set<string>([
   'approach_entity',
   'attack_entity',
   'collect_nearby_item',
-  'offer_item_to_player',
+  'drop_item',
   'dig_block',
   'descend_step',
   'ascend_step',
@@ -866,7 +867,7 @@ function controllerSystemPrompt(specs: readonly ToolSpec[]) {
       'After respawning, or when inventory is unexpectedly empty and dropped items are nearby, recover safe drops before narrating or beginning another project; dropped items expire.',
     );
   }
-  if (hasAny('chat', 'whisper', 'approach_entity', 'offer_item_to_player')) {
+  if (hasAny('chat', 'whisper', 'approach_entity', 'drop_item')) {
     lines.push(
       'Speaking through chat is an action like movement or looking. Conversation can remain open while life continues; after speaking, pursue other concerns unless the answer is required for the next action.',
       'A successful action proves only its reported consequence for the entities named in that result. Your movement moves your body, your chat proves only that you spoke, and neither proves another entity followed, arrived, learned, received something, or remained safe. Treat requests involving another entity as joint activity: keep the concern unfinished, establish interaction proximity, take short actions, and use the next observation of that entity before claiming shared progress.',
@@ -997,6 +998,7 @@ function requiredSelfDirectionTool(
 
 function availableModelTools(specs: ToolSpec[], frame: any) {
   const roster = frame?.scene?.social?.playersOnline;
+  const inventory = Array.isArray(frame?.self?.inventory) ? frame.self.inventory : [];
   const droppedItems = Array.isArray(frame?.scene?.entities)
     ? frame.scene.entities.filter(
         (entity: any) => String(entity?.kind || entity?.type || '').toLowerCase() === 'item',
@@ -1007,6 +1009,11 @@ function availableModelTools(specs: ToolSpec[], frame: any) {
       return !Array.isArray(roster) || roster.length > 0;
     }
     if (spec.function.name === COLLECT_TOOL) return droppedItems.length > 0;
+    if (spec.function.name === DROP_TOOL) {
+      return inventory.some(
+        (item: any) => Number(item?.count) > 0 && String(item?.name || '').length > 0,
+      );
+    }
     return true;
   });
 }

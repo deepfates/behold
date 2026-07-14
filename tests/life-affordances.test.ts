@@ -1081,39 +1081,36 @@ test('dropped-item pickup safety grounds a real entity position below zero', () 
   });
 });
 
-test('offering an item succeeds only when the named nearby player collects it', async () => {
+test('dropping an item claims only the dropping body inventory consequence', async () => {
   const bot = baseBot();
-  const player = {
-    id: 2,
-    username: 'importdf',
-    type: 'player',
-    height: 1.8,
-    position: new Vec3(2, 64, 0),
-  };
-  bot.entities[2] = player;
-  bot.inventoryItems = [{ type: 100, metadata: 0, name: 'wooden_pickaxe', count: 1 }];
-  bot.lookAt = async () => {};
-  bot.toss = async () => {
-    bot.inventoryItems = [];
-    setImmediate(() =>
-      bot.emit('playerCollect', player, {
-        id: 9,
-        name: 'item',
-        getDroppedItem: () => ({ name: 'wooden_pickaxe', count: 1 }),
-      }),
-    );
+  bot.inventoryItems = [{ type: 100, metadata: 0, name: 'apple', count: 3 }];
+  bot.toss = async (_type: number, _metadata: number | null, count: number) => {
+    bot.inventoryItems[0].count -= count;
   };
   const interpreter = buildInterpreter(bot);
 
-  const offered = await interpreter.run('offer_item_to_player', {
-    username: 'importdf',
-    name: 'wooden pickaxe',
-  });
+  const dropped = await interpreter.run('drop_item', { name: 'apple', count: 2 });
 
-  assert.equal(offered.ok, true);
-  assert.equal(offered.item, 'wooden_pickaxe');
-  assert.equal(offered.inventoryRemoved, 1);
-  assert.equal(offered.confirmation, 'mineflayer:playerCollect');
+  assert.deepEqual(dropped, {
+    ok: true,
+    item: 'apple',
+    count: 2,
+    inventoryRemoved: 2,
+    confirmation: 'mineflayer:inventory_delta',
+  });
+});
+
+test('dropping an item fails when Minecraft produces no inventory change', async () => {
+  const bot = baseBot();
+  bot.inventoryItems = [{ type: 100, metadata: 0, name: 'apple', count: 1 }];
+  bot.toss = async () => {};
+
+  const dropped = await buildInterpreter(bot).run('drop_item', { name: 'apple' });
+
+  assert.equal(dropped.ok, false);
+  assert.equal(dropped.error, 'drop_unconfirmed');
+  assert.equal(dropped.inventoryRemoved, 0);
+  assert.equal(dropped.confirmation, null);
 });
 
 test('shared storage reports and verifies deposit and withdrawal consequences', async () => {
