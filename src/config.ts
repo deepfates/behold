@@ -1,5 +1,5 @@
 const REQUIRED_FOR_MINECRAFT = ['SERVER_HOST', 'SERVER_PORT', 'MINECRAFT_USERNAME'] as const;
-export const DEFAULT_LLM_MODEL = 'openai/gpt-5.6-luna';
+export const DEFAULT_LLM_MODEL = 'google/gemini-3.5-flash';
 
 export interface Config {
   server: { host: string; port: number };

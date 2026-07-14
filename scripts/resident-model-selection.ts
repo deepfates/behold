@@ -1,13 +1,20 @@
-export const DEFAULT_RESIDENT_MODEL = 'openai/gpt-5.6-luna';
+import { DEFAULT_LLM_MODEL } from '../src/config';
+
+export const DEFAULT_RESIDENT_MODEL = DEFAULT_LLM_MODEL;
 
 export const RESIDENT_MODEL_SELECTION = Object.freeze({
   protocol: 'behold.population-model-selection.v1',
   selected: DEFAULT_RESIDENT_MODEL,
-  selectedAt: '2026-07-13T19:00:00-07:00',
+  selectedAt: '2026-07-14T03:30:00-07:00',
   catalog: 'https://openrouter.ai/api/v1/models',
-  workload: 'exact CarrotResident restart request from failed population proof v2',
-  trialsPerCandidate: 2,
-  criteria: ['correct admitted tool', 'latency', 'provider-reported cost'],
+  workload: 'exact initial ground-search request from failed two-axis population proof v7',
+  trialsPerCandidate: 3,
+  criteria: [
+    'uses the orthogonal orientation affordance',
+    'full embodied proof behavior',
+    'latency',
+    'provider-reported cost',
+  ],
   evidence: 'docs/RESIDENT_MODEL_SELECTION.md',
 });
 

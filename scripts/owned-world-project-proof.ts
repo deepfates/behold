@@ -29,10 +29,10 @@ import {
   observedBlocks,
   runManagedModelPhase,
 } from './owned-world-model-harness';
+import { DEFAULT_RESIDENT_MODEL } from './resident-model-selection';
 import { digestTree } from './world-lab';
 
 const PROTOCOL = 'behold.owned-world-project-proof.v1' as const;
-const DEFAULT_MODEL = 'openai/gpt-5.6-luna';
 const ENTITY_ID = 'ProjectResident';
 const ACT_WITNESS_ID = 'ProjWitnessAct';
 const RESUME_WITNESS_ID = 'ProjWitnessDone';
@@ -92,7 +92,7 @@ async function main() {
     );
   }
   const model = String(
-    parsed.values.model || process.env.BEHOLD_PROJECT_MODEL || DEFAULT_MODEL,
+    parsed.values.model || process.env.BEHOLD_PROJECT_MODEL || DEFAULT_RESIDENT_MODEL,
   ).trim();
   if (!model) throw new Error('a non-empty model slug is required');
   const timeoutMs = Number(parsed.values.timeout || 360) * 1000;

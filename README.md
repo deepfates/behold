@@ -126,12 +126,12 @@ Environment Variables
 - `OPENROUTER_BASE_URL` — Override OpenRouter base (default `https://openrouter.ai/api/v1/chat/completions`)
 - `OPENROUTER_REFERER` — Optional Referer header for OpenRouter
 - `OPENROUTER_TITLE` — Optional X-Title header for OpenRouter
-- `LLM_MODEL` — exact OpenRouter model slug (default `openai/gpt-5.6-luna`)
+- `LLM_MODEL` — exact OpenRouter model slug (default `google/gemini-3.5-flash`)
 - `BEHOLD_MIND` — bounded decision adapter: `direct` (default) or `ax`
 
 LLM Autopilot (optional)
 
-- Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `openai/gpt-5.6-luna`).
+- Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `google/gemini-3.5-flash`).
 - The console starts a resident policy that proposes one admitted action at a time using the same command registry you use as a human. `BEHOLD_MIND=ax` uses Ax structured generation; Behold still validates and executes every proposal.
 
 Trajectory counterfactuals
