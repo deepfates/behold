@@ -1451,9 +1451,9 @@ test('cross_visible_door owns one exact first-person doorway crossing without in
     intersect: new Vec3(0.5, 64.4, 0.1875),
   };
   bot.world = { raycast: () => cursorHit };
-  const interactions: Array<{ face: Vec3; cursor: Vec3 }> = [];
-  bot.activateBlock = async (_block: any, face: Vec3, cursor: Vec3) => {
-    interactions.push({ face, cursor });
+  const interactions: Array<{ block: any; face: Vec3; cursor: Vec3 }> = [];
+  bot.activateBlock = async (block: any, face: Vec3, cursor: Vec3) => {
+    interactions.push({ block, face, cursor });
     const previous = doorBlock();
     open = !open;
     stateId += 1;
@@ -1560,8 +1560,25 @@ test('cross_visible_door owns one exact first-person doorway crossing without in
       witnessAction: 'cross_visible_door',
     },
   };
+  const upperCursorHit = {
+    ...doorBlock(65),
+    face: 2,
+    intersect: new Vec3(0.5, 65.4, 0.8125),
+  };
+  bot.world.raycast = () => upperCursorHit;
+  const upperObservation = {
+    ...observation,
+    scene: {
+      ...observation.scene,
+      focus: {
+        ...observation.scene.focus,
+        id: 'block:overworld:0:65:0',
+        position: { x: 0, y: 65, z: 0 },
+      },
+    },
+  };
   const reuse = await buildInterpreter(bot, {
-    observe: () => observation,
+    observe: () => upperObservation,
     places: () => [place],
     changeConfirmationTimeoutMs: 10,
     changeStabilityWindowMs: 1,
@@ -1571,8 +1588,10 @@ test('cross_visible_door owns one exact first-person doorway crossing without in
   assert.deepEqual(reuse.fromFeet, { x: 0, y: 64, z: -1 });
   assert.deepEqual(reuse.toFeet, { x: 0, y: 64, z: 1 });
   assert.deepEqual(reuse.rememberedPlace, { id: place.id, label: place.label });
+  assert.equal(interactions[2].block.position.y, 65);
   assert.equal(open, false);
 
+  bot.world.raycast = () => cursorHit;
   bot.entity.yaw = 0;
   bot.entity.pitch = -0.7;
   const abort = new AbortController();

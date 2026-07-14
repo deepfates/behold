@@ -5,7 +5,6 @@ import { goals } from 'mineflayer-pathfinder';
 import mcDataLoader from 'minecraft-data';
 import {
   blockAtViewCursor,
-  blockIsVisible,
   droppedItemPickupGround,
   entityAtViewCursor,
   onlinePlayerNames,
@@ -1515,10 +1514,33 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           new Vec3(doorway.lower.x + 0.5, doorway.lower.y + 0.7, doorway.lower.z + 0.5),
           false,
         );
+        const reacquired = opts.observe?.()?.scene?.focus;
+        const reacquiredPosition = integerBlockPosition(reacquired?.position);
+        if (
+          !reacquired ||
+          reacquired.kind !== 'block' ||
+          reacquired.source !== 'cursor' ||
+          reacquired.reachable !== true ||
+          normalizeRegistryName(String(reacquired.name || '')) !== doorway.name ||
+          !reacquiredPosition ||
+          (!samePosition(reacquiredPosition, doorway.lower) &&
+            !samePosition(reacquiredPosition, doorway.upper))
+        ) {
+          return {
+            ok: false,
+            error: 'remembered_doorway_not_reacquired_under_cursor',
+            rememberedDoor: {
+              name: doorway.name,
+              lower: doorway.lower,
+              upper: doorway.upper,
+            },
+            currentFocus: residentFocusSummary(reacquired),
+          };
+        }
         const result = await crossSelectedVisibleDoor(
           bot,
           {
-            focus: doorway.focusId,
+            focus: reacquired.id,
             closeAfter: Boolean(closeAfter),
             rememberAs: null,
             timeoutMs: clamp(Number(timeoutMs), 500, 10_000),
@@ -2984,8 +3006,7 @@ async function crossSelectedVisibleDoor(
     !cursorPosition ||
     !focusPosition ||
     !samePosition(cursorPosition, focusPosition) ||
-    expectedFocusId !== input.focus ||
-    !blockIsVisible(bot, cursorPosition)
+    expectedFocusId !== input.focus
   ) {
     return {
       ok: false,
@@ -3339,8 +3360,10 @@ async function activateToggleBlock(
   const observer = observeBlockTransition(bot, position, beforeState);
   let commandError: string | null = null;
   try {
-    const interaction = blockInteraction(interactionBlock, me, position);
-    await (bot as any).activateBlock(block, interaction.face, interaction.cursor);
+    const target = toggleInteractionTarget(block, interactionBlock, position, property);
+    const targetPosition = integerBlockPosition(target.position) ?? position;
+    const interaction = blockInteraction(target, me, targetPosition);
+    await (bot as any).activateBlock(target, interaction.face, interaction.cursor);
   } catch (error: any) {
     commandError = String(error?.message || error || 'block_activation_failed');
   }
@@ -3401,6 +3424,27 @@ async function activateToggleBlock(
     },
     confirmation: transition?.evidence ?? null,
   };
+}
+
+function toggleInteractionTarget(
+  watchedBlock: any,
+  interactionBlock: any,
+  watchedPosition: BlockPosition,
+  property: 'open' | 'powered',
+) {
+  const candidatePosition = integerBlockPosition(interactionBlock?.position);
+  if (
+    candidatePosition &&
+    normalizeRegistryName(String(interactionBlock?.name || '')) ===
+      normalizeRegistryName(String(watchedBlock?.name || '')) &&
+    toggleProperty(interactionBlock) === property &&
+    candidatePosition.x === watchedPosition.x &&
+    candidatePosition.z === watchedPosition.z &&
+    Math.abs(candidatePosition.y - watchedPosition.y) <= 1
+  ) {
+    return interactionBlock;
+  }
+  return watchedBlock;
 }
 
 function blockInteraction(block: any, body: any, position: BlockPosition) {
