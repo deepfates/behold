@@ -175,6 +175,21 @@ using 171,100 prompt tokens, 749 completion tokens, 28.35 seconds of aggregate
 model latency, and $0.218363. That is continuity evidence and a clear cognition
 budget failure, not household acceptance.
 
+## The first packaged-place life proof
+
+On July 14, 2026, the current first-person resident loop entered the independently
+compiled Venice Place release under its vanilla-first `living` profile. Behold
+verified and materialized the package as its own world epoch; the resident saw
+and collected one exact supported apple through Minecraft, a fresh body witnessed
+the consequence, and a second managed epoch restored the changed body and
+continued the same two-turn Lync life without repeating collection.
+
+This closes the previously unproved junction between the Place and inhabitant
+lanes without merging their internals. The same revision also reran the stronger
+synthetic occlusion, moving-target, body-motion, and five-turn continuity proof.
+The full evidence, failure analysis, digest identities, and nonclaims are in
+[the packaged-place first-person report](reports/2026-07-14-packaged-place-first-person.md).
+
 ## The architecture we actually need
 
 The implementation has seven boundaries. They are useful because each corresponds
