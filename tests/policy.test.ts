@@ -351,6 +351,7 @@ test('critical body condition keeps urgent cognition through failure and release
   let currentAction: any = null;
   const attempted: any[] = [];
   const requests: ResidentMindRequest[] = [];
+  let foldCalls = 0;
   const mind: ResidentMind = {
     id: 'continuing-body-mind',
     decide: async (request) => {
@@ -430,7 +431,7 @@ test('critical body condition keeps urgent cognition through failure and release
   });
   const policy = startLLMPolicy(
     {
-      entityId: 'Wren',
+      entityId: 'Scout',
       actions: [tool('manage_project'), tool('move_direction'), tool('consume')],
       attempt: (intent) => {
         attempted.push(intent);
@@ -445,6 +446,14 @@ test('critical body condition keeps urgent cognition through failure and release
       urgentModel: 'test/urgent-model',
       mind,
       acceptEngineEvent: () => true,
+      history: [failedTurn(1, 'move_to')],
+      foldRecentTurns: 1,
+      foldBatchTurns: 1,
+      foldTriggerTurns: 1,
+      summarizeLoom: async () => {
+        foldCalls += 1;
+        return 'Older body history folded after urgency ended.';
+      },
     },
   );
 
@@ -467,6 +476,7 @@ test('critical body condition keeps urgent cognition through failure and release
     await until(() => requests.length === 2 && attempted.length === 2);
     assert.equal(requests[1].model, 'test/urgent-model');
     assert.equal(requests[1].attention?.continuingCondition, 'critical_body_condition');
+    assert.equal(foldCalls, 0, 'private memory folding must not delay a continuing body crisis');
     assert.deepEqual(requests[1].attention?.triggers, requests[0].attention?.triggers);
     assert.equal(
       requests[1].actions.some((action) => action.name === 'manage_project'),
@@ -486,6 +496,7 @@ test('critical body condition keeps urgent cognition through failure and release
       data: { intent: attempted[1], result: { ok: true, healthBefore: 2, healthAfter: 8 } },
     });
     await until(() => requests.length === 3);
+    assert.ok(foldCalls >= 1, 'deferred maintenance resumes after the critical condition clears');
     assert.equal(requests[2].model, 'test/ordinary-model');
     assert.equal(requests[2].attention?.mode, 'deliberative');
     assert.equal(requests[2].attention?.continuingCondition, undefined);

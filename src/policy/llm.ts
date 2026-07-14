@@ -362,7 +362,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       return;
     }
 
-    if (loomContext.state().needsFold) {
+    const attentionBeforeFold = attentionForCurrentLife(
+      currentModelObservation ?? projectCurrentModelObservation(currentObservation),
+    );
+    if (loomContext.state().needsFold && !hasBodilyUrgency(attentionBeforeFold)) {
       preparingContext = true;
       try {
         const folded = await loomContext.prepare();
@@ -382,6 +385,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         preparingContext = false;
         settleStop();
       }
+    } else if (loomContext.state().needsFold) {
+      log('[policy] deferred own-loom fold while bodily urgency remains unresolved');
     }
     if (turnSteps >= maxTurnSteps) {
       log(`[policy] controller paused after reaching ${maxTurnSteps} model steps`);
