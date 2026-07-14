@@ -1257,7 +1257,17 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       let navigation: any = null;
       if (placementIntersectsBody(bot, position)) {
         const conflict = placementBodyConflict(bot, position);
-        const stand = conflict.suggestedFeetPositions[0];
+        // GoalBlock confirms the requested feet cell, not its center. At the
+        // inner edge of an adjacent cell a real server can still reject the
+        // placement even though the geometric AABBs no longer intersect.
+        // Prefer the nearest supported stance with one complete cell of
+        // horizontal clearance; retain the adjacent fallback for confined
+        // spaces where it is the only ordinary player stance.
+        const stand =
+          conflict.suggestedFeetPositions.find(
+            (candidate: BlockPosition) =>
+              Math.hypot(candidate.x - position.x, candidate.z - position.z) >= 1.5,
+          ) ?? conflict.suggestedFeetPositions[0];
         const pathfinder = (bot as any).pathfinder;
         if (!stand || !pathfinder) return conflict;
         navigation = await runPathfinderGoal(
