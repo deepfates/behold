@@ -198,21 +198,74 @@ from a canopy, heal, or survive for a useful period. The model chose a sensible
 kind of act; the remaining red work is bodily competence and available-world
 legibility, not another urgency ontology.
 
+## Recovery trajectory calibration
+
+Epochs 17 through 19 tested a continuing native-player recovery rather than
+another isolated proposal. They also exposed a policy error: bodily urgency had
+been treated as a one-call notification. If the first urgent action failed and
+health remained critical, the next turn could fall back to ordinary cognition.
+Revision `477ce06...` makes critical health, food, or oxygen a continuing
+attention condition until the body improves. Revision `4253563...` defers
+ordinary loom folding while that condition remains unresolved, so an optional
+memory-maintenance call cannot consume the serial crisis lane. The repository
+gate passes 333 tests at these revisions.
+
+Epoch 17 then kept Luna on all five resident decisions. Wren's first placement
+failed before mutation, but its next `move_to` descended from the canopy at
+`y=72` to the ground at `y=64`. The action honestly ended
+`arrival_unconfirmed`, because it stopped 2.4 blocks from the requested
+destination rather than pretending that a useful partial move was an arrival.
+Four more outcomes became durable entity turns. One auxiliary Gemini fold was
+started and preempted by renewed bodily evidence; this earned the fold
+deferral, rather than a larger cognition scheduler.
+
+Epoch 18 ran after that correction. All eight accepted calls were urgent Luna
+resident decisions; all eight were admitted and completed, with no auxiliary
+request or cancellation. Wren performed five successful player-scale movement
+legs, one immediate obstruction refusal, and one verified plank placement. It
+moved from roughly `(32.5,64,89.3)` to `(47.7,65,93.5)` and increased its
+observed distance from a skeleton, but health remained 2.33 and food 14. Once
+the hostile left the camera, repeated flight became weakly grounded: leaving
+the current view is not evidence that a threat is gone. This earned a small
+causal prompt correction asking for bounded visual or terrain/inventory search
+after immediate exposure improves.
+
+Epoch 19 tested that correction. Luna made eight urgent decisions for a total
+recorded cost of `$0.05322225`; mean provider latency was 4.093 seconds and the
+maximum was 5.955 seconds. Wren placed four Minecraft-confirmed oak planks,
+moved twice, and received two precise placement failures
+(`placement_would_intersect_body` and `placement_support_not_found`). All eight
+broker admissions completed, entity turns 76 through 83 are durable, the Lync
+contains 83 turns plus its header, Minecraft saved and exited zero, and final
+owner, lease, port, and session-lock inspection was clear.
+
+That is not a shelter pass. The blocks are real, but there is no independent
+evidence of enclosure, cover, or a usable entrance; Wren then walked away and
+tried to start another unsupported placement. It also found no food and did
+not heal. The run therefore locates the next missing capability above the
+individual action API: the resident needs enough continuing spatial memory and
+action-outcome legibility to compose ordinary player acts into a coherent
+recovery. Adding more low-level verbs or hard-coding a shelter routine would
+not answer that question.
+
 ## Next gate
 
-The small paid tier and teardown validation is now green. The next danger gate
-should keep Gemini for ordinary cognition and Luna only for bodily urgency, but
-evaluate a short native-player recovery trajectory rather than another isolated
-proposal. It should prove all of the following from journals and Minecraft
-consequences:
+The small paid tier, teardown validation, continuing urgency, canopy descent,
+and player-scale mutation are now green. The composed recovery remains red.
+The next danger gate should keep Gemini for ordinary cognition and Luna only
+for bodily urgency, and should prove all of the following from journals and
+Minecraft consequences:
 
-- Wren can use visible terrain and ordinary inventory/body feedback to get off
-  the canopy, reduce exposure, and pursue food or shelter without hidden route
-  knowledge;
+- Wren can use bounded point-of-view evidence, remembered recent geometry, and
+  ordinary inventory/body feedback to pursue food or defensible cover without
+  hidden route knowledge;
 - each chosen move remains inside the player-scale envelope and each mutation
   has an independently observed Minecraft consequence;
-- failures leave enough adjacent, visual, or inventory evidence for a different
-  native strategy without revealing a route oracle; and
+- recent successful placements and precise failures remain legible enough to
+  revise the same plan instead of abandoning the structure or repeating an
+  impossible placement;
+- a recovery pass requires food/health improvement or independently verified
+  defensible cover, not disappearance of a hostile from the camera; and
 - exact prompt tokens, cost, latency, cancellation, body state, and resulting
   action are reported without treating survival by chance as intelligent care.
 
@@ -227,7 +280,7 @@ problem and needs its own causal compression gate.
   `.behold-runs/first-life-v1-13/{ScoutLife,WrenLife}/*.jsonl`
 - cognition: `.behold-runs/first-life-v1-13/_cognition/broker.jsonl`
 - live tier/body validation:
-  `.behold-runs/first-life-v1-{14,15,16}/`, with owner lifecycle and recovery
+  `.behold-runs/first-life-v1-{14,15,16,17,18,19}/`, with owner lifecycle and recovery
   evidence under `.behold-runtime/world-control/first-life-v1/`
 - provider-free request profiles and exact-frame candidate records under the
   two resident run directories
