@@ -5,7 +5,12 @@ import type { EngineEvent } from '../loop/engine';
 import { historyMessages, type EntityTurn } from '../entity/loom';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
-import { projectCurrentModelObservation, projectHistoricalModelObservation } from './context';
+import {
+  projectCurrentModelObservation,
+  projectHistoricalModelObservation,
+  projectRecentActionContinuity,
+  type RecentActionContinuity,
+} from './context';
 import {
   createLoomContextView,
   foldMessage,
@@ -431,7 +436,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           entityId,
           model: decisionModel,
           observation: cloneJson(modelObservation),
-          conversation: cloneJson(conversationForAttention(messages, attention, availableTools)),
+          conversation: cloneJson(
+            conversationForAttention(
+              messages,
+              attention,
+              availableTools,
+              attention.mode === 'urgent'
+                ? projectRecentActionContinuity(loomContext.view().turns)
+                : null,
+            ),
+          ),
           actions: cloneJson(
             availableTools.map((action) => ({
               name: action.function.name,
@@ -1314,6 +1328,7 @@ function conversationForAttention(
   messages: readonly any[],
   attention: ResidentAttention,
   availableTools?: readonly ToolSpec[],
+  recentActionContinuity?: RecentActionContinuity | null,
 ) {
   if (attention.mode !== 'urgent') return messages;
   const bodilyUrgency = hasBodilyUrgency(attention);
@@ -1351,10 +1366,23 @@ function conversationForAttention(
           ]),
     ].join('\n'),
   };
+  const recentActions = recentActionContinuity
+    ? {
+        role: 'system',
+        content: [
+          'Recent lived action continuity from your own entity loom. This is bounded historical evidence; the current observation wins whenever state has changed.',
+          JSON.stringify(recentActionContinuity),
+        ].join('\n'),
+      }
+    : null;
   const current = messages.at(-1);
-  return [system, ...(foldedContinuity ? [foldedContinuity] : []), urgentHandoff, current].filter(
-    Boolean,
-  );
+  return [
+    system,
+    ...(foldedContinuity ? [foldedContinuity] : []),
+    ...(recentActions ? [recentActions] : []),
+    urgentHandoff,
+    current,
+  ].filter(Boolean);
 }
 
 function hasBodilyUrgency(attention: ResidentAttention) {

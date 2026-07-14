@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
+import type { EntityTurn } from '../entity/loom';
 
 const MODEL_EVENT_BATCH = 12;
+const RECENT_ACTION_TURN_LIMIT = 6;
+const RECENT_ACTION_BYTE_LIMIT = 12_000;
+const RECENT_ACTION_TURN_BYTE_LIMIT = 4_000;
 const REDUNDANT_OWN_LIFECYCLE_EVENTS = new Set([
   'intent_enqueued',
   'intent_selected',
@@ -9,6 +13,175 @@ const REDUNDANT_OWN_LIFECYCLE_EVENTS = new Set([
   'tool_result',
   'action_completed',
 ]);
+
+export type RecentActionContinuity = {
+  protocol: 'behold.recent-action-continuity.v1';
+  source: {
+    entityId: string;
+    fromTurn: number;
+    throughTurn: number;
+    includedTurns: number;
+    omittedOlderTurns: number;
+    turnLimit: number;
+    byteLimit: number;
+    authority: 'entity_loom';
+    currency: 'historical_current_observation_wins';
+  };
+  turns: Array<{
+    turn: number;
+    completedAt: number;
+    controller: string;
+    action: {
+      name: string;
+      input?: any;
+      inputOmittedFromWorkingContinuity?: true;
+    };
+    outcome: {
+      ok: boolean;
+      eventType: string;
+      error?: string;
+      result?: any;
+      resultOmittedFromWorkingContinuity?: true;
+    };
+  }>;
+};
+
+/**
+ * A small causal working set for fast attention.
+ *
+ * Urgent cognition cannot afford the whole recent conversation, but it still
+ * needs to know what this body just tried and what the world actually did.
+ * This projection contains only the inhabitant's own committed action/outcome
+ * pairs. It carries no historical scene, hidden coordinate, provider reasoning,
+ * or controller scratch state, and explicitly yields to the current observation.
+ */
+export function projectRecentActionContinuity(
+  turns: readonly EntityTurn[],
+  turnLimit = RECENT_ACTION_TURN_LIMIT,
+  byteLimit = RECENT_ACTION_BYTE_LIMIT,
+): RecentActionContinuity | null {
+  if (!turns.length) return null;
+  const boundedTurns = integerInRange(turnLimit, 1, 12, RECENT_ACTION_TURN_LIMIT);
+  const boundedBytes = integerInRange(byteLimit, 1_000, 64_000, RECENT_ACTION_BYTE_LIMIT);
+  const entityId = String(turns.at(-1)?.entityId || '').trim();
+  if (!entityId || turns.some((turn) => turn.entityId !== entityId)) {
+    throw new Error('recent action continuity cannot mix inhabitant identities');
+  }
+
+  const candidates = turns.slice(-boundedTurns).map(projectContinuityTurn);
+  let selected: RecentActionContinuity['turns'] = [];
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index];
+    const proposed = [candidate, ...selected];
+    if (
+      Buffer.byteLength(
+        JSON.stringify(continuityEnvelope(entityId, proposed, boundedTurns, boundedBytes)),
+        'utf8',
+      ) > boundedBytes
+    ) {
+      if (selected.length === 0) selected = [projectContinuityTurnFallback(turns.at(-1)!)];
+      break;
+    }
+    selected = proposed;
+  }
+
+  return continuityEnvelope(entityId, selected, boundedTurns, boundedBytes);
+}
+
+function continuityEnvelope(
+  entityId: string,
+  turns: RecentActionContinuity['turns'],
+  turnLimit: number,
+  byteLimit: number,
+): RecentActionContinuity {
+  return {
+    protocol: 'behold.recent-action-continuity.v1',
+    source: {
+      entityId,
+      fromTurn: turns[0].turn,
+      throughTurn: turns.at(-1)!.turn,
+      includedTurns: turns.length,
+      omittedOlderTurns: Math.max(0, turns[0].turn - 1),
+      turnLimit,
+      byteLimit,
+      authority: 'entity_loom',
+      currency: 'historical_current_observation_wins',
+    },
+    turns,
+  };
+}
+
+function projectContinuityTurn(turn: EntityTurn): RecentActionContinuity['turns'][number] {
+  const projected: RecentActionContinuity['turns'][number] = {
+    turn: turn.sequence,
+    completedAt: turn.completedAt,
+    controller: String(turn.action.source),
+    action: {
+      name: String(turn.action.name),
+      input: compactContinuityValue(turn.action.input),
+    },
+    outcome: {
+      ok: turn.outcome.ok === true,
+      eventType: String(turn.outcome.eventType || ''),
+      ...(turn.outcome.error ? { error: boundedContinuityText(turn.outcome.error, 400) } : {}),
+      result: compactContinuityValue(turn.outcome.result),
+    },
+  };
+  if (Buffer.byteLength(JSON.stringify(projected), 'utf8') <= RECENT_ACTION_TURN_BYTE_LIMIT) {
+    return projected;
+  }
+  return projectContinuityTurnFallback(turn);
+}
+
+function projectContinuityTurnFallback(turn: EntityTurn): RecentActionContinuity['turns'][number] {
+  return {
+    turn: turn.sequence,
+    completedAt: turn.completedAt,
+    controller: String(turn.action.source),
+    action: {
+      name: String(turn.action.name),
+      inputOmittedFromWorkingContinuity: true,
+    },
+    outcome: {
+      ok: turn.outcome.ok === true,
+      eventType: String(turn.outcome.eventType || ''),
+      ...(turn.outcome.error ? { error: boundedContinuityText(turn.outcome.error, 400) } : {}),
+      resultOmittedFromWorkingContinuity: true,
+    },
+  };
+}
+
+function compactContinuityValue(value: any, depth = 0): any {
+  if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') return boundedContinuityText(value, 400);
+  if (depth >= 6) return '[depth bounded]';
+  if (Array.isArray(value)) {
+    const projected = value.slice(0, 24).map((item) => compactContinuityValue(item, depth + 1));
+    if (value.length > projected.length) {
+      projected.push(`[${value.length - projected.length} more items omitted]`);
+    }
+    return projected;
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value);
+    const projected = Object.fromEntries(
+      entries.slice(0, 32).map(([key, item]) => [key, compactContinuityValue(item, depth + 1)]),
+    );
+    if (entries.length > 32) projected.__omittedKeys = entries.length - 32;
+    return projected;
+  }
+  return boundedContinuityText(String(value), 400);
+}
+
+function integerInRange(value: unknown, minimum: number, maximum: number, fallback: number) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= minimum && number <= maximum ? number : fallback;
+}
+
+function boundedContinuityText(value: unknown, limit: number) {
+  const text = String(value ?? '');
+  return text.length <= limit ? text : `${text.slice(0, Math.max(0, limit - 1))}…`;
+}
 
 /**
  * A bounded, loss-visible projection for the controller's present experience.

@@ -490,6 +490,14 @@ test('critical body condition keeps urgent cognition through failure and release
       requests[1].conversation.map((message: any) => String(message.content || '')).join('\n'),
       /threat leaving the camera is not proof of safety[\s\S]*do not flee blindly forever/i,
     );
+    const recentContinuity: any = requests[1].conversation.find((message: any) =>
+      String(message.content || '').startsWith('Recent lived action continuity'),
+    );
+    assert.ok(recentContinuity, 'continuing urgency must retain the committed recent outcome');
+    assert.match(String(recentContinuity.content), /behold\.recent-action-continuity\.v1/);
+    assert.match(String(recentContinuity.content), /move_direction/);
+    assert.match(String(recentContinuity.content), /immediate_direction_unavailable/);
+    assert.match(String(recentContinuity.content), /historical_current_observation_wins/);
 
     sequence = 3;
     health = 8;

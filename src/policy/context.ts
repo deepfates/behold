@@ -4,4 +4,6 @@
 export {
   projectCurrentModelObservation,
   projectHistoricalModelObservation,
+  projectRecentActionContinuity,
+  type RecentActionContinuity,
 } from '../mind/observation-context';

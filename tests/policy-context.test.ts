@@ -4,6 +4,7 @@ import { historyMessages, type EntityTurn } from '../src/entity/loom';
 import {
   projectCurrentModelObservation,
   projectHistoricalModelObservation,
+  projectRecentActionContinuity,
 } from '../src/policy/context';
 
 test('model context suppresses only duplicated own-success lifecycle events without skipping them', () => {
@@ -258,6 +259,96 @@ test('failed current actions remain visible instead of being compacted into succ
   assert.equal(JSON.stringify(projected).includes('secretDebugState'), false);
 });
 
+test('fast attention receives bounded own-loom actions and exact world outcomes without historical scenes', () => {
+  const placed = continuityTurn(
+    1,
+    'Scout',
+    'place_block',
+    { x: 4, y: 64, z: 8 },
+    {
+      ok: true,
+      changes: [
+        {
+          verb: 'place',
+          position: { x: 4, y: 64, z: 8 },
+          before: 'air',
+          after: 'oak_planks',
+          verified: true,
+          confirmation: { source: 'mineflayer:blockUpdate' },
+        },
+      ],
+    },
+  );
+  const failed = continuityTurn(
+    2,
+    'Scout',
+    'place_block',
+    { x: 4, y: 65, z: 8 },
+    {
+      ok: false,
+      error: 'placement_support_not_found',
+      reason: 'The destination needs one adjacent solid block.',
+    },
+  );
+  placed.observation = { scene: { privilegedLoadedVolume: 'must not enter working memory' } };
+  placed.utterance.assistant.reasoning = 'provider-private chain of thought';
+
+  const projected = projectRecentActionContinuity([placed, failed]);
+  assert.equal(projected?.source.entityId, 'Scout');
+  assert.equal(projected?.source.authority, 'entity_loom');
+  assert.equal(projected?.source.currency, 'historical_current_observation_wins');
+  assert.equal(projected?.turns[0].action.name, 'place_block');
+  assert.deepEqual(projected?.turns[0].outcome.result.changes[0].position, {
+    x: 4,
+    y: 64,
+    z: 8,
+  });
+  assert.equal(
+    projected?.turns[0].outcome.result.changes[0].confirmation.source,
+    'mineflayer:blockUpdate',
+  );
+  assert.equal(projected?.turns[1].outcome.result.error, 'placement_support_not_found');
+  const serialized = JSON.stringify(projected);
+  assert.equal(serialized.includes('privilegedLoadedVolume'), false);
+  assert.equal(serialized.includes('provider-private chain of thought'), false);
+
+  const laterWindow = projectRecentActionContinuity([
+    continuityTurn(68, 'Scout', 'move_direction', { direction: 'back' }, { ok: true }),
+    continuityTurn(69, 'Scout', 'place_block', { x: 9, y: 64, z: 9 }, { ok: true }),
+  ]);
+  assert.equal(laterWindow?.source.omittedOlderTurns, 67);
+});
+
+test('recent action continuity is byte bounded and rejects mixed inhabitant history', () => {
+  const turns = Array.from({ length: 10 }, (_, index) =>
+    continuityTurn(
+      index + 1,
+      'Scout',
+      'inspect_volume',
+      { radius: 4 },
+      {
+        ok: true,
+        volume: Array.from({ length: 200 }, (_unused, cell) => ({
+          cell,
+          material: `material-${cell}-${'x'.repeat(200)}`,
+        })),
+      },
+    ),
+  );
+  const projected = projectRecentActionContinuity(turns, 6, 1_000);
+  assert.ok(Buffer.byteLength(JSON.stringify(projected), 'utf8') <= 1_000);
+  assert.ok(Number(projected?.turns.length) >= 1);
+  assert.equal(projected?.turns.at(-1)?.turn, 10);
+  assert.equal(projected?.turns.at(-1)?.outcome.resultOmittedFromWorkingContinuity, true);
+  assert.equal(projected?.source.omittedOlderTurns, 10 - Number(projected?.turns.length));
+
+  const foreign = continuityTurn(11, 'Builder', 'status', {}, { ok: true });
+  assert.throws(
+    () => projectRecentActionContinuity([...turns, foreign]),
+    /cannot mix inhabitant identities/,
+  );
+});
+
 function observation() {
   const ownIntent = {
     id: 'place-intent',
@@ -349,4 +440,40 @@ function observation() {
 
 function event(sequence: number, type: string, data: any) {
   return { sequence, type, data, isNew: true };
+}
+
+function continuityTurn(
+  sequence: number,
+  entityId: string,
+  name: string,
+  input: any,
+  result: any,
+): EntityTurn {
+  return {
+    protocol: 'behold.entity-turn.v1',
+    id: `${entityId}:turn:${sequence}`,
+    entityId,
+    sequence,
+    parentId: sequence > 1 ? `${entityId}:turn:${sequence - 1}` : null,
+    model: 'test/model',
+    startedAt: sequence * 10,
+    completedAt: sequence * 10 + 5,
+    observation: { protocol: 'behold.inhabitant.v2', sequence },
+    utterance: { assistant: { role: 'assistant' } },
+    action: {
+      id: `intent-${sequence}`,
+      name,
+      input,
+      source: 'llm',
+      kind: 'exclusive',
+      toolCallId: `call-${sequence}`,
+    },
+    outcome: {
+      ok: result?.ok === true,
+      eventType: result?.ok === true ? 'action_completed' : 'action_failed',
+      result,
+      ...(result?.error ? { error: result.error } : {}),
+    },
+    nextObservation: { protocol: 'behold.inhabitant.v2', sequence: sequence + 1 },
+  };
 }
