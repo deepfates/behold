@@ -9,11 +9,12 @@ This note is the forward model we use to decide what belongs.
 The stable loop is:
 
 1. the resident receives bounded lived evidence;
-2. the resident chooses one intelligible next action;
-3. a body skill carries that choice through Minecraft mechanics;
-4. Minecraft returns a terminal result;
-5. later observation establishes the consequence;
-6. the resident's own Lync preserves the trajectory.
+2. the world/body adapter publishes the actions supported by that exact observation;
+3. the resident chooses one intelligible next action;
+4. a body skill carries that choice through Minecraft mechanics;
+5. Minecraft returns a terminal result;
+6. later observation establishes the consequence;
+7. the resident's own Lync preserves the trajectory.
 
 Cantrip's useful lesson is that the medium, gates, and wards determine the
 available action space. Lync preserves autobiography. World Instrument's
@@ -82,6 +83,23 @@ ordinary evidence channel or abandon it. New construction uses
 interiors, and shelter affordances through ordinary looking and movement is an
 honest remaining gap, not a reason to restore symbolic topology as a sense.
 
+## The executable offer boundary
+
+The stable catalog names everything a body implementation can ever attempt.
+It is not the prompt for every moment. For each observation, the world adapter
+publishes a subset through `actionsFor(observation)` and narrows inputs to exact
+current entity, block, inventory, roster, or own-memory references. The generic
+controller may further restrict that set for authorization or urgent attention,
+but it does not discover Minecraft objects or mechanics.
+
+Current camera rays retain a bounded list of exact first-hit block targets.
+`face_visible_target` can orient toward one selected visible surface after
+freshly checking its id and name, and must confirm the same block under the
+cursor afterward. It does not find an object, choose which object matters,
+approach it, or use it. Cursor-gated skills appear only after that separately
+observable relation is true. This is a target language shared by doors and
+future block interactions, not a block ontology or a new verb per material.
+
 ## Primitive versus body skill
 
 The model should not choose every keyboard tick, but a body skill must not
@@ -101,20 +119,20 @@ or whether to keep fighting belongs to the resident.
 This is the forward-looking census. “Partial” means we can already perform
 ordinary examples but have not covered the whole native family.
 
-| Player family                              | Current status             | Important missing native experiences                                                              |
-| ------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
-| Seeing, hearing, HUD, and events           | Partial                    | exact-camera visual evidence; more legible obstruction and interaction feedback                   |
-| Looking and facing                         | Live-proven basic coverage | decide when images are worth their cost; face selected visible targets consistently               |
-| Walking and exploration                    | Basic relative walk added  | live model selection; intentional sneak/sprint when meaningful; swimming/climbing feedback        |
-| Breaking, placing, and ordinary use        | Partial                    | one consistent visible-target language; held-item use rather than block-specific controller verbs |
-| Inventory, equipment, pickup, and drop     | Strong basic coverage      | offhand and inventory arrangement only when gameplay makes them meaningful                        |
-| Crafting and storage                       | Partial                    | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions            |
-| Food, sleep, hazards, death, and recovery  | Partial                    | continuous survival competence and honest recovery across long lives                              |
-| Creatures and combat                       | Partial                    | independently proven sustained combat; feed, breed, tame, leash, fish, and ordinary entity use    |
-| Villagers and multiplayer relations        | Partial                    | inspect/select trades, exchange/gifts with witnessed transfer, longer collaboration               |
-| Books, signs, maps, and built culture      | Red                        | read/write native artifacts and understand visual builds without an oracle                        |
-| Vehicles and world traversal               | Red                        | mount/dismount, boats/minecarts, portals/dimensions, and later elytra                             |
-| Projects, places, commitments, and restart | Strong core                | evidence from longer lives and multiple concurrent residents                                      |
+| Player family                              | Current status             | Important missing native experiences                                                                                      |
+| ------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Seeing, hearing, HUD, and events           | Partial                    | exact-camera visual evidence; more legible obstruction and interaction feedback                                           |
+| Looking and facing                         | Live-proven basic coverage | decide when images are worth their cost; face selected visible targets consistently                                       |
+| Walking and exploration                    | Basic relative walk added  | live model selection; intentional sneak/sprint when meaningful; swimming/climbing feedback                                |
+| Breaking, placing, and ordinary use        | Partial                    | carry the exact visible-target language through mine/place/use; held-item use rather than block-specific controller verbs |
+| Inventory, equipment, pickup, and drop     | Strong basic coverage      | offhand and inventory arrangement only when gameplay makes them meaningful                                                |
+| Crafting and storage                       | Partial                    | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions                                    |
+| Food, sleep, hazards, death, and recovery  | Partial                    | continuous survival competence and honest recovery across long lives                                                      |
+| Creatures and combat                       | Partial                    | independently proven sustained combat; feed, breed, tame, leash, fish, and ordinary entity use                            |
+| Villagers and multiplayer relations        | Partial                    | inspect/select trades, exchange/gifts with witnessed transfer, longer collaboration                                       |
+| Books, signs, maps, and built culture      | Red                        | read/write native artifacts and understand visual builds without an oracle                                                |
+| Vehicles and world traversal               | Red                        | mount/dismount, boats/minecarts, portals/dimensions, and later elytra                                                     |
+| Projects, places, commitments, and restart | Strong core                | evidence from longer lives and multiple concurrent residents                                                              |
 
 Mineflayer already exposes real Minecraft mechanisms for many red cells,
 including generic block/entity/item activation, furnaces, enchanting, anvils,
@@ -160,9 +178,11 @@ What remains red, in priority order:
    adjacent feet, head, and support cells. Coordinate `move_to` failures still
    need equally useful body-scale evidence without revealing a hidden route or
    loaded-volume map.
-4. **Visible-target interaction.** Crosshair block/entity references should be
-   usable consistently for mine, use, place, and approach. Coordinates remain
-   valid remembered-place evidence, not the only language of embodied action.
+4. **Visible-target interaction.** Peripheral first-hit surfaces now have exact
+   ids and a resident can select and face one with stale-target checks. Carry
+   that same reference through mine, use, place, and approach. Coordinates
+   remain valid remembered-place evidence, not the only language of embodied
+   action.
 5. **Authentic visual channel.** A bounded screenshot may be the honest way to
    understand façades, signs, maps, builds, and human visual communication.
    It should supplement—not erase—the cheap structured body/event channel and
@@ -191,6 +211,13 @@ it does not automatically earn a new tool. First ask whether the failure came
 from missing observation, missing primitive, weak body skill, weak model
 choice, world content, or evaluation design. Add an affordance only when the
 native-player basis has a real hole.
+
+The run-38 door failure is the regression shape for this rule. An oak door was
+present in peripheral first-person rays while the cursor remained on a log, so
+the resident tried to place another door into the existing lower half. The
+repair was not `find_door` or an install-door story command. It was a bounded
+exact target projection, a generic orientation action, and world-owned dynamic
+admission of the already-existing cursor-gated crossing.
 
 Body conformance and lived competence are separate gates. A deterministic
 driver may choose one ordinary action to prove that authorization, bounded

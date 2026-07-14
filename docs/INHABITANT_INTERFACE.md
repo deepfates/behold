@@ -11,7 +11,10 @@ Behold's portable center is one causal loop:
 7. Append the complete turn to the entity's durable trajectory.
 
 The world-specific boundary is intentionally small: `entityId`, `observe(cursor)`,
-current action specifications, and `attempt(intent)`. A mind is a replaceable
+a complete capability catalog, `actionsFor(observation)`, and `attempt(intent)`.
+The catalog says what this kind of body can ever do; `actionsFor` publishes the
+observation-bound subset and may narrow inputs to exact perceived targets. It
+cannot introduce a capability absent from the catalog. A mind is a replaceable
 proposal adapter above that boundary. It does not own waking, authorization,
 execution, memory, or world truth.
 
@@ -29,9 +32,11 @@ New Minecraft observations use `behold.inhabitant.v2`.
 - `scene.entities` contains only entities inside the current first-person field
   of view for which at least one sampled body point has an unoccluded block ray.
 - `scene.terrain` contains unique first-selectable-surface samples from a fixed
-  9 by 5 camera-ray grid out to 24 blocks. It is not a rendered image or a
-  loaded-volume scan. Transparent surfaces can be sampled while they do not
-  visually occlude entities behind them.
+  9 by 5 camera-ray grid out to 24 blocks. Its bounded `targets` list gives
+  those sampled surfaces exact block ids, names, positions, distances, and ray
+  cells. It is not a rendered image or a loaded-volume scan. Transparent
+  surfaces can be sampled while they do not visually occlude entities behind
+  them.
 - `sound_heard` records the native sound name plus coarse egocentric direction
   and distance. It never exposes the packet's exact hidden coordinates.
 - `events` retain source, salience, order, cursor completeness, and whether an
@@ -46,6 +51,19 @@ Exact entity actions are observation-bound. Their tool schemas enumerate only
 current visual entity ids, and the body re-observes immediately before execution.
 A stale, guessed, remembered, or now-occluded target fails with
 `target_not_perceived` before movement, combat, or pickup begins.
+
+Exact visible block orientation follows the same rule. `face_visible_target`
+accepts only ids and expected names published in the current bounded ray target
+list, re-observes that relation before turning, and confirms that the selected
+block is under the cursor afterward. It does not search, approach, manipulate,
+or infer object semantics. A cursor-gated action such as doorway crossing is
+offered only after the current cursor actually confirms the door.
+
+Minecraft-specific admission belongs to the Minecraft adapter. The generic
+controller applies task allowlists, bodily-attention constraints, serialization,
+and catalog authorization after `actionsFor`; it has no door, entity, inventory,
+or roster discovery rules. A world adapter failure therefore degrades to the
+explicit yield action instead of broadening capability.
 
 Visibility admission does not grant continuing hidden tracking. A moving
 approach updates its destination only while the target is perceived. After

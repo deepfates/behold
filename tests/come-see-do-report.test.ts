@@ -69,6 +69,7 @@ function observation(): InhabitantObservation {
         raysHit: 12,
         failedRays: 0,
         materials: [{ name: 'gray_concrete', count: 12 }],
+        targets: [],
         visualField: {
           protocol: 'behold.visual-field.v1',
           available: true,

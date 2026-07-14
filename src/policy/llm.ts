@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { isCriticalBodyCondition } from '../agent/condition';
 import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
@@ -156,9 +157,6 @@ class MindDecisionError extends Error {
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const WAIT_TOOL = 'wait_for_event';
 const COLLECT_TOOL = 'collect_nearby_item';
-const DROP_TOOL = 'drop_item';
-const APPROACH_TOOL = 'approach_entity';
-const ATTACK_TOOL = 'attack_entity';
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
 const BODILY_URGENCY_EVENT_TYPES = new Set([
   'self_hurt',
@@ -233,6 +231,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const modelTools = executableTools.some((spec) => spec.function.name === WAIT_TOOL)
     ? executableTools
     : [...executableTools, WAIT_TOOL_SPEC];
+  const executableCatalog = new Map(
+    executableTools.map((spec) => [spec.function.name, spec] as const),
+  );
   const mind: ResidentMind =
     opts.mind || createDirectResidentMind((request, signal) => callLLM(request, opts, signal));
   let activeModelRequest: AbortController | null = null;
@@ -447,7 +448,17 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         observationSequence: Number(currentObservation?.sequence) || lastSequence,
         interruption: null,
       };
-      const availableTools = availableModelTools(modelTools, currentObservation, attention);
+      const physicallyOffered = actionsOfferedByEnvironment(
+        environment,
+        currentObservation,
+        executableTools,
+        executableCatalog,
+        log,
+      );
+      const withYield = physicallyOffered.some((spec) => spec.function.name === WAIT_TOOL)
+        ? physicallyOffered
+        : [...physicallyOffered, WAIT_TOOL_SPEC];
+      const availableTools = availableModelTools(withYield, currentObservation, attention);
       const requiredTool = requiredSelfDirectionTool(currentObservation, availableTools, allow);
       const decision = await withModelRequest(async (signal) => {
         const request: ResidentMindRequest = {
@@ -1125,6 +1136,11 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
       'You see only where you face. Use look_direction to orient or seek an entrance. Before breaking intact construction merely to navigate, look for an ordinary route unless danger forbids it.',
     );
   }
+  if (tools.has('face_visible_target')) {
+    lines.push(
+      'scene.terrain.targets are bounded exact first-hit surfaces from the current camera rays. Use face_visible_target to turn toward one already-visible surface before a cursor-gated interaction; it does not search, approach, use, or prove the target stayed unchanged.',
+    );
+  }
   if (tools.has('move_direction')) {
     lines.push(
       'Use move_direction for short local exploration relative to view; use move_to only for a visible, communicated, or remembered position. Looking and walking are not projects.',
@@ -1225,26 +1241,7 @@ function availableModelTools(
   frame: any,
   attention: ResidentAttention = attentionForObservation(frame),
 ) {
-  const roster = frame?.scene?.social?.playersOnline;
-  const inventory = Array.isArray(frame?.self?.inventory) ? frame.self.inventory : [];
-  const perceivedEntities =
-    frame?.protocol === 'behold.inhabitant.v2' && Array.isArray(frame?.scene?.entities)
-      ? frame.scene.entities.filter(
-          (entity: any) =>
-            entity?.source === 'vision' &&
-            entity?.visibility === 'visible' &&
-            typeof entity?.id === 'string' &&
-            entity.id.length > 0,
-        )
-      : [];
-  const droppedItems = perceivedEntities.filter(
-    (entity: any) => String(entity?.kind || entity?.type || '').toLowerCase() === 'item',
-  );
-  const embodiedEntities = perceivedEntities.filter(
-    (entity: any) => String(entity?.kind || entity?.type || '').toLowerCase() !== 'item',
-  );
-  const targetIds = (entities: any[]) => entities.map((entity) => String(entity.id));
-  return specs.flatMap((spec) => {
+  return specs.filter((spec) => {
     // A project record is private continuity bookkeeping, not an embodied
     // Minecraft response. Preserve every ordinary player affordance during
     // urgent attention, but defer bookkeeping until the body is no longer
@@ -1253,100 +1250,96 @@ function availableModelTools(
       (hasBodilyUrgency(attention) || isCriticalBodyCondition(frame?.self?.condition)) &&
       spec.function.name === MANAGE_PROJECT_TOOL
     ) {
-      return [];
+      return false;
     }
-    if (COMMUNICATION_TOOLS.has(spec.function.name)) {
-      return !Array.isArray(roster) || roster.length > 0 ? [spec] : [];
-    }
-    if (spec.function.name === 'cross_visible_door') {
-      const focus = frame?.scene?.focus;
-      const name = String(focus?.name || '').toLowerCase();
-      return focus?.kind === 'block' &&
-        focus?.source === 'cursor' &&
-        focus?.reachable === true &&
-        typeof focus?.id === 'string' &&
-        name.endsWith('_door') &&
-        !name.startsWith('iron_')
-        ? [withExactStringEnum(spec, 'focus', [focus.id])]
-        : [];
-    }
-    if (spec.function.name === 'cross_place_door') {
-      const position = frame?.self?.pose?.position;
-      const dimension = String(frame?.self?.condition?.dimension || '');
-      const circleId = String(frame?.circle?.id || '');
-      const eligible = (Array.isArray(frame?.self?.places) ? frame.self.places : []).filter(
-        (place: any) =>
-          place?.evidence === 'doorway_crossed' &&
-          place?.circleId === circleId &&
-          place?.anchor?.dimension === dimension &&
-          Array.isArray(place?.doorways) &&
-          place.doorways.some(
-            (doorway: any) =>
-              sameFeetCell(position, doorway?.sideAFeet) ||
-              sameFeetCell(position, doorway?.sideBFeet),
-          ),
-      );
-      return eligible.length > 0
-        ? [
-            withExactStringEnum(
-              spec,
-              'id',
-              eligible.map((place: any) => String(place.id)),
-            ),
-          ]
-        : [];
-    }
-    if (spec.function.name === COLLECT_TOOL) {
-      return droppedItems.length > 0 ? [withExactTargetEnum(spec, targetIds(droppedItems))] : [];
-    }
-    if (spec.function.name === APPROACH_TOOL || spec.function.name === ATTACK_TOOL) {
-      return embodiedEntities.length > 0
-        ? [withExactTargetEnum(spec, targetIds(embodiedEntities))]
-        : [];
-    }
-    if (spec.function.name === DROP_TOOL) {
-      return inventory.some(
-        (item: any) => Number(item?.count) > 0 && String(item?.name || '').length > 0,
-      )
-        ? [spec]
-        : [];
-    }
-    return [spec];
+    return true;
   });
 }
 
-function withExactTargetEnum(spec: ToolSpec, targets: string[]): ToolSpec {
-  return withExactStringEnum(spec, 'target', targets);
-}
-
-function withExactStringEnum(spec: ToolSpec, property: string, values: string[]): ToolSpec {
-  const copy = cloneJson(spec) as ToolSpec;
-  const parameters: any = copy.function.parameters || {
-    type: 'object',
-    properties: {},
-  };
-  parameters.properties = parameters.properties || {};
-  parameters.properties[property] = {
-    ...(parameters.properties[property] || { type: 'string' }),
-    enum: [...new Set(values)],
-  };
-  copy.function.parameters = parameters;
-  return copy;
-}
-
-function sameFeetCell(first: any, second: any) {
-  if (
-    ![first?.x, first?.y, first?.z, second?.x, second?.y, second?.z].every((value) =>
-      Number.isFinite(Number(value)),
-    )
-  ) {
-    return false;
+function actionsOfferedByEnvironment(
+  environment: InhabitantInterface,
+  observation: any,
+  fallback: ToolSpec[],
+  executableCatalog: ReadonlyMap<string, ToolSpec>,
+  log: (message: string) => void,
+) {
+  if (!environment.actionsFor) return fallback;
+  let offered: readonly ToolSpec[];
+  try {
+    offered = environment.actionsFor(observation);
+  } catch (error: any) {
+    log(`[policy] world affordance resolution failed: ${error?.message || String(error)}`);
+    return [];
   }
-  return (
-    Math.floor(Number(first.x)) === Number(second.x) &&
-    Math.floor(Number(first.y)) === Number(second.y) &&
-    Math.floor(Number(first.z)) === Number(second.z)
+  if (!Array.isArray(offered)) {
+    log('[policy] world affordance resolution failed: actionsFor returned a non-array');
+    return [];
+  }
+  const seen = new Set<string>();
+  return offered.flatMap((spec) => {
+    const name = String(spec?.function?.name || '');
+    const catalog = executableCatalog.get(name);
+    if (!name || !catalog) {
+      log(`[policy] rejected world-offered capability absent from catalog: ${name || '(missing)'}`);
+      return [];
+    }
+    if (seen.has(name)) {
+      log(`[policy] rejected duplicate world-offered capability: ${name}`);
+      return [];
+    }
+    if (!schemaNarrowing(catalog.function.parameters, spec.function.parameters)) {
+      log(`[policy] rejected broadened world-offered schema: ${name}`);
+      return [];
+    }
+    seen.add(name);
+    return [
+      {
+        ...catalog,
+        function: {
+          ...catalog.function,
+          parameters: cloneJson(spec.function.parameters),
+        },
+      },
+    ];
+  });
+}
+
+function schemaNarrowing(catalog: unknown, offered: unknown) {
+  if (!isDeepStrictEqual(withoutEnums(catalog), withoutEnums(offered))) return false;
+  const catalogEnums = enumPaths(catalog);
+  const offeredEnums = enumPaths(offered);
+  for (const [path, allowed] of catalogEnums) {
+    const narrowed = offeredEnums.get(path);
+    if (!narrowed || !narrowed.every((candidate) => includesJson(allowed, candidate))) return false;
+  }
+  return [...offeredEnums.values()].every((values) => values.length > 0);
+}
+
+function withoutEnums(value: any): any {
+  if (Array.isArray(value)) return value.map(withoutEnums);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== 'enum')
+      .map(([key, item]) => [key, withoutEnums(item)]),
   );
+}
+
+function enumPaths(value: any, path = '$', found = new Map<string, any[]>()) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => enumPaths(item, `${path}[${index}]`, found));
+    return found;
+  }
+  if (!value || typeof value !== 'object') return found;
+  if (Array.isArray(value.enum)) found.set(path, value.enum);
+  for (const [key, item] of Object.entries(value)) {
+    if (key !== 'enum') enumPaths(item, `${path}.${key}`, found);
+  }
+  return found;
+}
+
+function includesJson(values: any[], candidate: any) {
+  return values.some((value) => isDeepStrictEqual(value, candidate));
 }
 
 function finiteAtMost(value: unknown, threshold: number) {

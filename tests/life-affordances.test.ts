@@ -24,6 +24,7 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   assert.ok(inhabitantActions.includes('move_to'));
   assert.ok(inhabitantActions.includes('move_direction'));
   assert.ok(inhabitantActions.includes('look_direction'));
+  assert.ok(inhabitantActions.includes('face_visible_target'));
   assert.ok(inhabitantActions.includes('descend_step'));
   assert.ok(inhabitantActions.includes('ascend_step'));
   assert.ok(inhabitantActions.includes('block_at_cursor'));
@@ -211,6 +212,105 @@ test('look_direction fails closed when orientation is unavailable or unconfirmed
   assert.equal(cancelled.ok, false);
   assert.equal(cancelled.error, 'interrupted_by_human');
   assert.equal(called, false);
+});
+
+test('face_visible_target revalidates one exact first-person ray target and confirms cursor focus', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  bot.entity.eyeHeight = 1.62;
+  const position = new Vec3(3, 65, -2);
+  let oriented = false;
+  let lookedAt: Vec3 | null = null;
+  bot.lookAt = async (target: Vec3, force: boolean) => {
+    lookedAt = target;
+    assert.equal(force, true);
+    oriented = true;
+  };
+  bot.world = {
+    raycast: () =>
+      oriented
+        ? {
+            name: 'oak_door',
+            position,
+            intersect: position.offset(0.5, 0.5, 0.5),
+          }
+        : null,
+  };
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      terrain: {
+        maxDistance: 24,
+        targets: [
+          {
+            id: 'block:overworld:3:65:-2',
+            kind: 'block',
+            name: 'oak_door',
+            source: 'vision',
+            visibility: 'visible',
+            position: { x: 3, y: 65, z: -2 },
+            distance: 4,
+            ray: { row: 2, column: 7 },
+          },
+        ],
+      },
+    },
+  };
+  const interpreter = buildInterpreter(bot, { observe: () => observation });
+
+  const result = await interpreter.run('face_visible_target', {
+    target: 'block:overworld:3:65:-2',
+    expectedName: 'oak_door',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.confirmation, 'mineflayer:cursor_block');
+  assert.equal(result.target.id, 'block:overworld:3:65:-2');
+  assert.deepEqual(result.target.selectedRay, { row: 2, column: 7 });
+  assert.deepEqual(lookedAt, new Vec3(3.5, 65.5, -1.5));
+});
+
+test('face_visible_target fails before turning when its observed identity is stale', async () => {
+  const bot = baseBot();
+  let turned = false;
+  bot.lookAt = async () => {
+    turned = true;
+  };
+  const interpreter = buildInterpreter(bot, {
+    observe: () => ({
+      protocol: 'behold.inhabitant.v2',
+      scene: {
+        terrain: {
+          targets: [
+            {
+              id: 'block:overworld:3:65:-2',
+              kind: 'block',
+              name: 'stone',
+              source: 'vision',
+              visibility: 'visible',
+              position: { x: 3, y: 65, z: -2 },
+            },
+          ],
+        },
+      },
+    }),
+  });
+
+  const result = await interpreter.run('face_visible_target', {
+    target: 'block:overworld:3:65:-2',
+    expectedName: 'oak_door',
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    error: 'visible_target_identity_changed',
+    target: 'block:overworld:3:65:-2',
+    expectedName: 'oak_door',
+    observedName: 'stone',
+  });
+  assert.equal(turned, false);
 });
 
 test('find_blocks returns actionable local positions without claiming visibility', async () => {

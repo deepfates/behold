@@ -31,7 +31,16 @@ export const FIRST_PERSON_VISION = Object.freeze({
   playerDistance: 64,
   entityLimit: 8,
   entityCandidateLimit: 64,
+  blockTargetLimit: 24,
 });
+
+export type VisibleBlockTarget = {
+  source: 'vision';
+  name: string;
+  position: { x: number; y: number; z: number };
+  distance: number;
+  ray: { row: number; column: number };
+};
 
 export type VisibleTerrainSummary = {
   source: 'vision';
@@ -42,6 +51,8 @@ export type VisibleTerrainSummary = {
   raysHit: number;
   failedRays: number;
   materials: NearbyBlockSummary[];
+  /** Bounded unique first-hit surfaces from the same rays as visualField. */
+  targets: VisibleBlockTarget[];
   visualField: FirstPersonVisualField;
 };
 
@@ -329,6 +340,7 @@ export function summarizeVisibleTerrain(
     raysHit: 0,
     failedRays: rayBudget,
     materials: [],
+    targets: [],
     visualField: visualField(
       Array.from({ length: FIRST_PERSON_VISION.verticalRays }, () =>
         Array.from({ length: FIRST_PERSON_VISION.horizontalRays }, () => ({
@@ -342,6 +354,7 @@ export function summarizeVisibleTerrain(
   if (!pos || !eye || typeof raycast !== 'function') return empty();
   const counts = new Map<string, number>();
   const nearest = new Map<string, { x: number; y: number; z: number; distance: number }>();
+  const targets = new Map<string, VisibleBlockTarget>();
   const seen = new Set<string>();
   const samples: VisualRaySample[][] = [];
   let raysCast = 0;
@@ -381,10 +394,22 @@ export function summarizeVisibleTerrain(
       const name = String(block.name || 'unknown');
       row.push({ state: 'hit', name, distance });
       const key = `${blockPosition.x}:${blockPosition.y}:${blockPosition.z}`;
+      const targetable =
+        !!name && !['unknown', 'air', 'cave_air', 'void_air'].includes(name.toLowerCase());
+      if (targetable) {
+        const target: VisibleBlockTarget = {
+          source: 'vision',
+          name,
+          position: { x: blockPosition.x, y: blockPosition.y, z: blockPosition.z },
+          distance: round(distance),
+          ray: { row: vertical, column: horizontal },
+        };
+        const priorTarget = targets.get(key);
+        if (!priorTarget || target.distance < priorTarget.distance) targets.set(key, target);
+      }
       if (seen.has(key)) continue;
       seen.add(key);
-      if (name === 'unknown') continue;
-      if (!name || name === 'air' || name === 'cave_air' || name === 'void_air') continue;
+      if (!targetable) continue;
       counts.set(name, (counts.get(name) || 0) + 1);
       if (!nearest.has(name) || distance < nearest.get(name)!.distance) {
         nearest.set(name, {
@@ -410,6 +435,15 @@ export function summarizeVisibleTerrain(
       .map(([name, count]) => ({ name, count, nearest: nearest.get(name)! }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
       .slice(0, limit),
+    targets: [...targets.values()]
+      .sort(
+        (a, b) =>
+          a.distance - b.distance ||
+          a.ray.row - b.ray.row ||
+          a.ray.column - b.ray.column ||
+          a.name.localeCompare(b.name),
+      )
+      .slice(0, FIRST_PERSON_VISION.blockTargetLimit),
     visualField: visualField(samples, maxDistance, failedRays < raysCast),
   };
 }

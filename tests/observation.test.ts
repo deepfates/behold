@@ -252,6 +252,15 @@ test('terrain observation spends a fixed ray budget and reports only first-hit s
   assert.deepEqual(terrain.materials, [
     { name: 'stone', count: 1, nearest: { x: 0, y: 64, z: -2, distance: 2 } },
   ]);
+  assert.deepEqual(terrain.targets, [
+    {
+      source: 'vision',
+      name: 'stone',
+      position: { x: 0, y: 64, z: -2 },
+      distance: 2,
+      ray: { row: 0, column: 0 },
+    },
+  ]);
   assert.equal(terrain.visualField.protocol, 'behold.visual-field.v1');
   assert.equal(terrain.visualField.available, true);
   assert.deepEqual(terrain.visualField.dimensions, { rows: 5, columns: 9 });
@@ -347,6 +356,7 @@ test('visual terrain exposes a failed sensor instead of depicting an open world'
   assert.equal(terrain.raysCast, 45);
   assert.equal(terrain.raysHit, 0);
   assert.equal(terrain.failedRays, 45);
+  assert.deepEqual(terrain.targets, []);
   assert.equal(terrain.visualField.available, false);
   assert.deepEqual(terrain.visualField.materialRows, Array(5).fill('?????????'));
   assert.deepEqual(terrain.visualField.depthRows, Array(5).fill('?????????'));

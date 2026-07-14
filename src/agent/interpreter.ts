@@ -266,6 +266,96 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   });
 
   add({
+    name: 'face_visible_target',
+    description:
+      'Turn your current first-person view toward one exact block surface already present in scene.terrain.targets. This only orients the body; it does not search loaded terrain, approach, use, break, place, or infer what the target affords.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Exact current vision target id from scene.terrain.targets',
+        },
+        expectedName: {
+          type: 'string',
+          description: 'Current visible block name paired with the selected target',
+        },
+      },
+      required: ['target', 'expectedName'],
+    },
+    run: async ({ target, expectedName }, execution) => {
+      if (execution?.signal?.aborted) return cancelledAction('visible-target-orientation');
+      const observation = opts.observe?.();
+      if (!observation) return { ok: false, error: 'current_observation_unavailable' };
+      const selected = currentVisibleBlockTarget(observation, String(target || ''));
+      if (!selected) {
+        return {
+          ok: false,
+          error: 'visible_target_not_current',
+          target: String(target || ''),
+        };
+      }
+      if (selected.name !== String(expectedName || '')) {
+        return {
+          ok: false,
+          error: 'visible_target_identity_changed',
+          target: selected.id,
+          expectedName: String(expectedName || ''),
+          observedName: selected.name,
+        };
+      }
+      if (typeof (bot as any).lookAt !== 'function') {
+        return { ok: false, error: 'body_orientation_unavailable', target: selected.id };
+      }
+      const position = selected.position;
+      await (bot as any).lookAt(
+        new Vec3(Number(position.x) + 0.5, Number(position.y) + 0.5, Number(position.z) + 0.5),
+        true,
+      );
+      if (execution?.signal?.aborted) return cancelledAction('visible-target-orientation');
+      const maximumDistance = Math.max(
+        6,
+        Math.min(24, Number(observation?.scene?.terrain?.maxDistance) || 24),
+      );
+      const focused = blockAtViewCursor(bot, maximumDistance);
+      if (
+        !focused?.position ||
+        !sameBlockPosition(focused.position, position) ||
+        String(focused.name || '') !== selected.name
+      ) {
+        return {
+          ok: false,
+          error: 'visible_target_not_focused_after_turn',
+          target: selected.id,
+          expectedName: selected.name,
+          observed: focused?.position
+            ? {
+                name: String(focused.name || 'unknown'),
+                position: {
+                  x: focused.position.x,
+                  y: focused.position.y,
+                  z: focused.position.z,
+                },
+              }
+            : null,
+        };
+      }
+      return {
+        ok: true,
+        target: {
+          id: selected.id,
+          name: selected.name,
+          position: { ...position },
+          source: 'vision',
+          selectedRay: selected.ray,
+        },
+        confirmation: 'mineflayer:cursor_block',
+      };
+    },
+    category: 'view',
+  });
+
+  add({
     name: 'look',
     description: 'Set yaw/pitch directly (radians)',
     parameters: {
@@ -5194,6 +5284,38 @@ function cancelledAction(adapter: string) {
       adapter,
     },
   };
+}
+
+function currentVisibleBlockTarget(observation: any, reference: string) {
+  if (
+    observation?.protocol !== 'behold.inhabitant.v2' ||
+    !Array.isArray(observation?.scene?.terrain?.targets)
+  ) {
+    return null;
+  }
+  const target = observation.scene.terrain.targets.find(
+    (candidate: any) =>
+      candidate?.id === reference &&
+      candidate?.kind === 'block' &&
+      candidate?.source === 'vision' &&
+      candidate?.visibility === 'visible' &&
+      typeof candidate?.name === 'string' &&
+      [candidate?.position?.x, candidate?.position?.y, candidate?.position?.z].every((value) =>
+        Number.isFinite(Number(value)),
+      ),
+  );
+  return target || null;
+}
+
+function sameBlockPosition(first: any, second: any) {
+  return (
+    [first?.x, first?.y, first?.z, second?.x, second?.y, second?.z].every((value) =>
+      Number.isFinite(Number(value)),
+    ) &&
+    Math.floor(Number(first.x)) === Math.floor(Number(second.x)) &&
+    Math.floor(Number(first.y)) === Math.floor(Number(second.y)) &&
+    Math.floor(Number(first.z)) === Math.floor(Number(second.z))
+  );
 }
 
 function positionOf(bot: Bot) {

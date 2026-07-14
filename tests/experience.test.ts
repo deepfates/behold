@@ -163,6 +163,9 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   assert.equal(initial.scene.terrain.source, 'vision');
   assert.equal(initial.scene.terrain.raysCast, 45);
   assert.equal(initial.scene.terrain.failedRays, 0);
+  assert.ok(initial.scene.terrain.targets.length > 0);
+  assert.equal(initial.scene.terrain.targets[0].source, 'vision');
+  assert.match(initial.scene.terrain.targets[0].id, /^block:overworld:/);
   assert.equal(initial.scene.terrain.visualField.protocol, 'behold.visual-field.v1');
   assert.equal(initial.scene.terrain.visualField.materialRows.length, 5);
 

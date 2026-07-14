@@ -3,6 +3,7 @@ import readline from 'node:readline';
 import { getConfig } from '../config';
 import { createBot } from '../bot';
 import { buildInterpreter } from '../agent/interpreter';
+import { minecraftInhabitantActionsFor } from '../agent/affordances';
 import { buildFrame, renderFrame } from './render';
 import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
@@ -341,6 +342,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         entityId: name,
         observe: (sinceSequence) => experience.observe(sinceSequence),
         actions: toolSpecs as any,
+        actionsFor: (observation) => minecraftInhabitantActionsFor(toolSpecs as any, observation),
         attempt: (intent) => engine!.enqueueIntent(intent),
       },
       {

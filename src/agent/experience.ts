@@ -119,6 +119,7 @@ export type InhabitantObservation = {
         count: number;
         nearest?: { x: number; y: number; z: number; distance: number };
       }>;
+      targets: SceneBlockTarget[];
       visualField: FirstPersonVisualField;
       note: string;
     };
@@ -158,6 +159,17 @@ export type SceneEntity = {
     | 'left'
     | 'ahead-left';
   visibility: 'visible';
+};
+
+export type SceneBlockTarget = {
+  id: string;
+  kind: 'block';
+  name: string;
+  source: 'vision';
+  visibility: 'visible';
+  position: { x: number; y: number; z: number };
+  distance: number;
+  ray: { row: number; column: number };
 };
 
 type EngineEvent = { type: string; at: number; data: any };
@@ -443,6 +455,16 @@ export class InhabitantExperience {
           raysHit: base.vision.raysHit,
           failedRays: base.vision.failedRays,
           materials: base.nearbyBlocks,
+          targets: base.vision.targets.map((target) => ({
+            id: blockId(base.dimension, target.position),
+            kind: 'block' as const,
+            name: target.name,
+            source: 'vision' as const,
+            visibility: 'visible' as const,
+            position: target.position,
+            distance: target.distance,
+            ray: target.ray,
+          })),
           visualField: base.vision.visualField,
           note: 'The material summary and compact visual field contain only first selectable surfaces from the same fixed camera-ray budget. They are semantic vision, not pixels or a loaded-volume scan.',
         },

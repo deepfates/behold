@@ -11,6 +11,15 @@ import {
 import type { EntityTurn } from '../src/entity/loom';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { cognitionHeaderNames } from '../src/mind/cognition';
+import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
+
+function withMinecraftActionSurface<T extends { actions: readonly any[] }>(environment: T) {
+  return {
+    ...environment,
+    actionsFor: (observation: any) =>
+      minecraftInhabitantActionsFor(environment.actions, observation),
+  };
+}
 
 function frame(from: string, addressed = false, distance: number | null = null) {
   return {
@@ -184,12 +193,12 @@ test('urgent attention preserves resident choice while fresh perception updates 
     ],
   });
   const policy = startLLMPolicy(
-    {
+    withMinecraftActionSurface({
       entityId: 'Scout',
       actions,
       attempt: () => assert.fail('the test mind yielded; no action should be attempted'),
       observe,
-    },
+    }),
     {
       apiKey: 'unused',
       model: 'test/model',
@@ -1071,6 +1080,98 @@ test('an alternate mind receives one bounded observation and the exact admitted 
   }
 });
 
+test('the world affordance boundary cannot introduce a capability outside its catalog', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const logs: string[] = [];
+  const observation = experience(1, null, 0);
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('status')],
+      actionsFor: () => [tool('status'), tool('teleport')],
+      attempt: () => assert.fail('the test mind yielded; no action should be attempted'),
+      observe: () => observation,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      log: (message) => logs.push(message),
+      mind: {
+        id: 'capability-boundary-mind',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'wait',
+            utterance: 'I will not invent a capability.',
+            action: null,
+            call: modelCallEvidence('capability-boundary-mind'),
+          };
+        },
+      },
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.deepEqual(
+      requests[0].actions.map((action) => action.name),
+      ['status', 'wait_for_event'],
+    );
+    assert.ok(logs.some((message) => message.includes('absent from catalog: teleport')));
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('the world affordance boundary may narrow but cannot broaden a catalog schema', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const logs: string[] = [];
+  const catalog = tool('status');
+  const broadened = tool('status');
+  (broadened.function.parameters.properties as any).hiddenLoadedWorld = { type: 'boolean' };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [catalog],
+      actionsFor: () => [broadened],
+      attempt: () => assert.fail('the test mind yielded; no action should be attempted'),
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      log: (message) => logs.push(message),
+      mind: {
+        id: 'schema-boundary-mind',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'wait',
+            utterance: 'I will use only the published capability.',
+            action: null,
+            call: modelCallEvidence('schema-boundary-mind'),
+          };
+        },
+      },
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.deepEqual(
+      requests[0].actions.map((action) => action.name),
+      ['wait_for_event'],
+    );
+    assert.ok(logs.some((message) => message.includes('broadened world-offered schema: status')));
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('door affordances are admitted only at the player-visible focus and occupied remembered side', async () => {
   const requests: ResidentMindRequest[] = [];
   const observation: any = {
@@ -1111,12 +1212,12 @@ test('door affordances are admitted only at the player-visible focus and occupie
     },
   };
   const policy = startLLMPolicy(
-    {
+    withMinecraftActionSurface({
       entityId: 'Scout',
       actions: [tool('cross_visible_door'), tool('cross_place_door')],
       attempt: () => true,
       observe: () => observation,
-    },
+    }),
     {
       apiKey: 'unused',
       model: 'test/model',
@@ -1938,12 +2039,12 @@ test('model action space contains only executable gates plus explicit yield', as
 
   const turns: EntityTurn[] = [];
   const policy = startLLMPolicy(
-    {
+    withMinecraftActionSurface({
       entityId: 'Scout',
       actions: [tool('inspect_volume'), tool('collect_nearby_item')],
       attempt: () => true,
       observe: () => experience(1, null, 0),
-    },
+    }),
     {
       apiKey: 'test-key',
       model: 'test/model',
@@ -1998,7 +2099,7 @@ test('a nearby-item action is admitted only while a dropped item is currently ob
 
   const turns: EntityTurn[] = [];
   const policy = startLLMPolicy(
-    {
+    withMinecraftActionSurface({
       entityId: 'Scout',
       actions: [tool('inspect_volume'), tool('collect_nearby_item')],
       attempt: () => true,
@@ -2006,7 +2107,7 @@ test('a nearby-item action is admitted only while a dropped item is currently ob
         ...experience(1, null, 0),
         scene: { social: { playersOnline: [] }, entities: [] },
       }),
-    },
+    }),
     {
       apiKey: 'test-key',
       model: 'test/model',
@@ -2053,7 +2154,7 @@ test('exact entity actions advertise only target ids in the current visual scene
 
   const base = experience(1, null, 0);
   const policy = startLLMPolicy(
-    {
+    withMinecraftActionSurface({
       entityId: 'Scout',
       actions: [tool('approach_entity'), tool('attack_entity'), tool('collect_nearby_item')],
       attempt: () => true,
@@ -2088,7 +2189,7 @@ test('exact entity actions advertise only target ids in the current visual scene
           ],
         },
       }),
-    },
+    }),
     { apiKey: 'test-key', model: 'test/model', acceptEngineEvent: () => true },
   );
 
@@ -2141,12 +2242,12 @@ test('drop is admitted only while the body owns an inventory item', async () => 
       const turns: EntityTurn[] = [];
       const base = experience(1, null, 0);
       const policy = startLLMPolicy(
-        {
+        withMinecraftActionSurface({
           entityId: 'Giver',
           actions: [tool('inspect_volume'), tool('drop_item')],
           attempt: () => true,
           observe: () => ({ ...base, self: { ...base.self, inventory } }),
-        },
+        }),
         {
           apiKey: 'test-key',
           model: 'test/model',
@@ -2199,7 +2300,7 @@ test('system guidance follows the admitted affordances instead of describing abs
 
   const turns: EntityTurn[] = [];
   const policy = startLLMPolicy(
-    {
+    withMinecraftActionSurface({
       entityId: 'Builder',
       actions: [
         tool('manage_project'),
@@ -2209,7 +2310,7 @@ test('system guidance follows the admitted affordances instead of describing abs
       ],
       attempt: () => true,
       observe: () => experience(1, null, 0),
-    },
+    }),
     {
       apiKey: 'test-key',
       model: 'test/model',
@@ -2577,7 +2678,7 @@ test('a dropped stack on supported ground stays available without becoming a con
 
   const enqueued: any[] = [];
   const policy = startLLMPolicy(
-    {
+    withMinecraftActionSurface({
       entityId: 'Scout',
       actions: [tool('manage_project'), tool('collect_nearby_item'), tool('chat')],
       attempt: (intent) => {
@@ -2610,7 +2711,7 @@ test('a dropped stack on supported ground stays available without becoming a con
         },
         events: [{ sequence: 1, type: 'spawned', isNew: true, data: {} }],
       }),
-    },
+    }),
     { apiKey: 'test-key', model: 'test/model', acceptEngineEvent: () => true },
   );
 
@@ -3120,12 +3221,22 @@ test('controller resumes from a generic folded view of its own older loom', asyn
 });
 
 function tool(name: string) {
+  const stringInput = new Map([
+    ['attack_entity', 'target'],
+    ['approach_entity', 'target'],
+    ['collect_nearby_item', 'target'],
+    ['cross_visible_door', 'focus'],
+    ['cross_place_door', 'id'],
+  ]).get(name);
   return {
     type: 'function' as const,
     function: {
       name,
       description: name,
-      parameters: { type: 'object', properties: {} },
+      parameters: {
+        type: 'object',
+        properties: stringInput ? { [stringInput]: { type: 'string' } } : {},
+      },
     },
   };
 }
