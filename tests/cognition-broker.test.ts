@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  COGNITION_ADMISSION_LIMIT_PROTOCOL,
   startCognitionBroker,
   type CognitionBroker,
   type CognitionBrokerEvent,
@@ -17,6 +18,119 @@ import {
 } from '../src/mind/cognition';
 
 const UPSTREAM_KEY = 'upstream-secret-fixture';
+
+test('the cognition gate enforces an exact aggregate admission ceiling before upstream', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-limit-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalFile = path.join(root, 'cognition.jsonl');
+  let upstreamCalls = 0;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [client('a')],
+    maxConcurrent: 1,
+    maxAccepted: 2,
+    journalFile,
+    fetch: async () => {
+      upstreamCalls += 1;
+      return jsonResponse({ id: `admitted-${upstreamCalls}` });
+    },
+  });
+
+  const first = await brokerRequest(
+    broker,
+    'a',
+    requestBody('fixture/model', 'first'),
+    'deliberative',
+    'first',
+  );
+  assert.equal(first.status, 200);
+  await first.text();
+  const second = await brokerRequest(
+    broker,
+    'a',
+    requestBody('fixture/model', 'second'),
+    'deliberative',
+    'second',
+  );
+  assert.equal(second.status, 200);
+  await second.text();
+
+  const reached = await broker.admissionLimitReached;
+  assert.equal(reached.protocol, COGNITION_ADMISSION_LIMIT_PROTOCOL);
+  assert.equal(reached.brokerId, broker.brokerId);
+  assert.equal(reached.accepted, 2);
+  assert.equal(reached.limit, 2);
+
+  const refused = await brokerRequest(
+    broker,
+    'a',
+    requestBody('fixture/model', 'refused'),
+    'deliberative',
+    'refused',
+  );
+  assert.equal(refused.status, 429);
+  assert.equal(((await refused.json()) as any).error.code, 'cognition_admission_limit_exhausted');
+  assert.equal(upstreamCalls, 2);
+  assert.deepEqual(
+    {
+      accepted: broker.snapshot().accepted,
+      acceptedLimit: broker.snapshot().acceptedLimit,
+      acceptedRemaining: broker.snapshot().acceptedRemaining,
+      rejected: broker.snapshot().rejected,
+    },
+    { accepted: 2, acceptedLimit: 2, acceptedRemaining: 0, rejected: 1 },
+  );
+
+  await broker.close();
+  const verified = verifyCognitionBrokerJournal(journalFile);
+  assert.equal(verified.accepted, 2);
+  assert.equal(verified.acceptedLimit, 2);
+  assert.equal(verified.acceptedRemaining, 0);
+  assert.equal(verified.terminal, 2);
+});
+
+test('concurrent resident arrivals cannot overshoot the aggregate admission ceiling', async () => {
+  const residents = Array.from({ length: 8 }, (_, index) => `resident-${index}`);
+  let upstreamCalls = 0;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: residents.map(client),
+    maxConcurrent: 3,
+    maxAccepted: 3,
+    fetch: async () => {
+      upstreamCalls += 1;
+      return jsonResponse({ id: `parallel-${upstreamCalls}` });
+    },
+  });
+
+  try {
+    const responses = await Promise.all(
+      residents.map((resident) =>
+        brokerRequest(
+          broker,
+          resident,
+          requestBody('fixture/model', resident),
+          'deliberative',
+          resident,
+        ),
+      ),
+    );
+    await broker.admissionLimitReached;
+    assert.deepEqual(
+      responses.map((response) => response.status).sort(),
+      [200, 200, 200, 429, 429, 429, 429, 429],
+    );
+    assert.equal(upstreamCalls, 3);
+    assert.equal(broker.snapshot().accepted, 3);
+    assert.equal(broker.snapshot().acceptedRemaining, 0);
+  } finally {
+    await broker.close();
+  }
+});
 
 test('the loopback cognition gate preserves request bytes and enforces aggregate concurrency', async () => {
   let now = 1_000;

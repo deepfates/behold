@@ -120,15 +120,74 @@ test('fold evidence carries only new events while retaining action consequences'
   const turn = entityTurn(3, 'Scout');
   turn.observation.events = [
     { type: 'old', isNew: false, data: { ignored: true } },
-    { type: 'chat_received', isNew: true, data: { from: 'importdf', text: 'follow me' } },
+    {
+      sequence: 17,
+      type: 'chat_received',
+      isNew: true,
+      data: { from: 'importdf', text: 'follow me' },
+    },
+  ];
+  turn.nextObservation.events = [
+    {
+      sequence: 17,
+      type: 'chat_received',
+      isNew: true,
+      data: { from: 'importdf', text: 'follow me' },
+    },
+    { sequence: 18, type: 'inventory_changed', isNew: true, data: { item: 'chest' } },
   ];
   turn.outcome.result = { ok: true, changes: [{ verb: 'place', after: 'chest' }] };
 
   const evidence = projectTurnForFolding(turn);
   assert.deepEqual(evidence.observation.events, [
-    { type: 'chat_received', isNew: true, data: { from: 'importdf', text: 'follow me' } },
+    {
+      sequence: 17,
+      type: 'chat_received',
+      isNew: true,
+      data: { from: 'importdf', text: 'follow me' },
+    },
   ]);
+  assert.deepEqual((evidence.nextObservation as any).events, [
+    { sequence: 18, type: 'inventory_changed', isNew: true, data: { item: 'chest' } },
+  ]);
+  assert.equal((evidence.nextObservation as any).eventWindow.suppressedRepeatedEvents, 1);
   assert.deepEqual((evidence.outcome as any).result.changes, [{ verb: 'place', after: 'chest' }]);
+  assert.equal((evidence.observation as any).scene, undefined);
+  assert.deepEqual((evidence.nextObservation as any).self, { identity: 'Scout' });
+  assert.equal(
+    (evidence.nextObservation as any).historicalProjection.previous,
+    'same_turn_observation',
+  );
+});
+
+test('fold batches reuse causal observation deltas and expose bounded event loss', async () => {
+  const turns = [entityTurn(1, 'Scout'), entityTurn(2, 'Scout'), entityTurn(3, 'Scout')];
+  turns[1].observation.events = Array.from({ length: 30 }, (_, index) => ({
+    sequence: index + 1,
+    type: 'sound_heard',
+    isNew: true,
+    data: { direction: 'left' },
+  }));
+  let folded: any[] = [];
+  const view = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    recentTurns: 1,
+    foldBatchTurns: 2,
+    foldTriggerTurns: 1,
+    summarize: async ({ turns: evidence }) => {
+      folded = evidence;
+      return 'bounded evidence';
+    },
+  });
+
+  await view.prepare();
+  assert.equal(folded.length, 2);
+  assert.deepEqual(folded[1].observation.self, { identity: 'Scout' });
+  assert.equal(folded[1].observation.events.length, 24);
+  assert.equal(folded[1].observation.eventWindow.omittedNewEvents, 6);
+  assert.equal(folded[1].observation.eventWindow.complete, false);
+  assert.equal(folded[1].observation.scene, undefined);
 });
 
 test('loom views reject foreign turns instead of sharing inhabitant state', () => {

@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { EntityTurn } from './loom';
+import { projectHistoricalModelObservation } from '../mind/observation-context';
+
+const FOLD_EVENT_BATCH = 24;
 
 export type LoomFoldRecord = {
   protocol: 'behold.loom-fold.v1';
@@ -115,7 +118,7 @@ export function createLoomContextView(
           await options.summarize({
             entityId: options.entityId,
             previousSummary: summary,
-            turns: batch.map(projectTurnForFolding),
+            turns: batch.map((turn, index) => projectTurnForFolding(turn, batch[index - 1])),
             fromSequence: batch[0].sequence,
             toSequence: batch.at(-1)!.sequence,
           }),
@@ -193,26 +196,28 @@ export function foldMessage(record: LoomFoldRecord) {
   };
 }
 
-export function projectTurnForFolding(turn: EntityTurn) {
+export function projectTurnForFolding(turn: EntityTurn, previousTurn?: EntityTurn) {
   return {
     anchor: `t${turn.sequence}`,
     id: turn.id,
     parentId: turn.parentId,
     startedAt: turn.startedAt,
     completedAt: turn.completedAt,
-    observation: compactObservation(turn.observation),
+    observation: projectHistoricalModelObservation(
+      turn.observation,
+      previousTurn?.nextObservation,
+      'previous_turn_next_observation',
+      FOLD_EVENT_BATCH,
+    ),
     action: compactValue(turn.action),
     outcome: compactValue(turn.outcome),
-    nextObservation: compactObservation(turn.nextObservation),
+    nextObservation: projectHistoricalModelObservation(
+      turn.nextObservation,
+      turn.observation,
+      'same_turn_observation',
+      FOLD_EVENT_BATCH,
+    ),
   };
-}
-
-function compactObservation(observation: any) {
-  if (!observation || typeof observation !== 'object') return compactValue(observation);
-  const events = Array.isArray(observation.events)
-    ? observation.events.filter((event: any) => event?.isNew !== false).slice(-24)
-    : observation.events;
-  return compactValue({ ...observation, ...(Array.isArray(observation.events) ? { events } : {}) });
 }
 
 function compactValue(value: any, depth = 0): any {

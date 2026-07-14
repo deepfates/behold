@@ -12,6 +12,7 @@ import {
   isMinecraftSaveAcknowledgement,
   managedControllerProfile,
   managedSessionDurationMs,
+  managedTotalModelCallLimit,
   recoverAbandonedManagedWorld,
   resetHeldManagedWorldFixture,
   startManagedWorld,
@@ -102,6 +103,23 @@ test('managed session duration is an optional post-readiness live-time boundary'
   );
 });
 
+test('managed model-call admission is an optional exact population-wide boundary', () => {
+  assert.equal(managedTotalModelCallLimit(), null);
+  assert.equal(managedTotalModelCallLimit('24'), 24);
+  assert.throws(
+    () => managedTotalModelCallLimit('0'),
+    (error: any) => error?.code === 'model_call_limit_invalid',
+  );
+  assert.throws(
+    () => managedTotalModelCallLimit('2.5'),
+    (error: any) => error?.code === 'model_call_limit_invalid',
+  );
+  assert.throws(
+    () => managedTotalModelCallLimit('100000001'),
+    (error: any) => error?.code === 'model_call_limit_invalid',
+  );
+});
+
 test('resident configuration rejects canonical identity collisions and process-budget overflow before inspecting or mutating the world', async (t) => {
   const fixture = makeFixture(t);
   let inspections = 0;
@@ -152,6 +170,11 @@ test('resident configuration rejects canonical identity collisions and process-b
   await assert.rejects(
     () => startManagedWorld({ ...fixture.options, maxConcurrentModelCalls: 2 }, dependencies),
     (error: any) => error?.code === 'model_concurrency_limit_invalid',
+  );
+  assert.equal(inspections, 0);
+  await assert.rejects(
+    () => startManagedWorld({ ...fixture.options, maxTotalModelCalls: 0 }, dependencies),
+    (error: any) => error?.code === 'model_call_limit_invalid',
   );
   assert.equal(inspections, 0);
 });
@@ -241,7 +264,12 @@ test('managed cognition keeps the provider key in the runner and drains before M
     return child;
   };
   const run = await startManagedWorld(
-    { ...fixture.options, controllerEntry, maxConcurrentModelCalls: 1 },
+    {
+      ...fixture.options,
+      controllerEntry,
+      maxConcurrentModelCalls: 1,
+      maxTotalModelCalls: 4,
+    },
     {
       spawnServer,
       verifyArtifacts: async () => ARTIFACTS_OK,
@@ -252,6 +280,7 @@ test('managed cognition keeps the provider key in the runner and drains before M
   );
   assert.ok(run.cognition);
   assert.equal(run.cognition.concurrencyLimit, 1);
+  assert.equal(run.cognition.maxTotalModelCalls, 4);
   const captured = JSON.parse(fs.readFileSync(captureFile, 'utf8'));
   assert.notEqual(captured.keySha256, createHash('sha256').update(providerSecret).digest('hex'));
   assert.ok(captured.keyLength >= 32);
@@ -266,7 +295,13 @@ test('managed cognition keeps the provider key in the runner and drains before M
   await run.finished;
   const verified = verifyCognitionBrokerJournal(run.cognition.journalFile);
   assert.equal(verified.peakActive, 0);
+  assert.equal(verified.acceptedLimit, 4);
+  assert.equal(verified.acceptedRemaining, 4);
   const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile).events;
+  const configured: any = lifecycle.find((event) => event.type === 'run_configured');
+  const brokerReady: any = lifecycle.find((event) => event.type === 'cognition_broker_ready');
+  assert.equal(configured?.data?.population?.maxTotalModelCalls, 4);
+  assert.equal(brokerReady?.data?.maxTotalModelCalls, 4);
   const drained = lifecycle.findIndex((event) => event.type === 'cognition_broker_drained');
   const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');
   assert.ok(drained >= 0 && saved > drained);

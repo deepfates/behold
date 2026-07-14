@@ -13,6 +13,15 @@ import {
 } from './cognition';
 
 export const COGNITION_BROKER_EVENT_PROTOCOL = 'behold.cognition-broker-event.v1' as const;
+export const COGNITION_ADMISSION_LIMIT_PROTOCOL = 'behold.cognition-admission-limit.v1' as const;
+
+export type CognitionAdmissionLimitEvidence = Readonly<{
+  protocol: typeof COGNITION_ADMISSION_LIMIT_PROTOCOL;
+  brokerId: string;
+  accepted: number;
+  limit: number;
+  at: number;
+}>;
 
 export type CognitionBrokerEvent = Readonly<{
   protocol: typeof COGNITION_BROKER_EVENT_PROTOCOL;
@@ -49,6 +58,8 @@ export type CognitionBrokerSnapshot = Readonly<{
   protocol: 'behold.cognition-broker-snapshot.v1';
   brokerId: string;
   concurrencyLimit: number;
+  acceptedLimit: number | null;
+  acceptedRemaining: number | null;
   active: number;
   queued: number;
   peakActive: number;
@@ -72,6 +83,7 @@ export type CognitionBroker = Readonly<{
   endpoint: string;
   journalFile: string | null;
   failed: Promise<Error>;
+  admissionLimitReached: Promise<CognitionAdmissionLimitEvidence>;
   snapshot(): CognitionBrokerSnapshot;
   close(): Promise<CognitionBrokerSnapshot>;
 }>;
@@ -81,6 +93,7 @@ export type CognitionBrokerOptions = Readonly<{
   upstreamApiKey: string;
   clients: readonly Readonly<{ bearer: string; residentKey: string; model: string }>[];
   maxConcurrent: number;
+  maxAccepted?: number;
   maxQueued?: number;
   maxQueuedPerResident?: number;
   maxBodyBytes?: number;
@@ -133,6 +146,10 @@ export async function startCognitionBroker(
   if (upstreamApiKey.length < 12) throw new Error('cognition broker requires an upstream API key');
   const clients = normalizeClients(options.clients);
   const maxConcurrent = positiveInteger(options.maxConcurrent, 'maxConcurrent', 1_024);
+  const maxAccepted =
+    options.maxAccepted == null
+      ? null
+      : positiveInteger(options.maxAccepted, 'maxAccepted', 100_000_000);
   const maxQueued = positiveInteger(options.maxQueued ?? 256, 'maxQueued', 100_000);
   const maxQueuedPerResident = positiveInteger(
     options.maxQueuedPerResident ?? 2,
@@ -167,6 +184,11 @@ export async function startCognitionBroker(
   const failed = new Promise<Error>((resolve) => {
     resolveFailure = resolve;
   });
+  let resolveAdmissionLimit!: (evidence: CognitionAdmissionLimitEvidence) => void;
+  const admissionLimitReached = new Promise<CognitionAdmissionLimitEvidence>((resolve) => {
+    resolveAdmissionLimit = resolve;
+  });
+  let admissionLimitEvidence: CognitionAdmissionLimitEvidence | null = null;
   const recordFatalFailure = (error: unknown) => {
     const failure = error instanceof Error ? error : new Error(String(error));
     if (!journalFailure) {
@@ -319,6 +341,14 @@ export async function startCognitionBroker(
       const status = error?.code === 'body_too_large' ? 413 : 400;
       return reject(response, status, error?.code || 'request_body_invalid', error?.message);
     }
+    if (maxAccepted != null && metrics.accepted >= maxAccepted) {
+      return reject(
+        response,
+        429,
+        'cognition_admission_limit_exhausted',
+        'cognition admission limit is exhausted',
+      );
+    }
     if (queuedCount() >= maxQueued) {
       return reject(response, 429, 'queue_capacity_exhausted', 'cognition queue is full');
     }
@@ -352,7 +382,27 @@ export async function startCognitionBroker(
     queues.get(priority)!.push(job);
     metrics.peakQueued = Math.max(metrics.peakQueued, queuedCount());
     try {
-      emit('accepted', job, { active, queued: queuedCount() });
+      emit('accepted', job, {
+        active,
+        queued: queuedCount(),
+        accepted: metrics.accepted,
+        acceptedLimit: maxAccepted,
+        acceptedRemaining: maxAccepted == null ? null : maxAccepted - metrics.accepted,
+      });
+      if (
+        maxAccepted != null &&
+        metrics.accepted === maxAccepted &&
+        admissionLimitEvidence == null
+      ) {
+        admissionLimitEvidence = Object.freeze({
+          protocol: COGNITION_ADMISSION_LIMIT_PROTOCOL,
+          brokerId,
+          accepted: metrics.accepted,
+          limit: maxAccepted,
+          at: now(),
+        });
+        resolveAdmissionLimit(admissionLimitEvidence);
+      }
     } catch (error) {
       job.state = 'cancelled';
       metrics.cancelled += 1;
@@ -662,6 +712,8 @@ export async function startCognitionBroker(
       protocol: 'behold.cognition-broker-snapshot.v1',
       brokerId,
       concurrencyLimit: maxConcurrent,
+      acceptedLimit: maxAccepted,
+      acceptedRemaining: maxAccepted == null ? null : Math.max(0, maxAccepted - metrics.accepted),
       active,
       queued: queuedCount(),
       ...metrics,
@@ -690,7 +742,12 @@ export async function startCognitionBroker(
       throw new Error('cognition broker has no TCP port');
     }
     endpoint = `http://127.0.0.1:${address.port}/v1/chat/completions`;
-    emit('started', null, { endpoint, concurrencyLimit: maxConcurrent, maxCallMs });
+    emit('started', null, {
+      endpoint,
+      concurrencyLimit: maxConcurrent,
+      acceptedLimit: maxAccepted,
+      maxCallMs,
+    });
   } catch (error) {
     await closeListeningServer();
     closeJournal();
@@ -775,6 +832,7 @@ export async function startCognitionBroker(
     endpoint,
     journalFile,
     failed,
+    admissionLimitReached,
     snapshot,
     close,
   });
@@ -1096,6 +1154,7 @@ export function verifyCognitionBrokerJournal(fileValue: string) {
   let drainedCount = 0;
   let active = 0;
   let peakActive = 0;
+  let acceptedLimit: number | null = null;
   for (const [index, line] of lines.entries()) {
     let event: CognitionBrokerEvent;
     try {
@@ -1146,6 +1205,13 @@ export function verifyCognitionBrokerJournal(fileValue: string) {
       startedCount += 1;
       if (index !== 0 || event.request != null) {
         throw new Error(`invalid cognition broker start at line ${index + 1}: ${file}`);
+      }
+      const declaredLimit = (event.data as any)?.acceptedLimit;
+      if (declaredLimit != null) {
+        if (!Number.isSafeInteger(declaredLimit) || declaredLimit < 1) {
+          throw new Error(`invalid cognition admission limit at line ${index + 1}: ${file}`);
+        }
+        acceptedLimit = declaredLimit;
       }
     } else if (event.type === 'draining') {
       drainingCount += 1;
@@ -1216,12 +1282,17 @@ export function verifyCognitionBrokerJournal(fileValue: string) {
   if (active !== 0 || terminal.size !== accepted.size) {
     throw new Error(`cognition broker journal has unterminated requests: ${file}`);
   }
+  if (acceptedLimit != null && accepted.size > acceptedLimit) {
+    throw new Error(`cognition broker journal exceeds its admission limit: ${file}`);
+  }
   return Object.freeze({
     protocol: 'behold.cognition-broker-verification.v1' as const,
     file,
     brokerId,
     events: Object.freeze(events),
     tipDigest: previousDigest,
+    acceptedLimit,
+    acceptedRemaining: acceptedLimit == null ? null : acceptedLimit - accepted.size,
     accepted: accepted.size,
     admitted: admitted.size,
     terminal: terminal.size,

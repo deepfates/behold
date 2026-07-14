@@ -102,7 +102,12 @@ test('urgent attention preserves resident choice while fresh perception updates 
   const interruptions: any[] = [];
   const modelTurns: any[] = [];
   const entityTurns: EntityTurn[] = [];
-  const actions = [tool('move_to'), tool('attack_entity'), tool('collect_nearby_item')];
+  const actions = [
+    tool('manage_project'),
+    tool('move_to'),
+    tool('attack_entity'),
+    tool('collect_nearby_item'),
+  ];
   const mind: ResidentMind = {
     id: 'temporal-mind',
     decide: async (request, { signal }) => {
@@ -234,12 +239,17 @@ test('urgent attention preserves resident choice while fresh perception updates 
     );
     assert.deepEqual(
       requests[0].actions.map((action: any) => action.name),
-      ['move_to', 'wait_for_event'],
+      ['manage_project', 'move_to', 'wait_for_event'],
     );
     assert.deepEqual(
       requests[1].actions.map((action: any) => action.name),
       ['move_to', 'attack_entity', 'wait_for_event'],
     );
+    const urgentGuidance = requests[1].conversation
+      .map((message: any) => String(message.content || ''))
+      .join('\n');
+    assert.match(urgentGuidance, /private project bookkeeping is deferred/);
+    assert.doesNotMatch(urgentGuidance, /Use manage_project|with manage_project/);
     assert.equal(requests[1].requiredAction, null);
     assert.equal(modelTurns[0].attention.mode, 'urgent');
     assert.equal(entityTurns[0].attention?.mode, 'urgent');

@@ -115,6 +115,24 @@ export function managedSessionDurationMs(value?: unknown): number | null {
   return seconds * 1000;
 }
 
+/**
+ * Hard population-wide admission budget for one managed epoch. This is
+ * independent of concurrency: the broker refuses every valid request after
+ * the exact accepted-call ceiling, even if its owner has not stopped yet.
+ */
+export function managedTotalModelCallLimit(value?: unknown): number | null {
+  if (value == null || String(value).trim() === '') return null;
+  const limit = Number(value);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100_000_000) {
+    throw new WorldRunnerError(
+      '--maxModelCalls must be a whole number from 1 through 100000000',
+      'model_call_limit_invalid',
+      { value },
+    );
+  }
+  return limit;
+}
+
 type RuntimeInspection = RuntimeEvidence & {
   world?: string;
   baselineConfigured?: boolean;
@@ -145,6 +163,7 @@ export type ManagedWorldRunOptions = Readonly<{
   residents: readonly ManagedResidentSpec[];
   maxResidents?: number;
   maxConcurrentModelCalls?: number;
+  maxTotalModelCalls?: number;
   residentStartupDelayMs?: number;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -184,7 +203,9 @@ export type ManagedWorldRun = Readonly<{
   cognition: Readonly<{
     brokerId: string;
     concurrencyLimit: number;
+    maxTotalModelCalls: number | null;
     journalFile: string;
+    admissionLimitReached: CognitionBroker['admissionLimitReached'];
   }> | null;
   finished: Promise<void>;
   quiesceResidents(reason?: string): Promise<void>;
@@ -256,6 +277,7 @@ type ManagedCognition = Readonly<{
   broker: CognitionBroker;
   clients: ReadonlyMap<string, Readonly<{ bearer: string; residentKey: string; model: string }>>;
   concurrencyLimit: number;
+  maxTotalModelCalls: number | null;
 }>;
 
 function normalizeManagedResidents(
@@ -501,6 +523,7 @@ export async function startManagedWorld(
 ): Promise<ManagedWorldRun> {
   const residents = normalizeManagedResidents(options);
   const maxConcurrentModelCalls = managedModelConcurrencyLimit(options, residents.length);
+  const maxTotalModelCalls = managedTotalModelCallLimit(options.maxTotalModelCalls);
   const inspectRuntime =
     dependencies.inspectRuntime ?? (() => statusWorld(options.worldId, options.world));
   const verifyArtifacts =
@@ -592,9 +615,15 @@ export async function startManagedWorld(
         upstreamApiKey,
         clients: [...clients.values()],
         maxConcurrent: maxConcurrentModelCalls,
+        ...(maxTotalModelCalls == null ? {} : { maxAccepted: maxTotalModelCalls }),
         journalFile,
       });
-      cognition = Object.freeze({ broker, clients, concurrencyLimit: maxConcurrentModelCalls });
+      cognition = Object.freeze({
+        broker,
+        clients,
+        concurrencyLimit: maxConcurrentModelCalls,
+        maxTotalModelCalls,
+      });
     }
     const sourceRevision = gitProvenance();
     control.append('run_configured', {
@@ -613,6 +642,7 @@ export async function startManagedWorld(
         residentCount: residents.length,
         maxResidentProcesses: Math.max(1, Math.floor(options.maxResidents ?? 16)),
         maxConcurrentModelCalls: cognition?.concurrencyLimit ?? 0,
+        maxTotalModelCalls: cognition?.maxTotalModelCalls ?? null,
         residentStartupDelayMs: options.residentStartupDelayMs ?? 0,
         residentProcessLauncher: dependencies.spawnController
           ? 'injected_dependency'
@@ -647,6 +677,7 @@ export async function startManagedWorld(
       control.append('cognition_broker_ready', {
         brokerId: cognition.broker.brokerId,
         concurrencyLimit: cognition.concurrencyLimit,
+        maxTotalModelCalls: cognition.maxTotalModelCalls,
         journalFile: cognition.broker.journalFile,
       });
     }
@@ -832,7 +863,9 @@ export async function startManagedWorld(
         ? Object.freeze({
             brokerId: cognition.broker.brokerId,
             concurrencyLimit: cognition.concurrencyLimit,
+            maxTotalModelCalls: cognition.maxTotalModelCalls,
             journalFile: cognition.broker.journalFile!,
+            admissionLimitReached: cognition.broker.admissionLimitReached,
           })
         : null,
       finished,
@@ -1279,9 +1312,13 @@ async function drainManagedCognition(
   const verified = verifyCognitionBrokerJournal(cognition.broker.journalFile);
   if (
     verified.brokerId !== cognition.broker.brokerId ||
-    verified.peakActive > cognition.concurrencyLimit
+    verified.peakActive > cognition.concurrencyLimit ||
+    verified.acceptedLimit !== cognition.maxTotalModelCalls ||
+    (cognition.maxTotalModelCalls != null && verified.accepted > cognition.maxTotalModelCalls)
   ) {
-    throw new Error('cognition broker evidence violates its identity or concurrency limit');
+    throw new Error(
+      'cognition broker evidence violates its identity, concurrency, or admission limit',
+    );
   }
   control.append('cognition_broker_drained', {
     phase,
@@ -1931,6 +1968,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       tickMs: { type: 'string' },
       maxResidents: { type: 'string' },
       maxModelConcurrency: { type: 'string' },
+      maxModelCalls: { type: 'string' },
       duration: { type: 'string' },
       task: { type: 'string' },
       target: { type: 'string' },
@@ -2007,6 +2045,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   const maxConcurrentModelCalls = Number(
     parsed.values.maxModelConcurrency || Math.min(2, controllerEntityIds.length),
   );
+  const maxTotalModelCalls = managedTotalModelCallLimit(parsed.values.maxModelCalls);
   const durationMs = managedSessionDurationMs(parsed.values.duration);
   const run = await startManagedWorld({
     worldId,
@@ -2028,6 +2067,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     })),
     maxResidents,
     maxConcurrentModelCalls,
+    ...(maxTotalModelCalls == null ? {} : { maxTotalModelCalls }),
   });
   process.stdout.write(
     `[world-runner] ready: ${worldId}, server ${run.serverPid}, residents ${run.residents
@@ -2058,6 +2098,14 @@ export async function runCli(argv = process.argv.slice(2)) {
     const outcome = await Promise.race([
       run.finished.then(() => ({ kind: 'children' as const })),
       stopRequested.then((reason) => ({ kind: 'stop' as const, reason })),
+      ...(run.cognition && run.cognition.maxTotalModelCalls != null
+        ? [
+            run.cognition.admissionLimitReached.then(() => ({
+              kind: 'stop' as const,
+              reason: 'model_call_limit_reached',
+            })),
+          ]
+        : []),
     ]);
     if (outcome.kind === 'stop') {
       await run.stop(outcome.reason);
@@ -2079,11 +2127,12 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--mind direct|ax] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Without --task, the foreground runner starts untasked residents with the full safe inhabitant action surface.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
+    'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',
     'Come-See-Do-Report remains available explicitly with --task come-see-do-report.',
     'Recovery releases only an exact same-host abandoned epoch after durable evidence and stopped-world verification.',
     'The foreground runner refuses foreign-owned ports, session locks, and owner records.',

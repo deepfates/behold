@@ -397,7 +397,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         observationSequence: Number(currentObservation?.sequence) || lastSequence,
         interruption: null,
       };
-      const availableTools = availableModelTools(modelTools, currentObservation);
+      const availableTools = availableModelTools(modelTools, currentObservation, attention);
       const requiredTool = requiredSelfDirectionTool(currentObservation, availableTools, allow);
       const decision = await withModelRequest(async (signal) => {
         const request: ResidentMindRequest = {
@@ -405,7 +405,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           entityId,
           model: opts.model,
           observation: cloneJson(modelObservation),
-          conversation: cloneJson(conversationForAttention(messages, attention)),
+          conversation: cloneJson(conversationForAttention(messages, attention, availableTools)),
           actions: cloneJson(
             availableTools.map((action) => ({
               name: action.function.name,
@@ -968,7 +968,11 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
   }
   if (hasAny('enter_place', 'leave_place', MANAGE_PROJECT_TOOL)) {
     lines.push(
-      'self.places is bounded own-loom memory, not current server truth: re-observe near its anchor before relying on condition. Prefer using or improving a reachable known affordance over duplicating it. Resolve self.placeConflicts with manage_project before building.',
+      `self.places is bounded own-loom memory, not current server truth: re-observe near its anchor before relying on condition. Prefer using or improving a reachable known affordance over duplicating it.${
+        tools.has(MANAGE_PROJECT_TOOL)
+          ? ' Resolve self.placeConflicts with manage_project before building.'
+          : ''
+      }`,
     );
   }
   if (hasAny('enter_place', 'leave_place')) {
@@ -1097,7 +1101,11 @@ function requiredSelfDirectionTool(frame: any, specs: ToolSpec[], allow: Set<str
   return null;
 }
 
-function availableModelTools(specs: ToolSpec[], frame: any) {
+function availableModelTools(
+  specs: ToolSpec[],
+  frame: any,
+  attention: ResidentAttention = attentionForObservation(frame),
+) {
   const roster = frame?.scene?.social?.playersOnline;
   const inventory = Array.isArray(frame?.self?.inventory) ? frame.self.inventory : [];
   const perceivedEntities =
@@ -1118,6 +1126,11 @@ function availableModelTools(specs: ToolSpec[], frame: any) {
   );
   const targetIds = (entities: any[]) => entities.map((entity) => String(entity.id));
   return specs.flatMap((spec) => {
+    // A project record is private continuity bookkeeping, not an embodied
+    // Minecraft response. Preserve every ordinary player affordance during
+    // urgent attention, but defer bookkeeping until the body is no longer
+    // demanding an immediate choice.
+    if (attention.mode === 'urgent' && spec.function.name === MANAGE_PROJECT_TOOL) return [];
     if (COMMUNICATION_TOOLS.has(spec.function.name)) {
       return !Array.isArray(roster) || roster.length > 0 ? [spec] : [];
     }
@@ -1250,9 +1263,15 @@ function urgentEventTriggers(frame: any, afterSequence: number): ResidentAttenti
     }));
 }
 
-function conversationForAttention(messages: readonly any[], attention: ResidentAttention) {
+function conversationForAttention(
+  messages: readonly any[],
+  attention: ResidentAttention,
+  availableTools?: readonly ToolSpec[],
+) {
   if (attention.mode !== 'urgent') return messages;
-  const system = messages[0];
+  const system = availableTools
+    ? { role: 'system', content: controllerSystemPrompt(availableTools) }
+    : messages[0];
   const foldedContinuity = messages
     .slice(1, -1)
     .filter(
@@ -1269,7 +1288,7 @@ function conversationForAttention(messages: readonly any[], attention: ResidentA
         attention.triggers.map((trigger) => `${trigger.type}@${trigger.sequence}`).join(', ') ||
         'current urgent observation'
       }.`,
-      'Reassess the current body and scene. Your complete admitted action set is unchanged; no action has been selected for you.',
+      'Reassess the current body and scene. Every admitted embodied action remains available; private project bookkeeping is deferred until urgent bodily attention ends. No action has been selected for you.',
     ].join('\n'),
   };
   const current = messages.at(-1);
