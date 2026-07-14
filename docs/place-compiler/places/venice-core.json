@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "venice-core",
+  "name": "Venice Historic Core",
+  "toolLock": "docs/sf-world/tool-lock.json",
+  "geography": {
+    "bounds": {
+      "minLat": 45.428,
+      "minLon": 12.316,
+      "maxLat": 45.447,
+      "maxLon": 12.3545
+    },
+    "projection": "local",
+    "scaleBlocksPerMeter": 1,
+    "rotationDegrees": 0,
+    "spawn": {
+      "name": "Campo San Polo",
+      "lat": 45.4376,
+      "lon": 12.3296
+    }
+  },
+  "generation": {
+    "terrain": true,
+    "interiors": true,
+    "overture": false,
+    "fillGround": true,
+    "extendedHeight": true,
+    "bakedLighting": true,
+    "mapPreview": true,
+    "startingMap": true,
+    "gameMode": "creative",
+    "worldTime": 6000
+  },
+  "resources": { "generationThreads": 4, "nice": 10 },
+  "runtimeProfiles": ["cinematic", "playable", "living"],
+  "dataSources": {
+    "osm": {
+      "provider": "OpenStreetMap Overpass",
+      "snapshotPolicy": "captured-by-generator"
+    },
+    "elevation": { "provider": "Mapterhorn global terrain" },
+    "landCover": { "provider": "ESA WorldCover" },
+    "buildings": { "providers": ["OpenStreetMap"] }
+  },
+  "landmarks": [
+    {
+      "id": "campo-san-polo",
+      "name": "Campo San Polo",
+      "lat": 45.4376,
+      "lon": 12.3296
+    },
+    {
+      "id": "rialto-bridge",
+      "name": "Rialto Bridge",
+      "lat": 45.438,
+      "lon": 12.3359
+    },
+    {
+      "id": "santa-lucia",
+      "name": "Venezia Santa Lucia",
+      "lat": 45.441,
+      "lon": 12.321
+    },
+    {
+      "id": "st-marks-square",
+      "name": "St Mark's Square",
+      "lat": 45.434,
+      "lon": 12.3387
+    },
+    {
+      "id": "venetian-arsenal",
+      "name": "Venetian Arsenal",
+      "lat": 45.4354,
+      "lon": 12.3504
+    }
+  ]
+}
