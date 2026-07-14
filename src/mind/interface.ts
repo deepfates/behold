@@ -52,6 +52,7 @@ export type ResidentMindRequest = {
 export type ResidentMindDecision = {
   protocol: 'behold.mind-decision.v1';
   disposition: 'act' | 'wait' | 'no_action';
+  /** Short public intention retained in the entity loom; never provider-private reasoning. */
   utterance: string | null;
   action: {
     name: string;

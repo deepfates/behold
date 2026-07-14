@@ -31,6 +31,7 @@ export type RecentActionContinuity = {
     turn: number;
     completedAt: number;
     controller: string;
+    publicIntention?: string;
     action: {
       name: string;
       input?: any;
@@ -116,6 +117,7 @@ function projectContinuityTurn(turn: EntityTurn): RecentActionContinuity['turns'
     turn: turn.sequence,
     completedAt: turn.completedAt,
     controller: String(turn.action.source),
+    ...publicIntention(turn),
     action: {
       name: String(turn.action.name),
       input: compactContinuityValue(turn.action.input),
@@ -138,6 +140,7 @@ function projectContinuityTurnFallback(turn: EntityTurn): RecentActionContinuity
     turn: turn.sequence,
     completedAt: turn.completedAt,
     controller: String(turn.action.source),
+    ...publicIntention(turn, 200),
     action: {
       name: String(turn.action.name),
       inputOmittedFromWorkingContinuity: true,
@@ -149,6 +152,12 @@ function projectContinuityTurnFallback(turn: EntityTurn): RecentActionContinuity
       resultOmittedFromWorkingContinuity: true,
     },
   };
+}
+
+function publicIntention(turn: EntityTurn, limit = 600) {
+  const content = turn.utterance?.assistant?.content;
+  if (typeof content !== 'string' || !content.trim()) return {};
+  return { publicIntention: boundedContinuityText(content.trim(), limit) };
 }
 
 function compactContinuityValue(value: any, depth = 0): any {

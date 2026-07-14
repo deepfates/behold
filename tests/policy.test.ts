@@ -498,6 +498,7 @@ test('critical body condition keeps urgent cognition through failure and release
     assert.match(String(recentContinuity.content), /move_direction/);
     assert.match(String(recentContinuity.content), /immediate_direction_unavailable/);
     assert.match(String(recentContinuity.content), /historical_current_observation_wins/);
+    assert.match(String(recentContinuity.content), /I will try to move out of danger/);
 
     sequence = 3;
     health = 8;
@@ -2124,6 +2125,7 @@ test('the complete controller guidance stays bounded without losing causal invar
 
   assert.ok(system.length < 5600, `complete controller prompt was ${system.length} characters`);
   assert.match(system, /real result becomes your next observation/i);
+  assert.match(system, /short public intention[\s\S]*target or purpose that must survive/i);
   assert.match(system, /ordering, preconditions, and prohibitions.*take precedence/i);
   assert.match(system, /complete only after a matching post-start witness/i);
   assert.match(system, /successful action proves only its reported consequence/i);

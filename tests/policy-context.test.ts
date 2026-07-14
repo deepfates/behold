@@ -291,6 +291,8 @@ test('fast attention receives bounded own-loom actions and exact world outcomes 
     },
   );
   placed.observation = { scene: { privilegedLoadedVolume: 'must not enter working memory' } };
+  placed.utterance.assistant.content =
+    'I will place the lower wall block that anchors the next upper block.';
   placed.utterance.assistant.reasoning = 'provider-private chain of thought';
 
   const projected = projectRecentActionContinuity([placed, failed]);
@@ -306,6 +308,10 @@ test('fast attention receives bounded own-loom actions and exact world outcomes 
   assert.equal(
     projected?.turns[0].outcome.result.changes[0].confirmation.source,
     'mineflayer:blockUpdate',
+  );
+  assert.equal(
+    projected?.turns[0].publicIntention,
+    'I will place the lower wall block that anchors the next upper block.',
   );
   assert.equal(projected?.turns[1].outcome.result.error, 'placement_support_not_found');
   const serialized = JSON.stringify(projected);
