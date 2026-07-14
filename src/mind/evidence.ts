@@ -17,6 +17,8 @@ export type ModelCallEvidence = {
     bodySha256: string;
     messagesSha256: string;
     toolsSha256: string;
+    /** Exact serialized bytes for provider requests or adapter input when known. */
+    bodyBytes?: number;
     /** `provider_request` is exact wire input; `mind_input` is adapter input. */
     kind?: 'provider_request' | 'mind_input';
     body?: unknown;

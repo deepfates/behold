@@ -815,6 +815,61 @@ test('the resident boundary rejects an unadmitted action even when a mind mutate
   }
 });
 
+test('the resident boundary rejects schema-invalid input before any world attempt', async () => {
+  let attempts = 0;
+  const errors: any[] = [];
+  const action: any = tool('move_direction');
+  action.function.parameters = {
+    type: 'object',
+    properties: {
+      direction: { type: 'string', enum: ['forward', 'back', 'left', 'right'] },
+      distance: { type: 'integer', minimum: 1, maximum: 8 },
+    },
+    required: ['direction'],
+  };
+  const mind: ResidentMind = {
+    id: 'schema-breaking-mind',
+    decide: async () => ({
+      protocol: 'behold.mind-decision.v1',
+      disposition: 'act',
+      utterance: 'I walk impossibly far.',
+      action: { name: 'move_direction', input: { direction: 'upward', distance: 99.5 } },
+      call: modelCallEvidence('schema-breaking-mind'),
+    }),
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [action],
+      attempt: () => {
+        attempts += 1;
+        return true;
+      },
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+      onModelError: (error) => errors.push(error),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(attempts, 0);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /invalid input for move_direction/);
+    assert.match(errors[0].error, /direction: value is outside enum/);
+    assert.match(errors[0].error, /distance: expected integer/);
+    assert.match(errors[0].error, /distance: value is above maximum 8/);
+    assert.equal(errors[0].call.adapter.name, 'schema-breaking-mind');
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('a mind cannot bypass a controller-required action', async () => {
   const requests: any[] = [];
   const errors: any[] = [];

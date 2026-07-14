@@ -115,17 +115,47 @@ Evidence:
 
 This pass is a real Pareto improvement, not the scale result. Roughly ten
 thousand prompt tokens per ordinary choice is still incompatible with a whole
-city thinking continuously. The next earned target is the adapter wire: keep
-the canonical admitted action contract inside Behold, but test compact typed
-action signatures or structured proposals that do not resend 12–13 KB of
-OpenAI tool envelopes every turn. They must beat direct tools on the same
-ordinary, danger, social, building, failure-recovery, and long-continuity
-episodes before becoming a production default.
+city thinking continuously.
 
-Only after that should model routing or cheaper cognition tiers become a live
-policy. A cheaper model is useful only where matched resident episodes show it
+### The compact action-wire candidate was rejected
+
+A proposal-only candidate rendered every current action schema as a compact
+typed signature. Its generator preserved every admitted name, required field,
+nested object, enum, numeric bound, action description, and field description;
+unknown schema vocabulary failed visibly. It exposed no executable function,
+never retried, and could not cross the mutation-disabled differential.
+
+The serialized 31-action wire fell about 2.7 KB, or twenty percent. Provider
+billing did not follow the byte reduction. Against current direct-tool replays,
+the compact request saved only 103–104 prompt tokens: 5,910 versus 5,807 in
+urgent danger, 11,268 versus 11,165 in shared work, and 6,998 versus 6,894 plus
+7,321 versus 7,217 on adjacent ordinary-life observations. Both changing-life
+cache comparisons reported zero cached tokens and rewrote essentially the full
+prompt. An identical full request was cacheable, but that is not the reuse a
+changing resident needs.
+
+Quality and reliability also regressed. One successful provider response was
+not parseable JSON. Two ordinary replays chose updates to a `survival-kit`
+project instead of looking and equipping, even though the proposed update had
+not established that project in current state. The shared-work replay walked
+toward another resource instead of placing the crafting table already held for
+the active shelter concern. The danger replay made a plausible egocentric
+retreat, and one ordinary replay exactly reproduced crafting four sticks, but
+those successes did not offset the weak savings and failures.
+
+The candidate implementation was therefore deleted instead of retained as
+research cruft. The experiment did earn one general improvement: every mind's
+proposal is now checked against the exact admitted JSON schema before an intent
+can be minted. Invalid required fields, types, enums, numeric bounds, nested
+objects, arrays, and unsupported schema vocabulary fail with model-call
+provenance and zero world attempts.
+
+The next scale target is therefore call scheduling and model allocation over a
+real continuing population, not another action syntax. A cheaper model or
+lower cognition tier is useful only where matched resident episodes show it
 preserves judgment, latency, action validity, continuity, and consequence
-discipline. The forward path is therefore not verb-by-verb trial and error: the
-nine resident affordance families define coverage, captured lived episodes
-falsify candidate representations, and clean Minecraft runs verify that a
-winning representation still supports an unscripted life.
+discipline; a dormant or locally reactive inhabitant must still wake for lived
+salience without losing events. The forward path is not verb-by-verb trial and
+error: the nine resident affordance families define coverage, captured lived
+episodes falsify candidate representations and model tiers, and clean
+Minecraft runs verify that a winning policy still supports an unscripted life.

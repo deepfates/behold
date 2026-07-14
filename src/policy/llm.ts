@@ -19,6 +19,7 @@ import type {
   ResidentMindRequest,
 } from '../mind/interface';
 import { directOpenRouterRequestBody } from '../mind/direct-wire';
+import { validateResidentActionInput } from '../mind/schema';
 import {
   ResidentMindCallError,
   type ModelCallEvidence,
@@ -1383,6 +1384,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     toolCount: 0,
     toolChoice: null,
     bodySha256: sha256(requestBody),
+    bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
     messagesSha256: sha256(stableJson(messages)),
     toolsSha256: sha256(stableJson([])),
     kind: 'provider_request' as const,
@@ -1570,9 +1572,20 @@ function validateMindDecision(
     fail(`mind proposed ${name} while ${requiredAction} was required`);
   }
 
-  const input = proposed?.input ?? {};
+  const input =
+    name === WAIT_TOOL && proposed?.input == null
+      ? { reason: content || 'waiting for a world event' }
+      : (proposed?.input ?? {});
   if (input == null || typeof input !== 'object' || Array.isArray(input)) {
     fail(`mind proposed non-object input for ${name}`);
+  }
+  const admittedSpec = admittedActions.find((spec) => spec.function.name === name)!;
+  const validation = validateResidentActionInput(
+    input,
+    admittedSpec.function.parameters ?? { type: 'object', properties: {} },
+  );
+  if (validation.ok === false) {
+    fail(`mind proposed invalid input for ${name}: ${validation.errors.join('; ')}`);
   }
   const toolCallId = String(proposed?.callId || rid('mind'));
   const assistant = canonicalAssistant(decision, content, {
@@ -1642,6 +1655,7 @@ async function callLLM(
     toolCount: specs.length,
     toolChoice: body.tool_choice,
     bodySha256: sha256(requestBody),
+    bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
     messagesSha256: sha256(stableJson(messages)),
     toolsSha256: sha256(stableJson(specs)),
     kind: 'provider_request' as const,
