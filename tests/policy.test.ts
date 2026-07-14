@@ -676,6 +676,62 @@ test('model action space contains only executable gates plus explicit yield', as
   }
 });
 
+test('a nearby-item action is admitted only while a dropped item is currently observed', async () => {
+  const originalFetch = globalThis.fetch;
+  let request: any = null;
+  globalThis.fetch = (async (_url, init) => {
+    request = JSON.parse(String(init?.body));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 'current-affordance-proof',
+        choices: [
+          {
+            message: assistantTool('current-affordance-wait', 'wait_for_event', {
+              reason: 'no dropped item is currently present',
+            }),
+          },
+        ],
+        usage: { total_tokens: 10 },
+      }),
+      text: async () => '',
+    } as any;
+  }) as typeof fetch;
+
+  const turns: EntityTurn[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('inspect_volume'), tool('collect_nearby_item')],
+      attempt: () => true,
+      observe: () => ({
+        ...experience(1, null, 0),
+        scene: { social: { playersOnline: [] }, entities: [] },
+      }),
+    },
+    {
+      apiKey: 'test-key',
+      model: 'test/model',
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => turns.length === 1);
+    assert.deepEqual(
+      request.tools.map((spec: any) => spec.function.name),
+      ['inspect_volume', 'wait_for_event'],
+    );
+    assert.equal(request.tool_choice, 'auto');
+  } finally {
+    policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('system guidance follows the admitted affordances instead of describing absent tools', async () => {
   const originalFetch = globalThis.fetch;
   let request: any = null;
@@ -816,7 +872,19 @@ test('controller breaks a communication-only loop until the body acts or a human
         enqueued.push(intent);
         return true;
       },
-      observe: (sinceSequence) => experience(sequence, null, sinceSequence),
+      observe: (sinceSequence) => ({
+        ...experience(sequence, null, sinceSequence),
+        scene: {
+          entities: [
+            {
+              kind: 'item',
+              name: 'spruce_log',
+              distance: 2,
+              pickupSafety: { ok: true },
+            },
+          ],
+        },
+      }),
     },
     {
       apiKey: 'test-key',

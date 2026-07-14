@@ -226,10 +226,12 @@ function modelTurn(
               content: `New world experience:\n${JSON.stringify(observation)}\nPrevious action: none`,
             },
           ],
-          tools: [
-            { function: { name: 'collect_nearby_item' } },
-            { function: { name: 'inspect_volume' } },
-          ],
+          tools: resumed
+            ? [{ function: { name: 'inspect_volume' } }]
+            : [
+                { function: { name: 'collect_nearby_item' } },
+                { function: { name: 'inspect_volume' } },
+              ],
         },
       },
       response: {

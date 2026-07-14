@@ -3,7 +3,6 @@ import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { DEFAULT_LLM_MODEL } from '../src/config';
 import { openEntityLoom, type EntityTurn } from '../src/entity/loom';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 import {
@@ -44,6 +43,17 @@ import { digestTree } from './world-lab';
 import { startManagedWorld, type ManagedResidentSpec, type ManagedWorldRun } from './world-runner';
 
 const WITNESS_ID = 'PopWitness';
+const DEFAULT_POPULATION_MODEL = 'openai/gpt-5.6-luna';
+const MODEL_SELECTION = Object.freeze({
+  protocol: 'behold.population-model-selection.v1',
+  selected: DEFAULT_POPULATION_MODEL,
+  selectedAt: '2026-07-13T19:00:00-07:00',
+  catalog: 'https://openrouter.ai/api/v1/models',
+  workload: 'exact CarrotResident restart request from failed population proof v2',
+  trialsPerCandidate: 2,
+  criteria: ['correct admitted tool', 'latency', 'provider-reported cost'],
+  evidence: 'docs/RESIDENT_MODEL_SELECTION.md',
+});
 const SECOND_TARGET = Object.freeze({ x: -3, y: -60, z: 0, item: 'carrot', count: 1 });
 const ALLOW_TOOLS = Object.freeze(['collect_nearby_item', 'inspect_volume']);
 const DEFAULT_BUDGETS: PopulationProofBudgets = Object.freeze({
@@ -105,7 +115,7 @@ async function main() {
       'OPENROUTER_API_KEY is required for the real population proof; no world was generated and no model call was attempted',
     );
   }
-  const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL).trim();
+  const model = String(parsed.values.model || DEFAULT_POPULATION_MODEL).trim();
   if (!model) throw new Error('a non-empty model slug is required');
   const timeoutMs = Number(parsed.values.timeout || 300) * 1000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 30_000 || timeoutMs > 900_000) {
@@ -136,6 +146,15 @@ async function main() {
   );
   const transcript: string[] = [];
   const proofStartedAt = Date.now();
+  const modelSelection =
+    model === DEFAULT_POPULATION_MODEL
+      ? MODEL_SELECTION
+      : {
+          protocol: 'behold.population-model-selection.v1',
+          selected: model,
+          selectedAt: new Date().toISOString(),
+          mode: 'explicit_operator_override',
+        };
 
   process.stdout.write(`[owned-world-population] first shared epoch with ${model}\n`);
   const act = await runPopulationPhase({
@@ -214,6 +233,7 @@ async function main() {
     runId: fixture.runId,
     worldId: OWNED_WORLD_ID,
     model,
+    modelSelection,
     startedAt: fixture.startedAt,
     completedAt: new Date().toISOString(),
     proofWallMs,

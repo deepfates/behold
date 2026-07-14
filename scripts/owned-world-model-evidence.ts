@@ -44,9 +44,17 @@ export function assessOwnedWorldModelEvidence(
   const resumeAuxiliaryCalls = eventData(resumeEvents, 'model_auxiliary_call');
   const actAuxiliaryFailures = eventData(actEvents, 'model_auxiliary_call_failed');
   const resumeAuxiliaryFailures = eventData(resumeEvents, 'model_auxiliary_call_failed');
-  const collectionTurn = actEntityTurns.find(
-    (turn) => turn?.action?.name === 'collect_nearby_item' && turn?.action?.source === 'llm',
-  );
+  const collectionTurn = actEntityTurns.find((turn) => {
+    const result = terminalMinecraftResult(turn);
+    return (
+      turn?.action?.name === 'collect_nearby_item' &&
+      turn?.action?.source === 'llm' &&
+      turn?.outcome?.ok === true &&
+      result?.ok === true &&
+      result?.item === targetItem &&
+      result?.confirmation === 'mineflayer:playerCollect'
+    );
+  });
   const collectionDecision = collectionTurn
     ? actModelTurns.find((turn) => decisionMatchesEntityTurn(turn, collectionTurn))
     : null;
@@ -127,9 +135,10 @@ export function assessOwnedWorldModelEvidence(
     restartObservedPersistedConsequence:
       inventoryCount(resumePromptObservation, targetItem) === 1 &&
       !sceneHasItem(resumePromptObservation, targetItem),
-    collectionRemainedInActionSpace:
+    restartActionSpaceMatchedObservedAffordances:
+      sceneHasItem(resumePromptObservation, targetItem) ===
       requestToolNames(resumeRequestBody).includes('collect_nearby_item'),
-    restartFreelyChoseNotToRepeat:
+    restartDidNotRepeatCompletedWork:
       resumeFirstDecision?.call?.request?.toolChoice === 'auto' &&
       ['inspect_volume', 'wait_for_event'].includes(String(resumeActionName)) &&
       resumeActionName !== 'collect_nearby_item',

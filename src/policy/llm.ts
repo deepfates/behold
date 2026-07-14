@@ -997,8 +997,18 @@ function requiredSelfDirectionTool(
 
 function availableModelTools(specs: ToolSpec[], frame: any) {
   const roster = frame?.scene?.social?.playersOnline;
-  if (!Array.isArray(roster) || roster.length > 0) return specs;
-  return specs.filter((spec) => !COMMUNICATION_TOOLS.has(spec.function.name));
+  const droppedItems = Array.isArray(frame?.scene?.entities)
+    ? frame.scene.entities.filter(
+        (entity: any) => String(entity?.kind || entity?.type || '').toLowerCase() === 'item',
+      )
+    : [];
+  return specs.filter((spec) => {
+    if (COMMUNICATION_TOOLS.has(spec.function.name)) {
+      return !Array.isArray(roster) || roster.length > 0;
+    }
+    if (spec.function.name === COLLECT_TOOL) return droppedItems.length > 0;
+    return true;
+  });
 }
 
 function finiteAtMost(value: unknown, threshold: number) {
