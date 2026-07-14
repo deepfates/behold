@@ -158,6 +158,11 @@ Managed population
 - `--model`, `--mind direct|ax`, and `--tickMs` currently apply to every named resident on the CLI. Programmatic callers may configure them per resident.
 - `--maxResidents` is an explicit process and concurrent-model-call budget. The default is 16.
 - Readiness requires every named resident's exact PID/entity/run lease. Any unexpected resident exit makes the shared run unhealthy; the owner drains every resident before saving and stopping Minecraft.
+- `npm run proof:owned-world-population` runs the clean-revision two-resident,
+  two-epoch proof with fresh Minecraft witnesses, independent reassessment,
+  leakage checks, and explicit latency/token/cost/storage budgets. Its deliberate
+  default model and comparison evidence are documented in
+  `docs/RESIDENT_MODEL_SELECTION.md`.
 
 If you see "Connection throttled! Please wait before reconnecting."
 

@@ -55,6 +55,37 @@ This proves a small but real vertical slice: self-directed material progression,
 social interruption, persistent world change, and behavioral continuation after
 restart. It does not yet prove a long, robust life.
 
+## The first population proof
+
+On July 13, 2026, `AppleResident` and `CarrotResident` entered one managed
+Minecraft epoch as separate model-controlled bodies. Each received its own
+observation stream, task, process lease, run journal, and Lync autobiography.
+They independently collected different dropped items through ordinary
+`collect_nearby_item` affordances, and Minecraft attributed each collection to
+the correct body. After both controllers stopped, a fresh witness saw that
+neither dropped item remained; fresh connections as the two bodies saw only the
+correct apple or carrot in their own inventory.
+
+Both residents then restarted together in a new epoch. Their Lync logs reported
+five and four prior turns respectively, their Minecraft bodies retained the
+correct positions and inventories, and neither was offered the now-impossible
+nearby-item action. Both yielded without repeating completed work. The managed
+owner drained both controllers, saved Minecraft, and released each epoch.
+
+The proof used the deliberately selected `openai/gpt-5.6-luna` model, took 32.6
+seconds across both live epochs, made 11 model calls, consumed 34,327 tokens,
+cost $0.047945, and observed at most two concurrent model calls. The largest
+single call took 3.9 seconds; the largest resident journal and Lync log were
+306,231 and 133,663 bytes. All declared budgets passed. A separate reassessment
+rehashes and reparses every journal, lifecycle, Lync log, and exported
+trajectory before recomputing the verdict.
+
+This proves the first population rung: shared world authority with isolated
+resident identity, experience, memory, model context, consequences, restart,
+and resource accounting. It does not prove that the residents can yet sustain
+a relationship, cooperate on a project, resolve contention, or live together
+for a long time.
+
 ## The architecture we actually need
 
 The implementation has seven boundaries. They are useful because each corresponds
@@ -84,6 +115,12 @@ good.
 
 These boundaries let us replace a model, add an action, improve sensing, or move
 the history store without changing what an observation-action consequence means.
+
+There are now two earned lifecycle scopes. A **world epoch** owns one exact
+server incarnation and its admitted resident set. A **resident life** owns one
+entity identity, body lease, observation cursor, controller, mind, journal, and
+loom. Population machinery coordinates these scopes; it does not create a
+shared private mind or weaken per-body authority.
 
 ### The irreducible loop
 
@@ -187,7 +224,8 @@ We will keep these rules true as the system grows:
 
 The code currently enforces these rules with independent experience instances,
 a versioned observation, an append-only linked trajectory, bounded event and
-model windows, a shared intent engine, and consequence-confirming actions.
+model windows, a shared intent engine, consequence-confirming actions, exact
+per-entity runtime leases, and one managed owner for the world epoch.
 
 ## What the failures taught us
 
@@ -218,7 +256,8 @@ The useful architecture came from concrete failures:
 We should not describe the system as generally scalable until these experiments
 have passed:
 
-- two or more autonomous inhabitants living concurrently for an extended period;
+- two or more autonomous inhabitants living concurrently for an extended period
+  while interacting, cooperating, or contending over shared consequences;
 - one inhabitant surviving hunger, injury, night, and hostile encounters;
 - a project with enough structure that intention, not merely inventory, must be
   recovered after restart;
@@ -226,7 +265,7 @@ have passed:
   shared landmarks;
 - a multi-hour soak test that measures context size, action latency, log growth,
   reconnect behavior, and cost; and
-- protection against two controller processes claiming the same entity identity.
+- resource behavior beyond the two-resident, two-epoch measured proof.
 
 Those are experiments, not invitations to prebuild a distributed platform.
 When one exposes a real bottleneck, we change the smallest boundary that owns it.
@@ -237,8 +276,8 @@ When one exposes a real bottleneck, we change the smallest boundary that owns it
    need or threat.
 2. Bring Scout back later and see whether it continues a named, multi-session
    building project and its relationship with the player.
-3. Add one independently configured inhabitant and watch for interference,
-   cooperation, and resource contention.
+3. Give the two inhabitants one real joint activity and verify every handoff
+   through consequences observed by both bodies.
 4. Run the pair long enough to measure whether bounded attention still produces
    coherent behavior.
 5. Only then extract patterns that also explain our other inhabited worlds.

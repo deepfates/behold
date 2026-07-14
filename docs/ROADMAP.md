@@ -13,7 +13,9 @@ test, not the organizing purpose of the system.
 ### Working
 
 - Tool-calling LLM policy through OpenRouter
-- Multi-bot deployment and shared action arbitration
+- Managed multi-resident epochs with conjunctive readiness, exact per-entity
+  leases, isolated journals/Lync lives, bounded process/model concurrency, and
+  all-resident drain before one Minecraft save/stop
 - Unified `behold <AgentName>` CLI plus console and stdio control modes
 - Observations with position, health, inventory, nearby entities, nearby blocks, chat, action lifecycle, and recent events
 - Human stop latches new model work, queued intents cancel, and active actions serialize
@@ -32,6 +34,8 @@ test, not the organizing purpose of the system.
 - Production reset/recovery with an exclusive operation fence, durable journal, managed server lifecycle, and two real resets
 - A repeatable production-path Come–See–Do–Report runner; passing unit and fixture tests do not establish the live story
 - A real one-decision step control; the previous hook was dead and has been removed
+- Sustained multi-resident interaction, cooperation, contention, and soak behavior;
+  the two-resident proof establishes isolation and restart, not a society
 
 ### First Life proved so far
 
@@ -40,17 +44,20 @@ test, not the organizing purpose of the system.
 - It left a crafting table in the shared world and made a working tool set.
 - After a full controller restart, it recovered the same body, inventory, place,
   trajectory, and material concern, then resumed harvesting.
+- AppleResident and CarrotResident acted in one exact epoch, retained separate
+  consequences and autobiographies, and restarted together without leakage or
+  repeated work. The live and independently reassessed proof passed all declared
+  process, concurrency, latency, token, cost, journal, loom, and wall-time budgets.
 
 ## Immediate priorities
 
 1. Let Scout encounter and manage a bodily need or world threat.
 2. Continue a recognizable building project across another session.
-3. Run a second independent inhabitant and verify that experience, action, and
-   memory state do not leak between them.
+3. Give two inhabitants one joint activity whose handoffs are independently
+   observed by both bodies, then test resource contention and interruption.
 4. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
    autobiography growth.
-5. Prevent two controller processes from claiming the same entity identity.
-6. Extend relationship and project memory only where lived tests show that the
+5. Extend relationship and project memory only where lived tests show that the
    bounded recent trajectory and continuity projection are insufficient.
 
 ## Useful world work
