@@ -146,11 +146,15 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   identities
 - One contrasting live world adapter passing a shared conformance assessment;
   package extraction before that proof would still be an abstraction guess
-- Persistent world histories above server epochs: exact committed checkpoints,
-  isolated writable children, branch-local clocks, separate fork and crossing
-  receipts, and honest resident identity behavior when a life crosses or is
-  copied. Armok Lab proves the interaction pattern in Dwarf Fortress; Behold has
-  not yet earned the corresponding Minecraft lifecycle.
+- Persistent world histories above server epochs are partly green. Behold now
+  seals an actually stopped Minecraft runtime into an immutable
+  content-addressed checkpoint, materializes isolated writable children, and
+  records `source -> checkpoint -> histories` in a separately verified Lync
+  loom. The real First Life source produced two matching launchable histories
+  without changing the source. Branch launch/divergence, branch-local clocks,
+  crossing receipts, and honest resident identity behavior when a life crosses
+  or is copied remain red. See
+  `docs/reports/2026-07-14-first-minecraft-world-history.md`.
 - Immediate in-flight cancellation with an acknowledgement from each long-running Mineflayer action family
 - Production reset/recovery with an exclusive operation fence, durable journal, managed server lifecycle, and two real resets
 - A repeatable production-path Come–See–Do–Report runner; passing unit and fixture tests do not establish the live story
