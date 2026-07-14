@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "kind": "living-city-foundry-release-contract",
+  "id": "living-city-foundry-v2",
+  "benchmarkId": "living-places-v3",
+  "evidenceSet": {
+    "path": ".behold-artifacts/place-benchmarks/living-places-v3/evidence-sets/living-city-foundry-v2-canonical-v1/evidence-set.json",
+    "sha256": "ae8ed90f8b4206cb3894c5ca6f1ceca8afff966af4b8205aa56335cb7febb101"
+  },
+  "humanVisits": [
+    {
+      "placeId": "san-francisco",
+      "path": ".behold-artifacts/place-visits/living-places-human-visit-v1/living-city-v2-sf-captured-v5/visit-report.json",
+      "sha256": "1b1955ae23fd69c4db5f16a0dc7b78442b3a9c5dba250da51077840b666fb93c",
+      "captureRequired": true
+    },
+    {
+      "placeId": "lower-manhattan",
+      "path": ".behold-artifacts/place-visits/living-places-human-visit-v1/living-city-v2-manhattan-canonical-v1/visit-report.json",
+      "sha256": "78c478a0d041459616e65df451ec0b99b4c9b08e262733a5874af62e886a0602",
+      "captureRequired": false
+    },
+    {
+      "placeId": "venice-core",
+      "path": ".behold-artifacts/place-visits/living-places-human-visit-v1/living-city-v2-venice-canonical-v1/visit-report.json",
+      "sha256": "af8f2b70620103006aa9fcbb14f97ec7c51f675d31c8a3307a3f49d76976b710",
+      "captureRequired": false
+    }
+  ],
+  "capacity": [
+    {
+      "path": ".behold-artifacts/place-capacity/san-francisco/foundry-v2-capacity-frontier-v1/capacity-manifest.json",
+      "sha256": "e7c8b336e1ff61c4873259380eedbb215bcfd3c77b6fe06b45913813f5a1df7e"
+    },
+    {
+      "path": ".behold-artifacts/place-capacity/san-francisco/foundry-v2-capacity-combined-refinement-v1/capacity-manifest.json",
+      "sha256": "3273be311b541be5939a587bc1b6191c92c896a5f1991ca16b32c10afca8bb94"
+    },
+    {
+      "path": ".behold-artifacts/place-capacity/san-francisco/foundry-v2-capacity-causal-noai-v1/capacity-manifest.json",
+      "sha256": "4f370d1161b5082a4348b1bbb4153194bafbfe40a972026e4e227f868e7d5e44"
+    },
+    {
+      "path": ".behold-artifacts/place-capacity/san-francisco/foundry-v2-capacity-causal-ai-arena-v1/capacity-manifest.json",
+      "sha256": "82555710d2d1c0f9acf00aee1e66eecfa485b12d483b3745f0d2aa976bbae846"
+    },
+    {
+      "path": ".behold-artifacts/place-capacity/san-francisco/foundry-v2-capacity-tiered-activation-v1/capacity-manifest.json",
+      "sha256": "4db45383bf87ce586f40c7cfa0a9e53d9c976d48193ce9263e3965a8abaf49c4"
+    }
+  ],
+  "placePackages": [
+    {
+      "placeId": "san-francisco",
+      "root": ".behold-artifacts/sf/releases/sf-full-v3-snapshot-20260713T095831Z",
+      "manifestSha256": "be13cef600d5f3bb78bc826a30dd52598cea3aea17090d746c1abeccb2f4ffb0",
+      "checksumsSha256": "08366a1cfd928fd053c467834d0101d0eeee512ade39f4a6c042f2f89c2c4118"
+    },
+    {
+      "placeId": "lower-manhattan",
+      "root": ".behold-artifacts/places/lower-manhattan/releases/lower-manhattan-v3",
+      "manifestSha256": "7f55475d83bfac237559d86169e48f00addaa22b90e501b58444a85d2cea0b67",
+      "checksumsSha256": "e8271c51ff147237cc86ec02c3f23efaf6ec65881ea0bc47210fb72c61ffa542"
+    },
+    {
+      "placeId": "venice-core",
+      "root": ".behold-artifacts/places/venice-core/releases/venice-core-v1",
+      "manifestSha256": "07d076d935141a50385e319cae3b4d00f9fb09ca0a018ebf5327064d49d5c78c",
+      "checksumsSha256": "5bf3bb1f2545ed968306d82b1fc812daa2bf70bfcb1a2511caaa718de9109264"
+    }
+  ],
+  "beholdEpochProof": {
+    "path": ".behold-artifacts/place-benchmarks/living-places-v3/venice-place-epoch-proof-v1/package-manifest.json",
+    "sha256": "fcb01ae249590a87cc6fde9db47ddb0dee28a0944f8bfab4c4efdd6649527ae1"
+  },
+  "frontiers": [
+    "San Francisco's Golden Gate crossing remains discontinuous ground geometry and is presented as an aerial transition.",
+    "Venice's accepted pedestrian route is 76.30% swept-traversable; bounded clean visit legs do not imply complete route walkability.",
+    "Sparse checkpoint biomes and hostile-dominated samples remain local ecology-quality frontiers, not world-wide census claims.",
+    "Vanilla 32-chunk rendering, Distant Horizons visual LOD, and actively simulated regions are separate capabilities.",
+    "The 2,048-body result uses tiered native activation with 128 or 256 active brains and does not prove 2,048 concurrent Behold inhabitants or inference calls.",
+    "Human visits prove bounded arrival, ground movement, and reveals; they are not complete city-scale tours."
+  ]
+}

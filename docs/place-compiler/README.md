@@ -2,6 +2,8 @@
 
 The Place Compiler turns a small, reviewable geographic recipe into a recorded Minecraft world run. San Francisco is the regression recipe, Lower Manhattan is the first independent generation proof, and Venice is the first global-elevation canal-city proof. The compiler owns geographic inputs, generation, validation, packaging, and presentation artifacts. It does not depend on Behold's body, controller, loom, or world-epoch implementation.
 
+The interface is place-data driven: add recipe and experience contracts, then run the same generator, inspection, visit, ecology, and performance tools. San Francisco is an example and regression fixture, not a code path.
+
 ## Generate
 
 Preview either command without writing an artifact:
@@ -244,3 +246,15 @@ node scripts/place-compiler/package-release.mjs \
 node scripts/place-compiler/verify-release.mjs \
   .behold-artifacts/places/PLACE/releases/RUN_ID
 ```
+
+Package and independently verify the complete three-place Foundry v2 closure:
+
+```bash
+npm run place:release-foundry -- --output /path/to/new-release
+npm run proof:verify-foundry-release -- /path/to/new-release
+```
+
+The tracked release contract selects evidence by digest. Packaging follows those manifests,
+normalizes archive metadata, embeds every content hash, and records multi-gigabyte city worlds as
+external content-addressed payloads through their release manifests and checksum indexes. Repeating
+the package command from the same commit and inputs must produce byte-identical output.

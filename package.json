@@ -24,6 +24,8 @@
     "proof:verify-owned-world": "npm run build && node dist/scripts/verify-owned-world-proof.js",
     "place:visit": "node scripts/place-compiler/visit.mjs",
     "proof:verify-visit": "node scripts/place-compiler/verify-visit.mjs",
+    "place:release-foundry": "node scripts/place-compiler/package-foundry-release.mjs",
+    "proof:verify-foundry-release": "node scripts/place-compiler/verify-foundry-release.mjs",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",
     "lint": "tsc -p tsconfig.json --noEmit && eslint .",
