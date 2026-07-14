@@ -16,6 +16,7 @@ import {
 import { readRunJournal, waitForRunJournal } from './owned-world-model-harness';
 import { summarizeResidentRecoverySource } from './resident-recovery-evidence';
 import { runResidentRecoveryWitness } from './resident-recovery-witness';
+import { parseManagedResidentArgs } from './managed-resident-cli';
 import { startManagedWorld } from './world-runner';
 
 const ENTITY_ID = 'RecoveryBody';
@@ -211,21 +212,7 @@ async function runProof() {
 }
 
 async function runResident() {
-  const parsed = parseArgs({
-    args: process.argv.slice(2),
-    options: {
-      server: { type: 'string' },
-      port: { type: 'string' },
-      world: { type: 'string' },
-      model: { type: 'string' },
-      urgentModel: { type: 'string' },
-      tickMs: { type: 'string' },
-      task: { type: 'string' },
-      target: { type: 'string' },
-      allowTools: { type: 'string' },
-    },
-    allowPositionals: true,
-  });
+  const parsed = parseManagedResidentArgs();
   const entityId = String(parsed.positionals[0] || '');
   if (entityId !== ENTITY_ID) throw new Error(`live recovery expected ${ENTITY_ID}`);
   if (parsed.values.task || parsed.values.target || parsed.values.allowTools) {

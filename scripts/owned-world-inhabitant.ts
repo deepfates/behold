@@ -2,7 +2,6 @@
 import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseArgs } from 'node:util';
 import { goals } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { getConfig } from '../src/config';
@@ -12,6 +11,7 @@ import { InhabitantExperience } from '../src/agent/experience';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine, type EngineEvent } from '../src/loop/engine';
 import { executeScriptedInhabitantTurn as executeTurn } from './scripted-inhabitant-turn';
+import { parseManagedResidentArgs } from './managed-resident-cli';
 
 const PROTOCOL = 'behold.owned-world-inhabitant-proof.v1' as const;
 const WITNESS_ID = 'ProofWitness';
@@ -20,20 +20,7 @@ const VISIBLE_WITNESS_POSITION = Object.freeze({ x: 6, y: -60, z: 6 });
 const MOVED_WITNESS_POSITION = Object.freeze({ x: 10, y: -60, z: 6 });
 
 async function main() {
-  const args = parseArgs({
-    args: process.argv.slice(2),
-    options: {
-      server: { type: 'string' },
-      port: { type: 'string' },
-      world: { type: 'string' },
-      model: { type: 'string' },
-      tickMs: { type: 'string' },
-      task: { type: 'string' },
-      target: { type: 'string' },
-      allowTools: { type: 'string' },
-    },
-    allowPositionals: true,
-  });
+  const args = parseManagedResidentArgs();
   const entityId = args.positionals[0];
   if (!entityId) throw new Error('owned-world inhabitant requires an entity name');
   if (args.values.server) process.env.SERVER_HOST = String(args.values.server);

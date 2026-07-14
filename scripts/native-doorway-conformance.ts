@@ -33,6 +33,7 @@ import {
 } from './native-doorway-conformance-evidence';
 import { executeScriptedInhabitantTurn } from './scripted-inhabitant-turn';
 import { startManagedWorld } from './world-runner';
+import { parseManagedResidentArgs } from './managed-resident-cli';
 import { statusWorld } from './world-lab';
 import {
   disconnectMinecraftBot,
@@ -231,20 +232,7 @@ async function runProof() {
 }
 
 async function runResident() {
-  const args = parseArgs({
-    args: process.argv.slice(2),
-    options: {
-      server: { type: 'string' },
-      port: { type: 'string' },
-      world: { type: 'string' },
-      model: { type: 'string' },
-      tickMs: { type: 'string' },
-      task: { type: 'string' },
-      target: { type: 'string' },
-      allowTools: { type: 'string' },
-    },
-    allowPositionals: true,
-  });
+  const args = parseManagedResidentArgs();
   const entityId = args.positionals[0];
   if (entityId !== ENTITY_ID) throw new Error(`native doorway proof expected ${ENTITY_ID}`);
   if (args.values.server) process.env.SERVER_HOST = String(args.values.server);

@@ -29,6 +29,7 @@ import {
 } from './native-conformance-harness';
 import { loadWorldLabConfig, statusWorld } from './world-lab';
 import { startManagedWorld } from './world-runner';
+import { parseManagedResidentArgs } from './managed-resident-cli';
 import {
   assessResidentRecoveryWitness,
   RESIDENT_RECOVERY_WITNESS_PHASE_PROTOCOL,
@@ -196,21 +197,7 @@ export async function runResidentRecoveryWitness(options: ResidentRecoveryWitnes
 }
 
 async function runWitness() {
-  const parsed = parseArgs({
-    args: process.argv.slice(2),
-    options: {
-      server: { type: 'string' },
-      port: { type: 'string' },
-      world: { type: 'string' },
-      model: { type: 'string' },
-      tickMs: { type: 'string' },
-      task: { type: 'string' },
-      target: { type: 'string' },
-      allowTools: { type: 'string' },
-      urgentModel: { type: 'string' },
-    },
-    allowPositionals: true,
-  });
+  const parsed = parseManagedResidentArgs();
   const entityId = String(parsed.positionals[0] || '');
   if (!entityId) throw new Error('recovery witness entity id is required');
   if (parsed.values.server) process.env.SERVER_HOST = String(parsed.values.server);
