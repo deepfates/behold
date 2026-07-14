@@ -300,6 +300,24 @@ an adversarial case where apparent arrival still overlaps the target and no
 placement command may run. This compound motor skill is not yet claimed as a
 live-world pass.
 
+Epoch 22 then tested the corrected production path without steering the chosen
+actions. Wren made six urgent Luna decisions: retreat into the partial cover,
+place a Minecraft-confirmed plank at `(50,65,92)`, place a Minecraft-confirmed
+oak door at `(49,65,93)`, open it, close it, and step farther from the
+entrance. The two placements were observed from `mineflayer:blockUpdate`, the
+door disappeared and reappeared in first-person terrain across the two
+toggles, all six admissions completed, and managed teardown again left the
+owner, lease, port, and session lock clear. The calls cost `$0.05142950`, with
+34,642 prompt tokens, mean latency 3.687 seconds, maximum latency 5.205
+seconds, and request bodies from 26,937 to 28,249 bytes.
+
+This is promising composition, not yet the recovery pass. The journal shows a
+wall and a working door but does not independently establish a sealed roof and
+perimeter, and health and food remained unchanged. Neither placement began
+inside Wren's body, so the bounded step-aside branch was not exercised in the
+live run. It remains unit-proven and live-unproven. The run should not be
+repeated merely to coax that branch from the model.
+
 ## Next gate
 
 The small paid tier, teardown validation, continuing urgency, canopy descent,
@@ -337,7 +355,7 @@ problem and needs its own causal compression gate.
   `.behold-runs/first-life-v1-13/{ScoutLife,WrenLife}/*.jsonl`
 - cognition: `.behold-runs/first-life-v1-13/_cognition/broker.jsonl`
 - live tier/body validation:
-  `.behold-runs/first-life-v1-{14,15,16,17,18,19,20,21}/`, with owner lifecycle and recovery
+  `.behold-runs/first-life-v1-{14,15,16,17,18,19,20,21,22}/`, with owner lifecycle and recovery
   evidence under `.behold-runtime/world-control/first-life-v1/`
 - provider-free request profiles and exact-frame candidate records under the
   two resident run directories
