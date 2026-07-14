@@ -7,10 +7,11 @@ import { goals } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { getConfig } from '../src/config';
 import { createBot } from '../src/bot';
-import { openEntityLoom, type EntityTurn } from '../src/entity/loom';
+import { openEntityLoom } from '../src/entity/loom';
 import { InhabitantExperience } from '../src/agent/experience';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine, type EngineEvent } from '../src/loop/engine';
+import { executeScriptedInhabitantTurn as executeTurn } from './scripted-inhabitant-turn';
 
 const PROTOCOL = 'behold.owned-world-inhabitant-proof.v1' as const;
 const WITNESS_ID = 'ProofWitness';
@@ -598,78 +599,6 @@ function inventoryCount(observation: any, name: string) {
   return (Array.isArray(observation?.self?.inventory) ? observation.self.inventory : [])
     .filter((item: any) => String(item?.name) === name)
     .reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.count) || 0), 0);
-}
-
-async function executeTurn(input: {
-  entityId: string;
-  loom: Awaited<ReturnType<typeof openEntityLoom>>;
-  experience: InhabitantExperience;
-  engine: ReturnType<typeof createEngine>;
-  events: EngineEvent[];
-  name: string;
-  input: any;
-}) {
-  const sequence = input.loom.turns().length + 1;
-  const parentId = input.loom.turns().at(-1)?.id ?? null;
-  const observation = input.experience.observe();
-  const eventStart = input.events.length;
-  const startedAt = Date.now();
-  const intentId = `${input.entityId}:script:${sequence}`;
-  const accepted = input.engine.enqueueIntent({
-    id: intentId,
-    source: 'script',
-    tool: input.name,
-    input: input.input,
-    observationSequence: observation.sequence,
-    decidedAt: startedAt,
-  });
-  if (!accepted) throw new Error(`engine refused ${input.name}`);
-  const result = await input.engine.tick();
-  const actionEvents = input.events.slice(eventStart);
-  const terminal = actionEvents.find(
-    (event) =>
-      (event.type === 'action_completed' || event.type === 'action_failed') &&
-      event.data?.intent?.id === intentId,
-  );
-  if (!terminal) throw new Error(`${input.name} produced no authentic terminal lifecycle event`);
-  const nextObservation = input.experience.observe();
-  const turn: EntityTurn = {
-    protocol: 'behold.entity-turn.v1',
-    circleId: input.loom.circleId ?? undefined,
-    id: `${input.entityId}:turn:${sequence}`,
-    entityId: input.entityId,
-    sequence,
-    parentId,
-    model: 'script/behold-owned-world-proof-v1',
-    startedAt,
-    completedAt: Date.now(),
-    observation,
-    utterance: { assistant: null },
-    action: {
-      id: intentId,
-      name: input.name,
-      input: input.input,
-      source: 'script',
-      kind: 'exclusive',
-      toolCallId: null,
-    },
-    outcome: {
-      ok: terminal.type === 'action_completed',
-      eventType: terminal.type,
-      result: terminal.data?.result ?? result,
-      ...(terminal.type === 'action_failed'
-        ? { error: String(terminal.data?.error || 'action_failed') }
-        : {}),
-    },
-    nextObservation,
-  };
-  await input.loom.append(turn);
-  return {
-    turnId: turn.id,
-    action: turn.action,
-    result: turn.outcome.result,
-    events: actionEvents,
-  };
 }
 
 async function waitForLocalWorld(bot: ReturnType<typeof createBot>, timeoutMs: number) {
