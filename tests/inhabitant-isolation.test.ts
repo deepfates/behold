@@ -116,9 +116,18 @@ async function runOneLife(loom: EntityLoom, foldedContinuity: string, rejectSumm
   );
   try {
     await policy.tick();
-    assert.equal(summaryCalls, rejectSummarizer ? 0 : 2);
+    if (rejectSummarizer) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(summaryCalls, 0);
+    } else {
+      for (let attempt = 0; summaryCalls < 3 && attempt < 100; attempt += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      assert.equal(summaryCalls, 3, 'idle maintenance folds only after foreground yield');
+      assert.equal(policy.state().loomContext.foldedThrough, 9);
+    }
   } finally {
-    policy.stop();
+    await policy.stop();
   }
 }
 

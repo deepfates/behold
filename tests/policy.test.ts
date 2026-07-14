@@ -733,7 +733,6 @@ test('critical body condition keeps urgency through failure then deliberates aft
     health = 8;
     await policy.tick();
     await until(() => requests.length === 5);
-    assert.ok(foldCalls >= 1, 'deferred maintenance resumes after the critical condition clears');
     assert.equal(requests[4].model, 'test/ordinary-model');
     assert.equal(requests[4].attention?.mode, 'deliberative');
     assert.equal(requests[4].attention?.context, 'bounded_loom');
@@ -741,6 +740,11 @@ test('critical body condition keeps urgency through failure then deliberates aft
     assert.equal(
       requests[4].actions.some((action) => action.name === 'manage_project'),
       true,
+    );
+    await until(() => foldCalls >= 1);
+    assert.ok(
+      foldCalls >= 1,
+      'deferred maintenance resumes only after the recovered resident yields',
     );
   } finally {
     await policy.stop();
@@ -1188,6 +1192,16 @@ test('stopping also interrupts a custom loom fold that cannot accept an AbortSig
     {
       apiKey: 'test-key',
       model: 'test/model',
+      mind: {
+        id: 'yield-before-maintenance',
+        decide: async (request) => ({
+          protocol: 'behold.mind-decision.v1',
+          disposition: 'wait',
+          utterance: 'I have no foreground action now.',
+          action: null,
+          call: modelCallEvidence('yield-before-maintenance', request.model),
+        }),
+      },
       acceptEngineEvent: () => true,
       history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
       foldRecentTurns: 1,
@@ -1200,7 +1214,7 @@ test('stopping also interrupts a custom loom fold that cannot accept an AbortSig
     },
   );
 
-  const tick = policy.tick();
+  await policy.tick();
   await foldStarted;
   await Promise.race([
     policy.stop(),
@@ -1208,7 +1222,6 @@ test('stopping also interrupts a custom loom fold that cannot accept an AbortSig
       setTimeout(() => reject(new Error('policy fold stop timed out')), 250),
     ),
   ]);
-  await tick;
   assert.equal(policy.state().stopped, true);
   assert.equal(policy.state().modelRequestActive, false);
 });
@@ -1224,7 +1237,8 @@ test('urgent bodily evidence cancels a background loom fold before the resident 
       headers: new Headers(init?.headers),
       body: JSON.parse(String(init?.body || '{}')),
     });
-    if (requests.length === 1) {
+    const request = requests.at(-1)!;
+    if (!Array.isArray(request.body.tools)) {
       foldStarted();
       return await new Promise<Response>((_resolve, reject) => {
         init.signal.addEventListener(
@@ -1237,12 +1251,15 @@ test('urgent bodily evidence cancels a background loom fold before the resident 
         );
       });
     }
+    const urgent = request.headers.get(cognitionHeaderNames.priority) === 'urgent';
     return new Response(
       JSON.stringify({
         choices: [
           {
-            message: assistantTool('urgent-wait', 'wait_for_event', {
-              reason: 'I have reobserved the urgent body state.',
+            message: assistantTool(urgent ? 'urgent-wait' : 'initial-wait', 'wait_for_event', {
+              reason: urgent
+                ? 'I have reobserved the urgent body state.'
+                : 'No foreground action remains before a new event.',
             }),
           },
         ],
@@ -1292,20 +1309,114 @@ test('urgent bodily evidence cancels a background loom fold before the resident 
     await started;
     sequence = 2;
     policy.wake();
-    await until(() => turns.length === 1);
+    await until(() => turns.length === 2);
     await firstTick;
 
     assert.equal(foldAborted, true);
-    assert.equal(requests.length, 2);
-    assert.equal(requests[0].headers.get(cognitionHeaderNames.priority), 'auxiliary');
-    assert.equal(requests[0].headers.get(cognitionHeaderNames.purpose), 'loom_fold');
-    assert.equal(requests[1].headers.get(cognitionHeaderNames.priority), 'urgent');
-    assert.equal(requests[1].headers.get(cognitionHeaderNames.purpose), 'resident_decision');
-    assert.equal(requests[1].headers.get(cognitionHeaderNames.urgentTrigger), '2');
-    assert.equal(turns[0].attention.mode, 'urgent');
+    assert.equal(requests.length, 3);
+    assert.equal(requests[0].headers.get(cognitionHeaderNames.priority), 'deliberative');
+    assert.equal(requests[0].headers.get(cognitionHeaderNames.purpose), 'resident_decision');
+    assert.equal(requests[1].headers.get(cognitionHeaderNames.priority), 'auxiliary');
+    assert.equal(requests[1].headers.get(cognitionHeaderNames.purpose), 'loom_fold');
+    assert.equal(requests[2].headers.get(cognitionHeaderNames.priority), 'urgent');
+    assert.equal(requests[2].headers.get(cognitionHeaderNames.purpose), 'resident_decision');
+    assert.equal(requests[2].headers.get(cognitionHeaderNames.urgentTrigger), '2');
+    assert.equal(turns[0].attention.mode, 'deliberative');
+    assert.equal(turns[1].attention.mode, 'urgent');
+    assert.equal(policy.state().loomContext.foldedThrough, 0);
   } finally {
     await policy.stop();
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('an ordinary world change preempts idle loom maintenance and receives foreground thought', async () => {
+  let sequence = 1;
+  let foldStarted!: () => void;
+  const started = new Promise<void>((resolve) => (foldStarted = resolve));
+  let foldAborted = false;
+  const requests: ResidentMindRequest[] = [];
+  const turns: EntityTurn[] = [];
+  const mind: ResidentMind = {
+    id: 'ordinary-attention-mind',
+    decide: async (request) => {
+      requests.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance:
+          requests.length === 1
+            ? 'I will yield until the world changes.'
+            : 'I noticed the ordinary visible world change.',
+        action: null,
+        call: modelCallEvidence('ordinary-attention-mind', request.model),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe: (sinceSequence = 0) => ({
+        ...experience(sequence, null, sinceSequence),
+        events:
+          sequence === 1
+            ? []
+            : [
+                {
+                  sequence: 2,
+                  type: 'visible_block_changed',
+                  salience: 'normal',
+                  isNew: 2 > sinceSequence,
+                  data: { position: { x: 1, y: 64, z: 1 } },
+                },
+              ],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+      history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
+      foldRecentTurns: 1,
+      foldBatchTurns: 1,
+      foldTriggerTurns: 1,
+      summarizeLoom: async (_request, signal) => {
+        foldStarted();
+        return await new Promise<string>((_resolve, reject) => {
+          signal?.addEventListener(
+            'abort',
+            () => {
+              foldAborted = true;
+              reject(signal.reason);
+            },
+            { once: true },
+          );
+        });
+      },
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    const initial = policy.tick();
+    await started;
+    await initial;
+    assert.equal(requests.length, 1);
+    assert.equal(turns.length, 1);
+
+    sequence = 2;
+    policy.wake();
+    await until(() => requests.length === 2 && turns.length === 2);
+
+    assert.equal(foldAborted, true);
+    assert.equal(requests[1].attention.mode, 'deliberative');
+    assert.equal((requests[1].observation as any).events[0].type, 'visible_block_changed');
+    assert.equal(policy.state().loomContext.foldedThrough, 0);
+  } finally {
+    await policy.stop();
   }
 });
 
@@ -2323,6 +2434,7 @@ test('loom-fold model usage is journalable instead of hidden from resident budge
   try {
     await policy.tick();
     await until(() => turns.length === 1);
+    await until(() => auxiliary.length === 1);
     assert.equal(requests.length, 2);
     assert.equal(auxiliary.length, 1);
     assert.equal(auxiliary[0].purpose, 'loom_fold');
@@ -2333,6 +2445,7 @@ test('loom-fold model usage is journalable instead of hidden from resident budge
       auxiliary[0].call.request.bodyBytes,
     );
     assert.equal(auxiliary[0].call.request.body.messages[0].role, 'system');
+    assert.equal(auxiliary[0].call.request.body.max_tokens, 1_024);
     assert.equal(auxiliary[0].call.response.id, 'fold-generation');
     assert.equal(auxiliary[0].call.response.usage.total_tokens, 90);
   } finally {
@@ -3297,6 +3410,7 @@ test('controller context remains bounded across a continuing life', async () => 
   }) as typeof fetch;
 
   let sequence = 1;
+  let foldCalls = 0;
   const enqueued: any[] = [];
   const policy = startLLMPolicy(
     {
@@ -3313,8 +3427,10 @@ test('controller context remains bounded across a continuing life', async () => 
       model: 'test/model',
       maxTurnSteps: 32,
       acceptEngineEvent: () => true,
-      summarizeLoom: async ({ previousSummary, fromSequence, toSequence }) =>
-        `${previousSummary || ''} [t${fromSequence}-t${toSequence}]`.trim(),
+      summarizeLoom: async ({ previousSummary, fromSequence, toSequence }) => {
+        foldCalls += 1;
+        return `${previousSummary || ''} [t${fromSequence}-t${toSequence}]`.trim();
+      },
     },
   );
 
@@ -3328,12 +3444,15 @@ test('controller context remains bounded across a continuing life', async () => 
         at: 100 + index,
         data: { intent: enqueued[index], result: { ok: true, sample: index } },
       });
+      assert.equal(foldCalls, 0, 'memory maintenance must not enter a continuing action turn');
     }
     await until(() => policy.state().turnActive === false && requests.length === actionCount + 1);
     assert.ok(
       Math.max(...requests.map((request) => request.messages.length)) <= 4,
       'deliberative working context should remain independent of trajectory length',
     );
+    await until(() => policy.state().loomContext.foldedThrough >= 8);
+    assert.ok(foldCalls > 0, 'bounded maintenance begins after the resident yields');
     assert.ok(policy.state().loomContext.foldedThrough >= 8);
   } finally {
     policy.stop();
@@ -3529,18 +3648,24 @@ test('controller resumes from a generic folded view of its own older loom', asyn
 
   try {
     await policy.tick();
-    assert.equal(foldRequests.length, 2);
-    assert.ok(foldRequests.every((request) => request.entityId === 'Scout'));
+    assert.equal(foldRequests.length, 0, 'startup maintenance must not delay foreground thought');
     assert.equal(requests.length, 1);
-    const folded = requests[0].messages.find((message: any) =>
+    await until(() => foldRequests.length === 3);
+    assert.equal(foldRequests.length, 3);
+    assert.ok(foldRequests.every((request) => request.entityId === 'Scout'));
+    assert.equal(policy.state().loomContext.foldedThrough, 33);
+    assert.equal(policy.state().loomContext.visibleTurns, 8);
+
+    await policy.tick();
+    assert.equal(requests.length, 2);
+    const folded = requests[1].messages.find((message: any) =>
       String(message.content || '').includes('Folded view of your own loom'),
     );
     assert.ok(folded);
     assert.match(folded.content, /coordinates 314 69 36/);
     assert.match(folded.content, /prefers short messages/);
     assert.match(folded.content, /crafting table at 3513 1 641/);
-    assert.equal(policy.state().loomContext.foldedThrough, 32);
-    assert.equal(policy.state().loomContext.visibleTurns, 9);
+    assert.equal(policy.state().loomContext.foldedThrough, 33);
   } finally {
     policy.stop();
     globalThis.fetch = originalFetch;

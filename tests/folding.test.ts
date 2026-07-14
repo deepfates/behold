@@ -65,6 +65,31 @@ test('loom folding advances in batches and keeps a bounded verbatim frontier', a
   assert.equal(summaries, 3);
 });
 
+test('cancelling a multi-batch fold preserves the last completed cache without synthetic progress', async () => {
+  const turns = Array.from({ length: 12 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  const controller = new AbortController();
+  let calls = 0;
+  const view = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    recentTurns: 2,
+    foldBatchTurns: 2,
+    foldTriggerTurns: 1,
+    summarize: async ({ toSequence }, signal) => {
+      calls += 1;
+      if (calls === 1) return `continuity through t${toSequence}`;
+      controller.abort(new DOMException('foreground life resumed', 'AbortError'));
+      throw signal?.reason ?? new Error('fold signal was not cancelled');
+    },
+  });
+
+  await assert.rejects(view.prepare(controller.signal), /foreground life resumed/);
+  assert.equal(calls, 2, 'cancellation must stop before a third provider batch');
+  assert.equal(view.state().foldedThrough, 2, 'the completed first batch remains valid');
+  assert.equal(view.state().needsFold, true);
+  assert.doesNotMatch(view.view().fold!.summary, /automatic fold summary unavailable/);
+});
+
 test('a read-only loom view never fabricates or writes a fold needed for replay', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-read-only-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

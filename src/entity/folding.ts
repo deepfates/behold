@@ -28,10 +28,17 @@ export type LoomFoldRequest = {
   toSequence: number;
 };
 
-export type LoomFoldSummarizer = (request: LoomFoldRequest) => Promise<string>;
+export type LoomFoldSummarizer = (
+  request: LoomFoldRequest,
+  signal?: AbortSignal,
+) => Promise<string>;
 
 export type LoomContextView = {
-  prepare: () => Promise<boolean>;
+  /**
+   * Refresh the disposable folded view. Cancellation leaves the last
+   * completed fold intact and never substitutes a synthetic summary.
+   */
+  prepare: (signal?: AbortSignal) => Promise<boolean>;
   append: (turn: EntityTurn) => void;
   view: () => { fold: LoomFoldRecord | null; turns: EntityTurn[] };
   state: () => {
@@ -96,7 +103,8 @@ export function createLoomContextView(
     return pending >= foldTriggerTurns;
   }
 
-  async function prepare() {
+  async function prepare(signal?: AbortSignal) {
+    throwIfAborted(signal);
     if (!shouldPrepare()) return false;
     if (options.readOnly) {
       const state = {
@@ -107,37 +115,43 @@ export function createLoomContextView(
       throw new Error(`read-only loom context requires a current fold (${JSON.stringify(state)})`);
     }
     if (preparing) return preparing;
-    preparing = performFold().finally(() => {
+    preparing = performFold(signal).finally(() => {
       preparing = null;
     });
     return preparing;
   }
 
-  async function performFold() {
+  async function performFold(signal?: AbortSignal) {
     const target = foldTarget();
     let cursor = foldedThrough();
     let summary = fold?.summary ?? null;
     let changed = false;
 
     while (cursor < target) {
+      throwIfAborted(signal);
       const end = Math.min(target, cursor + foldBatchTurns);
       const batch = turns.slice(cursor, end);
       if (!batch.length) break;
       let nextSummary: string;
       try {
         nextSummary = boundedText(
-          await options.summarize({
-            entityId: options.entityId,
-            previousSummary: summary,
-            turns: batch.map((turn, index) => projectTurnForFolding(turn, batch[index - 1])),
-            fromSequence: batch[0].sequence,
-            toSequence: batch.at(-1)!.sequence,
-          }),
+          await options.summarize(
+            {
+              entityId: options.entityId,
+              previousSummary: summary,
+              turns: batch.map((turn, index) => projectTurnForFolding(turn, batch[index - 1])),
+              fromSequence: batch[0].sequence,
+              toSequence: batch.at(-1)!.sequence,
+            },
+            signal,
+          ),
           summaryMaxChars,
         );
-      } catch {
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason ?? error;
         nextSummary = fallbackSummary(summary, batch, summaryMaxChars);
       }
+      throwIfAborted(signal);
       if (!nextSummary) nextSummary = fallbackSummary(summary, batch, summaryMaxChars);
 
       const tip = batch.at(-1)!;
@@ -194,6 +208,11 @@ export function createLoomContextView(
       };
     },
   };
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException('loom fold aborted', 'AbortError');
 }
 
 export function foldMessage(record: LoomFoldRecord) {

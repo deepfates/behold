@@ -64,6 +64,8 @@ export type Options = {
   foldRecentTurns?: number;
   foldBatchTurns?: number;
   foldTriggerTurns?: number;
+  /** Hard provider output budget for one disposable loom-fold request. */
+  foldMaxOutputTokens?: number;
   summarizeLoom?: LoomFoldSummarizer;
   now?: () => number;
   recordModelIO?: boolean;
@@ -158,6 +160,7 @@ class MindDecisionError extends Error {
 
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 export const DEFAULT_URGENT_DECISION_TIMEOUT_MS = 5_000;
+export const DEFAULT_LOOM_FOLD_MAX_OUTPUT_TOKENS = 1_024;
 const WAIT_TOOL = 'wait_for_event';
 const COLLECT_TOOL = 'collect_nearby_item';
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
@@ -258,9 +261,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     foldTriggerTurns: opts.foldTriggerTurns ?? 6,
     now,
     summarize: opts.summarizeLoom
-      ? (request) => withModelRequest((signal) => abortable(opts.summarizeLoom!(request), signal))
-      : (request) =>
-          withModelRequest((signal) => abortable(summarizeLoom(request, opts, signal), signal)),
+      ? (request, signal) =>
+          signal
+            ? abortable(opts.summarizeLoom!(request, signal), signal)
+            : opts.summarizeLoom!(request)
+      : (request, signal) => summarizeLoom(request, opts, signal ?? new AbortController().signal),
   });
   const messages: any[] = [{ role: 'system', content: controllerSystemPrompt(modelTools) }];
 
@@ -271,6 +276,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let deciding = false;
   let preparingContext = false;
   let contextPrepared = false;
+  let loomMaintenanceScheduled = false;
+  let loomMaintenanceActive = false;
   let wakeQueued = false;
   let turnActive = false;
   let turnSteps = 0;
@@ -321,11 +328,21 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       return;
     }
     if (preparingContext) {
-      wakeQueued = true;
-      const latest = observe();
-      const triggers = urgentEventTriggers(latest, lastSequence);
-      if (activeModelRequest && triggers.length > 0) {
-        activeModelRequest.abort(abortError('urgent_world_attention_during_loom_fold'));
+      if (loomMaintenanceActive) {
+        const latest = observe();
+        const triggers = urgentEventTriggers(latest, lastSequence);
+        if (force || hasDecisionRelevantEvent(latest, lastSequence)) {
+          wakeQueued = true;
+          activeModelRequest?.abort(
+            abortError(
+              triggers.length > 0
+                ? 'urgent_world_attention_during_loom_fold'
+                : 'world_attention_during_loom_fold',
+            ),
+          );
+        }
+      } else {
+        wakeQueued = true;
       }
       return;
     }
@@ -341,20 +358,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const initialAttention = attentionForObservation(initialView);
       const initialBodyUrgency =
         hasBodilyUrgency(initialAttention) || isCriticalBodyCondition(initialView?.self?.condition);
-      if (loomContext.state().needsFold && initialBodyUrgency) {
-        rebuildMessagesFromLoom();
-        contextPrepared = true;
-        log('[policy] deferred initial own-loom fold while bodily urgency remains unresolved');
-      } else {
+      if (opts.foldReadOnly && loomContext.state().needsFold) {
         preparingContext = true;
         try {
           await loomContext.prepare();
-          if (stopped) return;
-          rebuildMessagesFromLoom();
-          contextPrepared = true;
-          // Folding may take seconds while Minecraft continues. Reobserve
-          // after it settles rather than deciding from the pre-fold frame.
-          frame = null;
         } catch (error: any) {
           if (!stopped)
             log(`[policy] could not prepare loom context: ${error?.message || String(error)}`);
@@ -363,6 +370,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           preparingContext = false;
           settleStop();
         }
+      }
+      rebuildMessagesFromLoom();
+      contextPrepared = true;
+      if (loomContext.state().needsFold) {
+        log(
+          initialBodyUrgency
+            ? '[policy] deferred initial own-loom fold while bodily urgency remains unresolved'
+            : '[policy] deferred initial own-loom fold until the resident yields',
+        );
       }
     }
 
@@ -394,33 +410,6 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       return;
     }
 
-    const attentionBeforeFold = attentionForCurrentLife(
-      currentModelObservation ?? projectCurrentModelObservation(currentObservation),
-    );
-    const bodyPressure = isCriticalBodyCondition(currentModelObservation?.self?.condition);
-    if (loomContext.state().needsFold && !hasBodilyUrgency(attentionBeforeFold) && !bodyPressure) {
-      preparingContext = true;
-      try {
-        const folded = await loomContext.prepare();
-        if (stopped) return;
-        if (folded) {
-          rebuildMessagesFromLoom();
-          if (currentObservation) appendWorldUpdate(currentObservation, 'Current world experience');
-          log(`[policy] folded own loom through turn ${loomContext.state().foldedThrough}`);
-        }
-      } catch (error: any) {
-        if (!stopped)
-          log(`[policy] could not fold loom context: ${error?.message || String(error)}`);
-        turnActive = false;
-        turnSteps = 0;
-        return;
-      } finally {
-        preparingContext = false;
-        settleStop();
-      }
-    } else if (loomContext.state().needsFold) {
-      log('[policy] deferred own-loom fold while bodily pressure remains unresolved');
-    }
     if (turnSteps >= maxTurnSteps) {
       log(`[policy] controller paused after reaching ${maxTurnSteps} model steps`);
       messages.push({
@@ -435,6 +424,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           void wake(true);
         }, tickMs);
       }
+      scheduleLoomMaintenance();
       return;
     }
 
@@ -808,6 +798,76 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       } else if (!stopped && wakeQueued && !pending) {
         wakeQueued = false;
         setImmediate(() => void wake());
+      } else if (!stopped && !turnActive && !pending) {
+        scheduleLoomMaintenance();
+      }
+    }
+  }
+
+  function scheduleLoomMaintenance() {
+    if (
+      stopped ||
+      suspended ||
+      turnActive ||
+      pending ||
+      deciding ||
+      preparingContext ||
+      wakeQueued ||
+      loomMaintenanceScheduled ||
+      loomMaintenanceActive ||
+      !loomContext.state().needsFold
+    ) {
+      return;
+    }
+    const frame = projectCurrentModelObservation(observe());
+    const attention = attentionForObservation(frame);
+    if (hasBodilyUrgency(attention) || isCriticalBodyCondition(frame?.self?.condition)) {
+      log('[policy] deferred own-loom maintenance while bodily pressure remains unresolved');
+      return;
+    }
+    loomMaintenanceScheduled = true;
+    setImmediate(() => void maintainLoomContext());
+  }
+
+  async function maintainLoomContext() {
+    loomMaintenanceScheduled = false;
+    if (
+      stopped ||
+      suspended ||
+      turnActive ||
+      pending ||
+      deciding ||
+      preparingContext ||
+      wakeQueued ||
+      !loomContext.state().needsFold
+    ) {
+      return;
+    }
+    preparingContext = true;
+    loomMaintenanceActive = true;
+    try {
+      const folded = await withModelRequest((signal) => loomContext.prepare(signal));
+      if (!stopped && folded) {
+        rebuildMessagesFromLoom();
+        log(`[policy] folded own loom through turn ${loomContext.state().foldedThrough}`);
+      }
+    } catch (error: any) {
+      if (!stopped && error?.name !== 'AbortError') {
+        log(`[policy] could not fold loom context: ${error?.message || String(error)}`);
+      } else if (!stopped) {
+        // A cancelled multi-batch refresh may still have committed complete
+        // earlier batches. Rebuild from that valid frontier before foreground
+        // thought resumes; never expose a half-written or synthetic fold.
+        rebuildMessagesFromLoom();
+        log('[policy] yielded own-loom maintenance to world attention');
+      }
+    } finally {
+      loomMaintenanceActive = false;
+      preparingContext = false;
+      settleStop();
+      if (!stopped && wakeQueued) {
+        wakeQueued = false;
+        setImmediate(() => void wake());
       }
     }
   }
@@ -1108,6 +1168,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       suspended,
       stopped,
       modelRequestActive: activeModelRequest !== null,
+      loomMaintenanceScheduled,
+      loomMaintenanceActive,
       loomContext: loomContext.state(),
     }),
   };
@@ -1539,6 +1601,12 @@ export function boundedUrgentDecisionTimeoutMs(value: unknown) {
   return Math.max(100, Math.min(60_000, Math.floor(numeric)));
 }
 
+export function boundedLoomFoldOutputTokens(value: unknown) {
+  const numeric = Number(value ?? DEFAULT_LOOM_FOLD_MAX_OUTPUT_TOKENS);
+  if (!Number.isFinite(numeric)) return DEFAULT_LOOM_FOLD_MAX_OUTPUT_TOKENS;
+  return Math.max(128, Math.min(4_096, Math.floor(numeric)));
+}
+
 function urgentEventTriggers(frame: any, afterSequence: number): ResidentAttention['triggers'] {
   return (Array.isArray(frame?.events) ? frame.events : [])
     .filter(
@@ -1742,6 +1810,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
   const body = {
     model: opts.model,
     messages,
+    max_tokens: boundedLoomFoldOutputTokens(opts.foldMaxOutputTokens),
     ...(opts.model.includes('gpt-5') ? {} : { temperature: 0.1 }),
   };
   const requestId = rid('model-aux');
