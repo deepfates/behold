@@ -50,9 +50,10 @@ test('historical frames retain causal state and events without replaying whole w
   const projected = projectHistoricalModelObservation(observation());
 
   assert.equal(projected.task, undefined);
-  assert.deepEqual(projected.taskReference, {
+  assert.deepEqual(projected.historicalProjection, {
     source: 'authoritative_entity_turn',
-    omittedFromWorkingContext: true,
+    mode: 'causal_delta',
+    previous: null,
   });
   assert.equal(projected.circle.id, 'world-one');
   assert.equal(projected.circle.managedRunId, 'world-one-2');
@@ -61,17 +62,6 @@ test('historical frames retain causal state and events without replaying whole w
   assert.equal(projected.self.projects[0].id, 'marker');
   assert.equal(projected.self.currentAction, undefined);
   assert.equal(projected.scene, undefined);
-  assert.deepEqual(projected.snapshotReference, {
-    source: 'authoritative_entity_turn',
-    omittedFromWorkingContext: [
-      'task',
-      'self.pose.orientation_and_velocity',
-      'self.currentAction',
-      'self.places',
-      'self.placeConflicts',
-      'scene',
-    ],
-  });
   assert.deepEqual(
     projected.events.map((event: any) => event.type),
     [
@@ -112,11 +102,41 @@ test('later historical frames retain self changes and omit only state identical 
   assert.equal(projected.self.condition, undefined);
   assert.equal(projected.self.inventory, undefined);
   assert.equal(projected.self.projects, undefined);
-  assert.deepEqual(projected.selfReference, {
-    source: 'previous_turn_next_observation',
-    unchangedFieldsOmitted: true,
+  assert.deepEqual(projected.historicalProjection, {
+    source: 'authoritative_entity_turn',
+    mode: 'causal_delta',
+    previous: 'previous_turn_next_observation',
   });
   assert.equal(projected.events[0].type, 'inventory_changed');
+});
+
+test('an unchanged historical frame has a bounded causal replay', () => {
+  const previous: any = observation();
+  const current = structuredClone(previous);
+  current.sequence = 15;
+  current.observedAt += 1_000;
+  current.events = [];
+  current.eventWindow = {
+    requestedAfterSequence: 12,
+    oldestAvailableSequence: 1,
+    newestAvailableSequence: 15,
+    missingBeforeOldest: 0,
+    complete: true,
+    deliveredOldestSequence: 13,
+    deliveredNewestSequence: 15,
+    omittedNewEvents: 0,
+    suppressedControllerEvents: 6,
+    suppressedControllerEventTypes: { action_started: 1, action_completed: 1 },
+  };
+
+  const projected = projectHistoricalModelObservation(current, previous);
+  assert.deepEqual(projected.eventWindow, {
+    complete: true,
+    missingBeforeOldest: 0,
+    omittedNewEvents: 0,
+  });
+  assert.deepEqual(projected.self, { identity: 'Scout' });
+  assert.ok(Buffer.byteLength(JSON.stringify(projected), 'utf8') < 500);
 });
 
 test('current task projection removes only exact duplicate and empty envelope fields', () => {

@@ -87,32 +87,23 @@ export function projectHistoricalModelObservation(
     circle: projected.circle,
     sequence: projected.sequence,
     observedAt: projected.observedAt,
-    eventWindow: projected.eventWindow,
+    eventWindow: projectHistoricalEventWindow(projected.eventWindow),
     self: previousSelf ? projectHistoricalSelfDelta(self, previousSelf) : self,
-    ...(previousSelf
-      ? {
-          selfReference: {
-            source: previousSource,
-            unchangedFieldsOmitted: true,
-          },
-        }
-      : {}),
     events: projected.events,
-    taskReference: {
+    historicalProjection: {
       source: 'authoritative_entity_turn',
-      omittedFromWorkingContext: true,
+      mode: 'causal_delta',
+      previous: previousSelf ? previousSource : null,
     },
-    snapshotReference: {
-      source: 'authoritative_entity_turn',
-      omittedFromWorkingContext: [
-        'task',
-        'self.pose.orientation_and_velocity',
-        'self.currentAction',
-        'self.places',
-        'self.placeConflicts',
-        'scene',
-      ],
-    },
+  };
+}
+
+function projectHistoricalEventWindow(window: any) {
+  if (!window || typeof window !== 'object') return window;
+  return {
+    complete: window.complete !== false,
+    missingBeforeOldest: Math.max(0, Number(window.missingBeforeOldest) || 0),
+    omittedNewEvents: Math.max(0, Number(window.omittedNewEvents) || 0),
   };
 }
 
