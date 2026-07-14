@@ -14,6 +14,7 @@ test('native body conformance requires one bounded reposition and independently 
 
   const cases: Array<[string, (candidate: any) => void]> = [
     ['bodyInitiallyOccupiesTarget', (candidate) => (candidate.phase.bodyBefore.x = 1.5)],
+    ['fixtureSetupDeclared', (candidate) => delete candidate.phase.fixtureSetup],
     ['sameAdmittedPlayerAction', (candidate) => (candidate.phase.turn.action.input.x = 1)],
     ['boundedStepAside', (candidate) => (candidate.phase.turn.result.navigation.final.x = 4.5)],
     [
@@ -60,6 +61,10 @@ function passingReport() {
       resultingTurns: 1,
       bodyBefore: body,
       target,
+      fixtureSetup: {
+        kind: 'pathfinder_preposition_before_recorded_action',
+        destination: target,
+      },
       initialObservation: {
         ...inventory(1),
         circle: { id: 'world', managedRunId: 'world-1' },

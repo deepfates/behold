@@ -1257,17 +1257,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       let navigation: any = null;
       if (placementIntersectsBody(bot, position)) {
         const conflict = placementBodyConflict(bot, position);
-        // GoalBlock confirms the requested feet cell, not its center. At the
-        // inner edge of an adjacent cell a real server can still reject the
-        // placement even though the geometric AABBs no longer intersect.
-        // Prefer the nearest supported stance with one complete cell of
-        // horizontal clearance; retain the adjacent fallback for confined
-        // spaces where it is the only ordinary player stance.
-        const stand =
-          safePlacementStandPositions(bot, position, 24).find(
-            (candidate: BlockPosition) =>
-              Math.hypot(candidate.x - position.x, candidate.z - position.z) >= 1.5,
-          ) ?? conflict.suggestedFeetPositions[0];
+        const stand = conflict.suggestedFeetPositions[0];
         const pathfinder = (bot as any).pathfinder;
         if (!stand || !pathfinder) return conflict;
         navigation = await runPathfinderGoal(
@@ -3379,7 +3369,7 @@ function isInteriorAmenity(value: string) {
   );
 }
 
-function safePlacementStandPositions(bot: Bot, target: BlockPosition, limit = 6) {
+function safePlacementStandPositions(bot: Bot, target: BlockPosition) {
   const body = (bot as any).entity?.position;
   const candidates: Array<{ x: number; y: number; z: number; distance: number }> = [];
   for (const y of [target.y - 1, target.y, target.y + 1, target.y + 2]) {
@@ -3409,7 +3399,7 @@ function safePlacementStandPositions(bot: Bot, target: BlockPosition, limit = 6)
   }
   return candidates
     .sort((a, b) => a.distance - b.distance || a.y - b.y || a.x - b.x || a.z - b.z)
-    .slice(0, Math.max(1, Math.min(24, limit)))
+    .slice(0, 6)
     .map(({ x, y, z }) => ({ x, y, z }));
 }
 

@@ -476,14 +476,9 @@ test('place_block owns a bounded step-aside and preserves the exact placement ta
     ...block('grass_block', 5, new Vec3(15, 63, 10)),
     boundingBox: 'block',
   };
-  const clearSupport = {
-    ...block('grass_block', 5, new Vec3(14, 63, 10)),
-    boundingBox: 'block',
-  };
   const air = block('air', 0, target);
   bot.setBlock(support);
   bot.setBlock(safeSupport);
-  bot.setBlock(clearSupport);
   bot.setBlock(air);
   bot.entity = { position: new Vec3(16.5, 64, 10.5), width: 0.6, height: 1.8 };
   bot.heldItem = { name: 'dirt', count: 1 };
@@ -512,16 +507,15 @@ test('place_block owns a bounded step-aside and preserves the exact placement ta
 
   assert.equal(result.ok, true);
   assert.equal(goals.length, 1);
-  assert.deepEqual({ x: goals[0].x, y: goals[0].y, z: goals[0].z }, { x: 14, y: 64, z: 10 });
+  assert.deepEqual({ x: goals[0].x, y: goals[0].y, z: goals[0].z }, { x: 15, y: 64, z: 10 });
   assert.equal(result.navigation.target, 'placement step-aside');
-  assert.deepEqual(result.navigation.final, { x: 14.5, y: 64, z: 10.5 });
+  assert.deepEqual(result.navigation.final, { x: 15.5, y: 64, z: 10.5 });
   assert.deepEqual(result.changes[0].position, { x: 16, y: 64, z: 10 });
   assert.equal(result.changes[0].verified, true);
   assert.equal(placements, 1);
 
   bot.setBlock(air);
   bot.entity.position = new Vec3(16.5, 64, 10.5);
-  bot.setBlock(block('air', 0, new Vec3(14, 63, 10)));
   bot.pathfinder.goto = async () => {
     bot.entity.position = new Vec3(15.9, 64, 10.5);
   };

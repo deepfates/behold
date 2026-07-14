@@ -47,6 +47,12 @@ export function assessNativeBodyConformance(report: any) {
       Math.floor(start.x) === target.x &&
       Math.floor(start.y) === target.y &&
       Math.floor(start.z) === target.z,
+    fixtureSetupDeclared:
+      phase?.fixtureSetup?.kind === 'pathfinder_preposition_before_recorded_action' &&
+      finitePosition(phase?.fixtureSetup?.destination) &&
+      Math.floor(phase.fixtureSetup.destination.x) === target?.x &&
+      Math.floor(phase.fixtureSetup.destination.y) === target?.y &&
+      Math.floor(phase.fixtureSetup.destination.z) === target?.z,
     sameAdmittedPlayerAction:
       turn?.action?.name === 'place_block' &&
       turn?.action?.source === 'script' &&

@@ -3,6 +3,7 @@ import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { goals } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { createBot } from '../src/bot';
 import { getConfig } from '../src/config';
@@ -38,6 +39,7 @@ const ENTITY_ID = 'BodyResident';
 const WITNESS_ID = 'BodyWitness';
 const MODEL = 'script/native-body-conformance-v1';
 const TARGET_ITEM = Object.freeze({ x: 0, y: -60, z: 0, item: 'dirt', count: 1 });
+const PREPARED_BODY_POSITION = Object.freeze({ x: 10, y: -60, z: 0 });
 
 async function runProof() {
   const parsed = parseArgs({
@@ -244,6 +246,18 @@ async function runResident() {
       10_000,
       'body resident dirt inventory',
     );
+    await (bot as any).pathfinder.goto(
+      new (goals as any).GoalBlock(
+        PREPARED_BODY_POSITION.x,
+        PREPARED_BODY_POSITION.y,
+        PREPARED_BODY_POSITION.z,
+      ),
+    );
+    await waitFor(
+      () => positionDistance((bot as any).entity?.position, PREPARED_BODY_POSITION) <= 1.25,
+      10_000,
+      'body resident prepared position',
+    );
     if (priorTurns !== 0)
       throw new Error(`body proof expected no prior turns, found ${priorTurns}`);
     const initialObservation = experience.observe();
@@ -281,6 +295,10 @@ async function runResident() {
       managedRunId: process.env.BEHOLD_RUN_ID || null,
       priorTurns,
       resultingTurns: loom.turns().length,
+      fixtureSetup: {
+        kind: 'pathfinder_preposition_before_recorded_action',
+        destination: PREPARED_BODY_POSITION,
+      },
       bodyBefore,
       target,
       initialObservation,
@@ -312,6 +330,15 @@ function inventoryCount(observation: any, name: string) {
   return (Array.isArray(observation?.self?.inventory) ? observation.self.inventory : [])
     .filter((item: any) => String(item?.name) === name)
     .reduce((sum: number, item: any) => sum + Math.max(0, Number(item?.count) || 0), 0);
+}
+
+function positionDistance(before: any, after: any) {
+  if (!before || !after) return Infinity;
+  return Math.hypot(
+    Number(after.x) - Number(before.x),
+    Number(after.y) - Number(before.y),
+    Number(after.z) - Number(before.z),
+  );
 }
 
 async function waitForLocalWorld(bot: ReturnType<typeof createBot>, timeoutMs: number) {
