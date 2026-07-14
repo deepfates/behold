@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "id": "berkeley",
+  "name": "Berkeley",
+  "toolLock": "docs/sf-world/tool-lock.json",
+  "geography": {
+    "bounds": {
+      "minLat": 37.856147,
+      "minLon": -122.300694,
+      "maxLat": 37.8855316,
+      "maxLon": -122.245032
+    },
+    "projection": "local",
+    "scaleBlocksPerMeter": 1,
+    "rotationDegrees": 0,
+    "spawn": {
+      "name": "Ohlone Park",
+      "lat": 37.8732981,
+      "lon": -122.2772087
+    }
+  },
+  "generation": {
+    "cartographyPolicy": "minecraft-legible-v1",
+    "terrain": true,
+    "interiors": true,
+    "overture": false,
+    "fillGround": true,
+    "extendedHeight": true,
+    "bakedLighting": true,
+    "mapPreview": true,
+    "startingMap": true,
+    "gameMode": "creative",
+    "worldTime": 6000
+  },
+  "resources": {
+    "generationThreads": 4,
+    "nice": 10
+  },
+  "runtimeProfiles": ["cinematic", "playable", "living"],
+  "dataSources": {
+    "resolver": {
+      "name": "Nominatim",
+      "endpoint": "https://nominatim.openstreetmap.org/search",
+      "format": "jsonv2"
+    },
+    "osm": {
+      "provider": "OpenStreetMap Overpass",
+      "snapshotPolicy": "frozen-before-generation"
+    },
+    "elevation": {
+      "provider": "Mapterhorn global terrain"
+    },
+    "landCover": {
+      "provider": "ESA WorldCover"
+    },
+    "buildings": {
+      "providers": ["OpenStreetMap"]
+    }
+  },
+  "landmarks": [
+    {
+      "id": "ohlone-park",
+      "name": "Ohlone Park",
+      "lat": 37.8732981,
+      "lon": -122.2772087
+    },
+    {
+      "id": "bancroft-library",
+      "name": "Bancroft Library",
+      "lat": 37.872263,
+      "lon": -122.2590273
+    },
+    {
+      "id": "tightwad-hill",
+      "name": "Tightwad Hill",
+      "lat": 37.8726181,
+      "lon": -122.2508317
+    },
+    {
+      "id": "downtown-berkeley",
+      "name": "Downtown Berkeley",
+      "lat": 37.8701007,
+      "lon": -122.268138
+    },
+    {
+      "id": "lawrence-hall-of-science",
+      "name": "Lawrence Hall of Science",
+      "lat": 37.8790406,
+      "lon": -122.2466718
+    },
+    {
+      "id": "west-berkeley",
+      "name": "West Berkeley",
+      "lat": 37.8689508,
+      "lon": -122.2968266
+    }
+  ],
+  "provenance": {
+    "kind": "promoted-autonomous-draft",
+    "placeSeedId": "berkeley-living-city-v1-002d8946cbe1",
+    "intentId": "berkeley-living-city-v1",
+    "sourceAttempt": "bootstrap-v4",
+    "spawnStatus": "provisional-until-minecraft-inspection"
+  }
+}
