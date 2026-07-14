@@ -111,6 +111,17 @@ node scripts/place-compiler/inspect-route.mjs \
 
 The report keeps point resolution, collision freedom, and true swept traversability separate. An unsupported bridge span therefore cannot look healthy merely because sparse endpoints or collision-only percentages pass.
 
+Sightline specs are likewise independent evidence. The offline inspector selects the highest generated surface in a bounded field around each declared endpoint, raycasts opaque and translucent Minecraft voxels, and repeats the observation at increasing vertical lifts to measure cinematic reveal clearance:
+
+```bash
+node scripts/place-compiler/inspect-sightlines.mjs \
+  --run-root .behold-artifacts/places/PLACE/runs/RUN_ID \
+  --views docs/place-compiler/views/PLACE.json \
+  --run-id SIGHTLINE_INSPECTION_ID
+```
+
+This proves physical block visibility only. Client render distance, Distant Horizons LOD reach, and actively simulated regions remain separate claims and require separate evidence.
+
 The package contains the contract and reproduction code plus visual, structural, ecological, and performance evidence. It deliberately excludes disposable runtime clones and does not repackage either multi-gigabyte world.
 
 ## Compare and package

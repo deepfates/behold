@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "placeRecipe": "docs/place-compiler/places/lower-manhattan.json",
+  "sightlines": [
+    {
+      "id": "one-world-trade-to-battery",
+      "name": "One World Trade Center to The Battery",
+      "observer": { "name": "One World Trade Center", "lat": 40.7127, "lon": -74.0134 },
+      "target": { "name": "The Battery", "lat": 40.7033, "lon": -74.017 }
+    },
+    {
+      "id": "one-world-trade-to-city-hall",
+      "name": "One World Trade Center to City Hall",
+      "observer": { "name": "One World Trade Center", "lat": 40.7127, "lon": -74.0134 },
+      "target": { "name": "New York City Hall", "lat": 40.7128, "lon": -74.006 }
+    }
+  ]
+}
