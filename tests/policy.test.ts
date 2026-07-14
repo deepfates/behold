@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasDecisionRelevantEvent, startLLMPolicy } from '../src/policy/llm';
+import {
+  hasDecisionRelevantEvent,
+  modelDecisionInvalidation,
+  startLLMPolicy,
+} from '../src/policy/llm';
 import type { EntityTurn } from '../src/entity/loom';
 import type { ResidentMind } from '../src/mind/interface';
 
@@ -29,6 +33,26 @@ test('task-directed attention wakes for the target or an addressed message', () 
   assert.equal(hasDecisionRelevantEvent(frame('importdf', false, 30), 4), false);
   assert.equal(hasDecisionRelevantEvent(frame('Director'), 4), true);
   assert.equal(hasDecisionRelevantEvent(frame('importdf', true), 4), true);
+});
+
+test('a model decision fails closed when its observation cursor has a gap', () => {
+  const invalidation = modelDecisionInvalidation(
+    {
+      protocol: 'behold.inhabitant.v1',
+      sequence: 80,
+      eventWindow: { missingBeforeOldest: 5 },
+      events: [],
+    },
+    40,
+  );
+
+  assert.deepEqual(invalidation, {
+    reason: 'observation_gap_after_decision',
+    afterSequence: 40,
+    observedThroughSequence: 80,
+    missingBeforeOldest: 5,
+    invalidatingEvents: [],
+  });
 });
 
 test('stopping a policy aborts an in-flight model request and waits until it is idle', async () => {
@@ -181,6 +205,134 @@ test('an alternate mind receives one bounded observation and the exact admitted 
     assert.equal(attempted[0].tool, 'inspect_volume');
     assert.deepEqual(attempted[0].input, { radius: 2 });
   } finally {
+    await policy.stop();
+  }
+});
+
+test('a model decision cannot cross a body death and respawn boundary', async () => {
+  let lifeSequence = 1;
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => (releaseFirst = resolve));
+  let firstStarted!: () => void;
+  const started = new Promise<void>((resolve) => (firstStarted = resolve));
+  const requests: any[] = [];
+  const attempts: any[] = [];
+  const turns: EntityTurn[] = [];
+  const mind: ResidentMind = {
+    id: 'life-boundary-mind',
+    decide: async (request) => {
+      requests.push(request);
+      if (requests.length === 1) {
+        firstStarted();
+        await firstGate;
+        return {
+          protocol: 'behold.mind-decision.v1',
+          disposition: 'act',
+          utterance: 'I will keep walking from the body I observed.',
+          action: { name: 'move_to', input: { x: 8, y: 64, z: 0 } },
+          call: modelCallEvidence('life-boundary-mind'),
+        };
+      }
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I have reobserved after respawning.',
+        action: null,
+        call: modelCallEvidence('life-boundary-mind'),
+      };
+    },
+  };
+  const observe = (sinceSequence = 0) => ({
+    ...experience(lifeSequence, null, sinceSequence),
+    task: null,
+    eventWindow: {
+      requestedAfterSequence: sinceSequence,
+      oldestAvailableSequence: 1,
+      newestAvailableSequence: lifeSequence,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
+    self: {
+      currentAction: null,
+      condition: { health: 20, food: 20, oxygen: 20 },
+      projects: [],
+      places: [],
+      placeConflicts: [],
+    },
+    events: [
+      {
+        sequence: 1,
+        at: 101,
+        type: 'spawned',
+        isNew: 1 > sinceSequence,
+        source: 'body',
+        salience: 'high',
+        data: {},
+      },
+      ...(lifeSequence >= 3
+        ? [
+            {
+              sequence: 2,
+              at: 102,
+              type: 'died',
+              isNew: 2 > sinceSequence,
+              source: 'body',
+              salience: 'urgent',
+              data: {},
+            },
+            {
+              sequence: 3,
+              at: 103,
+              type: 'spawned',
+              isNew: 3 > sinceSequence,
+              source: 'body',
+              salience: 'high',
+              data: {},
+            },
+          ]
+        : []),
+    ],
+  });
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_to')],
+      attempt: (intent) => {
+        attempts.push(intent);
+        return true;
+      },
+      observe,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    const firstTick = policy.tick();
+    await started;
+    lifeSequence = 3;
+    releaseFirst();
+    await firstTick;
+    await until(() => turns.length === 2);
+
+    assert.equal(attempts.length, 0);
+    assert.equal(turns[0].action.name, 'move_to');
+    assert.equal(turns[0].outcome.ok, false);
+    assert.equal(turns[0].outcome.eventType, 'intent_blocked');
+    assert.equal(turns[0].outcome.error, 'decision_invalidated_by_world');
+    assert.equal(turns[0].outcome.result.reason, 'body_life_boundary_changed');
+    assert.deepEqual(
+      turns[0].outcome.result.invalidatingEvents.map((event: any) => event.type),
+      ['died', 'spawned'],
+    );
+    assert.equal(requests[1].observation.sequence, 3);
+  } finally {
+    releaseFirst();
     await policy.stop();
   }
 });

@@ -395,6 +395,36 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         call: decision.call,
       });
 
+      if (decision.intent) {
+        const latestObservation = environment.observe(
+          Number(draft.observation?.sequence) || lastSequence,
+        );
+        const invalidation = modelDecisionInvalidation(
+          latestObservation,
+          Number(draft.observation?.sequence) || lastSequence,
+        );
+        if (invalidation) {
+          const result = {
+            ok: false,
+            error: 'decision_invalidated_by_world',
+            reason:
+              'The body crossed a life boundary or an observation gap after this decision began. Reobserve before choosing for the current body.',
+            ...invalidation,
+          };
+          appendRejectedToolResult(decision, result);
+          await closeTurn(
+            draft,
+            actionFromIntent(decision.intent, decision.toolCallId),
+            { ok: false, eventType: 'intent_blocked', result, error: result.error },
+            latestObservation,
+          );
+          appendWorldUpdate(observe(), `World after invalidated ${decision.intent.tool}`);
+          log(`[policy] invalidated stale ${decision.intent.tool}: ${invalidation.reason}`);
+          continueImmediately = true;
+          return;
+        }
+      }
+
       if (decision.wait) {
         const result = { ok: true, status: 'waiting_for_world_event' };
         if (decision.toolCallId) {
@@ -1053,6 +1083,38 @@ function hasUnfinishedAction(frame: any) {
   return (
     status === 'queued' || status === 'selected' || status === 'started' || status === 'running'
   );
+}
+
+export function modelDecisionInvalidation(frame: any, afterSequence: number) {
+  const missing = Number(frame?.eventWindow?.missingBeforeOldest || 0);
+  if (missing > 0) {
+    return {
+      reason: 'observation_gap_after_decision',
+      afterSequence,
+      observedThroughSequence: Number(frame?.sequence) || null,
+      missingBeforeOldest: missing,
+      invalidatingEvents: [],
+    };
+  }
+  const lifeBoundaryTypes = new Set(['died', 'spawned', 'dimension_changed']);
+  const invalidatingEvents = (Array.isArray(frame?.events) ? frame.events : [])
+    .filter(
+      (event: any) =>
+        Number(event?.sequence) > afterSequence && lifeBoundaryTypes.has(String(event?.type || '')),
+    )
+    .map((event: any) => ({
+      sequence: Number(event.sequence),
+      at: Number(event.at) || null,
+      type: String(event.type),
+    }));
+  if (!invalidatingEvents.length) return null;
+  return {
+    reason: 'body_life_boundary_changed',
+    afterSequence,
+    observedThroughSequence: Number(frame?.sequence) || null,
+    missingBeforeOldest: 0,
+    invalidatingEvents,
+  };
 }
 
 export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {
