@@ -192,6 +192,26 @@ using 171,100 prompt tokens, 749 completion tokens, 28.35 seconds of aggregate
 model latency, and $0.218363. That is continuity evidence and a clear cognition
 budget failure, not household acceptance.
 
+### A bounded production-life calibration
+
+The production owner can now bound live time after all residents are ready and
+then use its normal controller drain, cognition reconciliation, Minecraft save,
+stopped-state verification, and ownership release. ScoutLife and WrenLife used
+that path for a continuing 30-second untasked episode with the selected Gemini
+3.5 Flash mind and aggregate provider concurrency one.
+
+Wren resumed a shelter concern, made planks, placed a crafting table, and made
+doors. Scout recovered tools and wood but died under skeleton fire. The episode
+proved the owner control and several ordinary consequences; it failed
+ordinary-life acceptance. Fourteen recorded calls consumed 254,914 tokens and
+cost $0.28757775. One autobiography fold alone used 67,319 prompt tokens and
+cost $0.1049295. At critically low health Scout spent its last completed turn
+updating a project to say it should retreat instead of performing an embodied
+retreat.
+
+The exact evidence, including the preceding stale-environment model calibration
+and next-run gate, is in [the bounded ordinary-life report](reports/2026-07-14-bounded-ordinary-life.md).
+
 ## The first packaged-place life proof
 
 On July 14, 2026, the current first-person resident loop entered the independently

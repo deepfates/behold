@@ -16,6 +16,9 @@ test, not the organizing purpose of the system.
 - Managed multi-resident epochs with conjunctive readiness, exact per-entity
   leases, isolated journals/Lync lives, bounded process/model concurrency, and
   all-resident drain before one Minecraft save/stop
+- An optional post-readiness live-time boundary on the production owner, with a
+  real two-resident timed run ending through normal drain, save, verification,
+  and ownership release
 - One runner-owned cognition gate with local per-resident credentials, strict
   request admission, fair/cancellable scheduling, exact durable reconciliation,
   and a live two-resident proof at aggregate provider concurrency one
@@ -52,6 +55,12 @@ test, not the organizing purpose of the system.
 - Sustained multi-resident interaction, cooperation, contention, and soak
   behavior; one staged handoff and one shared cache establish causal exchange
   and a common resource, not a household or society
+- A scalable cognition cadence: the first explicit-model bounded household run
+  used 254,099 prompt tokens and $0.28757775 in 30 seconds for two residents;
+  one disposable Lync fold accounted for 67,319 prompt tokens and $0.1049295
+- A clean separation between embodied action and private memory maintenance;
+  Scout used an urgent low-health turn to write “retreat” into a project rather
+  than performing the retreat
 - Human-scale urgent cognition: matched evidence shows substantially smaller
   prompts and lower uncached cost, but not lower single-call latency
 
@@ -83,19 +92,21 @@ test, not the organizing purpose of the system.
 
 ## Immediate priorities
 
-1. Prove the urgent-attention transition in one bounded live run and continue
-   measuring decision freshness rather than assuming compact prompts are fast.
-2. Finish the player-grain action audit and prove bounded body skills against a
+1. Separate private project bookkeeping from urgent embodied action, while
+   preserving the complete ordinary player action set and resident choice.
+2. Bound aggregate call admission and compress fold evidence to causal deltas;
+   rerun only after declaring token, cost, latency, and storage budgets.
+3. Finish the player-grain action audit and prove bounded body skills against a
    real server independently of whether a model happens to choose them.
-3. Move continuing projects beyond prepared exact cells: let a resident orient,
+4. Move continuing projects beyond prepared exact cells: let a resident orient,
    choose an ordinary site, and resume recognizable work through native looking,
    movement, and first-person evidence.
-4. Stop multiplying scripted exchange scenarios: compress the repeated proof
+5. Stop multiplying scripted exchange scenarios: compress the repeated proof
    machinery, then run a minimally scripted household with a human and several
    continuing residents maintaining one shared place.
-5. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
+6. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
    autobiography growth.
-6. Extend relationship and project memory only where lived tests show that the
+7. Extend relationship and project memory only where lived tests show that the
    bounded recent trajectory and continuity projection are insufficient.
 
 ## Useful world work
