@@ -308,7 +308,7 @@ async function runResident() {
       10_000,
       'resident natural spawn at doorway side',
     );
-    await (bot as any).lookAt(new Vec3(LOWER.x + 0.5, LOWER.y + 0.2, LOWER.z + 0.5), false);
+    await (bot as any).lookAt(new Vec3(LOWER.x + 0.5, LOWER.y + 0.8, LOWER.z + 0.5), false);
     await waitFor(
       () => {
         const focus = experience!.observe().scene.focus;
