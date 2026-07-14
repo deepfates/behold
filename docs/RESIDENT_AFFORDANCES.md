@@ -146,20 +146,20 @@ or whether to keep fighting belongs to the resident.
 This is the forward-looking census. “Partial” means we can already perform
 ordinary examples but have not covered the whole native family.
 
-| Player family                              | Current status             | Important missing native experiences                                                                                      |
-| ------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Seeing, hearing, HUD, and events           | Partial                    | exact-camera visual evidence; more legible obstruction and interaction feedback                                           |
-| Looking and facing                         | Live-proven basic coverage | decide when images are worth their cost; face selected visible targets consistently                                       |
-| Walking and exploration                    | Basic relative walk added  | live model selection; intentional sneak/sprint when meaningful; swimming/climbing feedback                                |
-| Breaking, placing, and ordinary use        | Partial                    | carry the exact visible-target language through mine/place/use; held-item use rather than block-specific controller verbs |
-| Inventory, equipment, pickup, and drop     | Strong basic coverage      | offhand and inventory arrangement only when gameplay makes them meaningful                                                |
-| Crafting and storage                       | Partial                    | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions                                    |
-| Food, sleep, hazards, death, and recovery  | Partial                    | continuous survival competence and honest recovery across long lives                                                      |
-| Creatures and combat                       | Partial                    | independently proven sustained combat; feed, breed, tame, leash, fish, and ordinary entity use                            |
-| Villagers and multiplayer relations        | Partial                    | inspect/select trades, exchange/gifts with witnessed transfer, longer collaboration                                       |
-| Books, signs, maps, and built culture      | Red                        | read/write native artifacts and understand visual builds without an oracle                                                |
-| Vehicles and world traversal               | Red                        | mount/dismount, boats/minecarts, portals/dimensions, and later elytra                                                     |
-| Projects, places, commitments, and restart | Strong core                | evidence from longer lives and multiple concurrent residents                                                              |
+| Player family                              | Current status               | Important missing native experiences                                                                                      |
+| ------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Seeing, hearing, HUD, and events           | Partial                      | exact-camera visual evidence; more legible obstruction and interaction feedback                                           |
+| Looking and facing                         | Live-proven basic coverage   | decide when images are worth their cost; face selected visible targets consistently                                       |
+| Walking and exploration                    | Live-proven walk and swim    | vertical swimming and climbing; intentional sneak/sprint when meaningful                                                  |
+| Breaking, placing, and ordinary use        | Partial                      | carry the exact visible-target language through mine/place/use; held-item use rather than block-specific controller verbs |
+| Inventory, equipment, pickup, and drop     | Strong basic coverage        | offhand and inventory arrangement only when gameplay makes them meaningful                                                |
+| Crafting and storage                       | Partial                      | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions                                    |
+| Food, sleep, hazards, death, and recovery  | Live-proven bounded recovery | continuous survival competence, varied hazards, and recovery across long lives                                            |
+| Creatures and combat                       | Partial                      | independently proven sustained combat; feed, breed, tame, leash, fish, and ordinary entity use                            |
+| Villagers and multiplayer relations        | Partial                      | inspect/select trades, exchange/gifts with witnessed transfer, longer collaboration                                       |
+| Books, signs, maps, and built culture      | Red                          | read/write native artifacts and understand visual builds without an oracle                                                |
+| Vehicles and world traversal               | Red                          | mount/dismount, boats/minecarts, portals/dimensions, and later elytra                                                     |
+| Projects, places, commitments, and restart | Strong core                  | evidence from longer lives and multiple concurrent residents                                                              |
 
 Mineflayer already exposes real Minecraft mechanisms for many red cells,
 including generic block/entity/item activation, furnaces, enchanting, anvils,
@@ -193,14 +193,17 @@ What remains red, in priority order:
    on-demand first-person image is necessary for architecture and visual
    culture.
 2. **Egocentric local movement.** `move_direction` now supplies bounded
-   forward/back/left/right walking relative to the resident's view, while
-   `move_to` remains for visible, communicated, or remembered coordinates. Its
-   first endangered live admission exposed unrestricted pathfinder routing, so
-   the skill now refuses a blocked adjacent body step and enforces a local time,
-   horizontal, and vertical envelope. Two later live selections stayed local:
-   one advanced about three blocks before an honest path-choice failure, and one
-   refused immediately on an oak-leaf obstruction. Safe descent and sustained
-   escape remain red.
+   forward/back/left/right walking or swimming relative to the resident's view,
+   while `move_to` remains for visible, communicated, or remembered
+   coordinates. Its first endangered live admission exposed unrestricted
+   pathfinder routing, so the skill refuses a blocked adjacent body step and
+   enforces a local time, horizontal, and vertical envelope. A later untasked
+   resident used one broker-admitted GPT-5.4-mini decision to swim from x=1.3
+   to x=5.5 during a genuine oxygen crisis. The first version of that proof
+   also revealed that repeated drowning events canceled the very urgent action
+   selected to escape; urgent action ownership now lets one already-selected
+   response reach a bounded terminal before reobservation. Vertical water
+   movement, climbing, and more varied traversal remain red.
 3. **Legible obstruction.** Failed relative walking now reports only the
    adjacent feet, head, and support cells. Coordinate `move_to` failures still
    need equally useful body-scale evidence without revealing a hidden route or
@@ -214,10 +217,12 @@ What remains red, in priority order:
    understand façades, signs, maps, builds, and human visual communication.
    It should supplement—not erase—the cheap structured body/event channel and
    must use the exact resident camera.
-6. **Temporal embodiment and long survival competence.** Fast danger response,
-   interruptible continuing intentions, materials, tools, food, light, shelter,
-   sleep, hazards, death, and recovery need one continuous untasked-life
-   evaluation, not separate scripted successes.
+6. **Temporal embodiment and long survival competence.** One bounded untasked
+   recovery now composes body-origin urgency, a real model decision, ordinary
+   swimming, Minecraft-confirmed oxygen recovery, save, and a fresh-epoch
+   witness. Long continuous life remains red: materials, tools, food, light,
+   shelter, sleep, varied hazards, hostile creatures, death, and recovery must
+   work together without evaluator-authored resident choices.
 7. **Embodied place learning.** A resident can remember where it acted, but new
    construction does not magically become a certified room, doorway, or safe
    interior. Those affordances must be learned through its camera, movement,
@@ -261,3 +266,10 @@ base project and persisted it across restart, but followed sparse façade
 coordinates and opened a one-block-high tunnel while ordinary doors existed
 off camera. The general hole was relative visual orientation, not a Venice
 route, a building ontology, or a `find_door` oracle.
+
+The [untasked recovery trial](reports/2026-07-14-untasked-resident-recovery.md)
+is the corresponding example for temporal embodiment. Its first run stayed red
+because new harm events repeatedly interrupted the already-urgent movement
+selected to escape. The correction was a general action-ownership rule, not an
+underwater story action. The unchanged rerun recovered and persisted across a
+fresh managed epoch.
