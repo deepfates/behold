@@ -144,6 +144,47 @@ These are near-term engineering gates, not the final city budget. If they
 cannot pass without making the resident's world or action space smaller, the
 architecture—not the inhabitant—has to change.
 
+## Provider-free corrections after the run
+
+The failures above have now produced three reusable source-level corrections.
+They have passed the full repository gate, but they are not yet a second live
+ordinary-life result.
+
+First, urgent attention defers only `manage_project`, the private continuity
+mutator. A provider-free replay of Scout's exact low-health observation at
+journal sequence 40 retained every other admitted action. The old request was
+27,360 bytes with 29 actions; the corrected request is 24,518 bytes with 28.
+Its system messages fell from 8,461 to 7,451 bytes and tool definitions from
+12,922 to 11,090. The regenerated urgent system guidance names only the actions
+actually admitted. This removes the demonstrated “write retreat instead of
+retreating” competition without selecting a bodily response for the resident
+or narrowing ordinary deliberative play.
+
+Second, live recent context and disposable Lync folds now use one canonical
+causal observation projection. Historical evidence retains source turn
+anchors, exact attempted actions and outcomes, body-state changes, and new
+events, while dropping copied scene snapshots and suppressing only an exact
+event sequence/type already present in the immediately preceding causal frame.
+Bounded event omission remains explicit in `eventWindow`; it is not silently
+treated as complete. On the actual Wren turns 41–48 that produced the
+204,375-byte fold request, the newly projected `newLoomEvidence` is 33,930
+bytes. Scout turns 57–64 project to 41,483 bytes. The former number is not
+directly comparable to the complete old provider request, and no billed-token
+claim is made until the next real fold call.
+
+Third, the production cognition owner now accepts `--maxModelCalls <n>` as an
+exact population-wide admission ceiling distinct from concurrency and live
+duration. The loopback broker refuses every valid request after the accepted
+count reaches `n`, before any further upstream call; concurrent-arrival tests
+prove the count cannot overshoot. The configured limit, remaining admissions,
+and exact accepted count are present in snapshots and the hash-chained broker
+journal, and the foreground owner begins its normal shutdown when the limit is
+reached. This is a hard call bound, not yet a hard token or dollar bound.
+
+The provider-free Scout profile and both real-Lync projections performed no
+world mutation and made no provider request. The complete build, lint, and
+test gate passes 324 of 324 tests after these changes.
+
 ## Evidence
 
 - selected run journals:
@@ -153,7 +194,8 @@ architecture—not the inhabitant—has to change.
 - selected lifecycle:
   `.behold-runtime/world-control/first-life-v1/lifecycle-12.jsonl`
 - provider-free request profiles:
-  `request-profile-shelter.json` and `request-profile-urgent-project.json`
-  under the selected resident run directories
+  `request-profile-shelter.json`, `request-profile-urgent-project.json`, and
+  `request-profile-urgent-embodied.json` under the selected resident run
+  directories
 - environment-calibration run:
   `.behold-runs/first-life-v1-11` and lifecycle `lifecycle-11.jsonl`

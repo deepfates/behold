@@ -212,6 +212,20 @@ retreat.
 The exact evidence, including the preceding stale-environment model calibration
 and next-run gate, is in [the bounded ordinary-life report](reports/2026-07-14-bounded-ordinary-life.md).
 
+The demonstrated failures are now corrected at their owning source boundaries,
+pending live validation. Urgent bodily attention retains the complete admitted
+Minecraft action surface but defers the private `manage_project` mutator; a
+replay of Scout's exact low-health frame confirms the action and prompt contract
+without calling a provider. Disposable Lync folds now consume the same causal,
+loss-visible observation deltas as recent model history instead of copying full
+scene snapshots. The actual eight-turn Wren evidence now projects to 33,930
+bytes; its old complete provider request was 204,375 bytes, so this is not an
+apples-to-apples full-request reduction and only a new live call can establish
+billed tokens. Finally, the managed owner has an exact
+population-wide accepted-call ceiling, enforced before upstream even under
+concurrent arrivals and recorded in the cognition journal. These are reusable
+preconditions for the next episode, not a retroactive household pass.
+
 ## The first packaged-place life proof
 
 On July 14, 2026, the current first-person resident loop entered the independently

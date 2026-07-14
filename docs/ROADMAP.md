@@ -21,7 +21,8 @@ test, not the organizing purpose of the system.
   and ownership release
 - One runner-owned cognition gate with local per-resident credentials, strict
   request admission, fair/cancellable scheduling, exact durable reconciliation,
-  and a live two-resident proof at aggregate provider concurrency one
+  an exact population-wide accepted-call ceiling, and a live two-resident proof
+  at aggregate provider concurrency one
 - Unified `behold <AgentName>` CLI plus console and stdio control modes
 - Observations with position, health, inventory, nearby entities, nearby blocks, chat, action lifecycle, and recent events
 - Human stop latches new model work, queued intents cancel, and active actions serialize
@@ -31,7 +32,11 @@ test, not the organizing purpose of the system.
 - Bounded model working context over an unbounded durable trajectory
 - Event-driven idle waking, immediate admitted-action dispatch, stale body-life
   decision fencing, and an adversarially tested urgent-attention handoff that
-  preserves the full player action set
+  preserves the full player action set while deferring only private project
+  bookkeeping during bodily urgency
+- One canonical causal, loss-visible observation projection shared by recent
+  model history and disposable Lync folds; provider-free projection of the
+  previously oversized Wren batch is 33,930 bytes
 - Ordinary life affordances for finding, collecting, crafting, sleeping, and defense
 - One player-grain two-resident handoff using only walking, dropping, automatic
   Minecraft pickup, independent observations, and restart continuity
@@ -57,10 +62,12 @@ test, not the organizing purpose of the system.
   and a common resource, not a household or society
 - A scalable cognition cadence: the first explicit-model bounded household run
   used 254,099 prompt tokens and $0.28757775 in 30 seconds for two residents;
-  one disposable Lync fold accounted for 67,319 prompt tokens and $0.1049295
-- A clean separation between embodied action and private memory maintenance;
-  Scout used an urgent low-health turn to write “retreat” into a project rather
-  than performing the retreat
+  one disposable Lync fold accounted for 67,319 prompt tokens and $0.1049295.
+  Causal fold projection and a hard call ceiling are implemented, but no new
+  paid run has established their token and cost effect
+- Live evidence that the urgent embodied/bookkeeping separation changes survival
+  behavior; the exact failed frame now has the right admitted-action contract,
+  but a provider-free replay cannot prove the resident will act well
 - Human-scale urgent cognition: matched evidence shows substantially smaller
   prompts and lower uncached cost, but not lower single-call latency
 
@@ -92,10 +99,11 @@ test, not the organizing purpose of the system.
 
 ## Immediate priorities
 
-1. Separate private project bookkeeping from urgent embodied action, while
-   preserving the complete ordinary player action set and resident choice.
-2. Bound aggregate call admission and compress fold evidence to causal deltas;
-   rerun only after declaring token, cost, latency, and storage budgets.
+1. Run the corrected exact Scout urgent frame and causal fold path in a bounded
+   live episode with explicit call, token, cost, latency, and storage budgets.
+2. Keep the hard aggregate call ceiling above the expected episode demand so it
+   is a safety boundary, then verify refusal, terminal reconciliation, and the
+   owner's normal shutdown from durable evidence.
 3. Finish the player-grain action audit and prove bounded body skills against a
    real server independently of whether a model happens to choose them.
 4. Move continuing projects beyond prepared exact cells: let a resident orient,
