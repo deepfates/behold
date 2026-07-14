@@ -59,8 +59,10 @@ tool-call error, and high recent uptime. It remains more expensive than GPT-5.4
 Mini and is not the new default. Current provider information is available on
 the [OpenRouter model page](https://openrouter.ai/google/gemini-3.5-flash/providers).
 
-The successful run was `neutral-decision-v2-20260714b` at repository revision
-`50bf23db083068b507399d3f0181904989b86ee7`:
+The successful run was `neutral-decision-v2-20260714b`. Its operator-observed
+repository revision was `50bf23db083068b507399d3f0181904989b86ee7`; the v2
+result did not embed that revision, so it is not part of the machine-verified
+binding. V3 now refuses a dirty worktree and embeds the source revision.
 
 - one entity: `FreeWren`;
 - one disposable Minecraft epoch: `behold-owned-flat-v1`, epoch 1;
@@ -86,6 +88,16 @@ Canonical local evidence is under
 `.behold-runtime/owned-world-proofs/neutral-decision-v2-20260714b/`.
 The exact mind request is private mode-0600 evidence. The committed report
 contains only identities, measurements, verdicts, and evidence locations.
+
+After the run, verifier revision
+`76098013d296006c687bbcb61b2aaaefd6fdb057` independently reopened the
+evaluator Lync episode, authenticated its exact entity-life range, re-read the
+run and lifecycle journals, recomputed the decision and world-action
+assessments, matched the private request artifact, and reproduced both
+bindings. The reassessment is
+`evidence/reassessment-v1-clean.json` under the proof root, with SHA-256
+`06a4c0f5b8521fb484fff66317f497e8f18e236d3bce9717363cfb75c35574d1`.
+It records material effect and world competence as `not_assessed`.
 
 ## What this proves and what it does not
 
