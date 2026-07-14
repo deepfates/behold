@@ -832,6 +832,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           opts.onModelInterrupted?.({
             ...interruption,
             model: activeDecision?.model || opts.model,
+            ...(e instanceof ResidentMindCallError ? { call: e.call } : {}),
           });
         } else {
           log(`[policy] error: ${e?.message || String(e)}`);

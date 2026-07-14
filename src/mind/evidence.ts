@@ -1,6 +1,18 @@
 import type { CognitionAdmissionEvidence } from './cognition';
 import type { RequestByteAttribution } from './request-attribution';
 
+export type MindProgramIdentity = {
+  protocol: 'behold.mind-program-identity.v1';
+  name: string;
+  artifactProtocol: string;
+  artifactSha256: string;
+  signatureSha256: string;
+  runtime: {
+    name: string;
+    version: string;
+  };
+};
+
 export type ModelCallEvidence = {
   protocol: 'behold.model-call.v1';
   requestId: string;
@@ -14,6 +26,8 @@ export type ModelCallEvidence = {
     name: string;
     version?: string;
   };
+  /** Immutable cognitive program selected before this request was made. */
+  program?: MindProgramIdentity;
   request: {
     model: string;
     messageCount: number;

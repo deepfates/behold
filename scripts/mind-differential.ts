@@ -15,7 +15,7 @@ import { buildInterpreter } from '../src/agent/interpreter';
 import { openEntityLoom } from '../src/entity/loom';
 import { createPlaceMemory } from '../src/entity/places';
 import { createProjectMemory } from '../src/entity/projects';
-import { createAxResidentMind } from '../src/mind/ax';
+import { createAxResidentMind, parseAxResidentProgramArtifact } from '../src/mind/ax';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { profileDirectResidentRequest } from '../src/mind/request-profile';
 import { startLLMPolicy } from '../src/policy/llm';
@@ -31,6 +31,7 @@ type Args = {
   attentionPair: boolean;
   profileOnly: boolean;
   timeoutMs: number;
+  axProgram?: string;
 };
 
 async function main() {
@@ -218,6 +219,13 @@ async function main() {
             apiKey,
             model,
             apiURL: openAICompatibleBaseURL(process.env.OPENROUTER_BASE_URL),
+            ...(args.axProgram
+              ? {
+                  programArtifact: parseAxResidentProgramArtifact(
+                    JSON.parse(fs.readFileSync(path.resolve(args.axProgram), 'utf8')),
+                  ),
+                }
+              : {}),
           })
         : null;
     let candidate: any = null;
@@ -353,10 +361,12 @@ function parseArgs(argv: string[]): Args {
   let attentionPair = false;
   let profileOnly = false;
   let timeoutMs = 30_000;
+  let axProgram: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--journal') journal = String(argv[++index] || '');
     else if (argv[index] === '--out') out = String(argv[++index] || '');
     else if (argv[index] === '--model') model = String(argv[++index] || '');
+    else if (argv[index] === '--ax-program') axProgram = String(argv[++index] || '');
     else if (argv[index] === '--model-turn') {
       modelTurn = Number(argv[++index]);
       if (!Number.isSafeInteger(modelTurn) || modelTurn < 1) {
@@ -381,8 +391,11 @@ function parseArgs(argv: string[]): Args {
   }
   if (!journal) {
     throw new Error(
-      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--timeoutMs <ms>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
+      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--ax-program artifact.json] [--timeoutMs <ms>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
     );
+  }
+  if (axProgram && (candidate !== 'ax' || attentionPair || profileOnly)) {
+    throw new Error('--ax-program applies only to an Ax candidate rollout');
   }
   return {
     journal,
@@ -393,6 +406,7 @@ function parseArgs(argv: string[]): Args {
     ...(model ? { model } : {}),
     ...(modelTurn == null ? {} : { modelTurn }),
     ...(out ? { out } : {}),
+    ...(axProgram ? { axProgram } : {}),
   };
 }
 

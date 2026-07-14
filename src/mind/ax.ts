@@ -6,6 +6,24 @@ import {
   parseCognitionAdmission,
   type CognitionAdmissionEvidence,
 } from './cognition';
+import {
+  AX_RESIDENT_PROGRAM_ID,
+  AX_RESIDENT_SIGNATURE,
+  AX_RESIDENT_SIGNATURE_SHA256,
+  AX_VERSION,
+  axResidentProgramIdentity,
+  defaultAxResidentProgramArtifact,
+  parseAxResidentProgramArtifact,
+  type AxResidentProgramArtifact,
+} from './ax-program-artifact';
+
+export {
+  axResidentProgramFromOptimization,
+  axResidentProgramIdentity,
+  defaultAxResidentProgramArtifact,
+  parseAxResidentProgramArtifact,
+} from './ax-program-artifact';
+export type { AxResidentProgramArtifact, AxResidentProgramIdentity } from './ax-program-artifact';
 
 // Ax publishes a supported CommonJS entry, but its ESM-first declaration file
 // trips TypeScript's Node16 interop check in this deliberately CommonJS app.
@@ -15,7 +33,10 @@ const { ai, ax } = require('@ax-llm/ax') as {
   ax: (signature: string) => {
     forward: (llm: any, input: any, options?: any) => Promise<any>;
     addAssert: (assertion: (output: any) => true | string) => void;
+    setId: (id: string) => void;
     setInstruction: (instruction: string) => void;
+    setDemos: (demos: readonly any[]) => void;
+    getSignature: () => { toString: () => string };
     getUsage: () => unknown[];
     resetUsage: () => void;
     getTraces: () => unknown[];
@@ -23,7 +44,6 @@ const { ai, ax } = require('@ax-llm/ax') as {
   };
 };
 
-const AX_VERSION = '23.0.0';
 const DEFAULT_OPENROUTER_URL = 'https://openrouter.ai/api/v1';
 
 export type AxResidentMindOptions = {
@@ -37,6 +57,8 @@ export type AxResidentMindOptions = {
   cognitionTransport?: boolean;
   now?: () => number;
   fetch?: typeof fetch;
+  /** Frozen candidate program. Runtime observations and policy context remain inputs. */
+  programArtifact?: AxResidentProgramArtifact;
 };
 
 /**
@@ -107,22 +129,21 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
     }
     return llm;
   };
-  const program = ax(`
-    "Choose exactly one next action for a persistent embodied resident from bounded lived evidence. Propose only; never claim the action happened and never execute tools."
-    profiles:json,
-    livedContext:json,
-    currentObservation:json,
-    attention?:json,
-    admittedActionNames:string[],
-    admittedActions:json,
-    requiredAction?:string
-    ->
-    disposition:class "act, wait, no_action",
-    actionName?:string,
-    actionInput?:json,
-    utterance:string,
-    waitReason?:string
-  `);
+  const programArtifact = parseAxResidentProgramArtifact(
+    options.programArtifact ?? defaultAxResidentProgramArtifact(),
+  );
+  const programIdentity = axResidentProgramIdentity(programArtifact);
+  const program = ax(AX_RESIDENT_SIGNATURE);
+  program.setId(AX_RESIDENT_PROGRAM_ID);
+  const signatureSha256 = sha256(program.getSignature().toString());
+  if (
+    signatureSha256 !== AX_RESIDENT_SIGNATURE_SHA256 ||
+    signatureSha256 !== programArtifact.signatureSha256
+  ) {
+    throw new Error('Ax canonical resident signature differs from the admitted artifact');
+  }
+  program.setInstruction(programArtifact.instruction);
+  if (programArtifact.demos.length > 0) program.setDemos(programArtifact.demos);
   program.addAssert((output: any) => {
     const constraint = activeActionConstraint;
     if (!constraint) return true;
@@ -156,7 +177,6 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
         admitted: new Set(request.actions.map((action) => action.name)),
         required: request.requiredAction,
       };
-      program.setInstruction(residentInstruction(request));
       program.resetUsage();
       try {
         const output: any = await program.forward(llmFor(request.model), input as any, {
@@ -180,6 +200,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           latencyMs: Math.max(0, completedAt - startedAt),
           ...(admissions.length ? { admissions: cloneJson(admissions) } : {}),
           adapter: { name: 'ax', version: AX_VERSION },
+          program: programIdentity,
           request: {
             model: request.model,
             messageCount: request.conversation.length,
@@ -217,7 +238,6 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
         };
         return toDecision(output, call);
       } catch (error: any) {
-        if (signal.aborted) throw error;
         const completedAt = now();
         const call: ModelCallFailureEvidence = {
           protocol: 'behold.model-call.v1',
@@ -228,6 +248,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           latencyMs: Math.max(0, completedAt - startedAt),
           ...(admissions.length ? { admissions: cloneJson(admissions) } : {}),
           adapter: { name: 'ax', version: AX_VERSION },
+          program: programIdentity,
           request: {
             model: request.model,
             messageCount: request.conversation.length,
@@ -258,6 +279,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
 
 function mindInput(request: ResidentMindRequest) {
   return {
+    policyGuidance: policyGuidance(request),
     profiles: {
       policy: request.policyProfile ?? 'legacy-unspecified',
       actions: request.actionProfile ?? 'legacy-unspecified',
@@ -283,18 +305,11 @@ function wireTools(actions: ResidentMindRequest['actions']) {
   }));
 }
 
-function residentInstruction(request: ResidentMindRequest) {
-  const system = request.conversation.find(
-    (message: any) => message?.role === 'system' && typeof message?.content === 'string',
-  ) as any;
-  return [
-    'Choose exactly one next action for this persistent embodied resident from bounded lived evidence.',
-    'Propose only. Never execute a tool and never claim an action happened before its later world consequence is observed.',
-    'actionName must exactly equal one admittedActionNames value.',
-    system?.content || '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+function policyGuidance(request: ResidentMindRequest) {
+  const first = request.conversation[0] as any;
+  return first?.role === 'system' && typeof first?.content === 'string'
+    ? first.content
+    : 'Use only the bounded context and admitted affordances.';
 }
 
 function livedContext(request: ResidentMindRequest) {

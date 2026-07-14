@@ -1,8 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAxResidentMind } from '../src/mind/ax';
+import {
+  axResidentProgramIdentity,
+  axResidentProgramFromOptimization,
+  createAxResidentMind,
+  defaultAxResidentProgramArtifact,
+  parseAxResidentProgramArtifact,
+} from '../src/mind/ax';
 import { startCognitionBroker } from '../src/mind/cognition-broker';
 import { cognitionResidentKey } from '../src/mind/cognition';
+import { ResidentMindCallError } from '../src/mind/evidence';
+import { AX_RESIDENT_PROGRAM_ID, AX_RESIDENT_SIGNATURE } from '../src/mind/ax-program-artifact';
 
 test('Ax proposes a typed decision without receiving executable world functions', async () => {
   const requests: any[] = [];
@@ -51,6 +59,10 @@ test('Ax proposes a typed decision without receiving executable world functions'
     },
   });
 
+  const programArtifact = parseAxResidentProgramArtifact({
+    ...defaultAxResidentProgramArtifact(),
+    instruction: 'Candidate strategy marker: prefer concise public proposals.',
+  });
   const mind = createAxResidentMind({
     apiKey: localBearer,
     model: 'test/model',
@@ -62,37 +74,38 @@ test('Ax proposes a typed decision without receiving executable world functions'
       let value = 100;
       return () => (value += 5);
     })(),
+    programArtifact,
   });
 
   try {
-    const decision = await mind.decide(
-      {
-        protocol: 'behold.mind-request.v1',
-        entityId: 'Scout',
-        model: 'test/urgent-model',
-        observation: { inventory: [{ name: 'oak_log', count: 1 }] },
-        conversation: [
-          { role: 'system', content: 'Live carefully.' },
-          { role: 'system', content: 'Folded view of your own loom: the shelter is unfinished.' },
-          { role: 'system', content: 'Urgent attention handoff: self_hurt@42.' },
-          { role: 'user', content: 'Current world experience: body health is 6.' },
-        ],
-        actions: [
-          {
-            name: 'craft_item',
-            description: 'Craft one recipe',
-            inputSchema: { type: 'object', properties: { item: { type: 'string' } } },
-          },
-        ],
-        requiredAction: null,
-        attention: {
-          mode: 'urgent',
-          context: 'current_body_and_continuity',
-          triggers: [{ sequence: 42, type: 'self_hurt', salience: 'urgent' }],
+    const mindRequest: any = {
+      protocol: 'behold.mind-request.v1',
+      entityId: 'Scout',
+      model: 'test/urgent-model',
+      observation: { inventory: [{ name: 'oak_log', count: 1 }] },
+      conversation: [
+        { role: 'system', content: 'Live carefully.' },
+        { role: 'system', content: 'Folded view of your own loom: the shelter is unfinished.' },
+        { role: 'system', content: 'Urgent attention handoff: self_hurt@42.' },
+        { role: 'user', content: 'Current world experience: body health is 6.' },
+      ],
+      actions: [
+        {
+          name: 'craft_item',
+          description: 'Craft one recipe',
+          inputSchema: { type: 'object', properties: { item: { type: 'string' } } },
         },
+      ],
+      requiredAction: null,
+      attention: {
+        mode: 'urgent',
+        context: 'current_body_and_continuity',
+        triggers: [{ sequence: 42, type: 'self_hurt', salience: 'urgent' }],
       },
-      { signal: new AbortController().signal },
-    );
+    };
+    const decision = await mind.decide(mindRequest, {
+      signal: new AbortController().signal,
+    });
 
     assert.equal(requests.length, 2, 'Ax should retry an action outside the admitted set');
     assert.equal(
@@ -104,10 +117,14 @@ test('Ax proposes a typed decision without receiving executable world functions'
     assert.match(firstRequest, /Folded view of your own loom/);
     assert.match(firstRequest, /Urgent attention handoff/);
     assert.match(firstRequest, /current_body_and_continuity/);
+    assert.match(firstRequest, /Candidate strategy marker/);
+    assert.match(firstRequest, /Never execute an action/);
     assert.equal(decision.disposition, 'act');
     assert.equal(decision.action?.name, 'craft_item');
     assert.deepEqual(decision.action?.input, { item: 'oak_planks' });
     assert.equal(decision.call.adapter?.name, 'ax');
+    assert.deepEqual(decision.call.program, axResidentProgramIdentity(programArtifact));
+    assert.match(decision.call.program?.artifactSha256 || '', /^[a-f0-9]{64}$/);
     assert.equal(decision.call.request.model, 'test/urgent-model');
     assert.ok(requests.every((request) => request.model === 'test/urgent-model'));
     assert.equal(decision.call.request.kind, 'mind_input');
@@ -121,7 +138,251 @@ test('Ax proposes a typed decision without receiving executable world functions'
       ),
     );
     assert.equal(broker.snapshot().completed, 2);
+
+    const secondDecision = await mind.decide(
+      {
+        ...mindRequest,
+        conversation: [
+          { role: 'system', content: 'Different policy guidance for the same candidate.' },
+          ...mindRequest.conversation.slice(1),
+        ],
+      },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(requests.length, 3);
+    assert.match(JSON.stringify(requests[2]), /Different policy guidance/);
+    assert.deepEqual(secondDecision.call.program, decision.call.program);
+    assert.equal(broker.snapshot().completed, 3);
   } finally {
     await broker.close();
   }
+});
+
+test('Ax program artifacts have stable content identities and reject another contract', () => {
+  const baseline = defaultAxResidentProgramArtifact();
+  const parsed = parseAxResidentProgramArtifact(JSON.parse(JSON.stringify(baseline)));
+  assert.deepEqual(axResidentProgramIdentity(parsed), axResidentProgramIdentity(baseline));
+  assert.ok(Object.isFrozen(parsed));
+
+  const changed = parseAxResidentProgramArtifact({
+    ...baseline,
+    instruction: `${baseline.instruction}\nPrefer concise public utterances.`,
+  });
+  assert.notEqual(
+    axResidentProgramIdentity(changed).artifactSha256,
+    axResidentProgramIdentity(baseline).artifactSha256,
+  );
+  assert.throws(
+    () => parseAxResidentProgramArtifact({ ...baseline, axVersion: 'future' }),
+    /requires @ax-llm\/ax 23\.0\.0/,
+  );
+  assert.throws(
+    () => parseAxResidentProgramArtifact({ ...baseline, signatureSha256: '0'.repeat(64) }),
+    /signature does not match/,
+  );
+  assert.throws(
+    () => parseAxResidentProgramArtifact({ ...baseline, ignored: 'not behavioral, supposedly' }),
+    /unknown field ignored/,
+  );
+});
+
+test('Ax optimizer output is narrowed to admitted inference behavior', () => {
+  const baseline = defaultAxResidentProgramArtifact();
+  const { ax } = require('@ax-llm/ax') as { ax: (signature: string) => any };
+  const sourceProgram = ax(AX_RESIDENT_SIGNATURE);
+  sourceProgram.setId(AX_RESIDENT_PROGRAM_ID);
+  sourceProgram.setInstruction(baseline.instruction);
+  const actualComponentMap = Object.fromEntries(
+    sourceProgram
+      .getOptimizableComponents()
+      .map((component: any) => [component.key, component.current]),
+  );
+  const optimized = axResidentProgramFromOptimization({
+    optimizerType: 'GEPA',
+    bestScore: 0.8,
+    scoreHistory: [0.2, 0.8],
+    componentMap: {
+      ...actualComponentMap,
+      'behold.resident-decision.v1::instruction': 'Choose one admitted action carefully.',
+    },
+    demos: [
+      {
+        programId: 'behold.resident-decision.v1',
+        traces: [
+          {
+            policyGuidance: 'Use only current evidence.',
+            profiles: { policy: 'neutral-benchmark-v1' },
+            livedContext: { messages: [] },
+            currentObservation: { health: 20 },
+            admittedActionNames: ['wait_for_event'],
+            admittedActions: [{ name: 'wait_for_event' }],
+            disposition: 'wait',
+            utterance: 'I will wait.',
+            waitReason: 'No change yet.',
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(optimized.instruction, 'Choose one admitted action carefully.');
+  assert.equal(optimized.demos.length, 1);
+  assert.ok(Object.isFrozen(optimized.demos[0].traces[0]));
+  assert.doesNotThrow(() =>
+    createAxResidentMind({ apiKey: 'offline', model: 'test/model', programArtifact: optimized }),
+  );
+  assert.notEqual(
+    axResidentProgramIdentity(optimized).artifactSha256,
+    axResidentProgramIdentity(baseline).artifactSha256,
+  );
+  assert.throws(
+    () =>
+      axResidentProgramFromOptimization({
+        componentMap: { 'behold.resident-decision.v1::description': 'mutated contract' },
+      }),
+    /may not mutate component/,
+  );
+  assert.throws(
+    () => axResidentProgramFromOptimization({ modelConfig: { temperature: 1 } }),
+    /does not admit optimizer model configuration/,
+  );
+  assert.throws(
+    () =>
+      parseAxResidentProgramArtifact({
+        ...baseline,
+        demos: [
+          {
+            programId: 'behold.resident-decision.v1',
+            traces: [{ disposition: 'wait', ignoredReasoning: 'private' }],
+          },
+        ],
+      }),
+    /unknown field ignoredReasoning/,
+  );
+  assert.throws(
+    () =>
+      parseAxResidentProgramArtifact({
+        ...baseline,
+        demos: [
+          {
+            programId: 'behold.resident-decision.v1',
+            traces: [{ disposition: 'wait', utterance: undefined }],
+          },
+        ],
+      }),
+    /only JSON values/,
+  );
+  assert.throws(
+    () =>
+      parseAxResidentProgramArtifact({
+        ...baseline,
+        demos: [
+          {
+            programId: 'behold.resident-decision.v1',
+            traces: [
+              { policyGuidance: 'test', currentObservation: new Date(), disposition: 'wait' },
+            ],
+          },
+        ],
+      }),
+    /plain object/,
+  );
+  assert.throws(
+    () =>
+      parseAxResidentProgramArtifact({
+        ...baseline,
+        demos: [
+          {
+            programId: 'behold.resident-decision.v1',
+            traces: [{ policyGuidance: 'test', currentObservation: NaN, disposition: 'wait' }],
+          },
+        ],
+      }),
+    /only JSON values/,
+  );
+  assert.throws(
+    () =>
+      parseAxResidentProgramArtifact({
+        ...baseline,
+        demos: [
+          {
+            programId: 'behold.resident-decision.v1',
+            traces: [{ utterance: 'output only' }],
+          },
+        ],
+      }),
+    /at least one program input/,
+  );
+});
+
+test('a failed Ax call retains the exact candidate program identity', async () => {
+  const artifact = defaultAxResidentProgramArtifact();
+  const mind = createAxResidentMind({
+    apiKey: 'test-key',
+    model: 'test/model',
+    apiURL: 'https://models.example.test/v1',
+    maxRetries: 0,
+    fetch: async () => new Response('{"error":"unauthorized"}', { status: 401 }),
+  });
+  await assert.rejects(
+    mind.decide(
+      {
+        protocol: 'behold.mind-request.v1',
+        entityId: 'Scout',
+        model: 'test/model',
+        observation: { health: 20 },
+        conversation: [{ role: 'system', content: 'Use current world evidence.' }],
+        actions: [
+          {
+            name: 'wait_for_event',
+            description: 'Yield until the world changes',
+            inputSchema: { type: 'object', properties: {} },
+          },
+        ],
+        requiredAction: null,
+      },
+      { signal: new AbortController().signal },
+    ),
+    (error: any) => {
+      assert.ok(error instanceof ResidentMindCallError);
+      assert.deepEqual(error.call.program, axResidentProgramIdentity(artifact));
+      return true;
+    },
+  );
+});
+
+test('an aborted Ax call retains the exact candidate program identity', async () => {
+  const artifact = defaultAxResidentProgramArtifact();
+  const mind = createAxResidentMind({
+    apiKey: 'test-key',
+    model: 'test/model',
+    apiURL: 'https://models.example.test/v1',
+    maxRetries: 0,
+    fetch: async () => assert.fail('a pre-aborted call must not reach the provider'),
+  });
+  const controller = new AbortController();
+  controller.abort(new Error('evaluation cancelled'));
+  await assert.rejects(
+    mind.decide(
+      {
+        protocol: 'behold.mind-request.v1',
+        entityId: 'Scout',
+        model: 'test/model',
+        observation: { health: 20 },
+        conversation: [{ role: 'system', content: 'Use current world evidence.' }],
+        actions: [
+          {
+            name: 'wait_for_event',
+            inputSchema: { type: 'object', properties: {} },
+          },
+        ],
+        requiredAction: null,
+      },
+      { signal: controller.signal },
+    ),
+    (error: any) => {
+      assert.ok(error instanceof ResidentMindCallError);
+      assert.deepEqual(error.call.program, axResidentProgramIdentity(artifact));
+      return true;
+    },
+  );
 });

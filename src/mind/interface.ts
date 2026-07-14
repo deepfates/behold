@@ -1,4 +1,4 @@
-import type { ModelCallEvidence } from './evidence';
+import type { ModelCallEvidence, ModelCallFailureEvidence } from './evidence';
 
 export type ResidentMindAction = {
   name: string;
@@ -29,6 +29,8 @@ export type ResidentAttentionInterruption = {
   observationSequence: number;
   from: ResidentAttention;
   to: ResidentAttention;
+  /** Failed/aborted provider evidence when the mind adapter could produce it. */
+  call?: ModelCallEvidence | ModelCallFailureEvidence;
 };
 
 /**
