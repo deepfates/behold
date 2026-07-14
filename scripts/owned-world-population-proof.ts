@@ -43,7 +43,7 @@ import {
 import { digestTree } from './world-lab';
 import { startManagedWorld, type ManagedResidentSpec, type ManagedWorldRun } from './world-runner';
 
-const WITNESS_ID = 'PopulationWitness';
+const WITNESS_ID = 'PopWitness';
 const SECOND_TARGET = Object.freeze({ x: -3, y: -60, z: 0, item: 'carrot', count: 1 });
 const ALLOW_TOOLS = Object.freeze(['collect_nearby_item', 'inspect_volume']);
 const DEFAULT_BUDGETS: PopulationProofBudgets = Object.freeze({

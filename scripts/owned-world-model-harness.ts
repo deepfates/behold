@@ -162,6 +162,11 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
   settleMs?: number;
   observe: (bot: ReturnType<typeof createBot>) => T | Promise<T>;
 }) {
+  if (!/^[A-Za-z0-9_]{1,16}$/.test(input.witnessId)) {
+    throw new Error(
+      `fresh offline Minecraft witness identity must be 1-16 letters, digits, or underscores: ${input.witnessId}`,
+    );
+  }
   return withEnvironment(
     {
       SERVER_HOST: '127.0.0.1',
@@ -290,15 +295,40 @@ async function withEnvironment<T>(
 }
 
 async function waitForLocalWorld(bot: ReturnType<typeof createBot>, timeoutMs: number) {
-  const localWorld = (async () => {
-    if (!(bot as any).entity) {
-      await new Promise<void>((resolve, reject) => {
-        bot.once('spawn', () => resolve());
-        bot.once('error', reject);
-      });
-    }
-    await bot.waitForChunksToLoad();
-  })();
+  const localWorld = new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      bot.removeListener('spawn', onSpawn);
+      bot.removeListener('error', onError);
+      bot.removeListener('kicked', onKicked);
+      bot.removeListener('end', onEnd);
+    };
+    const pass = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    const onError = (error: unknown) => fail(error);
+    const onKicked = (reason: unknown) =>
+      fail(new Error(`fresh Minecraft witness was kicked: ${JSON.stringify(reason)}`));
+    const onEnd = (reason: unknown) =>
+      fail(new Error(`fresh Minecraft witness disconnected before readiness: ${String(reason)}`));
+    const onSpawn = () => {
+      void bot.waitForChunksToLoad().then(pass, fail);
+    };
+    bot.once('spawn', onSpawn);
+    bot.once('error', onError);
+    bot.once('kicked', onKicked);
+    bot.once('end', onEnd);
+    if ((bot as any).entity) onSpawn();
+  });
   let timer: NodeJS.Timeout | null = null;
   try {
     await Promise.race([
