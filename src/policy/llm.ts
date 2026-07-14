@@ -732,8 +732,26 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       if (COMMUNICATION_TOOLS.has(intent.tool)) consecutiveCommunicationActions += 1;
       else if (intent.tool !== WAIT_TOOL) consecutiveCommunicationActions = 0;
       lastTool = intent.tool;
-      const accepted = environment.attempt(intent);
+      // Establish ownership before admission. The environment may synchronously
+      // emit a terminal event while enqueueing (for example, bodily urgency can
+      // reclaim the just-queued model action). onEngineEvent must be able to
+      // match that terminal, and this frame must not reinstall a pending intent
+      // after the terminal has already claimed it.
+      const proposedPending = { intent, toolCallId: decision.toolCallId, draft };
+      pending = proposedPending;
+      let accepted: boolean | void;
+      try {
+        accepted = environment.attempt(intent);
+      } catch (error) {
+        if (pending === proposedPending) pending = null;
+        throw error;
+      }
       if (accepted === false) {
+        if (pending !== proposedPending) {
+          // A synchronous terminal already owns closure of this turn.
+          return;
+        }
+        pending = null;
         const result = {
           ok: false,
           error: 'intent_not_enqueued',
@@ -751,7 +769,6 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         continueImmediately = true;
         return;
       }
-      pending = { intent, toolCallId: decision.toolCallId, draft };
     } catch (e: any) {
       if (!stopped) {
         const interruption = activeDecision?.interruption;

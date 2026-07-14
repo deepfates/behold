@@ -14,6 +14,7 @@ import type { EntityTurn } from '../src/entity/loom';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { cognitionHeaderNames } from '../src/mind/cognition';
 import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
+import { createEngine } from '../src/loop/engine';
 
 function withMinecraftActionSurface<T extends { actions: readonly any[] }>(environment: T) {
   return {
@@ -87,6 +88,84 @@ test('only bodily urgent events can reclaim a model-owned body action', () => {
   assert.equal(isBodilyUrgencyEvent({ type: 'sound_heard', salience: 'urgent' }), true);
   assert.equal(isBodilyUrgencyEvent({ type: 'self_hurt', salience: 'high' }), false);
   assert.equal(isBodilyUrgencyEvent({ type: 'chat_received', salience: 'urgent' }), false);
+});
+
+test('synchronous urgency during enqueue closes the policy turn instead of stranding it', async () => {
+  const engineEvents: any[] = [];
+  const entityTurns: EntityTurn[] = [];
+  let dispatches = 0;
+  let policy: ReturnType<typeof startLLMPolicy> | null = null;
+  let terminalHandling: Promise<void> | null = null;
+  const engine = createEngine(
+    {
+      list: () => [],
+      run: async () => {
+        dispatches += 1;
+        return { ok: true };
+      },
+    },
+    {
+      onEvent: (event) => {
+        engineEvents.push(event);
+        if (event.type === 'intent_enqueued') {
+          engine.requestModelActionCancellation('bodily_urgent_attention', {
+            eventSequence: 7,
+            eventType: 'self_hurt',
+          });
+        }
+        const handled = policy?.onEngineEvent(event);
+        if (event.type === 'intent_blocked' && handled) terminalHandling = handled;
+      },
+    },
+  );
+  const mind: ResidentMind = {
+    id: 'enqueue-race-mind',
+    decide: async () => ({
+      protocol: 'behold.mind-decision.v1',
+      disposition: 'act',
+      utterance: 'I begin walking.',
+      action: { name: 'move_direction', input: { direction: 'forward', distance: 3 } },
+      call: modelCallEvidence('enqueue-race-mind'),
+    }),
+  };
+  policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_direction')],
+      attempt: (intent) => engine.enqueueIntent(intent),
+      observe: (sinceSequence) => experience(7, null, sinceSequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      maxTurnSteps: 1,
+      acceptEngineEvent: engine.acceptsEvent,
+      onEntityTurn: (turn) => entityTurns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => terminalHandling !== null);
+    await terminalHandling;
+    await engine.tick();
+    await until(() => policy?.state().turnActive === false);
+
+    assert.equal(dispatches, 0, 'the reclaimed action never reaches the world adapter');
+    assert.equal(policy.state().pendingIntentId, null);
+    assert.equal(policy.state().turnActive, false);
+    assert.equal(entityTurns.length, 1);
+    assert.equal(entityTurns[0].outcome.eventType, 'intent_blocked');
+    assert.equal(entityTurns[0].outcome.error, 'bodily_urgent_attention');
+    assert.equal(
+      engineEvents.filter((event) => event.type === 'intent_blocked').length,
+      1,
+      'one admitted choice has one terminal lifecycle event',
+    );
+  } finally {
+    await policy.stop();
+  }
 });
 
 test('only a newly urgent lived event selects compact urgent cognition', () => {
