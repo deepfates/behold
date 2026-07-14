@@ -91,10 +91,23 @@ const routeSpec = {
   profile: 'trekking',
   waypoints: selectedPoints.map((item) => item.observed),
 };
+const revealPoint = observedWaypoint(selection.reveal.landmark, selection.reveal.checkpoint);
+const views = {
+  schemaVersion: 1,
+  placeRecipe: path.relative(repositoryRoot, options.recipe),
+  sightlines: selectedPoints.map((item) => ({
+    id: `${selection.reveal.landmark.id}-to-${item.id}`,
+    name: `${selection.reveal.landmark.name} to ${item.observed.name}`,
+    observer: revealPoint,
+    target: item.observed,
+  })),
+};
 const experiencePath = path.join(options.output, 'experience.json');
 const routeSpecPath = path.join(options.output, 'ground-route.spec.json');
+const viewsPath = path.join(options.output, 'views.json');
 writeFileSync(experiencePath, `${JSON.stringify(experience, null, 2)}\n`, { flag: 'wx' });
 writeFileSync(routeSpecPath, `${JSON.stringify(routeSpec, null, 2)}\n`, { flag: 'wx' });
+writeFileSync(viewsPath, `${JSON.stringify(views, null, 2)}\n`, { flag: 'wx' });
 const manifest = {
   schemaVersion: 1,
   kind: 'place-visit-candidate',
@@ -120,7 +133,11 @@ const manifest = {
   consideredGroundDestinations: selection.consideredGroundDestinations,
   rejectedDestinationIds: options.rejectedDestinationIds,
   measuredWaypointPolicy: 'observed-headroom-bearing-surface-v1',
-  outputs: { experience: 'experience.json', routeSpec: 'ground-route.spec.json' },
+  outputs: {
+    experience: 'experience.json',
+    routeSpec: 'ground-route.spec.json',
+    views: 'views.json',
+  },
 };
 writeFileSync(
   path.join(options.output, 'visit-candidate.json'),

@@ -13,6 +13,7 @@ function parse(argv) {
     if (key === '--base') options.base = argv[++index];
     else if (key === '--recipe') options.recipe = argv[++index];
     else if (key === '--run-root') options.runRoot = argv[++index];
+    else if (key === '--experience') options.experience = argv[++index];
     else if (key === '--output') options.output = argv[++index];
     else if (key === '--id') options.id = argv[++index];
     else throw new Error(`Unknown or incomplete argument: ${key}`);
@@ -37,6 +38,9 @@ const base = repositoryRelative(options.base, 'base benchmark');
 const recipeFile = repositoryRelative(options.recipe, 'recipe');
 const run = repositoryRelative(options.runRoot, 'run root');
 const output = repositoryRelative(options.output, 'output');
+const experienceFile = options.experience
+  ? repositoryRelative(options.experience, 'experience')
+  : null;
 if (existsSync(output.absolute)) throw new Error(`output exists: ${output.absolute}`);
 
 const benchmark = JSON.parse(readFileSync(base.absolute, 'utf8'));
@@ -74,6 +78,12 @@ const fixture = {
   worldTreeSha256: tree.treeSha256,
   worldFileCount: tree.fileCount,
   worldSizeBytes: tree.totalSizeBytes,
+  ...(experienceFile
+    ? {
+        experiencePath: experienceFile.relative,
+        experienceSha256: await sha256(experienceFile.absolute),
+      }
+    : {}),
 };
 const extended = {
   ...benchmark,
