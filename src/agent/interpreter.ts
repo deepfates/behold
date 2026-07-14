@@ -456,10 +456,10 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       const bodyTimeLimitMs = Math.min(configuredTimeout, 2_500 + distanceBlocks * 1_000);
       const navigation = await runPathfinderGoal(
         bot,
-        new (goals as any).GoalNear(intendedFeet.x, intendedFeet.y, intendedFeet.z, 1),
+        new (goals as any).GoalNear(intendedFeet.x, intendedFeet.y, intendedFeet.z, 0),
         {
           destination: intendedPosition,
-          near: 1,
+          near: 0,
           timeoutMs: bodyTimeLimitMs,
           target: `${requested} relative walk`,
           signal: execution?.signal,
@@ -471,6 +471,8 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       );
       const final = positionOf(bot);
       const finalFeet = (bot as any).entity?.position?.floored?.();
+      const bodyDisplacement = final ? distance(start, final) : null;
+      const bodyMoved = bodyDisplacement != null && bodyDisplacement >= 0.1;
       const displacement = final
         ? {
             forward: round((final.x - start.x) * vector.x + (final.z - start.z) * vector.z),
@@ -480,14 +482,23 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         : null;
       return {
         ...navigation,
+        ...(navigation.ok && !bodyMoved
+          ? {
+              ok: false,
+              status: 'no_body_movement',
+              error: 'body_not_moved',
+            }
+          : {}),
         direction: requested,
         distanceBlocks,
         bodyTimeLimitMs,
         orientationAtStart: orientationRecord(yaw, pitch),
         intendedFeet,
         finalFeet: finalFeet ? { x: finalFeet.x, y: finalFeet.y, z: finalFeet.z } : null,
+        bodyMoved,
+        bodyDisplacement,
         displacement,
-        ...(navigation.ok ? {} : { obstruction: immediatePath }),
+        ...(navigation.ok && bodyMoved ? {} : { obstruction: immediatePath }),
       };
     },
     category: 'move',

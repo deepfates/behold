@@ -616,6 +616,16 @@ test('move_direction fails closed and explains only adjacent player-scale obstru
   });
   assert.equal(unconfirmed.ok, false);
   assert.equal(unconfirmed.error, 'arrival_unconfirmed');
+
+  const oneBlockNoOp = await interpreter.run('move_direction', {
+    direction: 'back',
+    distance: 1,
+  });
+  assert.equal(oneBlockNoOp.ok, false);
+  assert.equal(oneBlockNoOp.status, 'no_body_movement');
+  assert.equal(oneBlockNoOp.error, 'body_not_moved');
+  assert.equal(oneBlockNoOp.bodyMoved, false);
+  assert.equal(oneBlockNoOp.bodyDisplacement, 0);
 });
 
 test('move_direction stops pathfinding at a strict player-scale movement envelope', async () => {
