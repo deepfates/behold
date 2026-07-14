@@ -1,4 +1,5 @@
 import type { CognitionAdmissionEvidence } from './cognition';
+import type { RequestByteAttribution } from './request-attribution';
 
 export type ModelCallEvidence = {
   protocol: 'behold.model-call.v1';
@@ -25,6 +26,8 @@ export type ModelCallEvidence = {
     bodyBytes?: number;
     /** `provider_request` is exact wire input; `mind_input` is adapter input. */
     kind?: 'provider_request' | 'mind_input';
+    /** Content-free exact partition of a provider request when available. */
+    byteAttribution?: RequestByteAttribution;
     body?: unknown;
   };
   response: {

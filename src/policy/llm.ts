@@ -25,6 +25,7 @@ import type {
   ResidentMindRequest,
 } from '../mind/interface';
 import { directOpenRouterRequestBody } from '../mind/direct-wire';
+import { attributeProviderRequestBody } from '../mind/request-attribution';
 import {
   cognitionClientHeaders,
   parseCognitionAdmission,
@@ -1657,6 +1658,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     toolChoice: null,
     bodySha256: sha256(requestBody),
     bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
+    byteAttribution: attributeProviderRequestBody(body),
     messagesSha256: sha256(stableJson(messages)),
     toolsSha256: sha256(stableJson([])),
     kind: 'provider_request' as const,
@@ -1951,6 +1953,7 @@ async function callLLM(
     toolChoice: body.tool_choice,
     bodySha256: sha256(requestBody),
     bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
+    byteAttribution: attributeProviderRequestBody(body),
     messagesSha256: sha256(stableJson(messages)),
     toolsSha256: sha256(stableJson(specs)),
     kind: 'provider_request' as const,

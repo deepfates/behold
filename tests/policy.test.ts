@@ -1803,6 +1803,21 @@ test('model turns preserve reproducible call, usage, latency, and opt-in IO evid
     assert.match(call.request.bodySha256, /^[a-f0-9]{64}$/);
     assert.match(call.request.messagesSha256, /^[a-f0-9]{64}$/);
     assert.match(call.request.toolsSha256, /^[a-f0-9]{64}$/);
+    assert.equal(call.request.byteAttribution.protocol, 'behold.request-byte-attribution.v1');
+    assert.equal(call.request.byteAttribution.bodyBytes, call.request.bodyBytes);
+    assert.equal(
+      Object.values(call.request.byteAttribution.components).reduce(
+        (total: number, value: any) => total + Number(value),
+        0,
+      ),
+      call.request.bodyBytes,
+    );
+    assert.deepEqual(
+      call.request.byteAttribution.messageEntries.map((entry: any) => entry.role),
+      (call.request.body as any).messages.map((message: any) => message.role),
+    );
+    assert.equal(call.request.byteAttribution.toolDefinitionEntries[0].name, 'wait_for_event');
+    assert.equal(JSON.stringify(call.request.byteAttribution).includes('Live here'), false);
     assert.equal((call.request.body as any).messages[0].role, 'system');
     assert.equal(call.response.id, 'generation-1');
     assert.equal(call.response.model, 'provider/resolved-model');
@@ -1885,6 +1900,10 @@ test('loom-fold model usage is journalable instead of hidden from resident budge
     assert.equal(auxiliary[0].purpose, 'loom_fold');
     assert.equal(auxiliary[0].call.protocol, 'behold.model-call.v1');
     assert.equal(auxiliary[0].call.request.toolCount, 0);
+    assert.equal(
+      auxiliary[0].call.request.byteAttribution.bodyBytes,
+      auxiliary[0].call.request.bodyBytes,
+    );
     assert.equal(auxiliary[0].call.request.body.messages[0].role, 'system');
     assert.equal(auxiliary[0].call.response.id, 'fold-generation');
     assert.equal(auxiliary[0].call.response.usage.total_tokens, 90);
