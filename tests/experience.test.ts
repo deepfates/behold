@@ -249,34 +249,43 @@ test('healthy sensor initialization does not retrigger an existing body crisis',
 
 test('breath ticks preserve exact body state without flooding lived event history', () => {
   const bot = fakeBot();
-  bot.oxygenLevel = 300;
+  bot.oxygenLevel = 20;
   const experience = new InhabitantExperience(bot);
 
-  bot.oxygenLevel = 299;
+  bot.oxygenLevel = 19;
   bot.emit('breath');
   const withinFullBubble = experience.observe();
-  assert.equal(withinFullBubble.self.condition.oxygen, 299);
+  assert.equal(withinFullBubble.self.condition.oxygen, 19);
   assert.equal(
     withinFullBubble.events.some((event) => event.type === 'condition_changed'),
     false,
   );
 
-  bot.oxygenLevel = 270;
+  bot.oxygenLevel = 18;
   bot.emit('breath');
   const lostBubble = experience.observe();
   const warning = lostBubble.events.find((event) => event.type === 'condition_changed');
   assert.equal(warning?.salience, 'high');
   assert.deepEqual(warning?.data, {
-    previous: { health: 20, food: 20, oxygen: 299 },
-    current: { health: 20, food: 20, oxygen: 270 },
+    previous: { health: 20, food: 20, oxygen: 19 },
+    current: { health: 20, food: 20, oxygen: 18 },
   });
 
-  bot.oxygenLevel = 269;
+  bot.oxygenLevel = 17;
   bot.emit('breath');
   const withinNextBubble = experience.observe(warning!.sequence);
-  assert.equal(withinNextBubble.self.condition.oxygen, 269);
+  assert.equal(withinNextBubble.self.condition.oxygen, 17);
   assert.equal(
     withinNextBubble.events.some((event) => event.isNew && event.type === 'condition_changed'),
+    false,
+  );
+
+  bot.oxygenLevel = 219;
+  bot.emit('breath');
+  const corruptMetadata = experience.observe(warning!.sequence);
+  assert.equal(corruptMetadata.self.condition.oxygen, 17);
+  assert.equal(
+    corruptMetadata.events.some((event) => event.isNew && event.type === 'condition_changed'),
     false,
   );
 

@@ -1,5 +1,6 @@
 import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
+import { minecraftOxygenLevel } from './condition';
 
 export type ChatLine = { username: string; message: string; at: number } | null;
 
@@ -86,7 +87,7 @@ export function collectObservation(bot: Bot, lastChat: ChatLine) {
     position,
     health: (bot as any).health,
     food: (bot as any).food,
-    oxygen: (bot as any).oxygenLevel,
+    oxygen: minecraftOxygenLevel((bot as any).oxygenLevel),
     heldItem: held?.name || held?.displayName || null,
     inventory,
     onlinePlayers,

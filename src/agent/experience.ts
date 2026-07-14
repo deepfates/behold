@@ -9,7 +9,11 @@ import {
   worldPositionIsVisible,
 } from './observation';
 import type { InhabitantProject } from '../entity/projects';
-import { bodyConditionBecameOrWorsenedCritical, isCriticalBodyCondition } from './condition';
+import {
+  bodyConditionBecameOrWorsenedCritical,
+  isCriticalBodyCondition,
+  minecraftOxygenLevel,
+} from './condition';
 import {
   findProjectPlaceConflicts,
   situatePlaces,
@@ -212,7 +216,7 @@ export class InhabitantExperience {
     this.lastCondition = {
       health: finiteOrNull((this.bot as any).health),
       food: finiteOrNull((this.bot as any).food),
-      oxygen: finiteOrNull((this.bot as any).oxygenLevel),
+      oxygen: minecraftOxygenLevel((this.bot as any).oxygenLevel),
     };
     this.lastInventory = inventoryState(this.bot);
     this.lastDayPhase = dayPhase(this.bot);
@@ -411,7 +415,7 @@ export class InhabitantExperience {
         condition: {
           health: finiteOrNull(base.health),
           food: finiteOrNull(base.food),
-          oxygen: finiteOrNull(base.oxygen),
+          oxygen: this.lastCondition.oxygen,
           dimension: base.dimension == null ? null : String(base.dimension),
           isDay: typeof base.isDay === 'boolean' ? base.isDay : null,
         },
@@ -467,12 +471,12 @@ export class InhabitantExperience {
     const onSpawn = () => this.record('spawned', {}, 'high', 'body');
     const onDeath = () => this.record('died', {}, 'urgent', 'body');
     const onHealth = () => {
+      const previous = this.lastCondition;
       const next = {
         health: finiteOrNull((this.bot as any).health),
         food: finiteOrNull((this.bot as any).food),
-        oxygen: finiteOrNull((this.bot as any).oxygenLevel),
+        oxygen: minecraftOxygenLevel((this.bot as any).oxygenLevel) ?? previous.oxygen,
       };
-      const previous = this.lastCondition;
       this.lastCondition = next;
       if (!conditionMeaningfullyChanged(previous, next)) return;
       const worsened =
@@ -886,10 +890,10 @@ function finiteOrNull(value: any) {
 }
 
 /**
- * Mineflayer reports air ticks, while a Minecraft player sees ten breath
- * bubbles plus a final critical edge. Keep the exact value in the current body
- * observation, but admit only those player-visible transitions to lived event
- * history so a swim cannot crowd every other event out of working memory.
+ * Mineflayer exposes a 0–20 oxygen display level, while a Minecraft player sees
+ * ten breath bubbles plus a final critical edge. Keep the exact valid level in
+ * the current body observation, but admit only those player-visible transitions
+ * to lived event history so a swim cannot crowd every other event out of memory.
  */
 function conditionMeaningfullyChanged(
   previous: { health: number | null; food: number | null; oxygen: number | null },
@@ -905,7 +909,7 @@ function conditionMeaningfullyChanged(
 function oxygenDisplayBand(value: number | null) {
   if (value == null) return Number.POSITIVE_INFINITY;
   if (value <= 5) return 0;
-  return Math.max(1, Math.min(10, Math.ceil(value / 30)));
+  return Math.max(1, Math.min(10, Math.ceil(value / 2)));
 }
 
 function booleanOrNull(value: any) {

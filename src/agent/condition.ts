@@ -4,6 +4,17 @@ export const CRITICAL_BODY_THRESHOLDS = Object.freeze({
   oxygen: 5,
 });
 
+export const MINECRAFT_OXYGEN_LEVEL_MAX = 20;
+
+/** Mineflayer normalizes Minecraft's 300 air-supply ticks to a 0–20 level. */
+export function minecraftOxygenLevel(value: unknown) {
+  if (value == null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= MINECRAFT_OXYGEN_LEVEL_MAX
+    ? number
+    : null;
+}
+
 /** Minecraft-specific body pressure that remains urgent until the value improves. */
 export function isCriticalBodyCondition(condition: any) {
   return (

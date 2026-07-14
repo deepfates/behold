@@ -1,5 +1,6 @@
 import { Vec3 } from 'vec3';
 import type { Bot } from 'mineflayer';
+import { minecraftOxygenLevel } from './condition';
 import { declaredNonResidentAudience, type ActionAudience } from './action-audience';
 import { goals } from 'mineflayer-pathfinder';
 import mcDataLoader from 'minecraft-data';
@@ -4381,8 +4382,8 @@ async function boundedPickupNudge(
       pickupGround,
     };
   }
-  const oxygen = Number((bot as any).oxygenLevel ?? (bot as any).oxygen);
-  if (Number.isFinite(oxygen) && oxygen <= 5) {
+  const oxygen = minecraftOxygenLevel((bot as any).oxygenLevel ?? (bot as any).oxygen);
+  if (oxygen != null && oxygen <= 5) {
     return {
       attempted: false,
       collected: false,
