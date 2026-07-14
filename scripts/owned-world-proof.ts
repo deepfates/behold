@@ -7,10 +7,10 @@ import { startManagedWorld } from './world-runner';
 import {
   OWNED_LEVEL_SEED as LEVEL_SEED,
   OWNED_TARGET as TARGET,
-  OWNED_WORLD_ID as WORLD_ID,
   durableWriteJson,
   gitRevision,
   listFiles,
+  prepareAdmittedPlaceWorld,
   prepareOwnedWorld,
   readJson,
   restoreEnvironment,
@@ -34,29 +34,58 @@ async function main() {
     options: {
       run: { type: 'string' },
       port: { type: 'string' },
+      'place-epoch': { type: 'string' },
+      arrival: { type: 'string' },
+      affordance: { type: 'string' },
       help: { type: 'boolean', default: false },
     },
   });
   if (parsed.values.help) {
     process.stdout.write(
-      'Usage: owned-world-proof [--run <safe-id>] [--port <unused-loopback-port>]\n',
+      'Usage:\n' +
+        '  owned-world-proof [--run <safe-id>] [--port <unused-loopback-port>]\n' +
+        '  owned-world-proof --place-epoch <admitted-dir> --arrival <x,y,z> --affordance <x,y,z> [--run <safe-id>]\n',
     );
     return;
   }
   const requestedRunId = String(
     parsed.values.run || `run-${new Date().toISOString().replace(/[:.]/g, '-')}`,
   );
-  const port = Number(parsed.values.port || 25575);
-  const fixture = await prepareOwnedWorld(
-    requestedRunId,
-    port,
-    'owned-world',
-    TARGET,
-    [],
-    OCCLUSION_WALL,
-  );
+  const admittedRoot = parsed.values['place-epoch']
+    ? path.resolve(String(parsed.values['place-epoch']))
+    : null;
+  if (admittedRoot && parsed.values.port) {
+    throw new Error('a Place epoch owns its configured port; do not pass --port');
+  }
+  if (!admittedRoot && (parsed.values.arrival || parsed.values.affordance)) {
+    throw new Error('--arrival and --affordance require --place-epoch');
+  }
+  const fixture = admittedRoot
+    ? await prepareAdmittedPlaceWorld(
+        requestedRunId,
+        admittedRoot,
+        parsePoint(requiredOption(parsed.values.arrival, '--arrival')),
+        {
+          ...parsePoint(requiredOption(parsed.values.affordance, '--affordance')),
+          item: 'apple',
+          count: 1,
+        },
+      )
+    : await prepareOwnedWorld(
+        requestedRunId,
+        Number(parsed.values.port || 25575),
+        'owned-world',
+        TARGET,
+        [],
+        OCCLUSION_WALL,
+      );
   const {
     runId,
+    port,
+    worldId,
+    placeEpoch,
+    admittedRuntimeTree,
+    target,
     repository,
     root,
     serverDirectory,
@@ -76,6 +105,10 @@ async function main() {
     initialRuntimeTree,
     world,
   } = fixture;
+  const proofScenario = placeEpoch ? 'place-continuity' : 'perception-continuity';
+  const assertionProfile = placeEpoch
+    ? 'behold.packaged-place-continuity.v1'
+    : 'behold.first-person-continuity.v1';
 
   const transcript: string[] = [];
   const runPhase = async (phase: 'act' | 'resume') => {
@@ -83,14 +116,16 @@ async function main() {
     const previous = {
       phase: process.env.BEHOLD_PROOF_PHASE,
       file: process.env.BEHOLD_PROOF_FILE,
+      scenario: process.env.BEHOLD_PROOF_SCENARIO,
     };
     process.env.BEHOLD_PROOF_PHASE = phase;
     process.env.BEHOLD_PROOF_FILE = proofFile;
+    process.env.BEHOLD_PROOF_SCENARIO = proofScenario;
     let run: Awaited<ReturnType<typeof startManagedWorld>> | null = null;
     try {
       run = await startManagedWorld(
         {
-          worldId: WORLD_ID,
+          worldId,
           world,
           controlRoot,
           serverDirectory,
@@ -134,7 +169,7 @@ async function main() {
         proofWait.abort();
       }
       const proof = readJson(proofFile);
-      validateInhabitantProof(proof, phase, run.runId);
+      validateInhabitantProof(proof, phase, run.runId, worldId, proofScenario);
       await run.stop(`owned_world_${phase}_complete`);
       await run.finished;
       const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
@@ -153,6 +188,7 @@ async function main() {
     } finally {
       restoreEnvironment('BEHOLD_PROOF_PHASE', previous.phase);
       restoreEnvironment('BEHOLD_PROOF_FILE', previous.file);
+      restoreEnvironment('BEHOLD_PROOF_SCENARIO', previous.scenario);
     }
   };
 
@@ -168,12 +204,17 @@ async function main() {
   );
   if (loomFiles.length !== 1)
     throw new Error(`expected one authoritative Lync log, found ${loomFiles.length}`);
-  const assertions = {
+  const observationPerformance = placeEpoch
+    ? act.proof.observationPerformance
+    : act.proof.approach?.observationPerformance;
+  const expectedActTurns = placeEpoch ? 1 : 4;
+  const expectedResumeTurns = expectedActTurns + 1;
+  const commonAssertions = {
     initialAffordanceObserved:
-      act.proof.initialDroppedItems?.filter((item: any) => item?.name === TARGET.item).length ===
+      act.proof.initialDroppedItems?.filter((item: any) => item?.name === target.item).length ===
         1 &&
       act.proof.initialObservation?.scene?.entities?.some(
-        (entity: any) => entity?.kind === 'item' && entity?.name === TARGET.item,
+        (entity: any) => entity?.kind === 'item' && entity?.name === target.item,
       ),
     observationProtocolV2:
       act.proof.initialObservation?.protocol === 'behold.inhabitant.v2' &&
@@ -188,88 +229,102 @@ async function main() {
       'get_nearby',
       'survey_area',
     ].every((tool) => !act.proof.inhabitantActions?.includes(tool)),
-    locomotionBudgetOwnedByBody:
-      act.proof.locomotion?.result?.ok === true &&
-      act.proof.locomotion?.result?.status === 'advanced_toward' &&
-      act.proof.locomotion?.result?.bodyLegLimit === 6 &&
-      act.proof.locomotion?.result?.arrivedAtRequestedDestination === false &&
-      Object.keys(act.proof.locomotion?.action?.input || {})
-        .sort()
-        .join(',') === 'x,y,z',
-    exactMovingEntityApproachConfirmed:
-      act.proof.approach?.turn?.result?.ok === true &&
-      act.proof.approach?.turn?.result?.target === 'player:ProofWitness' &&
-      act.proof.approach?.turn?.result?.confirmation === 'mineflayer:body_target_proximity' &&
-      act.proof.approach?.turn?.result?.pathfinderStopAcknowledged === true &&
-      positionDistance(
-        act.proof.approach?.witnessStartedAt,
-        act.proof.approach?.witnessFinishedAt,
-      ) >= 3 &&
-      act.proof.approach?.turn?.result?.finalDistance <=
-        act.proof.approach?.turn?.result?.bodyStopDistance + 0.75 &&
-      Object.keys(act.proof.approach?.turn?.action?.input || {}).join(',') === 'target',
-    occludedEntityTrackedButNotPerceived:
-      act.proof.approach?.hidden?.rawTracked === true &&
-      act.proof.approach?.hidden?.observation?.scene?.social?.playersOnline?.includes(
-        'ProofWitness',
-      ) &&
-      !act.proof.approach?.hidden?.observation?.scene?.entities?.some(
-        (entity: any) => entity?.id === 'player:ProofWitness',
-      ) &&
-      act.proof.approach?.hidden?.eventsNamingTarget === 0,
-    occludedTargetDeniedBeforeMotion:
-      act.proof.approach?.hidden?.turn?.result?.ok === false &&
-      act.proof.approach?.hidden?.turn?.result?.error === 'target_not_perceived' &&
-      positionDistance(
-        act.proof.approach?.hidden?.residentBefore,
-        act.proof.approach?.hidden?.residentAfter,
-      ) < 0.1,
-    visibleEntityEarnedExactTarget: act.proof.approach?.visibleObservation?.scene?.entities?.some(
-      (entity: any) =>
-        entity?.id === 'player:ProofWitness' &&
-        entity?.source === 'vision' &&
-        entity?.visibility === 'visible',
-    ),
     boundedObservationLatency:
-      act.proof.approach?.observationPerformance?.samples === 20 &&
-      act.proof.approach?.observationPerformance?.raysPerObservation === 45 &&
-      act.proof.approach?.observationPerformance?.p95Ms <= OBSERVATION_LATENCY_BUDGET_MS,
+      observationPerformance?.samples === 20 &&
+      observationPerformance?.raysPerObservation === 45 &&
+      observationPerformance?.p95Ms <= OBSERVATION_LATENCY_BUDGET_MS,
     collectionConfirmedByMinecraft:
       act.proof.collection?.result?.ok === true &&
-      act.proof.collection?.result?.item === TARGET.item &&
+      act.proof.collection?.result?.item === target.item &&
       act.proof.collection?.result?.confirmation === 'mineflayer:playerCollect' &&
       /^entity:\d+$/.test(String(act.proof.collection?.result?.target || '')) &&
       act.proof.collection?.result?.targetAtStart?.distance > 0 &&
       Object.keys(act.proof.collection?.action?.input || {}).join(',') === 'target',
     independentConsequenceObserved:
       act.proof.independentWitness?.source === 'fresh_minecraft_connection' &&
-      !act.proof.independentWitness?.droppedItems?.some((item: any) => item?.name === TARGET.item),
+      !act.proof.independentWitness?.droppedItems?.some((item: any) => item?.name === target.item),
     inhabitantBoundToManagedIdentity:
-      act.proof.circleId === WORLD_ID &&
+      act.proof.circleId === worldId &&
       act.proof.runId === act.managedRunId &&
-      act.proof.initialObservation?.circle?.id === WORLD_ID &&
+      act.proof.initialObservation?.circle?.id === worldId &&
       act.proof.initialObservation?.circle?.managedRunId === act.managedRunId &&
-      resume.proof.circleId === WORLD_ID &&
+      resume.proof.circleId === worldId &&
       resume.proof.runId === resume.managedRunId &&
-      resume.proof.initialObservation?.circle?.id === WORLD_ID &&
+      resume.proof.initialObservation?.circle?.id === worldId &&
       resume.proof.initialObservation?.circle?.managedRunId === resume.managedRunId,
     independentWitnessBoundToActEpoch:
-      act.proof.independentWitness?.worldId === WORLD_ID &&
+      act.proof.independentWitness?.worldId === worldId &&
       act.proof.independentWitness?.managedRunId === act.managedRunId,
     managedEpochAdvancedOnRestart:
       act.managedRunId !== resume.managedRunId &&
-      act.managedRunId.startsWith(`${WORLD_ID}-`) &&
-      resume.managedRunId.startsWith(`${WORLD_ID}-`),
-    firstLifePersistedFourTurns: act.proof.resultingTurns === 4,
-    restartLoadedPriorLife: resume.proof.priorTurns === 4,
+      act.managedRunId.startsWith(`${worldId}-`) &&
+      resume.managedRunId.startsWith(`${worldId}-`),
+    restartLoadedPriorLife: resume.proof.priorTurns === expectedActTurns,
     consequencePersistedAcrossRestart:
       resume.proof.initialObservation?.self?.inventory?.some(
-        (item: any) => item?.name === TARGET.item && item?.count === TARGET.count,
-      ) && !resume.proof.initialDroppedItems?.some((item: any) => item?.name === TARGET.item),
+        (item: any) => item?.name === target.item && item?.count === target.count,
+      ) && !resume.proof.initialDroppedItems?.some((item: any) => item?.name === target.item),
     restartDidNotRepeatCollection: resume.proof.collectionAttempts === 0,
-    restartExtendedSameLoom: resume.proof.resultingTurns === 5,
+    restartExtendedSameLoom: resume.proof.resultingTurns === expectedResumeTurns,
     lifecycleOwnedBothRuns: act.lifecycleEvents > 0 && resume.lifecycleEvents > 0,
   };
+  const assertions = placeEpoch
+    ? {
+        ...commonAssertions,
+        packagedPlaceIdentityBound:
+          placeEpoch.worldId === worldId &&
+          placeEpoch.behold.sourceTree.digest === sourceTree.digest &&
+          placeEpoch.behold.baselineTree.digest === baselineTree.digest &&
+          admittedRuntimeTree?.digest === baselineTree.digest,
+        firstLifePersistedOneTurn: act.proof.resultingTurns === 1,
+      }
+    : {
+        ...commonAssertions,
+        locomotionBudgetOwnedByBody:
+          act.proof.locomotion?.result?.ok === true &&
+          act.proof.locomotion?.result?.status === 'advanced_toward' &&
+          act.proof.locomotion?.result?.bodyLegLimit === 6 &&
+          act.proof.locomotion?.result?.arrivedAtRequestedDestination === false &&
+          Object.keys(act.proof.locomotion?.action?.input || {})
+            .sort()
+            .join(',') === 'x,y,z',
+        exactMovingEntityApproachConfirmed:
+          act.proof.approach?.turn?.result?.ok === true &&
+          act.proof.approach?.turn?.result?.target === 'player:ProofWitness' &&
+          act.proof.approach?.turn?.result?.confirmation === 'mineflayer:body_target_proximity' &&
+          act.proof.approach?.turn?.result?.pathfinderStopAcknowledged === true &&
+          positionDistance(
+            act.proof.approach?.witnessStartedAt,
+            act.proof.approach?.witnessFinishedAt,
+          ) >= 3 &&
+          act.proof.approach?.turn?.result?.finalDistance <=
+            act.proof.approach?.turn?.result?.bodyStopDistance + 0.75 &&
+          Object.keys(act.proof.approach?.turn?.action?.input || {}).join(',') === 'target',
+        occludedEntityTrackedButNotPerceived:
+          act.proof.approach?.hidden?.rawTracked === true &&
+          act.proof.approach?.hidden?.observation?.scene?.social?.playersOnline?.includes(
+            'ProofWitness',
+          ) &&
+          !act.proof.approach?.hidden?.observation?.scene?.entities?.some(
+            (entity: any) => entity?.id === 'player:ProofWitness',
+          ) &&
+          act.proof.approach?.hidden?.eventsNamingTarget === 0,
+        occludedTargetDeniedBeforeMotion:
+          act.proof.approach?.hidden?.turn?.result?.ok === false &&
+          act.proof.approach?.hidden?.turn?.result?.error === 'target_not_perceived' &&
+          positionDistance(
+            act.proof.approach?.hidden?.residentBefore,
+            act.proof.approach?.hidden?.residentAfter,
+          ) < 0.1,
+        visibleEntityEarnedExactTarget:
+          act.proof.approach?.visibleObservation?.scene?.entities?.some(
+            (entity: any) =>
+              entity?.id === 'player:ProofWitness' &&
+              entity?.source === 'vision' &&
+              entity?.visibility === 'visible',
+          ),
+        firstLifePersistedFourTurns: act.proof.resultingTurns === 4,
+      };
   const failed = Object.entries(assertions)
     .filter(([, value]) => !value)
     .map(([name]) => name);
@@ -279,8 +334,9 @@ async function main() {
   const reportFile = path.join(evidenceRoot, 'report.json');
   durableWriteJson(reportFile, {
     protocol: PROTOCOL,
+    assertionProfile,
     runId,
-    worldId: WORLD_ID,
+    worldId,
     entityId: ENTITY_ID,
     startedAt,
     completedAt: new Date().toISOString(),
@@ -294,10 +350,11 @@ async function main() {
       sha256: actualServerJarSha256,
       java,
       port,
-      generation,
-      seed: LEVEL_SEED,
+      preparation: generation,
+      seed: placeEpoch ? null : LEVEL_SEED,
     },
-    target: TARGET,
+    placeEpoch,
+    target,
     budgets: {
       visualTerrainRaysPerObservation: 45,
       observationP95Ms: OBSERVATION_LATENCY_BUDGET_MS,
@@ -308,6 +365,7 @@ async function main() {
       root,
       sourceTree,
       baselineTree,
+      admittedRuntimeTree,
       initialRuntimeTree,
       afterActTree,
       afterResumeTree,
@@ -333,19 +391,42 @@ async function main() {
   process.stdout.write(`[owned-world] PASS ${reportFile}\n`);
 }
 
-function validateInhabitantProof(value: any, phase: 'act' | 'resume', managedRunId: string) {
+function validateInhabitantProof(
+  value: any,
+  phase: 'act' | 'resume',
+  managedRunId: string,
+  worldId: string,
+  scenario: string,
+) {
   if (
     value?.protocol !== 'behold.owned-world-inhabitant-proof.v1' ||
     value?.phase !== phase ||
+    value?.scenario !== scenario ||
     value?.entityId !== ENTITY_ID ||
-    value?.circleId !== WORLD_ID ||
+    value?.circleId !== worldId ||
     value?.runId !== managedRunId ||
-    value?.initialObservation?.circle?.id !== WORLD_ID ||
+    value?.initialObservation?.circle?.id !== worldId ||
     value?.initialObservation?.circle?.managedRunId !== managedRunId ||
     !Array.isArray(value?.engineEvents)
   ) {
     throw new Error(`invalid ${phase} inhabitant proof`);
   }
+}
+
+function requiredOption(value: unknown, name: string) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`);
+  return value;
+}
+
+function parsePoint(value: string) {
+  const coordinates = value.split(',').map(Number);
+  if (
+    coordinates.length !== 3 ||
+    coordinates.some((coordinate) => !Number.isSafeInteger(coordinate))
+  ) {
+    throw new Error(`invalid Minecraft point: ${value}`);
+  }
+  return { x: coordinates[0], y: coordinates[1], z: coordinates[2] };
 }
 
 function waitForFile(file: string, timeoutMs: number, signal?: AbortSignal) {

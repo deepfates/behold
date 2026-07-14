@@ -44,6 +44,10 @@ async function main() {
 
   const phase = String(process.env.BEHOLD_PROOF_PHASE || 'act');
   if (phase !== 'act' && phase !== 'resume') throw new Error(`unknown proof phase: ${phase}`);
+  const scenario = String(process.env.BEHOLD_PROOF_SCENARIO || 'perception-continuity');
+  if (scenario !== 'perception-continuity' && scenario !== 'place-continuity') {
+    throw new Error(`unknown proof scenario: ${scenario}`);
+  }
   const proofFile = path.resolve(requiredEnvironment('BEHOLD_PROOF_FILE'));
   const cfg = getConfig();
   const loom = await openEntityLoom(entityId, undefined, cfg.circle.id);
@@ -103,6 +107,8 @@ async function main() {
     } else await delay(500);
     const initialObservation = experience.observe();
     const initialDroppedItems = observedDroppedItems(bot);
+    const observationPerformance =
+      scenario === 'place-continuity' ? measureObservation(experience, 20) : null;
     const inhabitantActions = interpreter.list('inhabitant').map((spec) => spec.name);
     let locomotion: Awaited<ReturnType<typeof executeTurn>> | null = null;
     let approach: Awaited<ReturnType<typeof proveExactApproach>> | null = null;
@@ -120,41 +126,45 @@ async function main() {
           `act phase expected one local apple affordance: ${JSON.stringify(initialDroppedItems)}`,
         );
       }
-      locomotion = await executeTurn({
-        entityId,
-        loom,
-        experience,
-        engine,
-        events,
-        name: 'move_to',
-        input: { x: -20, y: -60, z: 0 },
-      });
-      if (
-        !locomotion.result?.ok ||
-        locomotion.result?.status !== 'advanced_toward' ||
-        locomotion.result?.bodyLegLimit !== 6 ||
-        locomotion.result?.arrivedAtRequestedDestination !== false
-      ) {
-        throw new Error(`body-owned movement leg was not confirmed: ${JSON.stringify(locomotion)}`);
-      }
-      approach = await proveExactApproach({
-        config: cfg,
-        resident: bot,
-        entityId,
-        loom,
-        experience,
-        engine,
-        events,
-      });
-      if (
-        !approach.turn.result?.ok ||
-        approach.turn.result?.target !== `player:${WITNESS_ID}` ||
-        approach.turn.result?.confirmation !== 'mineflayer:body_target_proximity' ||
-        !positionsDifferByAtLeast(approach.witnessStartedAt, approach.witnessFinishedAt, 3)
-      ) {
-        throw new Error(
-          `dynamic exact-target approach was not confirmed: ${JSON.stringify(approach)}`,
-        );
+      if (scenario === 'perception-continuity') {
+        locomotion = await executeTurn({
+          entityId,
+          loom,
+          experience,
+          engine,
+          events,
+          name: 'move_to',
+          input: { x: -20, y: -60, z: 0 },
+        });
+        if (
+          !locomotion.result?.ok ||
+          locomotion.result?.status !== 'advanced_toward' ||
+          locomotion.result?.bodyLegLimit !== 6 ||
+          locomotion.result?.arrivedAtRequestedDestination !== false
+        ) {
+          throw new Error(
+            `body-owned movement leg was not confirmed: ${JSON.stringify(locomotion)}`,
+          );
+        }
+        approach = await proveExactApproach({
+          config: cfg,
+          resident: bot,
+          entityId,
+          loom,
+          experience,
+          engine,
+          events,
+        });
+        if (
+          !approach.turn.result?.ok ||
+          approach.turn.result?.target !== `player:${WITNESS_ID}` ||
+          approach.turn.result?.confirmation !== 'mineflayer:body_target_proximity' ||
+          !positionsDifferByAtLeast(approach.witnessStartedAt, approach.witnessFinishedAt, 3)
+        ) {
+          throw new Error(
+            `dynamic exact-target approach was not confirmed: ${JSON.stringify(approach)}`,
+          );
+        }
       }
       const currentApple = observedDroppedItems(bot).find(
         (item) => item.id === apples[0].id && item.name === 'apple',
@@ -224,6 +234,7 @@ async function main() {
     durableWriteJson(proofFile, {
       protocol: PROTOCOL,
       phase,
+      scenario,
       entityId,
       circleId: cfg.circle.id,
       runId: process.env.BEHOLD_RUN_ID || null,
@@ -231,6 +242,7 @@ async function main() {
       resultingTurns: loom.turns().length,
       initialObservation,
       initialDroppedItems,
+      observationPerformance,
       inhabitantActions,
       locomotion,
       approach,

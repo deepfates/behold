@@ -6,11 +6,13 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   digestTree,
+  loadWorldLabConfig,
   SESSION_LOCK,
   TREE_DIGEST_PROFILE,
   type WorldLabDefinition,
 } from './world-lab';
 import { isMinecraftReadyLine, isMinecraftSaveAcknowledgement } from './world-runner';
+import { verifyAdmittedPlaceEpoch } from './place-epoch';
 
 export const OWNED_WORLD_ID = 'behold-owned-flat-v1';
 export const OWNED_LEVEL_SEED = '424242';
@@ -21,6 +23,7 @@ export type OwnedWorldTarget = Readonly<{
   item: string;
   count: number;
 }>;
+export type OwnedWorldPoint = Readonly<{ x: number; y: number; z: number }>;
 export type OwnedWorldBlock = Readonly<{
   x: number;
   y: number;
@@ -141,6 +144,9 @@ export async function prepareOwnedWorld(
   });
 
   return {
+    worldId: OWNED_WORLD_ID,
+    placeEpoch: null,
+    admittedRuntimeTree: null,
     runId,
     port,
     repository,
@@ -168,6 +174,173 @@ export async function prepareOwnedWorld(
     blocks,
     world,
   };
+}
+
+export async function prepareAdmittedPlaceWorld(
+  runIdValue: string,
+  admittedRootValue: string,
+  arrival: OwnedWorldPoint,
+  target: OwnedWorldTarget,
+) {
+  assertCleanRepository();
+  const runId = safeSegment(runIdValue);
+  assertOwnedWorldPoint(arrival, 'arrival');
+  assertOwnedWorldTarget(target);
+
+  const admittedRoot = path.resolve(admittedRootValue);
+  const placeEpoch = verifyAdmittedPlaceEpoch(admittedRoot);
+  const config = loadWorldLabConfig(path.join(admittedRoot, 'world-definition.json'));
+  const world = config.worlds[placeEpoch.worldId];
+  if (!world) throw new Error('admitted Place epoch has no world definition');
+  const port = world.server.port;
+  await assertPortAvailable(port);
+
+  const repository = process.cwd();
+  const root = path.resolve('.behold-runtime', 'place-epoch-proofs', runId);
+  if (fs.existsSync(root)) throw new Error(`proof run already exists: ${root}`);
+  const entityRoot = path.join(root, 'entities');
+  const controlRoot = path.join(root, 'control');
+  const evidenceRoot = path.join(root, 'evidence');
+  for (const directory of [entityRoot, controlRoot, evidenceRoot]) {
+    fs.mkdirSync(directory, { recursive: true });
+  }
+
+  const toolLock = JSON.parse(fs.readFileSync('docs/sf-world/tool-lock.json', 'utf8'));
+  const serverJar = path.resolve(String(toolLock.tools.minecraftServer.path));
+  const expectedServerJarSha256 = String(toolLock.tools.minecraftServer.sha256);
+  const actualServerJarSha256 = sha256File(serverJar);
+  if (
+    actualServerJarSha256 !== expectedServerJarSha256 ||
+    actualServerJarSha256 !== placeEpoch.behold.serverJarSha256
+  ) {
+    throw new Error('admitted Place epoch and pinned Minecraft server JAR do not match');
+  }
+
+  const source = placeEpoch.paths.source;
+  const baseline = placeEpoch.paths.baseline;
+  const serverDirectory = placeEpoch.paths.serverDirectory;
+  const runtime = placeEpoch.paths.runtime;
+  const archiveRoot = placeEpoch.paths.archiveRoot;
+  const sourceTree = digestTree(source);
+  const baselineTree = digestTree(baseline);
+  const admittedRuntimeTree = digestTree(runtime);
+  if (
+    sourceTree.digest !== placeEpoch.behold.sourceTree.digest ||
+    baselineTree.digest !== placeEpoch.behold.baselineTree.digest ||
+    admittedRuntimeTree.digest !== baselineTree.digest
+  ) {
+    throw new Error('admitted Place epoch drifted before continuity proof');
+  }
+
+  const java = bundledJava();
+  const startedAt = new Date().toISOString();
+  process.stdout.write(
+    `[owned-world] preparing packaged Place epoch ${placeEpoch.worldId} in ${root}\n`,
+  );
+  const preparation = await prepareExistingWorld({
+    java,
+    serverJar,
+    serverDirectory,
+    transcriptFile: path.join(evidenceRoot, 'preparation.log'),
+    arrival,
+    target,
+  });
+  const initialRuntimeTree = digestTree(runtime);
+
+  return {
+    worldId: placeEpoch.worldId,
+    placeEpoch,
+    admittedRuntimeTree,
+    runId,
+    port,
+    repository,
+    root,
+    serverDirectory,
+    runtime,
+    source,
+    baseline,
+    archiveRoot,
+    entityRoot,
+    controlRoot,
+    evidenceRoot,
+    toolLock,
+    serverJar,
+    expectedServerJarSha256,
+    actualServerJarSha256,
+    java,
+    startedAt,
+    generation: preparation,
+    sourceTree,
+    baselineTree,
+    initialRuntimeTree,
+    target,
+    targets: Object.freeze([Object.freeze({ ...target })]),
+    blocks: Object.freeze([]),
+    world,
+  };
+}
+
+async function prepareExistingWorld(input: {
+  java: string;
+  serverJar: string;
+  serverDirectory: string;
+  transcriptFile: string;
+  arrival: OwnedWorldPoint;
+  target: OwnedWorldTarget;
+}) {
+  const startedAt = Date.now();
+  const child = spawn(
+    input.java,
+    ['-Xms512M', '-Xmx1G', '-jar', fs.realpathSync.native(input.serverJar), 'nogui'],
+    { cwd: input.serverDirectory, stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  const lines: string[] = [];
+  const attach = (stream: NodeJS.ReadableStream, sink: NodeJS.WritableStream) => {
+    let remainder = '';
+    stream.on('data', (chunk) => {
+      const text = String(chunk);
+      sink.write(text);
+      const parts = `${remainder}${text}`.split(/\r?\n/);
+      remainder = parts.pop() || '';
+      lines.push(...parts);
+    });
+  };
+  attach(child.stdout, process.stdout);
+  attach(child.stderr, process.stderr);
+  const exit = waitForExit(child);
+  await Promise.race([
+    waitFor(() => lines.some(isMinecraftReadyLine), 90_000, 'admitted server readiness'),
+    exit.then((result) => {
+      throw new Error(`admitted server exited before readiness: ${JSON.stringify(result)}`);
+    }),
+  ]);
+  for (const command of [
+    'gamerule spawnRadius 0',
+    `setworldspawn ${input.arrival.x} ${input.arrival.y} ${input.arrival.z}`,
+    `kill @e[type=minecraft:item,x=${input.target.x},y=${input.target.y},z=${input.target.z},distance=..8]`,
+    `summon minecraft:item ${input.target.x} ${input.target.y} ${input.target.z} {Item:{id:"minecraft:${input.target.item}",count:${input.target.count}}}`,
+  ]) {
+    child.stdin.write(`${command}\n`);
+  }
+  await waitFor(
+    () => lines.some((line) => /Summoned new /.test(line)),
+    30_000,
+    'admitted item affordance',
+  );
+  child.stdin.write('save-all flush\n');
+  await waitFor(
+    () => lines.some(isMinecraftSaveAcknowledgement),
+    30_000,
+    'admitted world save acknowledgement',
+  );
+  child.stdin.write('stop\n');
+  child.stdin.end();
+  const result = await exit;
+  if (result.code !== 0 || result.signal) {
+    throw new Error(`admitted server stopped abnormally: ${JSON.stringify(result)}`);
+  }
+  fs.writeFileSync(input.transcriptFile, `${lines.join('\n')}\n`, 'utf8');
+  return { durationMs: Date.now() - startedAt, exit: result, transcriptFile: input.transcriptFile };
 }
 
 async function generatePreparedWorld(input: {
@@ -428,14 +601,18 @@ function safeSegment(value: string) {
 }
 
 function assertOwnedWorldTarget(target: OwnedWorldTarget) {
-  if (![target.x, target.y, target.z].every(Number.isSafeInteger)) {
-    throw new Error(`owned-world target requires integer coordinates: ${JSON.stringify(target)}`);
-  }
+  assertOwnedWorldPoint(target, 'target');
   if (!/^[a-z0-9_]+$/.test(target.item)) {
     throw new Error(`owned-world target has an invalid Minecraft item name: ${target.item}`);
   }
   if (!Number.isSafeInteger(target.count) || target.count < 1 || target.count > 64) {
     throw new Error(`owned-world target count must be an integer from 1 to 64: ${target.count}`);
+  }
+}
+
+function assertOwnedWorldPoint(point: OwnedWorldPoint, label: string) {
+  if (![point.x, point.y, point.z].every(Number.isSafeInteger)) {
+    throw new Error(`owned-world ${label} requires integer coordinates: ${JSON.stringify(point)}`);
   }
 }
 
