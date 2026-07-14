@@ -8,19 +8,29 @@ import { loadPlaceRecipe, loadRuntimeProfiles, sha256 } from './core.mjs';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function parse(argv) {
-  const out = { runRoot: null, profile: null, recipe: null, destination: null, port: 25565 };
+  const out = {
+    runRoot: null,
+    profile: null,
+    recipe: null,
+    destination: null,
+    port: 25565,
+    maxPlayers: 20,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--run-root') out.runRoot = path.resolve(argv[++i]);
     else if (argv[i] === '--profile') out.profile = argv[++i];
     else if (argv[i] === '--recipe') out.recipe = path.resolve(argv[++i]);
     else if (argv[i] === '--destination') out.destination = path.resolve(argv[++i]);
     else if (argv[i] === '--port') out.port = Number(argv[++i]);
+    else if (argv[i] === '--max-players') out.maxPlayers = Number(argv[++i]);
     else throw new Error(`Unknown or incomplete argument: ${argv[i]}`);
   }
   if (!out.runRoot || !out.profile || !out.destination)
     throw new Error('--run-root, --profile, and --destination are required');
   if (!Number.isInteger(out.port) || out.port < 1 || out.port > 65535)
     throw new Error('invalid port');
+  if (!Number.isInteger(out.maxPlayers) || out.maxPlayers < 1)
+    throw new Error('max players must be a positive integer');
   return out;
 }
 
@@ -72,7 +82,7 @@ const properties = {
   gamemode: minecraft.gameMode,
   'generate-structures': true,
   'level-name': 'world',
-  'max-players': 20,
+  'max-players': options.maxPlayers,
   motd: `${place.name} · ${options.profile}`,
   'online-mode': false,
   'server-port': options.port,
@@ -118,6 +128,7 @@ const runtime = {
   profileId: options.profile,
   profile,
   port: options.port,
+  maxPlayers: options.maxPlayers,
   world: 'world',
   minecraftServerSha256: manifest.generator.minecraftServerSha256 ?? minecraftServer.sha256,
   launch: [

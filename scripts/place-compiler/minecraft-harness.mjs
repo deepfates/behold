@@ -65,7 +65,14 @@ export function createProgressReporter({ lane, runId, filePath = null, stream = 
   };
 }
 
-export function materializeRuntime({ repositoryRoot, fixture, profileId, destination, port }) {
+export function materializeRuntime({
+  repositoryRoot,
+  fixture,
+  profileId,
+  destination,
+  port,
+  maxPlayers = null,
+}) {
   const args = [
     path.join(repositoryRoot, 'scripts/place-compiler/materialize-runtime.mjs'),
     '--run-root',
@@ -78,6 +85,7 @@ export function materializeRuntime({ repositoryRoot, fixture, profileId, destina
     String(port),
   ];
   if (fixture.recipePath) args.push('--recipe', fixture.recipePath);
+  if (maxPlayers != null) args.push('--max-players', String(maxPlayers));
   const result = spawnSync(process.execPath, args, {
     cwd: repositoryRoot,
     encoding: 'utf8',

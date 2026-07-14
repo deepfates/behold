@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Measure a large persistent native-body population while varying only the subset receiving full vanilla villager cognition.",
+  "regionCheckpointIds": ["civic-center", "sutro-tower", "ferry-building"],
+  "entity": {
+    "type": "minecraft:villager",
+    "ai": false,
+    "spacingBlocks": 2,
+    "persistent": true,
+    "invulnerable": true
+  },
+  "arena": { "enabled": true, "halfWidthBlocks": 48, "heightOffsetBlocks": 32 },
+  "cases": [
+    {
+      "id": "dormant-one-thousand-twenty-four",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 1024,
+      "activeAiEntities": 0,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "dormant-two-thousand-forty-eight",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 2048,
+      "activeAiEntities": 0,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "tiered-two-thousand-forty-eight-active-one-twenty-eight",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 2048,
+      "activeAiEntities": 128,
+      "sprintTicks": 2000
+    },
+    {
+      "id": "tiered-two-thousand-forty-eight-active-two-fifty-six",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 2048,
+      "activeAiEntities": 256,
+      "sprintTicks": 1000
+    }
+  ]
+}

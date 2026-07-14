@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Measure full vanilla villager brains on collision-reduced flat arenas to separate urban geometry and crowding from AI cost.",
+  "regionCheckpointIds": ["civic-center", "sutro-tower", "ferry-building"],
+  "entity": {
+    "type": "minecraft:villager",
+    "ai": true,
+    "spacingBlocks": 2,
+    "persistent": true,
+    "invulnerable": true
+  },
+  "arena": { "enabled": true, "halfWidthBlocks": 32, "heightOffsetBlocks": 32 },
+  "cases": [
+    {
+      "id": "ai-arena-one-twenty-eight",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 128,
+      "sprintTicks": 2000
+    },
+    {
+      "id": "ai-arena-two-fifty-six",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 256,
+      "sprintTicks": 2000
+    }
+  ]
+}

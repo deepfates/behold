@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Separate wide-region, protocol-body, native-entity, and tick-throughput costs on one authoritative Minecraft server.",
+  "regionCheckpointIds": ["civic-center", "sutro-tower", "ferry-building"],
+  "entity": {
+    "type": "minecraft:villager",
+    "ai": true,
+    "persistent": true,
+    "invulnerable": true
+  },
+  "cases": [
+    {
+      "id": "baseline",
+      "activeRegions": 1,
+      "protocolBodies": 1,
+      "nativeEntities": 0,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "wide-three",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 0,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "bodies-sixteen",
+      "activeRegions": 3,
+      "protocolBodies": 16,
+      "nativeEntities": 0,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "bodies-thirty-two",
+      "activeRegions": 3,
+      "protocolBodies": 32,
+      "nativeEntities": 0,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "villagers-one-twenty-eight",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 128,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "villagers-five-twelve",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 512,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "combined",
+      "activeRegions": 3,
+      "protocolBodies": 16,
+      "nativeEntities": 512,
+      "sprintTicks": 3000
+    }
+  ]
+}

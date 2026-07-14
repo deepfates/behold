@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Narrow the combined protocol-body and native-AI entity realtime boundary after the independent-axis sweep.",
+  "regionCheckpointIds": ["civic-center", "sutro-tower", "ferry-building"],
+  "entity": {
+    "type": "minecraft:villager",
+    "ai": true,
+    "persistent": true,
+    "invulnerable": true
+  },
+  "cases": [
+    {
+      "id": "combined-sixteen-one-twenty-eight",
+      "activeRegions": 3,
+      "protocolBodies": 16,
+      "nativeEntities": 128,
+      "sprintTicks": 2000
+    },
+    {
+      "id": "combined-sixteen-two-fifty-six",
+      "activeRegions": 3,
+      "protocolBodies": 16,
+      "nativeEntities": 256,
+      "sprintTicks": 2000
+    }
+  ]
+}

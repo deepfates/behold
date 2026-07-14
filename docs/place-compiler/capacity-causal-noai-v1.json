@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Isolate entity bookkeeping and collision from villager brain and navigation cost on identical synthetic arenas.",
+  "regionCheckpointIds": ["civic-center", "sutro-tower", "ferry-building"],
+  "entity": {
+    "type": "minecraft:villager",
+    "ai": false,
+    "spacingBlocks": 2,
+    "persistent": true,
+    "invulnerable": true
+  },
+  "arena": { "enabled": true, "halfWidthBlocks": 32, "heightOffsetBlocks": 32 },
+  "cases": [
+    {
+      "id": "noai-one-twenty-eight",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 128,
+      "sprintTicks": 3000
+    },
+    {
+      "id": "noai-five-twelve",
+      "activeRegions": 3,
+      "protocolBodies": 3,
+      "nativeEntities": 512,
+      "sprintTicks": 3000
+    }
+  ]
+}

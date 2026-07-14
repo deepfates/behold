@@ -158,6 +158,20 @@ The resulting `atlas-manifest.json` binds the recipe, optional experience policy
 
 The package contains the contract and reproduction code plus visual, structural, ecological, and performance evidence. It deliberately excludes disposable runtime clones and does not repackage either multi-gigabyte world.
 
+## Capacity frontier
+
+The controlled capacity runner keeps separated regions, protocol bodies, native entities, active vanilla brains, and external inhabitants as independent axes. It saves, restarts, reloads, recounts, and cleans every case instead of treating a successful connection burst as capacity proof:
+
+```bash
+node scripts/place-compiler/sweep-capacity.mjs \
+  --plan docs/place-compiler/capacity-tiered-activation-v1.json \
+  --run-id NEW_CAPACITY_ID
+node scripts/place-compiler/verify-capacity.mjs \
+  .behold-artifacts/place-capacity/san-francisco/NEW_CAPACITY_ID/capacity-manifest.json
+```
+
+Synthetic arenas are disposable experimental controls, never generation repair. Capacity summaries explicitly remain Minecraft substrate lower bounds and never claim Behold inhabitants or concurrent inference.
+
 ## Compare and package
 
 `compare-previews.mjs` creates a checksummed, labeled two-place proof from the map previews of any two recorded runs. Legacy runs require an explicit recipe so their older manifests can be interpreted without silently guessing a place.
