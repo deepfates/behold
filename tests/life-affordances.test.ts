@@ -490,6 +490,21 @@ test('move_to reports when its requested range caused no bodily movement', async
   assert.equal(result.bodyDisplacement, 0);
   assert.equal(result.progressDistance, 0);
   assert.equal(result.arrivedAtRequestedDestination, true);
+  assert.equal(result.bodyStartedWithinLegGoal, true);
+
+  bot.entity.position = new Vec3(54.4999, 65, 93.3523);
+  const outsideGoalNoOp = await buildInterpreter(bot).run('move_to', {
+    x: 53,
+    y: 65,
+    z: 93,
+    near: 0.8,
+  });
+  assert.equal(outsideGoalNoOp.ok, false);
+  assert.equal(outsideGoalNoOp.status, 'no_body_movement');
+  assert.equal(outsideGoalNoOp.error, 'body_not_moved');
+  assert.equal(outsideGoalNoOp.bodyStartedWithinLegGoal, false);
+  assert.equal(outsideGoalNoOp.bodyMoved, false);
+  assert.equal(outsideGoalNoOp.arrivedAtRequestedDestination, false);
 });
 
 test('move_direction derives all local destinations from the body view without coordinates', async () => {

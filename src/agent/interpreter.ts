@@ -352,6 +352,15 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         effectiveNear > 0
           ? new (goals as any).GoalNear(destination.x, destination.y, destination.z, effectiveNear)
           : new (goals as any).GoalBlock(destination.x, destination.y, destination.z);
+      const bodyStartedWithinLegGoal =
+        start != null &&
+        Boolean(
+          goal.isEnd?.({
+            x: Math.floor(start.x),
+            y: Math.floor(start.y),
+            z: Math.floor(start.z),
+          }),
+        );
       const result = await runPathfinderGoal(bot, goal, {
         destination,
         near: effectiveNear,
@@ -362,27 +371,38 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       const remainingDistance = final ? distance(final, requestedDestination) : null;
       const bodyDisplacement = start && final ? distance(start, final) : null;
       const bodyMoved = bodyDisplacement != null && bodyDisplacement >= 0.1;
+      const unfulfilledNoMotion = result.ok && !bodyMoved && !bodyStartedWithinLegGoal;
       const progressDistance =
         requestedDistance != null && remainingDistance != null
           ? Math.max(0, requestedDistance - remainingDistance)
           : null;
       const arrivedAtRequestedDestination =
-        result.ok && remainingDistance != null && remainingDistance <= requestedNear + 0.75;
+        result.ok &&
+        !unfulfilledNoMotion &&
+        remainingDistance != null &&
+        remainingDistance <= requestedNear + 0.75;
       return {
         ...result,
-        ...(result.ok
+        ...(unfulfilledNoMotion
           ? {
-              status: !bodyMoved
-                ? 'already_within_requested_range'
-                : arrivedAtRequestedDestination
-                  ? 'arrived'
-                  : 'advanced_toward',
+              ok: false,
+              status: 'no_body_movement',
+              error: 'body_not_moved',
             }
-          : {}),
+          : result.ok
+            ? {
+                status: !bodyMoved
+                  ? 'already_within_requested_range'
+                  : arrivedAtRequestedDestination
+                    ? 'arrived'
+                    : 'advanced_toward',
+              }
+            : {}),
         requestedDestination,
         requestedNear,
         bodyLegLimit: travelLimit,
         legDestination: destination,
+        bodyStartedWithinLegGoal,
         remainingDistance,
         bodyMoved,
         bodyDisplacement,
