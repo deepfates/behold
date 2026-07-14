@@ -31,10 +31,12 @@ import { loadWorldLabConfig, statusWorld } from './world-lab';
 import { startManagedWorld } from './world-runner';
 import {
   assessResidentRecoveryWitness,
+  RESIDENT_RECOVERY_WITNESS_PHASE_PROTOCOL,
   RESIDENT_RECOVERY_WITNESS_PROTOCOL,
+  summarizeResidentRecoverySource,
 } from './resident-recovery-evidence';
 
-const WITNESS_MODEL = 'evaluator/resident-recovery-witness-v1';
+const WITNESS_MODEL = 'evaluator/resident-recovery-witness-v2';
 const PHASE_FILE = 'resident-recovery-witness-phase.json';
 
 async function runProof() {
@@ -65,7 +67,7 @@ async function runProof() {
   const world = config.worlds[worldId];
   if (!world) throw new Error(`unknown world ${worldId}`);
   const events = readRunJournal(sourceJournal);
-  const source = summarizeSource(events, entityId, worldId);
+  const source = summarizeResidentRecoverySource(events, entityId, worldId);
   const loomFile = String(source.loomFile || '');
   if (!fs.existsSync(loomFile)) throw new Error(`source Lync does not exist: ${loomFile}`);
   const journalSha256Before = sha256File(sourceJournal);
@@ -228,7 +230,7 @@ async function runWitness() {
     const after = experience.observe();
     const phaseFile = path.join(path.resolve(requiredEnvironment('BEHOLD_RUN_DIR')), PHASE_FILE);
     durableWriteJson(phaseFile, {
-      protocol: 'behold.resident-recovery-witness-phase.v1',
+      protocol: RESIDENT_RECOVERY_WITNESS_PHASE_PROTOCOL,
       repositoryRevision: gitRevision(),
       entityId,
       worldId: cfg.circle.id,
@@ -264,35 +266,6 @@ async function runWitness() {
     await loom.close().catch(() => {});
     throw error;
   }
-}
-
-function summarizeSource(events: any[], entityId: string, worldId: string) {
-  const started = events.find((event) => event?.type === 'run_started');
-  if (!started) throw new Error('source journal has no run_started event');
-  if (started.agent !== entityId || started.data?.circle?.id !== worldId) {
-    throw new Error('source journal entity or world does not match requested witness');
-  }
-  const finalTurn = [...events]
-    .reverse()
-    .find((event) => event?.type === 'entity_turn' && event.data?.nextObservation?.self);
-  if (!finalTurn) throw new Error('source journal has no completed entity turn');
-  const finalSelf = finalTurn.data.nextObservation.self;
-  const results = events
-    .filter((event) => event?.type === 'action_completed' || event?.type === 'action_failed')
-    .map((event) => event?.data?.result)
-    .filter(Boolean);
-  return {
-    entityId,
-    worldId,
-    managedRunId: String(started.data?.runId || ''),
-    loomFile: String(started.data?.entityLoom || ''),
-    finalPosition: finalSelf.pose?.position ?? null,
-    finalCondition: finalSelf.condition ?? null,
-    bodyMoved: results.some((result) => result?.bodyMoved === true),
-    verifiedWorldChange: results.some(
-      (result) => result?.verified === true && result?.observed === true,
-    ),
-  };
 }
 
 function requiredOption(value: unknown, name: string) {
