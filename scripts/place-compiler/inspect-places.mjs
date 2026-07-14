@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import mineflayer from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { hardwareFingerprint, loadBenchmark } from './benchmark-core.mjs';
 import {
@@ -15,6 +14,16 @@ import {
   summarizeTransect,
 } from './inspection-core.mjs';
 import { sha256, timestamp } from './core.mjs';
+import { deriveEvidencePlan, laneExpectation } from './evidence-contract.mjs';
+import {
+  connectObserver,
+  createProgressReporter,
+  materializeRuntime,
+  sleep,
+  startMinecraftServer,
+  stopMinecraftServer,
+  waitUntil,
+} from './minecraft-harness.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -36,95 +45,6 @@ function parse(argv) {
   if (!Number.isInteger(out.basePort) || out.basePort < 1024 || out.basePort > 65000)
     throw new Error('invalid base port');
   return out;
-}
-
-const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
-async function waitUntil(probe, timeoutMs, label) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const value = probe();
-    if (value) return value;
-    await sleep(100);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
-
-function materialize(fixture, profile, destination, port) {
-  const args = [
-    path.join(repositoryRoot, 'scripts/place-compiler/materialize-runtime.mjs'),
-    '--run-root',
-    fixture.runRoot,
-    '--recipe',
-    fixture.recipePath,
-    '--profile',
-    profile,
-    '--destination',
-    destination,
-    '--port',
-    String(port),
-  ];
-  const result = spawnSync(process.execPath, args, {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  if (result.status !== 0) throw new Error(`Runtime materialization failed: ${result.stderr}`);
-  return JSON.parse(result.stdout);
-}
-
-async function startServer(runtimeRoot, runtime, logPath) {
-  const jarIndex = runtime.launch.indexOf('-jar');
-  if (jarIndex < 0 || !runtime.launch[jarIndex + 1])
-    throw new Error('runtime launch has no server jar');
-  const jar = path.resolve(repositoryRoot, runtime.launch[jarIndex + 1]);
-  if ((await sha256(jar)) !== runtime.minecraftServerSha256)
-    throw new Error('Minecraft server digest mismatch');
-  const log = createWriteStream(logPath, { flags: 'wx' });
-  const child = spawn('java', ['-Xms1G', '-Xmx6G', '-jar', jar, 'nogui'], {
-    cwd: runtimeRoot,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  let output = '';
-  const capture = (chunk) => {
-    const text = chunk.toString();
-    output += text;
-    log.write(text);
-  };
-  child.stdout.on('data', capture);
-  child.stderr.on('data', capture);
-  child.on('exit', () => log.end());
-  await waitUntil(
-    () => {
-      if (child.exitCode != null)
-        throw new Error(`Minecraft exited before readiness: ${child.exitCode}`);
-      return output.includes('Done (');
-    },
-    120_000,
-    'Minecraft readiness',
-  );
-  return { child, command: (value) => child.stdin.write(`${value}\n`), output: () => output };
-}
-
-async function connectInspector(port, username) {
-  const bot = mineflayer.createBot({
-    host: '127.0.0.1',
-    port,
-    username,
-    auth: 'offline',
-    version: '1.21.4',
-    hideErrors: false,
-  });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Inspector spawn timed out')), 30_000);
-    bot.once('spawn', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    bot.once('error', reject);
-    bot.once('kicked', (reason) => reject(new Error(`Inspector kicked: ${String(reason)}`)));
-  });
-  return bot;
 }
 
 function blockName(bot, x, y, z) {
@@ -356,33 +276,37 @@ async function inspectTransect(bot, server, from, to) {
   };
 }
 
-async function stopServer(server, bot) {
-  try {
-    bot?.end('inspection complete');
-  } catch {}
-  if (server.child.exitCode == null) {
-    server.command('forceload remove all');
-    server.command('save-all');
-    server.command('stop');
-    await waitUntil(() => server.child.exitCode != null, 30_000, 'clean server stop');
-  }
-}
-
-async function inspectFixture(loaded, fixture, root, port) {
+async function inspectFixture(loaded, fixture, root, port, progress) {
   const profileId = 'cinematic';
   const runtimeRoot = path.join(root, 'runtimes', `${fixture.placeId}-${profileId}`);
   const evidenceRoot = path.join(root, 'inspections');
   mkdirSync(evidenceRoot, { recursive: true });
-  const runtime = materialize(fixture, profileId, runtimeRoot, port);
-  const server = await startServer(
+  progress.emit('fixture', 'started', { placeId: fixture.placeId, profileId });
+  const runtime = materializeRuntime({
+    repositoryRoot,
+    fixture,
+    profileId,
+    destination: runtimeRoot,
+    port,
+  });
+  const server = await startMinecraftServer({
+    repositoryRoot,
     runtimeRoot,
     runtime,
-    path.join(evidenceRoot, `${fixture.placeId}-server.log`),
-  );
+    logPath: path.join(evidenceRoot, `${fixture.placeId}-server.log`),
+    progress,
+  });
   let bot;
   const startedAt = new Date().toISOString();
   try {
-    bot = await connectInspector(port, `LP_${fixture.placeId.replaceAll('-', '_')}`.slice(0, 16));
+    bot = (
+      await connectObserver({
+        port,
+        username: `LP_${fixture.placeId.replaceAll('-', '_')}`.slice(0, 16),
+        label: 'inspection observer',
+        progress,
+      })
+    ).bot;
     server.command(`gamemode creative ${bot.username}`);
     server.command(`effect give ${bot.username} minecraft:night_vision infinite 0 true`);
     server.command(`effect give ${bot.username} minecraft:slow_falling infinite 0 true`);
@@ -420,6 +344,7 @@ async function inspectFixture(loaded, fixture, root, port) {
       worldTreeSha256: fixture.worldTreeSha256,
       profileId,
       profile: loaded.profiles[profileId],
+      runtimeLaunch: server.launch,
       startedAt,
       finishedAt: new Date().toISOString(),
       method: {
@@ -441,9 +366,16 @@ async function inspectFixture(loaded, fixture, root, port) {
     };
     const reportPath = path.join(evidenceRoot, `${fixture.placeId}.json`);
     writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
+    progress.emit('inspection', 'evidence-written', { placeId: fixture.placeId, reportPath });
     return { placeId: fixture.placeId, reportPath, reportSha256: await sha256(reportPath) };
   } finally {
-    await stopServer(server, bot);
+    await stopMinecraftServer({
+      server,
+      bot,
+      reason: 'inspection complete',
+      beforeStop: ['forceload remove all'],
+      progress,
+    });
   }
 }
 
@@ -462,10 +394,20 @@ const root = path.join(
 );
 if (existsSync(root)) throw new Error(`benchmark run exists: ${root}`);
 mkdirSync(root, { recursive: true });
+const progress = createProgressReporter({
+  lane: 'inspection',
+  runId: options.runId,
+  filePath: path.join(root, 'progress.jsonl'),
+});
 const results = [];
 for (let index = 0; index < selected.length; index += 1) {
-  results.push(await inspectFixture(loaded, selected[index], root, options.basePort + index));
+  results.push(
+    await inspectFixture(loaded, selected[index], root, options.basePort + index, progress),
+  );
 }
+progress.emit('run', 'completed', { resultCount: results.length });
+await progress.close();
+const evidencePlan = deriveEvidencePlan({ benchmark: loaded.benchmark, fixtures: selected });
 const manifest = {
   schemaVersion: 1,
   status: 'completed',
@@ -475,6 +417,11 @@ const manifest = {
   createdAt: new Date().toISOString(),
   hardware: hardwareFingerprint(),
   benchmarkSha256: await sha256(loaded.path),
+  expectation: laneExpectation(evidencePlan, 'inspection'),
+  progress: {
+    path: 'progress.jsonl',
+    sha256: await sha256(path.join(root, 'progress.jsonl')),
+  },
   results: results.map((result) => ({
     ...result,
     reportPath: path.relative(root, result.reportPath),

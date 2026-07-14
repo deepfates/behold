@@ -1,10 +1,7 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import mineflayer from 'mineflayer';
-import { Vec3 } from 'vec3';
 import { hardwareFingerprint, loadBenchmark } from './benchmark-core.mjs';
 import {
   deriveEcologyFindings,
@@ -13,10 +10,20 @@ import {
   summarizeTurnover,
 } from './ecology-core.mjs';
 import { sha256, timestamp } from './core.mjs';
-import { isAir } from './inspection-core.mjs';
+import { deriveEvidencePlan, laneExpectation } from './evidence-contract.mjs';
+import {
+  connectObserver,
+  createProgressReporter,
+  materializeRuntime,
+  queryServer,
+  sleep,
+  sprintTicks,
+  startMinecraftServer,
+  stopMinecraftServer,
+} from './minecraft-harness.mjs';
+import { prepareObservationSite } from './observation-site.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function parse(argv) {
   const out = {
@@ -38,187 +45,19 @@ function parse(argv) {
   return out;
 }
 
-async function waitUntil(probe, timeoutMs, label) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const value = probe();
-    if (value) return value;
-    await sleep(50);
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
-
-function materialize(fixture, destination, port) {
-  const result = spawnSync(
-    process.execPath,
-    [
-      path.join(repositoryRoot, 'scripts/place-compiler/materialize-runtime.mjs'),
-      '--run-root',
-      fixture.runRoot,
-      '--recipe',
-      fixture.recipePath,
-      '--profile',
-      'living',
-      '--destination',
-      destination,
-      '--port',
-      String(port),
-    ],
-    { cwd: repositoryRoot, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
-  );
-  if (result.status !== 0) throw new Error(`Runtime materialization failed: ${result.stderr}`);
-  return JSON.parse(result.stdout);
-}
-
-async function startServer(runtimeRoot, runtime, logPath) {
-  const jarIndex = runtime.launch.indexOf('-jar');
-  if (jarIndex < 0 || !runtime.launch[jarIndex + 1]) throw new Error('runtime launch has no jar');
-  const jar = path.resolve(repositoryRoot, runtime.launch[jarIndex + 1]);
-  if ((await sha256(jar)) !== runtime.minecraftServerSha256)
-    throw new Error('Minecraft server digest mismatch');
-  const log = createWriteStream(logPath, { flags: 'wx' });
-  const child = spawn('java', ['-Xms1G', '-Xmx6G', '-jar', jar, 'nogui'], {
-    cwd: runtimeRoot,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  let output = '';
-  const capture = (chunk) => {
-    const value = chunk.toString();
-    output += value;
-    log.write(value);
-  };
-  child.stdout.on('data', capture);
-  child.stderr.on('data', capture);
-  child.on('exit', () => log.end());
-  await waitUntil(
-    () => {
-      if (child.exitCode != null) throw new Error(`Minecraft exited early: ${child.exitCode}`);
-      return output.includes('Done (');
-    },
-    120_000,
-    'Minecraft readiness',
-  );
-  return {
-    child,
-    command: (value) => child.stdin.write(`${value}\n`),
-    output: () => output,
-  };
-}
-
-async function connectObserver(port, placeId) {
-  const bot = mineflayer.createBot({
-    host: '127.0.0.1',
-    port,
-    username: `ECO_${placeId.replaceAll('-', '_')}`.slice(0, 16),
-    auth: 'offline',
-    version: '1.21.4',
-    hideErrors: false,
-  });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Ecology observer spawn timed out')), 30_000);
-    bot.once('spawn', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    bot.once('error', reject);
-    bot.once('kicked', (reason) => reject(new Error(`Ecology observer kicked: ${reason}`)));
-  });
-  return bot;
-}
-
-function standableSurface(bot, x, z) {
-  const minimumY = bot.game.minY ?? -64;
-  const maximumY = minimumY + (bot.game.height ?? 384) - 1;
-  for (let y = maximumY; y >= minimumY; y -= 1) {
-    const block = bot.blockAt(new Vec3(x, y, z), false);
-    if (!block || isAir(block.name)) continue;
-    const above = bot.blockAt(new Vec3(x, y + 1, z), false);
-    const aboveTwo = bot.blockAt(new Vec3(x, y + 2, z), false);
-    if (
-      above &&
-      aboveTwo &&
-      isAir(above.name) &&
-      isAir(aboveTwo.name) &&
-      !/(water|lava)/.test(block.name)
-    )
-      return { x, y, z, block: block.name };
-  }
-  return null;
-}
-
-async function prepareObservationSite(server, bot, checkpoint) {
-  const highY = Math.min((bot.game.minY ?? -64) + (bot.game.height ?? 384) - 16, 384);
-  server.command(`gamemode spectator ${bot.username}`);
-  server.command(`tp ${bot.username} ${checkpoint.x + 0.5} ${highY} ${checkpoint.z + 0.5}`);
-  await waitUntil(
-    () =>
-      Math.abs(bot.entity.position.x - (checkpoint.x + 0.5)) < 2 &&
-      Math.abs(bot.entity.position.z - (checkpoint.z + 0.5)) < 2 &&
-      bot.world.getColumn(Math.floor(checkpoint.x / 16), Math.floor(checkpoint.z / 16)),
-    20_000,
-    `observation checkpoint ${checkpoint.id}`,
-  );
-  await sleep(250);
-  const candidates = [];
-  for (let dx = -8; dx <= 8; dx += 4) {
-    for (let dz = -8; dz <= 8; dz += 4) {
-      const surface = standableSurface(bot, checkpoint.x + dx, checkpoint.z + dz);
-      if (surface) candidates.push(surface);
-    }
-  }
-  if (!candidates.length) throw new Error(`No standable ecology site near ${checkpoint.id}`);
-  const heights = candidates.map((candidate) => candidate.y).sort((left, right) => left - right);
-  const medianY = heights[Math.floor(heights.length / 2)];
-  const site = [...candidates].sort(
-    (left, right) =>
-      Math.abs(left.y - medianY) - Math.abs(right.y - medianY) ||
-      Math.hypot(left.x - checkpoint.x, left.z - checkpoint.z) -
-        Math.hypot(right.x - checkpoint.x, right.z - checkpoint.z),
-  )[0];
-  server.command(`tp ${bot.username} ${site.x + 0.5} ${site.y + 1} ${site.z + 0.5}`);
-  server.command(`spawnpoint ${bot.username} ${site.x} ${site.y + 1} ${site.z}`);
-  server.command(`gamemode survival ${bot.username}`);
-  await waitUntil(
-    () => Math.abs(bot.entity.position.y - (site.y + 1)) < 2,
-    10_000,
-    'survival observation placement',
-  );
-  return { checkpointId: checkpoint.id, ...site };
-}
-
-async function query(server, command, pattern, label) {
-  const offset = server.output().length;
-  server.command(command);
-  const match = await waitUntil(() => server.output().slice(offset).match(pattern), 10_000, label);
-  return match;
-}
-
-async function sprint(server, ticks, timeoutSeconds) {
-  const offset = server.output().length;
-  const wallStarted = process.hrtime.bigint();
-  server.command(`tick sprint ${ticks}`);
-  const completion = await waitUntil(
-    () => parseSprintCompletion(server.output().slice(offset), ticks),
-    timeoutSeconds * 1000,
-    `${ticks}-tick sprint`,
-  );
-  return {
-    ...completion,
-    observedWallMilliseconds: Number(process.hrtime.bigint() - wallStarted) / 1e6,
-  };
-}
-
 async function snapshot(server, bot, radius) {
   const daytime = Number(
-    (await query(server, 'time query daytime', /The time is (\d+)/, 'daytime query'))[1],
+    (await queryServer(server, 'time query daytime', /The time is (\d+)/, 'daytime query'))[1],
   );
   const gametime = Number(
-    (await query(server, 'time query gametime', /The time is (\d+)/, 'gametime query'))[1],
+    (await queryServer(server, 'time query gametime', /The time is (\d+)/, 'gametime query'))[1],
   );
-  const day = Number((await query(server, 'time query day', /The time is (\d+)/, 'day query'))[1]);
+  const day = Number(
+    (await queryServer(server, 'time query day', /The time is (\d+)/, 'day query'))[1],
+  );
   const gamerules = {};
   for (const rule of ['doDaylightCycle', 'doWeatherCycle', 'doMobSpawning']) {
-    const match = await query(
+    const match = await queryServer(
       server,
       `gamerule ${rule}`,
       new RegExp(`${rule} is currently set to: (true|false)`, 'i'),
@@ -228,7 +67,7 @@ async function snapshot(server, bot, radius) {
   }
   gamerules.randomTickSpeed = Number(
     (
-      await query(
+      await queryServer(
         server,
         'gamerule randomTickSpeed',
         /randomTickSpeed is currently set to: (\d+)/i,
@@ -257,41 +96,63 @@ async function snapshot(server, bot, radius) {
   };
 }
 
-async function stop(server, bot) {
-  try {
-    bot?.end('ecology soak complete');
-  } catch {}
-  if (server.child.exitCode == null) {
-    server.command('save-all');
-    server.command('stop');
-    await waitUntil(() => server.child.exitCode != null, 30_000, 'clean server stop');
-  }
-  return { clean: server.child.exitCode === 0, exitCode: server.child.exitCode };
-}
-
-async function soakFixture(loaded, fixture, root, port) {
+async function soakFixture(loaded, fixture, root, port, progress) {
   const config = loaded.benchmark.ecologySoak;
   const runtimeRoot = path.join(root, 'runtimes', `${fixture.placeId}-living`);
   const evidenceRoot = path.join(root, 'soaks');
   mkdirSync(evidenceRoot, { recursive: true });
-  const runtime = materialize(fixture, runtimeRoot, port);
-  const server = await startServer(
+  progress.emit('fixture', 'started', { placeId: fixture.placeId, profileId: 'living' });
+  const runtime = materializeRuntime({
+    repositoryRoot,
+    fixture,
+    profileId: 'living',
+    destination: runtimeRoot,
+    port,
+  });
+  const server = await startMinecraftServer({
+    repositoryRoot,
     runtimeRoot,
     runtime,
-    path.join(evidenceRoot, `${fixture.placeId}-server.log`),
-  );
+    logPath: path.join(evidenceRoot, `${fixture.placeId}-server.log`),
+    progress,
+  });
   let bot;
   let report;
   let shutdown;
   const startedAt = new Date().toISOString();
   try {
-    bot = await connectObserver(port, fixture.placeId);
-    const observationSite = await prepareObservationSite(server, bot, fixture.checkpoints[0]);
+    bot = (
+      await connectObserver({
+        port,
+        username: `ECO_${fixture.placeId.replaceAll('-', '_')}`.slice(0, 16),
+        label: 'ecology observer',
+        progress,
+      })
+    ).bot;
+    const observationSite = await prepareObservationSite({
+      server,
+      bot,
+      checkpoint: fixture.checkpoints[0],
+      gameMode: 'survival',
+      label: `observation checkpoint ${fixture.checkpoints[0].id}`,
+    });
     await sleep(500);
-    const settle = await sprint(server, config.settleTicks, config.maxWallSeconds);
+    const settle = await sprintTicks(
+      server,
+      config.settleTicks,
+      config.maxWallSeconds,
+      parseSprintCompletion,
+      progress,
+    );
     await sleep(250);
     const before = await snapshot(server, bot, loaded.benchmark.inspections.observationRadius);
-    const day = await sprint(server, config.sprintTicks, config.maxWallSeconds);
+    const day = await sprintTicks(
+      server,
+      config.sprintTicks,
+      config.maxWallSeconds,
+      parseSprintCompletion,
+      progress,
+    );
     await sleep(250);
     const after = await snapshot(server, bot, loaded.benchmark.inspections.observationRadius);
     const deathMessages = server
@@ -315,6 +176,7 @@ async function soakFixture(loaded, fixture, root, port) {
       worldTreeSha256: fixture.worldTreeSha256,
       profileId: 'living',
       profile: loaded.profiles.living,
+      runtimeLaunch: server.launch,
       startedAt,
       finishedAt: new Date().toISOString(),
       method: {
@@ -345,11 +207,17 @@ async function soakFixture(loaded, fixture, root, port) {
       },
     };
   } finally {
-    shutdown = await stop(server, bot);
+    shutdown = await stopMinecraftServer({
+      server,
+      bot,
+      reason: 'ecology soak complete',
+      progress,
+    });
   }
   report.shutdown = shutdown;
   const reportPath = path.join(evidenceRoot, `${fixture.placeId}.json`);
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
+  progress.emit('fixture', 'completed', { placeId: fixture.placeId, reportPath });
   return { placeId: fixture.placeId, reportPath, reportSha256: await sha256(reportPath) };
 }
 
@@ -368,9 +236,19 @@ const root = path.join(
 );
 if (existsSync(root)) throw new Error(`benchmark run exists: ${root}`);
 mkdirSync(root, { recursive: true });
+const progress = createProgressReporter({
+  lane: 'ecology',
+  runId: options.runId,
+  filePath: path.join(root, 'progress.jsonl'),
+});
 const results = [];
 for (let index = 0; index < selected.length; index += 1)
-  results.push(await soakFixture(loaded, selected[index], root, options.basePort + index));
+  results.push(
+    await soakFixture(loaded, selected[index], root, options.basePort + index, progress),
+  );
+progress.emit('run', 'completed', { resultCount: results.length });
+await progress.close();
+const evidencePlan = deriveEvidencePlan({ benchmark: loaded.benchmark, fixtures: selected });
 const manifest = {
   schemaVersion: 1,
   status: 'completed',
@@ -380,6 +258,11 @@ const manifest = {
   createdAt: new Date().toISOString(),
   hardware: hardwareFingerprint(),
   benchmarkSha256: await sha256(loaded.path),
+  expectation: laneExpectation(evidencePlan, 'ecology'),
+  progress: {
+    path: 'progress.jsonl',
+    sha256: await sha256(path.join(root, 'progress.jsonl')),
+  },
   results: results.map((result) => ({
     ...result,
     reportPath: path.relative(root, result.reportPath),

@@ -77,6 +77,14 @@ node scripts/place-compiler/verify-benchmark-release.mjs \
   .behold-artifacts/place-benchmarks/living-places-v1/releases/NEW_RELEASE_ID
 ```
 
+All three lanes use the same Place-owned disposable-server harness. It executes the exact JVM argument vector published by `runtime-manifest.json`, verifies the pinned server JAR, connects a loopback offline observer, and saves and stops cleanly. Concise progress appears on stderr while the complete structured event stream is retained as `progress.jsonl` and checksummed by the lane manifest. A focused performance regression can select one place, profile, and repetition without weakening the benchmark's canonical repetition count:
+
+```bash
+node scripts/place-compiler/sweep-performance.mjs \
+  --place lower-manhattan --profile living --repetitions 1 \
+  --run-id FOCUSED_REGRESSION_ID
+```
+
 The package contains the contract and reproduction code plus visual, structural, ecological, and performance evidence. It deliberately excludes disposable runtime clones and does not repackage either multi-gigabyte world.
 
 ## Compare and package
