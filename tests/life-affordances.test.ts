@@ -16,7 +16,7 @@ function baseBot() {
   return bot;
 }
 
-test('the inhabitant action space excludes raw controls and privileged world scans', () => {
+test('the inhabitant action space excludes raw controls, duplicate probes, and privileged scans', () => {
   const interpreter = buildInterpreter(baseBot());
   const inhabitantActions = interpreter.list('inhabitant').map((spec) => spec.name);
   const allActions = interpreter.list().map((spec) => spec.name);
@@ -27,8 +27,6 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   assert.ok(inhabitantActions.includes('face_visible_target'));
   assert.ok(inhabitantActions.includes('descend_step'));
   assert.ok(inhabitantActions.includes('ascend_step'));
-  assert.ok(inhabitantActions.includes('block_at_cursor'));
-  assert.ok(inhabitantActions.includes('entity_at_cursor'));
   assert.ok(inhabitantActions.includes('cross_visible_door'));
   assert.ok(inhabitantActions.includes('craft_item'));
   assert.ok(inhabitantActions.includes('attack_entity'));
@@ -57,6 +55,7 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   assert.deepEqual(pickup?.parameters.required, ['target']);
   assert.deepEqual(Object.keys(pickup?.parameters.properties || {}), ['target']);
   assert.equal(inhabitantActions.includes('set_control'), false);
+  assert.equal(inhabitantActions.includes('look_at'), false);
   assert.equal(inhabitantActions.includes('look'), false);
   assert.equal(inhabitantActions.includes('clear_controls'), false);
   assert.equal(inhabitantActions.includes('survey_area'), false);
@@ -65,6 +64,9 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   assert.equal(inhabitantActions.includes('inspect_reachable_space'), false);
   assert.equal(inhabitantActions.includes('nearest_entity'), false);
   assert.equal(inhabitantActions.includes('get_nearby'), false);
+  assert.equal(inhabitantActions.includes('block_at_cursor'), false);
+  assert.equal(inhabitantActions.includes('entity_at_cursor'), false);
+  assert.equal(inhabitantActions.includes('status'), false);
   assert.equal(inhabitantActions.includes('guide_entity_to_place'), false);
   assert.equal(inhabitantActions.includes('teach_player'), false);
   assert.equal(inhabitantActions.includes('build_home'), false);
@@ -76,6 +78,10 @@ test('the inhabitant action space excludes raw controls and privileged world sca
   assert.ok(allActions.includes('inspect_reachable_space'));
   assert.ok(allActions.includes('nearest_entity'));
   assert.ok(allActions.includes('get_nearby'));
+  assert.ok(allActions.includes('look_at'));
+  assert.ok(allActions.includes('block_at_cursor'));
+  assert.ok(allActions.includes('entity_at_cursor'));
+  assert.ok(allActions.includes('status'));
 });
 
 test('look_direction exposes bounded relative player orientation without raw angles', async () => {

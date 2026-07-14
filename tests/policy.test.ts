@@ -236,6 +236,7 @@ test('urgent attention preserves resident choice while fresh perception updates 
     ]);
     assert.equal(interruptions[0].observationSequence, 1);
     assert.equal(requests[1].attention.mode, 'urgent');
+    assert.equal(requests[1].attention.decisionBudgetMs, 5_000);
     assert.equal(requests[1].model, 'test/urgent-model');
     assert.deepEqual(requests[1].attention.triggers, [
       { sequence: 2, type: 'self_hurt', salience: 'urgent' },
@@ -258,6 +259,9 @@ test('urgent attention preserves resident choice while fresh perception updates 
       requests[1].actions.map((action: any) => action.name),
       ['move_to', 'attack_entity', 'wait_for_event'],
     );
+    const urgentContinuity = recentContinuity(requests[1].conversation);
+    assert.equal(urgentContinuity.source.turnLimit, 3);
+    assert.equal(urgentContinuity.source.byteLimit, 6_000);
     const urgentGuidance = requests[1].conversation
       .map((message: any) => String(message.content || ''))
       .join('\n');
@@ -750,6 +754,138 @@ test('a model decision fails closed when its observation cursor has a gap', () =
     missingBeforeOldest: 5,
     invalidatingEvents: [],
   });
+});
+
+test('bodily urgency has an enforced wall-clock decision budget', async () => {
+  let request: ResidentMindRequest | null = null;
+  let observedSignal: AbortSignal | null = null;
+  const errors: any[] = [];
+  let attempts = 0;
+  const mind: ResidentMind = {
+    id: 'slow-urgent-mind',
+    decide: async (next, { signal }) => {
+      request = next;
+      observedSignal = signal;
+      return await new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    },
+  };
+  const base = experience(2, null, 0);
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_direction')],
+      attempt: () => {
+        attempts += 1;
+        return true;
+      },
+      observe: () => ({
+        ...base,
+        sequence: 2,
+        self: {
+          ...base.self,
+          condition: { health: 14, food: 20, oxygen: null },
+        },
+        events: [
+          {
+            sequence: 2,
+            type: 'self_hurt',
+            salience: 'urgent',
+            source: 'body',
+            isNew: true,
+            data: {},
+          },
+        ],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      urgentDecisionTimeoutMs: 100,
+      acceptEngineEvent: () => true,
+      onModelError: (error) => errors.push(error),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal((request as ResidentMindRequest | null)?.attention?.mode, 'urgent');
+    assert.equal((request as ResidentMindRequest | null)?.attention?.decisionBudgetMs, 100);
+    assert.equal(observedSignal?.aborted, true);
+    assert.equal(attempts, 0);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /urgent_decision_deadline_exceeded:100ms/);
+    assert.equal(policy.state().modelRequestActive, false);
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('a mind cannot admit a late urgent action by ignoring cancellation', async () => {
+  const errors: any[] = [];
+  let attempts = 0;
+  let observedSignal: AbortSignal | null = null;
+  const mind: ResidentMind = {
+    id: 'noncooperative-urgent-mind',
+    decide: async (_request, { signal }) => {
+      observedSignal = signal;
+      await new Promise((resolve) => setTimeout(resolve, 125));
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'act',
+        utterance: 'This proposal arrived after its body frame expired.',
+        action: { name: 'move_direction', input: { direction: 'forward' } },
+        call: modelCallEvidence('noncooperative-urgent-mind'),
+      };
+    },
+  };
+  const base = experience(2, null, 0);
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('move_direction')],
+      attempt: () => {
+        attempts += 1;
+        return true;
+      },
+      observe: () => ({
+        ...base,
+        sequence: 2,
+        self: { ...base.self, condition: { health: 14, food: 20, oxygen: null } },
+        events: [
+          {
+            sequence: 2,
+            type: 'self_hurt',
+            salience: 'urgent',
+            source: 'body',
+            isNew: true,
+            data: {},
+          },
+        ],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      urgentDecisionTimeoutMs: 100,
+      acceptEngineEvent: () => true,
+      onModelError: (error) => errors.push(error),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(observedSignal?.aborted, true);
+    assert.equal(attempts, 0);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /urgent_decision_deadline_exceeded:100ms/);
+    assert.equal(policy.state().modelRequestActive, false);
+  } finally {
+    await policy.stop();
+  }
 });
 
 test('stopping a policy aborts an in-flight model request and waits until it is idle', async () => {
@@ -2895,15 +3031,15 @@ test('a restarted controller continues the same entity trajectory from loom turn
     completedAt: 20,
     observation: { protocol: 'behold.inhabitant.v1', sequence: 1 },
     utterance: {
-      assistant: assistantTool('call-old-status', 'status', {}),
+      assistant: assistantTool('call-old-move', 'move_to', { x: 4, y: 64, z: 8 }),
     },
     action: {
       id: 'old-action',
-      name: 'status',
-      input: {},
+      name: 'move_to',
+      input: { x: 4, y: 64, z: 8 },
       source: 'llm',
       kind: 'parallel',
-      toolCallId: 'call-old-status',
+      toolCallId: 'call-old-move',
     },
     outcome: {
       ok: true,
@@ -2933,7 +3069,7 @@ test('a restarted controller continues the same entity trajectory from loom turn
     await policy.tick();
     assert.equal(requests.length, 1);
     const continuity = recentContinuity(requests[0].messages);
-    assert.equal(continuity.turns[0].action.name, 'status');
+    assert.equal(continuity.turns[0].action.name, 'move_to');
     assert.equal(continuity.turns[0].outcome.result.position.x, 4);
     assert.equal(
       requests[0].messages.some((message: any) => message.role === 'tool'),
@@ -3227,6 +3363,7 @@ function tool(name: string) {
     ['collect_nearby_item', 'target'],
     ['cross_visible_door', 'focus'],
     ['cross_place_door', 'id'],
+    ['drop_item', 'name'],
   ]).get(name);
   return {
     type: 'function' as const,

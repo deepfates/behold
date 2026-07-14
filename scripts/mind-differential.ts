@@ -3,6 +3,7 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Bot } from 'mineflayer';
+import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { openEntityLoom } from '../src/entity/loom';
 import { createPlaceMemory } from '../src/entity/places';
@@ -144,6 +145,7 @@ async function main() {
         entityId,
         observe: (sinceSequence) => replayObservationAtCursor(observation, sinceSequence),
         actions,
+        actionsFor: (frame) => minecraftInhabitantActionsFor(actions, frame),
         // This proof ends at proposal admission. It cannot mutate Minecraft.
         attempt: (intent) => {
           attempted.push(intent);
@@ -433,6 +435,7 @@ async function captureMindRequest(options: {
       entityId: options.entityId,
       observe: (sinceSequence) => replayObservationAtCursor(options.observation, sinceSequence),
       actions: options.actions,
+      actionsFor: (frame) => minecraftInhabitantActionsFor(options.actions, frame),
       attempt: () => {
         throw new Error('attention request capture cannot admit an action');
       },

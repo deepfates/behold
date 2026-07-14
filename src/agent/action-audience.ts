@@ -1,6 +1,7 @@
 export type ActionAudience = 'inhabitant' | 'operator' | 'privileged';
 
 const NON_RESIDENT_ACTION_AUDIENCE = new Map<string, Exclude<ActionAudience, 'inhabitant'>>([
+  ['look_at', 'operator'],
   ['look', 'operator'],
   ['set_control', 'operator'],
   ['clear_controls', 'operator'],
@@ -11,6 +12,9 @@ const NON_RESIDENT_ACTION_AUDIENCE = new Map<string, Exclude<ActionAudience, 'in
   ['nearest_entity', 'privileged'],
   ['get_nearby', 'privileged'],
   ['survey_area', 'privileged'],
+  ['block_at_cursor', 'operator'],
+  ['entity_at_cursor', 'operator'],
+  ['status', 'operator'],
 ]);
 
 export function declaredNonResidentAudience(name: string) {

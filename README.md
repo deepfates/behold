@@ -118,6 +118,7 @@ Environment Variables
 - `MINECRAFT_PASSWORD` — Password (leave empty for offline)
 - `MINECRAFT_AUTH` — `offline` or `microsoft` (default `offline`)
 - `AGENT_TICK_MS` — Agent loop tick interval (default `4000`)
+- `BEHOLD_URGENT_DECISION_TIMEOUT_MS` — wall-clock deadline for one newly urgent bodily decision (default `5000`)
 - `KEY_MODE` — `hold` (default) for MC-like holding keys, or `toggle`
 - `VIEWER_ENABLED` — `1` to enable the web viewer (default `1`)
 - `VIEWER_PORT` — viewer port (default `3007`)
@@ -127,6 +128,7 @@ Environment Variables
 - `OPENROUTER_REFERER` — Optional Referer header for OpenRouter
 - `OPENROUTER_TITLE` — Optional X-Title header for OpenRouter
 - `LLM_MODEL` — exact OpenRouter model slug (default `google/gemini-3.5-flash`)
+- `LLM_URGENT_MODEL` — optional separately authorized model for newly urgent bodily attention
 - `BEHOLD_MIND` — bounded decision adapter: `direct` (default) or `ax`
 
 LLM Autopilot (optional)

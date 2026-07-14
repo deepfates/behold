@@ -88,11 +88,17 @@ export type InhabitantObservation = {
       health: number | null;
       food: number | null;
       oxygen: number | null;
+      /** Current body sleep state; absent only on older imported observations. */
+      sleeping?: boolean | null;
       dimension: string | null;
       isDay: boolean | null;
     };
     heldItem: string | null;
-    inventory: Array<{ name: string; count: number }>;
+    inventory: Array<{
+      name: string;
+      count: number;
+      uses?: Array<'place' | 'consume' | 'equip' | 'drop'>;
+    }>;
     projects: InhabitantProject[];
     places: SituatedInhabitantPlace[];
     placeConflicts: ReturnType<typeof findProjectPlaceConflicts>;
@@ -428,6 +434,7 @@ export class InhabitantExperience {
           health: finiteOrNull(base.health),
           food: finiteOrNull(base.food),
           oxygen: this.lastCondition.oxygen,
+          sleeping: typeof base.sleeping === 'boolean' ? base.sleeping : null,
           dimension: base.dimension == null ? null : String(base.dimension),
           isDay: typeof base.isDay === 'boolean' ? base.isDay : null,
         },

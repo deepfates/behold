@@ -27,6 +27,29 @@ test('summarizeInventory aggregates and orders stacks', () => {
   );
 });
 
+test('inventory summaries derive ordinary uses from Minecraft and Mineflayer semantics', () => {
+  const summary = summarizeInventory(
+    [
+      { name: 'apple', count: 1 },
+      { name: 'oak_planks', count: 2 },
+      { name: 'potion', count: 1 },
+      { name: 'wooden_axe', count: 1 },
+    ],
+    16,
+    {
+      blocksByName: { oak_planks: { id: 1 } },
+      foodsByName: { apple: { id: 2 } },
+    },
+  );
+
+  assert.deepEqual(summary, [
+    { name: 'oak_planks', count: 2, uses: ['place', 'equip', 'drop'] },
+    { name: 'apple', count: 1, uses: ['consume', 'equip', 'drop'] },
+    { name: 'potion', count: 1, uses: ['consume', 'equip', 'drop'] },
+    { name: 'wooden_axe', count: 1, uses: ['equip', 'drop'] },
+  ]);
+});
+
 test('nearby dropped stacks expose their item identity and count', () => {
   const bot: any = {
     entity: { id: 1, position: new Vec3(0, 64, 0), yaw: 0, pitch: 0, eyeHeight: 1.62 },

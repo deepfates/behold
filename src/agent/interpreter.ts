@@ -178,6 +178,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return { ok: true };
     },
     category: 'view',
+    audience: 'operator',
   });
 
   add({
@@ -1799,6 +1800,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         z: { type: 'number' },
         maxDistance: { type: 'number', minimum: 1, maximum: 6 },
       },
+      required: ['x', 'y', 'z'],
     },
     run: async ({ x, y, z, maxDistance = 6 }) => {
       const resolved = resolveContainerBlock(bot, { x, y, z, maxDistance });
@@ -1832,7 +1834,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         z: { type: 'number' },
         maxDistance: { type: 'number', minimum: 1, maximum: 6 },
       },
-      required: ['name'],
+      required: ['name', 'x', 'y', 'z'],
     },
     run: async ({ name, count = 1, x, y, z, maxDistance = 6 }) => {
       const resolved = resolveContainerBlock(bot, { x, y, z, maxDistance });
@@ -1907,7 +1909,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         z: { type: 'number' },
         maxDistance: { type: 'number', minimum: 1, maximum: 6 },
       },
-      required: ['name'],
+      required: ['name', 'x', 'y', 'z'],
     },
     run: async ({ name, count = 1, x, y, z, maxDistance = 6 }) => {
       const resolved = resolveContainerBlock(bot, { x, y, z, maxDistance });
@@ -1980,6 +1982,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         z: { type: 'number' },
         maxDistance: { type: 'number', minimum: 1, maximum: 16 },
       },
+      required: ['x', 'y', 'z'],
     },
     run: async ({ x, y, z, maxDistance = 6 }) => {
       const explicit = [x, y, z].every((value) => Number.isFinite(Number(value)));
@@ -2159,6 +2162,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return { ok: true, block: summarizeBlock(b) };
     },
     category: 'sense',
+    audience: 'operator',
   });
 
   add({
@@ -2288,6 +2292,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return { ok: true, entity: summarizeEntity(e) };
     },
     category: 'sense',
+    audience: 'operator',
   });
 
   add({
@@ -2369,6 +2374,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       };
     },
     category: 'sense',
+    audience: 'operator',
   });
 
   function summarizeBlock(b: any) {

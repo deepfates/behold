@@ -96,6 +96,134 @@ test('non-visual block references never become orientation offers', () => {
   assert.deepEqual(minecraftInhabitantActionsFor([tool('face_visible_target')], observation), []);
 });
 
+test('an empty respawned body is not offered inventory, crafting, placement, or storage fiction', () => {
+  const actions = [
+    schemaTool('look_direction', {}),
+    schemaTool('face_visible_target', {
+      target: { type: 'string' },
+      expectedName: { type: 'string' },
+    }),
+    schemaTool('drop_item', { name: { type: 'string' } }),
+    schemaTool('equip_item', { name: { type: 'string' } }),
+    schemaTool('consume', { name: { type: 'string' } }),
+    schemaTool('craft_item', { name: { type: 'string' } }),
+    schemaTool('place_block', coordinateProperties({ name: { type: 'string' } })),
+    schemaTool('place_against', coordinateProperties({ name: { type: 'string' } })),
+    schemaTool('inspect_container', coordinateProperties()),
+    schemaTool('deposit_in_container', coordinateProperties({ name: { type: 'string' } })),
+    schemaTool('withdraw_from_container', coordinateProperties({ name: { type: 'string' } })),
+    schemaTool('sleep_in_bed', coordinateProperties()),
+    schemaTool('wake_up', {}),
+  ];
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    self: {
+      inventory: [],
+      condition: { isDay: false, sleeping: false },
+    },
+    scene: {
+      focus: null,
+      entities: [],
+      terrain: {
+        targets: [visibleBlock('block:overworld:0:64:4', 'oak_leaves', 0, 64, 4)],
+      },
+    },
+  };
+
+  const names = minecraftInhabitantActionsFor(actions, observation).map(
+    (action) => action.function.name,
+  );
+
+  assert.deepEqual(names, ['look_direction', 'face_visible_target']);
+});
+
+test('current inventory uses and cursor focus produce exact native action inputs', () => {
+  const actions = [
+    schemaTool('drop_item', { name: { type: 'string' } }),
+    schemaTool('equip_item', { name: { type: 'string' } }),
+    schemaTool('consume', { name: { type: 'string' } }),
+    schemaTool('dig_block', coordinateProperties()),
+    schemaTool('place_against', {
+      on: {
+        type: 'object',
+        properties: coordinateProperties(),
+        required: ['x', 'y', 'z'],
+      },
+      face: { type: 'string', enum: ['top', 'bottom', 'north', 'south', 'east', 'west'] },
+    }),
+  ];
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    self: {
+      heldItem: 'oak_planks',
+      condition: { food: 16 },
+      inventory: [
+        { name: 'apple', count: 1, uses: ['consume', 'equip', 'drop'] },
+        { name: 'oak_planks', count: 3, uses: ['place', 'equip', 'drop'] },
+      ],
+    },
+    scene: {
+      focus: {
+        id: 'block:overworld:3:65:-2',
+        kind: 'block',
+        name: 'oak_log',
+        source: 'cursor',
+        reachable: true,
+        position: { x: 3, y: 65, z: -2 },
+      },
+      entities: [],
+      terrain: { targets: [] },
+    },
+  };
+
+  const offered = new Map(
+    minecraftInhabitantActionsFor(actions, observation).map((action) => [
+      action.function.name,
+      action,
+    ]),
+  );
+
+  assert.deepEqual(offered.get('drop_item')?.function.parameters.properties.name.enum, [
+    'apple',
+    'oak_planks',
+  ]);
+  assert.deepEqual(offered.get('consume')?.function.parameters.properties.name.enum, ['apple']);
+  assert.deepEqual(
+    offered.get('place_against')?.function.parameters.properties.on.properties.x.enum,
+    [3],
+  );
+  assert.deepEqual(
+    offered.get('place_against')?.function.parameters.properties.on.properties.y.enum,
+    [65],
+  );
+  assert.deepEqual(
+    offered.get('place_against')?.function.parameters.properties.on.properties.z.enum,
+    [-2],
+  );
+  assert.deepEqual(offered.get('dig_block')?.function.parameters.properties.x.enum, [3]);
+  assert.deepEqual(offered.get('dig_block')?.function.parameters.properties.y.enum, [65]);
+  assert.deepEqual(offered.get('dig_block')?.function.parameters.properties.z.enum, [-2]);
+});
+
+test('consumption follows Mineflayer hunger and always-consumable semantics', () => {
+  const actions = [schemaTool('consume', { name: { type: 'string' } })];
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    self: {
+      condition: { food: 20 },
+      inventory: [
+        { name: 'apple', count: 1, uses: ['consume', 'equip', 'drop'] },
+        { name: 'potion', count: 1, uses: ['consume', 'equip', 'drop'] },
+        { name: 'milk_bucket', count: 1, uses: ['consume', 'equip', 'drop'] },
+      ],
+    },
+    scene: { focus: null, entities: [], terrain: { targets: [] } },
+  };
+
+  const [consume] = minecraftInhabitantActionsFor(actions, observation);
+  assert.deepEqual(consume.function.parameters.properties.name.enum, ['potion', 'milk_bucket']);
+});
+
 function tool(name: string): InhabitantActionSpec {
   const property =
     name === 'face_visible_target'
@@ -112,5 +240,37 @@ function tool(name: string): InhabitantActionSpec {
       name,
       parameters: { type: 'object', properties: property },
     },
+  };
+}
+
+function schemaTool(name: string, properties: Record<string, unknown>): InhabitantActionSpec {
+  return {
+    type: 'function',
+    function: {
+      name,
+      parameters: { type: 'object', properties },
+    },
+  };
+}
+
+function coordinateProperties(extra: Record<string, unknown> = {}) {
+  return {
+    x: { type: 'number' },
+    y: { type: 'number' },
+    z: { type: 'number' },
+    ...extra,
+  };
+}
+
+function visibleBlock(id: string, name: string, x: number, y: number, z: number) {
+  return {
+    id,
+    kind: 'block',
+    name,
+    source: 'vision',
+    visibility: 'visible',
+    position: { x, y, z },
+    distance: 4,
+    ray: { row: 2, column: 4 },
   };
 }

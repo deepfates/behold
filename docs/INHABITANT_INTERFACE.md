@@ -22,8 +22,11 @@ execution, memory, or world truth.
 
 New Minecraft observations use `behold.inhabitant.v2`.
 
-- `self` is direct body state: pose, health, food, oxygen, held item, inventory,
-  current action, and bounded own-trajectory projections.
+- `self` is direct body state: pose, health, food, oxygen, sleeping state, held
+  item, inventory, current action, and bounded own-trajectory projections.
+  Current inventory stacks carry game-adapter-derived ordinary uses such as
+  `place`, `consume`, `equip`, and `drop`; this is item knowledge available to
+  the body, not a recipe or loaded-world scan.
 - `scene.social` is explicit server-roster presence. It never implies proximity,
   visibility, attention, or willingness to interact.
 - `scene.focus` is the nearest entity or selectable block hit by the current
@@ -64,6 +67,28 @@ controller applies task allowlists, bodily-attention constraints, serialization,
 and catalog authorization after `actionsFor`; it has no door, entity, inventory,
 or roster discovery rules. A world adapter failure therefore degrades to the
 explicit yield action instead of broadening capability.
+
+The current Minecraft adapter also removes capabilities whose visible physical
+preconditions are absent. Empty inventory cannot offer placement, eating,
+equipment, dropping, or crafting. Digging and ordinary block use bind to the
+reachable cursor focus. Containers and beds bind to their exact visible block.
+Sleep and wake reflect the body's current day and sleeping state. Exact enums
+narrow item names, entity ids, block positions, and door ids before a mind sees
+the action. Older observations without item-use metadata retain a conservative
+coarse inventory surface rather than being silently reinterpreted.
+
+Raw coordinate looking, `status`, and cursor-query commands remain available to
+operators, but are not resident actions: their ordinary results are already in
+the current observation. This prevents a mind from spending a world turn to ask
+the adapter to repeat its HUD or crosshair state.
+
+Newly urgent bodily decisions carry an enforced wall-clock budget, currently
+five seconds by default and recorded as `attention.decisionBudgetMs`. A direct
+or Ax request that acknowledges cancellation is aborted at that boundary; it
+cannot return an arbitrarily late action as though the original body state were
+still current. The next wake reobserves the world. This makes slow cognition a
+bounded visible failure; it does not itself choose a survival response or prove
+that five seconds is fast enough.
 
 Visibility admission does not grant continuing hidden tracking. A moving
 approach updates its destination only while the target is perceived. After

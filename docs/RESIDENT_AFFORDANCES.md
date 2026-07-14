@@ -100,6 +100,24 @@ approach it, or use it. Cursor-gated skills appear only after that separately
 observable relation is true. This is a target language shared by doors and
 future block interactions, not a block ontology or a new verb per material.
 
+The offer compiler now applies the same rule beyond doors. Inventory stacks
+publish their native item uses from the active registry plus Mineflayer's
+ordinary consume rules; empty or inapplicable inventory removes eating,
+equipment, dropping, placement, and crafting fiction. Digging, toggles,
+containers, and beds require an exact reachable cursor block, and their schemas
+carry that one current position. Sleeping and waking follow the body's current
+state. Operator `status`, cursor probes, and raw coordinate looking are not
+resident choices because the lived observation already contains their ordinary
+information.
+
+Affordances also have a closing time. Newly urgent bodily attention now carries
+a five-second default decision budget and only three recent committed turns in
+a 6 KB continuity envelope. The controller aborts a cooperative slow mind at
+the deadline and reobserves instead of admitting an indefinitely late proposal.
+That is a failure boundary, not yet a fast survival constitution: live evidence
+must still determine whether model routing can close in time or whether the mind
+needs a transparent local reaction layer.
+
 ## Primitive versus body skill
 
 The model should not choose every keyboard tick, but a body skill must not
@@ -187,9 +205,10 @@ What remains red, in priority order:
    understand façades, signs, maps, builds, and human visual communication.
    It should supplement—not erase—the cheap structured body/event channel and
    must use the exact resident camera.
-6. **Long survival competence.** Materials, tools, food, light, shelter, sleep,
-   hazards, death, and recovery need one continuous untasked-life evaluation,
-   not separate scripted successes.
+6. **Temporal embodiment and long survival competence.** Fast danger response,
+   interruptible continuing intentions, materials, tools, food, light, shelter,
+   sleep, hazards, death, and recovery need one continuous untasked-life
+   evaluation, not separate scripted successes.
 7. **Embodied place learning.** A resident can remember where it acted, but new
    construction does not magically become a certified room, doorway, or safe
    interior. Those affordances must be learned through its camera, movement,

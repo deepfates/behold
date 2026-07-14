@@ -9,6 +9,8 @@ export type ResidentMindAction = {
 export type ResidentAttention = {
   mode: 'deliberative' | 'urgent';
   context: 'bounded_loom' | 'current_body_and_continuity';
+  /** Wall-clock budget for this urgent choice; the controller enforces it. */
+  decisionBudgetMs?: number;
   /** Present while a critical body condition still constrains attention and maintenance. */
   continuingCondition?: 'critical_body_condition';
   triggers: readonly {

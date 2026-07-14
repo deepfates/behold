@@ -4,7 +4,8 @@ import { minecraftOxygenLevel } from './condition';
 
 export type ChatLine = { username: string; message: string; at: number } | null;
 
-export type InventorySummary = { name: string; count: number };
+export type InventoryUse = 'place' | 'consume' | 'equip' | 'drop';
+export type InventorySummary = { name: string; count: number; uses?: InventoryUse[] };
 export type NearbyEntitySummary = {
   id?: number;
   name: string;
@@ -88,7 +89,11 @@ export function collectObservation(bot: Bot, lastChat: ChatLine) {
   const mcTime = (bot as any).time?.time;
   const dimension = (bot as any).game?.dimension;
   const held = (bot as any).heldItem;
-  const inventory = summarizeInventory((bot as any).inventory?.items?.() || []);
+  const inventory = summarizeInventory(
+    (bot as any).inventory?.items?.() || [],
+    16,
+    (bot as any).registry,
+  );
   const onlinePlayers = onlinePlayerNames(bot);
   const nearbyEntities = summarizeVisibleEntities(bot);
   const visibleTerrain = summarizeVisibleTerrain(bot);
@@ -99,6 +104,7 @@ export function collectObservation(bot: Bot, lastChat: ChatLine) {
     health: (bot as any).health,
     food: (bot as any).food,
     oxygen: minecraftOxygenLevel((bot as any).oxygenLevel),
+    sleeping: typeof (bot as any).isSleeping === 'boolean' ? (bot as any).isSleeping : null,
     heldItem: held?.name || held?.displayName || null,
     inventory,
     onlinePlayers,
@@ -121,16 +127,37 @@ export function onlinePlayerNames(bot: Bot): string[] | null {
     .sort((a, b) => a.localeCompare(b));
 }
 
-export function summarizeInventory(items: any[], limit = 16): InventorySummary[] {
+export function summarizeInventory(items: any[], limit = 16, registry?: any): InventorySummary[] {
   const counts = new Map<string, number>();
   for (const item of items || []) {
     const name = String(item?.name || item?.displayName || 'unknown');
     counts.set(name, (counts.get(name) || 0) + Math.max(0, Number(item?.count) || 0));
   }
   return [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
+    .map(([name, count]) => ({
+      name,
+      count,
+      ...(registry ? { uses: inventoryUses(name, registry) } : {}),
+    }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
     .slice(0, limit);
+}
+
+function inventoryUses(name: string, registry: any): InventoryUse[] {
+  return [
+    ...(registry?.blocksByName?.[name] ? (['place'] as const) : []),
+    ...(registry?.foodsByName?.[name] || isAlwaysConsumableItem(name)
+      ? (['consume'] as const)
+      : []),
+    'equip' as const,
+    'drop' as const,
+  ];
+}
+
+function isAlwaysConsumableItem(name: string) {
+  // This mirrors Mineflayer's ordinary consume gate. These items remain
+  // usable when the food bar is full; ordinary registry foods do not.
+  return new Set(['potion', 'milk_bucket', 'enchanted_golden_apple', 'golden_apple']).has(name);
 }
 
 export function summarizeVisibleEntities(

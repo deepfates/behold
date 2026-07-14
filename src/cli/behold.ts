@@ -10,6 +10,7 @@ async function main() {
     options: {
       model: { type: 'string' },
       urgentModel: { type: 'string' },
+      urgentDecisionTimeoutMs: { type: 'string' },
       tickMs: { type: 'string' },
       allowTools: { type: 'string' },
       paused: { type: 'boolean', default: false },
@@ -40,6 +41,9 @@ async function main() {
     agentName,
     model: args.values.model ? String(args.values.model) : undefined,
     urgentModel: args.values.urgentModel ? String(args.values.urgentModel) : undefined,
+    urgentDecisionTimeoutMs: args.values.urgentDecisionTimeoutMs
+      ? Number(args.values.urgentDecisionTimeoutMs)
+      : undefined,
     tickMs: args.values.tickMs ? Number(args.values.tickMs) : undefined,
     paused: Boolean(args.values.paused),
     allowTools: allow,
@@ -50,7 +54,7 @@ async function main() {
 
 function usage() {
   const lines = [
-    'Usage: behold <AgentName> [--model <slug>] [--urgentModel <slug>] [--tickMs <ms>] [--paused] [--task come-see-do-report] [--target <player>] [--allowTools a,b,c] [--server host] [--port n] [--world <circle-id>]',
+    'Usage: behold <AgentName> [--model <slug>] [--urgentModel <slug>] [--urgentDecisionTimeoutMs <ms>] [--tickMs <ms>] [--paused] [--task come-see-do-report] [--target <player>] [--allowTools a,b,c] [--server host] [--port n] [--world <circle-id>]',
     '',
     'Starts a bot + console UI. If OPENROUTER_API_KEY is set, enables LLM autopilot using the command registry.',
   ];

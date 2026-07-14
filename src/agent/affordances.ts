@@ -14,6 +14,13 @@ export function minecraftInhabitantActionsFor(
 ): InhabitantActionSpec[] {
   const roster = frame?.scene?.social?.playersOnline;
   const inventory = Array.isArray(frame?.self?.inventory) ? frame.self.inventory : [];
+  const inventoryNames = inventory
+    .filter((item: any) => Number(item?.count) > 0 && String(item?.name || '').length > 0)
+    .map((item: any) => String(item.name));
+  const placementNames = inventoryNamesForUse(inventory, 'place');
+  const consumableNames = inventoryNamesForUse(inventory, 'consume').filter(
+    (name) => !finiteAtLeast(frame?.self?.condition?.food, 20) || isAlwaysConsumableItem(name),
+  );
   const perceivedEntities = visibleEntities(frame);
   const droppedItems = perceivedEntities.filter(
     (entity: any) => String(entity?.kind || entity?.type || '').toLowerCase() === 'item',
@@ -23,6 +30,8 @@ export function minecraftInhabitantActionsFor(
   );
   const targetIds = (entities: any[]) => entities.map((entity) => String(entity.id));
   const visibleBlocks = visibleBlockTargets(frame);
+  const focus = currentReachableBlockFocus(frame);
+  const focusName = String(focus?.name || '').toLowerCase();
 
   return specs.flatMap((spec) => {
     const name = spec.function.name;
@@ -44,13 +53,7 @@ export function minecraftInhabitantActionsFor(
       ];
     }
     if (name === 'cross_visible_door') {
-      const focus = frame?.scene?.focus;
-      const blockName = String(focus?.name || '').toLowerCase();
-      return focus?.kind === 'block' &&
-        focus?.source === 'cursor' &&
-        focus?.reachable === true &&
-        typeof focus?.id === 'string' &&
-        isPlayerOperableDoor(blockName)
+      return focus && isPlayerOperableDoor(focusName)
         ? [withExactStringEnum(spec, 'focus', [focus.id])]
         : [];
     }
@@ -91,11 +94,63 @@ export function minecraftInhabitantActionsFor(
         : [];
     }
     if (name === 'drop_item') {
-      return inventory.some(
-        (item: any) => Number(item?.count) > 0 && String(item?.name || '').length > 0,
-      )
-        ? [spec]
+      return inventoryNames.length > 0 ? [withExactStringEnum(spec, 'name', inventoryNames)] : [];
+    }
+    if (name === 'equip_item') {
+      return inventoryNames.length > 0 ? [withExactStringEnum(spec, 'name', inventoryNames)] : [];
+    }
+    if (name === 'consume') {
+      return consumableNames.length > 0 ? [withExactStringEnum(spec, 'name', consumableNames)] : [];
+    }
+    if (name === 'craft_item') {
+      // Every vanilla recipe consumes at least one ingredient. The exact
+      // recipe menu remains an honest future observation surface; an empty
+      // body has no crafting affordance at all.
+      return inventoryNames.length > 0 ? [spec] : [];
+    }
+    if (name === 'place_against') {
+      const heldItem = String(frame?.self?.heldItem || '');
+      return placementNames.includes(heldItem) && focus?.position
+        ? [withExactNestedBlockPosition(spec, 'on', focus.position)]
         : [];
+    }
+    if (name === 'place_block') {
+      // Placement cells are not opaque visible surfaces, so the existing
+      // coordinate skill cannot yet be narrowed to one exact air cell. Do not
+      // claim even that coarse capability when the body carries nothing.
+      return placementNames.length > 0 && visibleBlocks.length > 0
+        ? [withExactStringEnum(spec, 'name', placementNames)]
+        : [];
+    }
+    if (name === 'dig_block') {
+      return focus?.position ? [withExactBlockPosition(spec, focus.position)] : [];
+    }
+    if (name === 'toggle_block') {
+      return focus?.position && isPlayerToggle(focusName)
+        ? [withExactBlockPosition(spec, focus.position)]
+        : [];
+    }
+    if (
+      name === 'inspect_container' ||
+      name === 'deposit_in_container' ||
+      name === 'withdraw_from_container'
+    ) {
+      if (!focus?.position || !isPlayerContainer(focusName)) return [];
+      if (name === 'deposit_in_container' && inventoryNames.length === 0) return [];
+      const exact = withExactBlockPosition(spec, focus.position);
+      return name === 'deposit_in_container'
+        ? [withExactStringEnum(exact, 'name', inventoryNames)]
+        : [exact];
+    }
+    if (name === 'sleep_in_bed') {
+      return focus?.position &&
+        focusName.endsWith('_bed') &&
+        frame?.self?.condition?.isDay === false
+        ? [withExactBlockPosition(spec, focus.position)]
+        : [];
+    }
+    if (name === 'wake_up') {
+      return frame?.self?.condition?.sleeping === true ? [spec] : [];
     }
     return [spec];
   });
@@ -112,12 +167,60 @@ export function withExactStringEnum(
     properties: {},
   };
   const properties = parameters.properties || {};
-  const current = properties[property] || { type: 'string' };
+  const current = properties[property];
+  if (!current) return copy;
   copy.function.parameters = {
     ...parameters,
     properties: {
       ...properties,
       [property]: { ...current, type: 'string', enum: [...values] },
+    },
+  };
+  return copy;
+}
+
+export function withExactBlockPosition(
+  spec: InhabitantActionSpec,
+  position: { x: number; y: number; z: number },
+): InhabitantActionSpec {
+  return withExactEnum(
+    withExactEnum(withExactEnum(spec, 'x', [Number(position.x)]), 'y', [Number(position.y)]),
+    'z',
+    [Number(position.z)],
+  );
+}
+
+export function withExactNestedBlockPosition(
+  spec: InhabitantActionSpec,
+  property: string,
+  position: { x: number; y: number; z: number },
+): InhabitantActionSpec {
+  const copy = cloneJson(spec) as InhabitantActionSpec;
+  const nested = (copy.function.parameters as any)?.properties?.[property];
+  if (!nested?.properties) return copy;
+  nested.properties.x = { ...nested.properties.x, enum: [Number(position.x)] };
+  nested.properties.y = { ...nested.properties.y, enum: [Number(position.y)] };
+  nested.properties.z = { ...nested.properties.z, enum: [Number(position.z)] };
+  return copy;
+}
+
+function withExactEnum(
+  spec: InhabitantActionSpec,
+  property: string,
+  values: readonly unknown[],
+): InhabitantActionSpec {
+  const copy = cloneJson(spec) as InhabitantActionSpec;
+  const parameters: any = copy.function.parameters || {
+    type: 'object',
+    properties: {},
+  };
+  const properties = parameters.properties || {};
+  const current = properties[property] || {};
+  copy.function.parameters = {
+    ...parameters,
+    properties: {
+      ...properties,
+      [property]: { ...current, enum: [...values] },
     },
   };
   return copy;
@@ -150,8 +253,58 @@ function visibleBlockTargets(frame: any) {
     : [];
 }
 
+function currentReachableBlockFocus(frame: any) {
+  const focus = frame?.scene?.focus;
+  return focus?.kind === 'block' &&
+    focus?.source === 'cursor' &&
+    focus?.reachable === true &&
+    typeof focus?.id === 'string' &&
+    focus.id.length > 0
+    ? focus
+    : null;
+}
+
+function inventoryNamesForUse(inventory: any[], use: string) {
+  return inventory
+    .filter((item: any) => {
+      if (!(Number(item?.count) > 0) || !String(item?.name || '')) return false;
+      // Older worlds and imported histories may not yet carry item-use
+      // metadata. Preserve their coarse catalog rather than silently removing
+      // an action; current bodies publish precise registry-derived uses.
+      return !Array.isArray(item.uses) || item.uses.includes(use);
+    })
+    .map((item: any) => String(item.name));
+}
+
+function finiteAtLeast(value: unknown, threshold: number) {
+  const numeric = Number(value);
+  return value != null && Number.isFinite(numeric) && numeric >= threshold;
+}
+
+function isAlwaysConsumableItem(name: string) {
+  return new Set(['potion', 'milk_bucket', 'enchanted_golden_apple', 'golden_apple']).has(name);
+}
+
 function isPlayerOperableDoor(name: string) {
   return name.endsWith('_door') && !name.startsWith('iron_');
+}
+
+function isPlayerToggle(name: string) {
+  return (
+    isPlayerOperableDoor(name) ||
+    name.endsWith('_trapdoor') ||
+    name.endsWith('_fence_gate') ||
+    name === 'lever'
+  );
+}
+
+function isPlayerContainer(name: string) {
+  return (
+    name === 'chest' ||
+    name === 'trapped_chest' ||
+    name === 'barrel' ||
+    name.endsWith('_shulker_box')
+  );
 }
 
 function sameFeetCell(first: any, second: any) {

@@ -7,7 +7,11 @@ import { minecraftInhabitantActionsFor } from '../agent/affordances';
 import { buildFrame, renderFrame } from './render';
 import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
-import { isImmediateAttentionEvent, startLLMPolicy } from '../policy/llm';
+import {
+  boundedUrgentDecisionTimeoutMs,
+  isImmediateAttentionEvent,
+  startLLMPolicy,
+} from '../policy/llm';
 import { createAxResidentMind } from '../mind/ax';
 import { isCognitionTransportEnabled } from '../mind/cognition';
 import { createRunJournal } from '../observability/journal';
@@ -28,6 +32,7 @@ export type ConsoleOptions = {
   agentName?: string;
   model?: string;
   urgentModel?: string;
+  urgentDecisionTimeoutMs?: number;
   tickMs?: number;
   paused?: boolean;
   allowTools?: string[] | null;
@@ -43,6 +48,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const cfg = getConfig();
   const name = cfg.auth.username || 'Agent';
   const urgentModel = opts.urgentModel?.trim() || undefined;
+  const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(
+    opts.urgentDecisionTimeoutMs ?? process.env.BEHOLD_URGENT_DECISION_TIMEOUT_MS,
+  );
   const mindAdapter = residentMindAdapter(process.env.BEHOLD_MIND);
   const cognitionTransport = isCognitionTransportEnabled(process.env.BEHOLD_COGNITION_TRANSPORT);
   const entityLoom = await openEntityLoom(name, undefined, cfg.circle.id);
@@ -77,6 +85,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       kind: cfg.llm.apiKey && !opts.paused ? 'llm' : 'operator',
       mindAdapter,
       urgentModel: urgentModel ?? null,
+      urgentDecisionTimeoutMs,
       tickMs: Number(process.env.AGENT_TICK_MS || 3000),
       paused: Boolean(opts.paused),
       allowTools: opts.allowTools ?? null,
@@ -349,6 +358,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         apiKey,
         model,
         urgentModel,
+        urgentDecisionTimeoutMs,
         endpoint: process.env.OPENROUTER_BASE_URL || undefined,
         mind:
           mindAdapter === 'ax'

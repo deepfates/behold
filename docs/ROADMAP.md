@@ -33,12 +33,13 @@ test, not the organizing purpose of the system.
 - Bounded model working context over an unbounded durable trajectory
 - Event-driven idle waking, immediate admitted-action dispatch, stale body-life
   decision fencing, and an adversarially tested urgent-attention handoff that
-  distinguishes bodily danger from social interruption, preserves the full
-  player action set while deferring only private project bookkeeping during
-  bodily urgency, and can route that workload through a separately authorized
-  and fully evidenced mind model. Three live endangered-resident choices used
-  Luna exactly for that tier; the latest cap-triggered terminal committed to
-  Lync before a clean controller, broker, and Minecraft drain
+  distinguishes bodily danger from social interruption. The Minecraft adapter
+  now publishes only physically grounded current offers, while the controller
+  defers private project bookkeeping, bounds urgent recent continuity to three
+  turns/6 KB, and enforces a recorded five-second wall-clock decision deadline.
+  Three earlier endangered-resident choices used Luna exactly for that tier;
+  the latest cap-triggered terminal committed to Lync before a clean controller,
+  broker, and Minecraft drain
 - Player-scale relative walking refuses an obstructed adjacent body step before
   pathfinding and enforces bounded time, horizontal displacement, and vertical
   displacement instead of silently taking an arbitrary route
@@ -87,8 +88,11 @@ test, not the organizing purpose of the system.
   unrelated project bookkeeping in live endangered frames, but one over-routed
   movement, one bounded path-choice failure, and one correctly refused blocked
   step do not prove escape, healing, shelter, or survival
-- Human-scale urgent cognition: matched evidence shows substantially smaller
-  prompts and lower uncached cost, but not lower single-call latency
+- Human-scale urgent cognition: the exact run-39 frame now profiles at 31,963
+  bytes and 16 grounded actions instead of 42,390 bytes and 26 actions, and a
+  late proposal cannot be admitted after its five-second controller deadline;
+  noncooperative adapter compute remains owned until it actually settles. No
+  live result yet proves survival or acceptable p95 latency under that boundary
 - Ordinary place learning: new residents cannot yet learn a trustworthy door,
   interior, or shelter affordance from looking, walking, and using it without a
   privileged topology scan

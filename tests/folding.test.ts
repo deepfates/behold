@@ -147,6 +147,8 @@ test('a validated fold cache is disposable acceleration, not another source of t
 
 test('fold evidence carries only new events while retaining action consequences', () => {
   const turn = entityTurn(3, 'Scout');
+  turn.action.name = 'place_block';
+  turn.action.input = { x: 1, y: 64, z: 1, itemName: 'chest' };
   turn.observation.events = [
     { type: 'old', isNew: false, data: { ignored: true } },
     {

@@ -50,6 +50,8 @@ export type Options = {
   model: string;
   /** Optional model used for new bodily urgency and a still-critical body condition. */
   urgentModel?: string;
+  /** Maximum wall time for one newly urgent bodily decision. */
+  urgentDecisionTimeoutMs?: number;
   endpoint?: string;
   tickMs?: number;
   maxTurnSteps?: number;
@@ -155,6 +157,7 @@ class MindDecisionError extends Error {
 }
 
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+export const DEFAULT_URGENT_DECISION_TIMEOUT_MS = 5_000;
 const WAIT_TOOL = 'wait_for_event';
 const COLLECT_TOOL = 'collect_nearby_item';
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
@@ -209,6 +212,10 @@ const EMBODIED_ACTION_TOOLS = new Set<string>([
 ]);
 const BODILY_RESPONSE_TOOLS = new Set<string>([...EMBODIED_ACTION_TOOLS, 'consume', 'equip_item']);
 const TERMINAL_ACTION_EVENTS = new Set(['action_completed', 'action_failed', 'intent_blocked']);
+const URGENT_CONTINUITY_TURNS = 3;
+const URGENT_CONTINUITY_BYTES = 6_000;
+const DELIBERATIVE_CONTINUITY_TURNS = 12;
+const DELIBERATIVE_CONTINUITY_BYTES = 16_000;
 
 /**
  * A persistent controller coroutine over the shared action stream.
@@ -224,6 +231,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const history = opts.history || [];
   const tickMs = Math.max(500, Number(opts.tickMs ?? 3000));
   const maxTurnSteps = Math.max(1, Math.min(32, Number(opts.maxTurnSteps ?? 8)));
+  const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(opts.urgentDecisionTimeoutMs);
   const allow = Array.isArray(opts.allowTools) ? new Set(opts.allowTools) : null;
   const executableTools = allow
     ? environment.actions.filter((spec) => allow.has(spec.function.name))
@@ -437,7 +445,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const startedAt = now();
       const modelObservation =
         currentModelObservation ?? projectCurrentModelObservation(currentObservation);
-      const attention = attentionForCurrentLife(modelObservation);
+      const currentAttention = attentionForCurrentLife(modelObservation);
+      const attention = hasBodilyUrgency(currentAttention)
+        ? { ...currentAttention, decisionBudgetMs: urgentDecisionTimeoutMs }
+        : currentAttention;
       const decisionModel = hasBodilyUrgency(attention)
         ? opts.urgentModel || opts.model
         : opts.model;
@@ -461,6 +472,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const availableTools = availableModelTools(withYield, currentObservation, attention);
       const requiredTool = requiredSelfDirectionTool(currentObservation, availableTools, allow);
       const decision = await withModelRequest(async (signal) => {
+        const deadline = hasBodilyUrgency(attention)
+          ? setTimeout(() => {
+              activeModelRequest?.abort(
+                abortError(`urgent_decision_deadline_exceeded:${urgentDecisionTimeoutMs}ms`),
+              );
+            }, urgentDecisionTimeoutMs)
+          : null;
         const request: ResidentMindRequest = {
           protocol: 'behold.mind-request.v1',
           entityId,
@@ -473,8 +491,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               availableTools,
               projectRecentActionContinuity(
                 loomContext.view().turns,
-                attention.context === 'bounded_loom' ? 12 : undefined,
-                attention.context === 'bounded_loom' ? 16_000 : undefined,
+                attention.context === 'bounded_loom'
+                  ? DELIBERATIVE_CONTINUITY_TURNS
+                  : URGENT_CONTINUITY_TURNS,
+                attention.context === 'bounded_loom'
+                  ? DELIBERATIVE_CONTINUITY_BYTES
+                  : URGENT_CONTINUITY_BYTES,
                 residentTurnMayReplay,
               ),
             ),
@@ -495,8 +517,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         // ResidentMind owns acknowledgement of its AbortSignal. Do not race it
         // with a synthetic rejection: aggregate compute remains occupied until
         // the adapter promise actually settles.
-        const proposed = await mind.decide(request, { signal });
-        return validateMindDecision(proposed, availableTools, requiredTool, decisionModel);
+        try {
+          const proposed = await mind.decide(request, { signal });
+          if (signal.aborted) {
+            throw signal.reason ?? abortError('urgent decision expired before admission');
+          }
+          return validateMindDecision(proposed, availableTools, requiredTool, decisionModel);
+        } finally {
+          if (deadline) clearTimeout(deadline);
+        }
       });
       if (stopped || suspended) {
         turnActive = false;
@@ -1422,6 +1451,12 @@ export function attentionForObservation(frame: any): ResidentAttention {
     : { mode: 'deliberative', context: 'bounded_loom', triggers: [] };
 }
 
+export function boundedUrgentDecisionTimeoutMs(value: unknown) {
+  const numeric = Number(value ?? DEFAULT_URGENT_DECISION_TIMEOUT_MS);
+  if (!Number.isFinite(numeric)) return DEFAULT_URGENT_DECISION_TIMEOUT_MS;
+  return Math.max(100, Math.min(60_000, Math.floor(numeric)));
+}
+
 function urgentEventTriggers(frame: any, afterSequence: number): ResidentAttention['triggers'] {
   return (Array.isArray(frame?.events) ? frame.events : [])
     .filter(
@@ -1468,6 +1503,9 @@ function conversationForAttention(
         attention.triggers.map((trigger) => `${trigger.type}@${trigger.sequence}`).join(', ') ||
         (continuingBodyPressure ? 'current critical body condition' : 'current urgent observation')
       }.`,
+      ...(attention.decisionBudgetMs
+        ? [`Decision deadline: ${attention.decisionBudgetMs}ms of wall time.`]
+        : []),
       ...(bodilyUrgency
         ? [
             'Reassess the current body and scene. Treat interrupted work as stale until the immediate danger or critical condition is mitigated.',
