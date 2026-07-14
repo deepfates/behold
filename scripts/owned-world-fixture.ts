@@ -21,6 +21,12 @@ export type OwnedWorldTarget = Readonly<{
   item: string;
   count: number;
 }>;
+export type OwnedWorldBlock = Readonly<{
+  x: number;
+  y: number;
+  z: number;
+  block: string;
+}>;
 export const OWNED_TARGET: OwnedWorldTarget = Object.freeze({
   x: 3,
   y: -60,
@@ -35,6 +41,7 @@ export async function prepareOwnedWorld(
   label = 'owned-world',
   target: OwnedWorldTarget = OWNED_TARGET,
   additionalTargets: readonly OwnedWorldTarget[] = [],
+  preparedBlocks: readonly OwnedWorldBlock[] = [],
 ) {
   assertCleanRepository();
   const runId = safeSegment(runIdValue);
@@ -45,8 +52,14 @@ export async function prepareOwnedWorld(
     [target, ...additionalTargets].map((entry) => Object.freeze({ ...entry })),
   );
   for (const entry of targets) assertOwnedWorldTarget(entry);
+  const blocks = Object.freeze(preparedBlocks.map((entry) => Object.freeze({ ...entry })));
+  for (const entry of blocks) assertOwnedWorldBlock(entry);
   if (new Set(targets.map((entry) => `${entry.x},${entry.y},${entry.z}`)).size !== targets.length) {
     throw new Error('prepared proof targets must occupy distinct coordinates');
+  }
+  const occupied = [...targets, ...blocks].map((entry) => `${entry.x},${entry.y},${entry.z}`);
+  if (new Set(occupied).size !== occupied.length) {
+    throw new Error('prepared proof items and blocks must occupy distinct coordinates');
   }
   await assertPortAvailable(port);
 
@@ -83,6 +96,7 @@ export async function prepareOwnedWorld(
     serverDirectory,
     transcriptFile: path.join(evidenceRoot, 'generation.log'),
     targets,
+    blocks,
   });
   copyWorld(runtime, source);
   copyWorld(runtime, baseline);
@@ -116,6 +130,9 @@ export async function prepareOwnedWorld(
         (entry) =>
           `One dropped ${entry.item} stack of ${entry.count} is prepared at ${entry.x},${entry.y},${entry.z}.`,
       ),
+      ...blocks.map(
+        (entry) => `One ${entry.block} block is prepared at ${entry.x},${entry.y},${entry.z}.`,
+      ),
     ],
   };
   durableWriteJson(path.join(root, 'world-definition.json'), {
@@ -148,6 +165,7 @@ export async function prepareOwnedWorld(
     initialRuntimeTree,
     target,
     targets,
+    blocks,
     world,
   };
 }
@@ -158,6 +176,7 @@ async function generatePreparedWorld(input: {
   serverDirectory: string;
   transcriptFile: string;
   targets: readonly OwnedWorldTarget[];
+  blocks: readonly OwnedWorldBlock[];
 }) {
   const startedAt = Date.now();
   const child = spawn(
@@ -195,6 +214,9 @@ async function generatePreparedWorld(input: {
       (target) =>
         `summon minecraft:item ${target.x} ${target.y} ${target.z} {Item:{id:"minecraft:${target.item}",count:${target.count}}}`,
     ),
+    ...input.blocks.map(
+      (block) => `setblock ${block.x} ${block.y} ${block.z} minecraft:${block.block}`,
+    ),
   ]) {
     child.stdin.write(`${command}\n`);
   }
@@ -202,6 +224,11 @@ async function generatePreparedWorld(input: {
     () => lines.filter((line) => /Summoned new /.test(line)).length >= input.targets.length,
     30_000,
     'generated item affordance',
+  );
+  await waitFor(
+    () => lines.filter((line) => /Changed the block at /.test(line)).length >= input.blocks.length,
+    30_000,
+    'generated prepared blocks',
   );
   child.stdin.write('save-all flush\n');
   await waitFor(
@@ -409,6 +436,15 @@ function assertOwnedWorldTarget(target: OwnedWorldTarget) {
   }
   if (!Number.isSafeInteger(target.count) || target.count < 1 || target.count > 64) {
     throw new Error(`owned-world target count must be an integer from 1 to 64: ${target.count}`);
+  }
+}
+
+function assertOwnedWorldBlock(block: OwnedWorldBlock) {
+  if (![block.x, block.y, block.z].every(Number.isSafeInteger)) {
+    throw new Error(`owned-world block requires integer coordinates: ${JSON.stringify(block)}`);
+  }
+  if (!/^[a-z0-9_]+$/.test(block.block)) {
+    throw new Error(`owned-world block has an invalid Minecraft block name: ${block.block}`);
   }
 }
 
