@@ -156,6 +156,10 @@ export async function loadBenchmark(benchmarkPath, repositoryRoot) {
     );
     let experience = null;
     let experiencePath = null;
+    assert(
+      Boolean(fixture.experiencePath) === Boolean(fixture.experienceSha256),
+      `${fixture.placeId} experience path and digest must appear together`,
+    );
     if (fixture.experiencePath) {
       experiencePath = repositoryPath(
         repositoryRoot,

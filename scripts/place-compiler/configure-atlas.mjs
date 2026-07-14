@@ -4,15 +4,24 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AnvilWorldReader } from './anvil-reader.mjs';
 import { loadPlaceRecipe, sha256 } from './core.mjs';
+import { experienceLandmarks, loadPlaceExperience } from './experience-core.mjs';
 import { projectGeographicPoint } from './route-core.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function parse(argv) {
-  const out = { runRoot: null, place: null, atlasRoot: null, port: 8106, renderThreads: 2 };
+  const out = {
+    runRoot: null,
+    place: null,
+    experience: null,
+    atlasRoot: null,
+    port: 8106,
+    renderThreads: 2,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--run-root') out.runRoot = path.resolve(argv[++index]);
     else if (argv[index] === '--place') out.place = path.resolve(argv[++index]);
+    else if (argv[index] === '--experience') out.experience = path.resolve(argv[++index]);
     else if (argv[index] === '--atlas-root') out.atlasRoot = path.resolve(argv[++index]);
     else if (argv[index] === '--port') out.port = Number(argv[++index]);
     else if (argv[index] === '--render-threads') out.renderThreads = Number(argv[++index]);
@@ -64,6 +73,10 @@ const generation = JSON.parse(
 );
 if (generation.status !== 'generated') throw new Error('generation is not accepted');
 const recipeSha256 = await sha256(recipe.path);
+const experience = options.experience
+  ? loadPlaceExperience(options.experience, recipe.recipe)
+  : null;
+const experienceSha256 = options.experience ? await sha256(options.experience) : null;
 if (generation.place) {
   if (generation.place.id !== recipe.recipe.id || generation.place.recipeSha256 !== recipeSha256)
     throw new Error('place recipe and generation mismatch');
@@ -77,7 +90,8 @@ const metadataPath = path.join(world, 'metadata.json');
 const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));
 const reader = new AnvilWorldReader(world);
 const markers = [];
-for (const landmark of recipe.recipe.landmarks) {
+const landmarks = experienceLandmarks(recipe.recipe, experience);
+for (const landmark of landmarks) {
   const projected = projectGeographicPoint(metadata, landmark.lon, landmark.lat);
   const surface = await surfaceNear(reader, projected);
   markers.push({
@@ -91,11 +105,10 @@ for (const landmark of recipe.recipe.landmarks) {
     nearbySurface: surface,
   });
 }
-const spawn = projectGeographicPoint(
-  metadata,
-  recipe.recipe.geography.spawn.lon,
-  recipe.recipe.geography.spawn.lat,
-);
+const arrival = experience
+  ? landmarks.find((landmark) => landmark.id === experience.arrival.checkpointId)
+  : recipe.recipe.geography.spawn;
+const spawn = projectGeographicPoint(metadata, arrival.lon, arrival.lat);
 const caveCutoff = Math.max(-64, Math.min(...markers.map((marker) => marker.nearbySurface.y)) - 32);
 const configRoot = path.join(options.atlasRoot, 'config');
 const mapRoot = path.join(configRoot, 'maps');
@@ -196,6 +209,13 @@ const manifest = {
   placeId: recipe.recipe.id,
   sourceRunId: generation.runId,
   recipe: { path: path.relative(repositoryRoot, recipe.path), sha256: recipeSha256 },
+  experience: options.experience
+    ? {
+        path: path.relative(repositoryRoot, options.experience),
+        sha256: experienceSha256,
+        arrivalCheckpointId: experience.arrival.checkpointId,
+      }
+    : null,
   world,
   metadataPath,
   atlasRoot: options.atlasRoot,

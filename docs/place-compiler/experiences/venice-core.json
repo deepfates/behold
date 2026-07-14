@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "placeId": "venice-core",
+  "arrival": {
+    "checkpointId": "rialto-bridge",
+    "selectionPolicy": "measured-natural-surface",
+    "acceptance": {
+      "minimumNativeTicks": 24000,
+      "maximumObserverDeaths": 0
+    }
+  },
+  "checkpointOverrides": [
+    {
+      "checkpointId": "venetian-arsenal",
+      "lat": 45.4348,
+      "lon": 12.3495,
+      "rationale": "Use the Porta Magna pedestrian approach instead of the recipe point inside the Arsenal's enclosed water basin."
+    }
+  ]
+}

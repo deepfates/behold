@@ -7,11 +7,18 @@ import { sha256 } from './core.mjs';
 import { evaluateQualityFixture } from './quality-loop-core.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const [benchmarkArgument, ecologyArgument, inspectionArgument] = process.argv.slice(2);
+const [benchmarkArgument, ecologyArgument, inspectionArgument, ...remaining] =
+  process.argv.slice(2);
 if (!benchmarkArgument || !ecologyArgument || !inspectionArgument)
   throw new Error(
     'usage: verify-quality-loop.mjs <benchmark.json> <ecology-run-root> <inspection-run-root>',
   );
+let selectedPlace = null;
+if (remaining.length) {
+  if (remaining.length !== 2 || remaining[0] !== '--place')
+    throw new Error('optional selection must be --place PLACE_ID');
+  selectedPlace = remaining[1];
+}
 
 const benchmarkPath = path.resolve(benchmarkArgument);
 const ecologyRoot = path.resolve(ecologyArgument);
@@ -46,7 +53,21 @@ const inspection = await loadLane(
   'inspection-manifest.json',
   'living-places-inspection',
 );
-const places = loaded.fixtures.map((fixture) => {
+const selectedFixtures = selectedPlace
+  ? loaded.fixtures.filter((fixture) => fixture.placeId === selectedPlace)
+  : loaded.fixtures;
+if (!selectedFixtures.length)
+  throw new Error(`Quality loop: unknown selected place ${selectedPlace}`);
+const expectedPlaceIds = selectedFixtures.map((fixture) => fixture.placeId).sort();
+for (const [lane, evidence] of [
+  ['ecology', ecology],
+  ['inspection', inspection],
+]) {
+  const actualPlaceIds = [...evidence.reports.keys()].sort();
+  if (JSON.stringify(actualPlaceIds) !== JSON.stringify(expectedPlaceIds))
+    throw new Error(`Quality loop: ${lane} evidence does not exactly match selected places`);
+}
+const places = selectedFixtures.map((fixture) => {
   const ecologyReport = ecology.reports.get(fixture.placeId);
   const inspectionReport = inspection.reports.get(fixture.placeId);
   if (!ecologyReport || !inspectionReport)

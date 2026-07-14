@@ -66,6 +66,25 @@ test('Living Places v2 binds independently versioned experience policy', () => {
   assert.equal(bridge.sourceLat, 40.7069);
 });
 
+test('Living Places v3 adds a global-elevation canal city without changing the contract', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      benchmarkCli,
+      path.join(repositoryRoot, 'docs/place-compiler/benchmarks/living-places-v3.json'),
+    ],
+    { cwd: repositoryRoot, encoding: 'utf8' },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const plan = JSON.parse(result.stdout);
+  assert.deepEqual(
+    plan.fixtures.map((fixture: { placeId: string }) => fixture.placeId),
+    ['san-francisco', 'lower-manhattan', 'venice-core'],
+  );
+  assert.equal(plan.fixtures[2].experience.arrival.checkpointId, 'rialto-bridge');
+  assert.equal(plan.fixtures[2].worldTreeSha256.length, 64);
+});
+
 test('Living Places refuses a benchmark that drops a telos dimension', () => {
   const temporary = mkdtempSync(path.join(os.tmpdir(), 'living-places-'));
   try {

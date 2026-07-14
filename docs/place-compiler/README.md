@@ -1,6 +1,6 @@
 # Behold Place Compiler
 
-The Place Compiler turns a small, reviewable geographic recipe into a recorded Minecraft world run. San Francisco is the regression recipe; Lower Manhattan is the first independent generation proof. The compiler owns geographic inputs, generation, validation, packaging, and presentation artifacts. It does not depend on Behold's body, controller, loom, or world-epoch implementation.
+The Place Compiler turns a small, reviewable geographic recipe into a recorded Minecraft world run. San Francisco is the regression recipe, Lower Manhattan is the first independent generation proof, and Venice is the first global-elevation canal-city proof. The compiler owns geographic inputs, generation, validation, packaging, and presentation artifacts. It does not depend on Behold's body, controller, loom, or world-epoch implementation.
 
 ## Generate
 
@@ -97,6 +97,8 @@ node scripts/place-compiler/verify-quality-loop.mjs \
   .behold-artifacts/place-benchmarks/living-places-v2/NEW_V2_INSPECTION_ID
 ```
 
+Focused diagnostic runs may append `--place PLACE_ID`; the verifier then requires both lane manifests to contain exactly that selected place and refuses a mixed or incomplete selection.
+
 All three lanes use the same Place-owned disposable-server harness. It executes the exact JVM argument vector published by `runtime-manifest.json`, verifies the pinned server JAR, connects a loopback offline observer, and saves and stops cleanly. Concise progress appears on stderr while the complete structured event stream is retained as `progress.jsonl` and checksummed by the lane manifest. A focused performance regression can select one place, profile, and repetition without weakening the benchmark's canonical repetition count:
 
 ```bash
@@ -148,10 +150,11 @@ Generate a loopback-only BlueMap configuration for any accepted place from its r
 node scripts/place-compiler/configure-atlas.mjs \
   --run-root .behold-artifacts/places/PLACE/runs/RUN_ID \
   --place docs/place-compiler/places/PLACE.json \
+  --experience docs/place-compiler/experiences/PLACE.json \
   --atlas-root .behold-artifacts/place-atlases/PLACE/CONFIG_ID
 ```
 
-The resulting `atlas-manifest.json` binds the recipe, source run, projection bounds, derived cave cutoff, loopback server, and coordinate-bearing markers. Rendering remains a view over the immutable world, never world authority.
+The resulting `atlas-manifest.json` binds the recipe, optional experience policy, source run, projection bounds, derived cave cutoff, loopback server, and coordinate-bearing markers. When experience policy is present, its measured arrival becomes the atlas start and its checkpoint corrections become the displayed markers. Rendering remains a view over the immutable world, never world authority.
 
 The package contains the contract and reproduction code plus visual, structural, ecological, and performance evidence. It deliberately excludes disposable runtime clones and does not repackage either multi-gigabyte world.
 

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "placeRecipe": "docs/place-compiler/places/venice-core.json",
+  "id": "station-to-st-marks",
+  "name": "Santa Lucia to St Mark's Square",
+  "mode": "ground",
+  "profile": "trekking",
+  "waypoints": [
+    {
+      "name": "Venezia Santa Lucia",
+      "lat": 45.441,
+      "lon": 12.321
+    },
+    {
+      "name": "Campo San Polo",
+      "lat": 45.4376,
+      "lon": 12.3296
+    },
+    {
+      "name": "Rialto Bridge",
+      "lat": 45.438,
+      "lon": 12.3359
+    },
+    {
+      "name": "St Mark's Square",
+      "lat": 45.434,
+      "lon": 12.3387
+    }
+  ]
+}

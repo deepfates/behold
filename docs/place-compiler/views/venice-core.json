@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "placeRecipe": "docs/place-compiler/places/venice-core.json",
+  "sightlines": [
+    {
+      "id": "st-marks-to-rialto",
+      "name": "St Mark's Square to Rialto Bridge",
+      "observer": {
+        "name": "St Mark's Square",
+        "lat": 45.434,
+        "lon": 12.3387
+      },
+      "target": {
+        "name": "Rialto Bridge",
+        "lat": 45.438,
+        "lon": 12.3359
+      }
+    },
+    {
+      "id": "rialto-to-arsenal",
+      "name": "Rialto Bridge to the Arsenal approach",
+      "observer": {
+        "name": "Rialto Bridge",
+        "lat": 45.438,
+        "lon": 12.3359
+      },
+      "target": {
+        "name": "Arsenal Porta Magna",
+        "lat": 45.4348,
+        "lon": 12.3495
+      }
+    }
+  ]
+}

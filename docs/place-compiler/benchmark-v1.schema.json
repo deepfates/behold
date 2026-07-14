@@ -58,6 +58,8 @@
           "runRoot": { "type": "string" },
           "recipePath": { "type": "string" },
           "recipeSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "experiencePath": { "type": "string" },
+          "experienceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "inputSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "worldTreeSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "worldFileCount": { "type": "integer", "minimum": 1 },
