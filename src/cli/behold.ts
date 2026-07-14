@@ -2,6 +2,7 @@
 import 'dotenv/config';
 import { parseArgs } from 'node:util';
 import { runConsole } from '../tui/console';
+import { completeSuccessfulCliExit } from './process-lifecycle';
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -56,7 +57,9 @@ function usage() {
   process.exit(2);
 }
 
-main().catch((e) => {
-  console.error('[behold] fatal:', e);
-  process.exit(1);
-});
+main()
+  .then(() => completeSuccessfulCliExit())
+  .catch((e) => {
+    console.error('[behold] fatal:', e);
+    process.exit(1);
+  });
