@@ -532,6 +532,7 @@ function action(name: string, callId: string, input: any) {
     result.project = { id: input.id, nextStep: input.nextStep ?? null };
     if (input.operation === 'complete') {
       result.evidence = { satisfied: true, expected: 'world_change' };
+      result.conclusion = { authority: 'inhabitant', worldStateCertified: false };
     }
   }
   return {

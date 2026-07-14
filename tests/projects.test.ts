@@ -31,7 +31,20 @@ function projectTurn(
       kind: 'parallel',
       toolCallId: null,
     },
-    outcome: { ok, eventType: ok ? 'action_completed' : 'action_failed', result: { ok } },
+    outcome: {
+      ok,
+      eventType: ok ? 'action_completed' : 'action_failed',
+      result:
+        input?.operation === 'complete'
+          ? {
+              ok,
+              operation: 'complete',
+              project: { id: input.id },
+              evidence: { satisfied: true },
+              conclusion: { authority: 'inhabitant', worldStateCertified: false },
+            }
+          : { ok },
+    },
     nextObservation,
   };
 }
@@ -67,7 +80,7 @@ test('active projects are a bounded projection rebuilt from the inhabitant loom'
     title: 'Build a shared home',
     nextStep: 'Gather eight logs',
     doneWhen: 'A lit, enclosed shelter has a door, bed, and shared chest',
-    evidence: 'space_enclosed',
+    evidence: 'world_change',
   });
   const update = projectTurn('Scout', 2, start.id, {
     operation: 'update',
@@ -82,7 +95,7 @@ test('active projects are a bounded projection rebuilt from the inhabitant loom'
       title: 'Build a shared home',
       nextStep: 'Craft planks and place the first wall',
       doneWhen: 'A lit, enclosed shelter has a door, bed, and shared chest',
-      evidence: 'space_enclosed',
+      evidence: 'world_change',
       needsDefinition: false,
       startedAtSequence: 1,
       updatedAtSequence: 2,
@@ -164,7 +177,7 @@ test('legacy overlapping projects replay but must be resolved before further upd
     }).error,
     'resolve_project_overlap_first',
   );
-  assert.equal(memory.propose({ operation: 'complete', id: 'recover' }).ok, true);
+  assert.equal(memory.propose({ operation: 'abandon', id: 'recover' }).ok, true);
 });
 
 test('legacy projects remain immutable but require an observable completion definition', () => {
@@ -194,7 +207,7 @@ test('legacy projects remain immutable but require an observable completion defi
       title: 'Build a safe first shelter',
       nextStep: 'Collect four logs',
       doneWhen: 'A lit enclosed shelter with a door survives one night',
-      evidence: 'space_enclosed',
+      evidence: 'world_change',
     }).ok,
     true,
   );
@@ -216,10 +229,14 @@ test('new projects require a valid future Minecraft evidence channel', () => {
     'invalid_project_evidence',
   );
   assert.equal(
-    memory.propose({ ...base, evidence: 'world_change' }).error,
-    'project_space_enclosure_evidence_required',
+    memory.propose({ ...base, evidence: 'time_elapsed' }).error,
+    'project_construction_requires_world_change',
   );
-  assert.equal(memory.propose({ ...base, evidence: 'space_enclosed' }).ok, true);
+  assert.equal(
+    memory.propose({ ...base, evidence: 'space_enclosed' }).error,
+    'project_evidence_external_only',
+  );
+  assert.equal(memory.propose({ ...base, evidence: 'world_change' }).ok, true);
 });
 
 test('surviving until daylight may use time evidence without pretending to rebuild the shelter', () => {
@@ -346,6 +363,17 @@ test('project completion requires a real witness after project start', () => {
     startObservation,
   );
   const memory = createProjectMemory('Scout', [start]);
+
+  assert.equal(
+    memory.propose({ operation: 'complete', id: 'survive-until-dawn' }).error,
+    'project_completion_observation_required',
+  );
+  const uncertifiedCommit = projectTurn('Scout', 2, start.id, {
+    operation: 'complete',
+    id: 'survive-until-dawn',
+  });
+  delete uncertifiedCommit.outcome.result.conclusion;
+  assert.throws(() => memory.validate(uncertifiedCommit), /project_completion_authority_required/);
 
   const premature = memory.propose(
     { operation: 'complete', id: 'survive-until-dawn' },
@@ -482,9 +510,15 @@ test('world-change projects require the exact consequence contract for each muta
   );
   assert.equal(complete.ok, true);
   assert.match(complete.evidence.observed, /deposit_in_container/);
+  assert.deepEqual(complete.conclusion, {
+    authority: 'inhabitant',
+    worldStateCertified: false,
+    meaning:
+      'The inhabitant concluded its commitment from its own post-start evidence; external evaluation may independently disagree.',
+  });
 });
 
-test('shelter completion requires a post-start sealed covered shared-space witness', () => {
+test('legacy external enclosure evidence replays but cannot authorize a new resident completion', () => {
   const start = projectTurn(
     'Scout',
     1,
@@ -523,13 +557,12 @@ test('shelter completion requires a post-start sealed covered shared-space witne
     },
   };
   const memory = createProjectMemory('Scout', [start, failedInspection]);
-
-  const premature = memory.propose(
-    { operation: 'complete', id: 'shared-shelter' },
-    observation({ observedAt: 30 }),
+  assert.equal(memory.snapshot()[0]?.needsDefinition, true);
+  assert.equal(
+    memory.propose({ operation: 'complete', id: 'shared-shelter' }, observation({ observedAt: 30 }))
+      .error,
+    'project_definition_repair_required',
   );
-  assert.equal(premature.error, 'project_completion_unproven');
-  assert.match(premature.observed, /sealed=false/);
 
   const proof: EntityTurn = {
     ...failedInspection,
@@ -550,29 +583,46 @@ test('shelter completion requires a post-start sealed covered shared-space witne
       },
     },
   };
-  memory.record(proof);
-  const sealedBox = memory.propose(
-    { operation: 'complete', id: 'shared-shelter' },
-    observation({ observedAt: 35 }),
-  );
-  assert.equal(sealedBox.error, 'project_completion_unproven');
-  assert.match(sealedBox.observed, /closableEntranceCount=0/);
-
   proof.outcome.result.closableEntranceCount = 1;
-  memory.record({
+  const exactExternalInspection = {
     ...proof,
     id: 'Scout:turn:4',
     sequence: 4,
     parentId: proof.id,
     action: { ...proof.action, id: 'space-4' },
-  });
-  const complete = memory.propose(
-    { operation: 'complete', id: 'shared-shelter' },
-    observation({ observedAt: 40 }),
+  };
+  memory.record(exactExternalInspection);
+  assert.equal(
+    memory.propose({ operation: 'complete', id: 'shared-shelter' }, observation({ observedAt: 40 }))
+      .error,
+    'project_definition_repair_required',
   );
-  assert.equal(complete.ok, true);
-  assert.equal(complete.evidence.expected, 'space_enclosed');
-  assert.match(complete.evidence.observed, /2 reachable body cells/);
+
+  const repaired = memory.propose({
+    operation: 'update',
+    id: 'shared-shelter',
+    nextStep: 'Place and personally witness the final shelter block',
+    doneWhen: 'I have made and witnessed the final planned shelter change',
+    evidence: 'world_change',
+  });
+  assert.equal(repaired.ok, true);
+
+  // Immutable histories that already contain an old successful completion
+  // remain readable even though the current resident contract cannot create it.
+  const legacyComplete = projectTurn('Scout', 5, exactExternalInspection.id, {
+    operation: 'complete',
+    id: 'shared-shelter',
+  });
+  assert.deepEqual(
+    createProjectMemory('Scout', [
+      start,
+      failedInspection,
+      proof,
+      exactExternalInspection,
+      legacyComplete,
+    ]).snapshot(),
+    [],
+  );
 });
 
 test('a no-op arrival cannot complete a place-reached project', () => {

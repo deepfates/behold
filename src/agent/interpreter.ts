@@ -1,5 +1,6 @@
 import { Vec3 } from 'vec3';
 import type { Bot } from 'mineflayer';
+import { declaredNonResidentAudience, type ActionAudience } from './action-audience';
 import { goals } from 'mineflayer-pathfinder';
 import mcDataLoader from 'minecraft-data';
 import {
@@ -11,7 +12,7 @@ import {
 import { surveyArea } from '../skills/survey';
 import {
   MANAGE_PROJECT_TOOL,
-  PROJECT_EVIDENCE_VALUES,
+  RESIDENT_PROJECT_EVIDENCE_VALUES,
   type ProjectMemory,
 } from '../entity/projects';
 import type { InhabitantPlace } from '../entity/places';
@@ -34,7 +35,7 @@ export type CommandSpec = {
   parameters: any; // JSON Schema
   run: (args: any, execution?: CommandExecution) => Promise<any>;
   category?: string;
-  audience?: 'inhabitant' | 'operator' | 'privileged';
+  audience?: ActionAudience;
   effects?: CommandEffects;
 };
 
@@ -67,13 +68,19 @@ type InterpreterOptions = {
 
 export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   const specs: CommandSpec[] = [];
-  const add = (s: CommandSpec) => specs.push(s);
+  const add = (s: CommandSpec) => {
+    const declared = declaredNonResidentAudience(s.name);
+    if ((s.audience ?? null) !== declared) {
+      throw new Error(`action audience registry disagrees for ${s.name}`);
+    }
+    specs.push(s);
+  };
 
   if (opts.projects) {
     add({
       name: MANAGE_PROJECT_TOOL,
       description:
-        'Start, update, complete, or abandon one sparse, restart-worthy project. Do not wrap one-step actions such as local walking, inspection, one-stack storage, equipping, or cleanup in a project; act directly instead. A project normally needs several meaningful actions and names a durable capability or commitment such as a crafted tool, shelter, stocked survival kit, distant journey, or shared build. Resolve legacy overlap before updating. A new or repaired project must name both a future doneWhen condition and the Minecraft evidence channel that can prove it. Completion is accepted only when your observation/action history contains a matching Minecraft witness after the project began.',
+        "Start, update, complete, or abandon one sparse, restart-worthy project. Do not wrap one-step actions such as local walking, inspection, one-stack storage, equipping, or cleanup in a project; act directly instead. A project normally needs several meaningful actions and names a durable capability or commitment such as a crafted tool, shelter, stocked survival kit, distant journey, or shared build. Resolve legacy overlap before updating. A new or repaired project must name both a future doneWhen condition and one player-observable Minecraft evidence channel. Completion records the inhabitant's grounded conclusion after a matching post-start witness; it does not certify arbitrary world truth, which external evaluation may judge separately.",
       parameters: {
         type: 'object',
         properties: {
@@ -91,9 +98,9 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           },
           evidence: {
             type: 'string',
-            enum: PROJECT_EVIDENCE_VALUES,
+            enum: RESIDENT_PROJECT_EVIDENCE_VALUES,
             description:
-              'Required when starting and when repairing an older undefined project; the future Minecraft observation that can establish doneWhen. time_elapsed requires a named future boundary such as dawn, nightfall, or a duration; social_event must advance an existing relationship, not wait for an assignment.',
+              'Required when starting and when repairing an older undefined project; the future player-observable Minecraft consequence grounding the inhabitant conclusion. Use world_change for construction. time_elapsed requires a named future boundary such as dawn, nightfall, or a duration; social_event must advance an existing relationship, not wait for an assignment.',
           },
         },
         required: ['operation', 'id'],

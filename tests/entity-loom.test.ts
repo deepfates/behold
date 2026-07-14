@@ -88,6 +88,21 @@ test('a replaceable scripted controller is remembered without impersonating the 
   assert.match(messages[0]?.content, /action_completed/);
 });
 
+test('history replay preserves an audit marker but omits non-resident action knowledge', () => {
+  const privileged = turn(1, null);
+  privileged.action.name = 'inspect_reachable_space';
+  privileged.action.input = { feet: { x: 91, y: 64, z: -37 }, secret: 'private-input' };
+  privileged.outcome.result = { sealed: true, topology: 'private-result' };
+  privileged.utterance.assistant.content = 'I will use the private scan.';
+
+  const messages = historyMessages([privileged], undefined, () => false);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.role, 'user');
+  assert.match(messages[0]?.content, /inspect_reachable_space/);
+  assert.match(messages[0]?.content, /not_resident_observable/);
+  assert.doesNotMatch(messages[0]?.content, /private-input|private-result|private scan/);
+});
+
 test('Lync becomes authoritative without rewriting the legacy autobiography', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-migration-'));
   const legacyFile = path.join(root, 'Scout', 'loom.jsonl');

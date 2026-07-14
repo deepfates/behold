@@ -355,6 +355,31 @@ test('recent action continuity is byte bounded and rejects mixed inhabitant hist
   );
 });
 
+test('recent continuity omits actions outside the resident action surface', () => {
+  const privileged = continuityTurn(
+    1,
+    'Scout',
+    'inspect_reachable_space',
+    { feet: { x: 91, y: 64, z: -37 }, secret: 'private-input' },
+    { ok: true, sealed: true, topology: 'private-result' },
+  );
+  privileged.utterance.assistant.content = 'The private topology is sealed.';
+
+  const projected = projectRecentActionContinuity(
+    [privileged],
+    6,
+    12_000,
+    (name) => name !== 'inspect_reachable_space',
+  );
+  assert.equal(projected?.turns[0]?.action.name, 'inspect_reachable_space');
+  assert.equal(projected?.turns[0]?.action.inputOmittedFromWorkingContinuity, true);
+  assert.equal(projected?.turns[0]?.outcome.resultOmittedFromWorkingContinuity, true);
+  const serialized = JSON.stringify(projected);
+  assert.equal(serialized.includes('private-input'), false);
+  assert.equal(serialized.includes('private-result'), false);
+  assert.equal(serialized.includes('private topology'), false);
+});
+
 function observation() {
   const ownIntent = {
     id: 'place-intent',

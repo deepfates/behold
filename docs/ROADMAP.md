@@ -50,6 +50,11 @@ test, not the organizing purpose of the system.
 - One canonical causal, loss-visible observation projection shared by recent
   model history and disposable Lync folds; provider-free projection of the
   previously oversized Wren batch is 33,930 bytes
+- Resident project completion is now explicitly an inhabitant conclusion
+  grounded by its own consequence, never external world certification.
+  Privileged/operator action payloads remain auditable in Lync but are omitted
+  from resident replay, and current construction can remember only the
+  ordinary built-or-modified site consequence
 - Ordinary life affordances for finding, collecting, crafting, sleeping, and defense
 - One player-grain two-resident handoff using only walking, dropping, automatic
   Minecraft pickup, independent observations, and restart continuity
@@ -84,6 +89,9 @@ test, not the organizing purpose of the system.
   step do not prove escape, healing, shelter, or survival
 - Human-scale urgent cognition: matched evidence shows substantially smaller
   prompts and lower uncached cost, but not lower single-call latency
+- Ordinary place learning: new residents cannot yet learn a trustworthy door,
+  interior, or shelter affordance from looking, walking, and using it without a
+  privileged topology scan
 
 ### First Life proved so far
 

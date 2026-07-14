@@ -745,11 +745,43 @@ export function historyMessages(
       phase: 'observation' | 'nextObservation';
     },
   ) => any = (observation) => observation,
+  mayReplayAction: (turn: EntityTurn) => boolean = () => true,
 ) {
   const messages: any[] = [];
   for (let index = 0; index < turns.length; index += 1) {
     const turn = turns[index];
     const previousTurn = turns[index - 1] ?? null;
+    if (!mayReplayAction(turn)) {
+      messages.push({
+        role: 'user',
+        content: `Historical controller turn with non-resident action omitted:\n${JSON.stringify({
+          observation: projectObservation(turn.observation, {
+            index,
+            turn,
+            previousTurn,
+            phase: 'observation',
+          }),
+          action: {
+            name: turn.action.name,
+            inputOmitted: true,
+            reason: 'not_resident_observable',
+          },
+          outcome: {
+            ok: turn.outcome.ok,
+            eventType: turn.outcome.eventType,
+            resultOmitted: true,
+            reason: 'not_resident_observable',
+          },
+          nextObservation: projectObservation(turn.nextObservation, {
+            index,
+            turn,
+            previousTurn,
+            phase: 'nextObservation',
+          }),
+        })}`,
+      });
+      continue;
+    }
     if (turn.action.source !== 'llm') {
       messages.push({
         role: 'user',

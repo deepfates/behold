@@ -1,15 +1,21 @@
 import type { EntityTurn } from './loom';
 
 export const MANAGE_PROJECT_TOOL = 'manage_project';
-export const PROJECT_EVIDENCE_VALUES = [
+export const RESIDENT_PROJECT_EVIDENCE_VALUES = [
   'world_change',
   'inventory_change',
   'crafted_item',
   'body_change',
   'place_reached',
-  'space_enclosed',
   'time_elapsed',
   'social_event',
+] as const;
+// `space_enclosed` remains readable in immutable v1 histories and external
+// evaluation evidence. It is not writable by a current resident because its
+// only exact witness is a privileged loaded-block topology scan.
+export const PROJECT_EVIDENCE_VALUES = [
+  ...RESIDENT_PROJECT_EVIDENCE_VALUES,
+  'space_enclosed',
 ] as const;
 export type ProjectEvidence = (typeof PROJECT_EVIDENCE_VALUES)[number];
 const ACTIVE_PROJECT_LIMIT = 1;
@@ -64,12 +70,20 @@ export function createProjectMemory(entityId: string, history: EntityTurn[] = []
       .sort((a, b) => a.startedAtSequence - b.startedAtSequence || a.id.localeCompare(b.id));
 
   const propose = (input: unknown, observation?: any) => {
-    const parsed = parseChange(input);
+    const parsed = parseChange(input, 'resident');
     if ('error' in parsed) return parsed;
     const issue = stateIssue(active, parsed.change, ACTIVE_PROJECT_LIMIT);
     if (issue) return { ok: false, ...issue, projects: snapshot() };
     const definition = definitionIssue(active, parsed.change);
     if (definition) return { ok: false, ...definition, projects: snapshot() };
+    if (parsed.change.operation === 'complete' && !observation) {
+      return {
+        ok: false,
+        error: 'project_completion_observation_required',
+        project: { ...active.get(parsed.change.id) },
+        projects: snapshot(),
+      };
+    }
     const evidence =
       parsed.change.operation === 'complete' && observation
         ? completionEvidence(active.get(parsed.change.id)!, turns, observation)
@@ -89,6 +103,16 @@ export function createProjectMemory(entityId: string, history: EntityTurn[] = []
       operation: parsed.change.operation,
       project: preview(active, parsed.change),
       ...(evidence ? { evidence } : {}),
+      ...(parsed.change.operation === 'complete'
+        ? {
+            conclusion: {
+              authority: 'inhabitant',
+              worldStateCertified: false,
+              meaning:
+                'The inhabitant concluded its commitment from its own post-start evidence; external evaluation may independently disagree.',
+            },
+          }
+        : {}),
       persistence: 'own_entity_loom',
     };
   };
@@ -98,18 +122,28 @@ export function createProjectMemory(entityId: string, history: EntityTurn[] = []
       throw new Error(`project memory expected ${entityId}, received ${turn.entityId}`);
     }
     if (turn.action.name !== MANAGE_PROJECT_TOOL || !turn.outcome.ok) return;
-    const parsed = parseChange(turn.action.input);
+    const parsed = parseChange(turn.action.input, 'resident');
     if ('error' in parsed) throw new Error(`invalid committed project change: ${parsed.error}`);
     const issue = stateIssue(active, parsed.change, ACTIVE_PROJECT_LIMIT);
     if (issue) throw new Error(`invalid committed project change: ${issue.error}`);
     const definition = definitionIssue(active, parsed.change);
     if (definition) throw new Error(`invalid committed project change: ${definition.error}`);
+    if (parsed.change.operation === 'complete') {
+      const result = turn.outcome.result;
+      if (
+        result?.evidence?.satisfied !== true ||
+        result?.conclusion?.authority !== 'inhabitant' ||
+        result?.conclusion?.worldStateCertified !== false
+      ) {
+        throw new Error('invalid committed project change: project_completion_authority_required');
+      }
+    }
   };
 
   const record = (turn: EntityTurn) => {
     validate(turn);
     if (turn.action.name === MANAGE_PROJECT_TOOL && turn.outcome.ok) {
-      const parsed = parseChange(turn.action.input);
+      const parsed = parseChange(turn.action.input, 'resident');
       if ('error' in parsed) throw new Error(parsed.error);
       apply(active, parsed.change, turn.sequence);
     }
@@ -127,7 +161,7 @@ export function createProjectMemory(entityId: string, history: EntityTurn[] = []
       throw new Error(`project memory expected ${entityId}, received ${turn.entityId}`);
     }
     if (turn.action.name !== MANAGE_PROJECT_TOOL || !turn.outcome.ok) return;
-    const parsed = parseChange(turn.action.input);
+    const parsed = parseChange(turn.action.input, 'legacy');
     if ('error' in parsed) throw new Error(`invalid committed project change: ${parsed.error}`);
     const issue = stateIssue(active, parsed.change, LEGACY_REPLAY_LIMIT, true);
     if (issue) throw new Error(`invalid committed project change: ${issue.error}`);
@@ -302,10 +336,10 @@ function hasWorldMutationWitness(turn: EntityTurn) {
   if (['dig_block', 'place_against', 'place_block'].includes(turn.action.name)) {
     return Boolean(
       Array.isArray(result?.changes) &&
-        result.changes.some(
-          (change: any) =>
-            change?.verified === true && change?.confirmation?.source === 'mineflayer:blockUpdate',
-        ),
+      result.changes.some(
+        (change: any) =>
+          change?.verified === true && change?.confirmation?.source === 'mineflayer:blockUpdate',
+      ),
     );
   }
   if (turn.action.name === 'toggle_block') {
@@ -508,8 +542,11 @@ function namedDurationMs(text: string) {
   return count * multiplier;
 }
 
+type ProjectParseMode = 'resident' | 'legacy';
+
 function parseChange(
   input: any,
+  mode: ProjectParseMode,
 ): { ok: true; change: ProjectChange } | { ok: false; error: string } {
   const operation = String(input?.operation || '').toLowerCase();
   const id = boundedText(input?.id, 48)
@@ -521,7 +558,7 @@ function parseChange(
   if (operation !== 'start' && operation !== 'update') {
     return { ok: false, error: 'invalid_project_operation' };
   }
-  const evidence = parseEvidence(input?.evidence);
+  const evidence = parseEvidence(input?.evidence, mode);
   if ('error' in evidence) return evidence;
   const nextStep = boundedText(input?.nextStep, 200);
   if (!nextStep) return { ok: false, error: 'project_next_step_required' };
@@ -591,7 +628,12 @@ function definitionIssue(active: Map<string, InhabitantProject>, change: Project
   if (change.operation === 'update' && !change.evidence && !active.get(change.id)?.evidence) {
     return { error: 'project_evidence_required' };
   }
-  if (change.operation === 'complete' || change.operation === 'abandon') return null;
+  if (change.operation === 'complete') {
+    return active.get(change.id)?.needsDefinition
+      ? { error: 'project_definition_repair_required' }
+      : null;
+  }
+  if (change.operation === 'abandon') return null;
   const previous = active.get(change.id);
   return projectDefinitionIssue({
     title: change.operation === 'start' ? change.title : change.title || previous!.title,
@@ -653,6 +695,9 @@ function projectDefinitionIssue(
 ) {
   if (!project.doneWhen) return { error: 'project_done_when_required' };
   if (!project.evidence) return { error: 'project_evidence_required' };
+  if (project.evidence === 'space_enclosed') {
+    return { error: 'project_evidence_external_only' };
+  }
 
   const language = `${project.title} ${project.nextStep} ${project.doneWhen}`.toLowerCase();
   const namesEnclosure = /\b(?:shelter|room|refuge|home)\b|\benclos(?:e|ing|ed|ure)\b/.test(
@@ -662,8 +707,8 @@ function projectDefinitionIssue(
     /\b(?:build|building|construct|constructing|create|creating|make|making|establish|establishing|repair|repairing|finish|finishing|complete|completing|expand|expanding|improve|improving|enclose|enclosing|seal|sealing|roof|roofing|wall|walling)\b/.test(
       language,
     );
-  if (namesEnclosure && changesEnclosure && project.evidence !== 'space_enclosed') {
-    return { error: 'project_space_enclosure_evidence_required' };
+  if (namesEnclosure && changesEnclosure && project.evidence !== 'world_change') {
+    return { error: 'project_construction_requires_world_change' };
   }
   if (/\bidle\b|\bkeep still\b|\bnothing (?:needs|left)\b|\bno immediate hazard\b/.test(language)) {
     return { error: 'project_must_name_a_future_change' };
@@ -709,11 +754,15 @@ function hasConcreteTimeBoundary(doneWhen: string) {
 
 function parseEvidence(
   value: unknown,
+  mode: ProjectParseMode,
 ): { ok: true; value?: ProjectEvidence } | { ok: false; error: string } {
   const evidence = boundedText(value, 32).toLowerCase();
   if (!evidence) return { ok: true };
   if (!(PROJECT_EVIDENCE_VALUES as readonly string[]).includes(evidence)) {
     return { ok: false, error: 'invalid_project_evidence' };
+  }
+  if (mode === 'resident' && evidence === 'space_enclosed') {
+    return { ok: false, error: 'project_evidence_external_only' };
   }
   return { ok: true, value: evidence as ProjectEvidence };
 }

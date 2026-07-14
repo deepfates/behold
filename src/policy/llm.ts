@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { residentMayReplayAction } from '../agent/action-audience';
 import { isCriticalBodyCondition } from '../agent/condition';
 import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
@@ -442,7 +443,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               attention,
               availableTools,
               attention.mode === 'urgent'
-                ? projectRecentActionContinuity(loomContext.view().turns)
+                ? projectRecentActionContinuity(
+                    loomContext.view().turns,
+                    undefined,
+                    undefined,
+                    residentMayReplayAction,
+                  )
                 : null,
             ),
           ),
@@ -909,16 +915,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       1,
       Math.max(0, messages.length - 1),
       ...(view.fold ? [foldMessage(view.fold)] : []),
-      ...historyMessages(view.turns, (observation, context) =>
-        projectHistoricalModelObservation(
-          observation,
-          context.phase === 'nextObservation'
-            ? context.turn.observation
-            : context.previousTurn?.nextObservation,
-          context.phase === 'nextObservation'
-            ? 'same_turn_observation'
-            : 'previous_turn_next_observation',
-        ),
+      ...historyMessages(
+        view.turns,
+        (observation, context) =>
+          projectHistoricalModelObservation(
+            observation,
+            context.phase === 'nextObservation'
+              ? context.turn.observation
+              : context.previousTurn?.nextObservation,
+            context.phase === 'nextObservation'
+              ? 'same_turn_observation'
+              : 'previous_turn_next_observation',
+          ),
+        (turn) => residentMayReplayAction(turn.action.name),
       ),
     );
   }
@@ -1025,7 +1034,7 @@ export function controllerSystemPrompt(specs: readonly ToolSpec[]) {
   ];
   if (tools.has(MANAGE_PROJECT_TOOL)) {
     lines.push(
-      'self.projects is your bounded restart memory from your loom. Bookmark only durable outcomes needing several meaningful actions—not walking, inspecting, transfers, equipping, or cleanup. Keep one focus; resolve overlaps. Survey and choice are steps, not outcomes. doneWhen must name a future Minecraft-observable condition and evidence channel; already-true, waiting, and idle conditions are invalid. Use time_elapsed for a concrete future time and space_enclosed for shelter. Follow or revise nextStep, complete only after a matching post-start witness, and pivot when evidence defeats the strategy.',
+      'self.projects is your bounded restart memory from your loom. Bookmark durable outcomes needing several actions—not walking, inspection, transfers, equipment, or cleanup. Keep one focus; resolve overlaps. Survey and choice are steps, not outcomes. doneWhen names a future Minecraft condition and player-observable evidence; already-true, waiting, and idle conditions are invalid. Use world_change for construction and time_elapsed for a concrete future time. Complete only after a matching post-start witness. Completion is your grounded conclusion, not external world certification.',
     );
   }
   if (hasAny('enter_place', 'leave_place', MANAGE_PROJECT_TOOL)) {

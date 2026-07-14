@@ -81,6 +81,42 @@ test('nearby witnessed improvements coalesce instead of inventing duplicate home
   assert.equal(memory.snapshot()[0]?.lastConfirmedAtSequence, 1);
 });
 
+test('ordinary world changes remember only the embodied site consequence', () => {
+  const changed = completedWorldChangeTurn('Scout', 2, {
+    projectId: 'first-wall',
+    title: 'Build the first wall',
+    anchor: { x: 12, y: 64, z: -3 },
+  });
+  const place = createPlaceMemory('Scout', [changed]).snapshot()[0];
+
+  assert.equal(place?.evidence, 'world_change');
+  assert.deepEqual(place?.affordances, ['built-or-modified-site']);
+  assert.deepEqual(place?.protectedBodyCells, []);
+  assert.deepEqual(place?.entrances, []);
+  assert.equal(place?.provenance.witnessAction, 'place_block');
+});
+
+test('later weaker world changes cannot relabel legacy certified place geometry', () => {
+  const legacy = completedPlaceTurn('Scout', 2, {
+    projectId: 'legacy-home',
+    title: 'Legacy certified home',
+    anchor: { x: 12, y: 64, z: -3 },
+  });
+  const changed = completedWorldChangeTurn('Scout', 3, {
+    projectId: 'repair-wall',
+    title: 'Repair one wall',
+    anchor: { x: 13, y: 64, z: -3 },
+  });
+  const place = createPlaceMemory('Scout', [legacy, changed]).snapshot()[0];
+
+  assert.equal(place?.evidence, 'space_enclosed');
+  assert.equal(place?.provenance.projectId, 'legacy-home');
+  assert.equal(place?.provenance.completionTurnSequence, 2);
+  assert.equal(place?.lastConfirmedAtSequence, 1);
+  assert.equal(place?.affordances.includes('built-or-modified-site'), false);
+  assert.equal(place?.affordances.includes('sealed-space'), true);
+});
+
 test('place projections reject foreign turns and do not leak across inhabitants', () => {
   const scoutTurn = completedPlaceTurn('Scout', 1, {
     projectId: 'scout-home',
@@ -231,6 +267,42 @@ function completedPlaceTurn(
     },
     nextObservation: observation,
   };
+}
+
+function completedWorldChangeTurn(
+  entityId: string,
+  sequence: number,
+  options: {
+    projectId: string;
+    title: string;
+    anchor: { x: number; y: number; z: number };
+  },
+): EntityTurn {
+  const turn = completedPlaceTurn(entityId, sequence, options);
+  turn.observation.scene.terrain.materials = [];
+  turn.nextObservation.scene.terrain.materials = [];
+  turn.outcome.result.project.evidence = 'world_change';
+  turn.outcome.result.evidence = {
+    satisfied: true,
+    expected: 'world_change',
+    witness: {
+      sequence: Math.max(1, sequence - 1),
+      action: 'place_block',
+      input: options.anchor,
+      result: {
+        ok: true,
+        changes: [
+          {
+            position: options.anchor,
+            before: 'air',
+            after: 'oak_planks',
+            confirmation: { source: 'mineflayer:blockUpdate' },
+          },
+        ],
+      },
+    },
+  };
+  return turn;
 }
 
 function priorTurn(entityId: string, sequence: number): EntityTurn {

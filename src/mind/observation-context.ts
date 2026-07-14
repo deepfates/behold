@@ -60,6 +60,7 @@ export function projectRecentActionContinuity(
   turns: readonly EntityTurn[],
   turnLimit = RECENT_ACTION_TURN_LIMIT,
   byteLimit = RECENT_ACTION_BYTE_LIMIT,
+  mayReplayAction: (name: string) => boolean = () => true,
 ): RecentActionContinuity | null {
   if (!turns.length) return null;
   const boundedTurns = integerInRange(turnLimit, 1, 12, RECENT_ACTION_TURN_LIMIT);
@@ -69,7 +70,13 @@ export function projectRecentActionContinuity(
     throw new Error('recent action continuity cannot mix inhabitant identities');
   }
 
-  const candidates = turns.slice(-boundedTurns).map(projectContinuityTurn);
+  const candidates = turns
+    .slice(-boundedTurns)
+    .map((turn) =>
+      !mayReplayAction(turn.action.name)
+        ? projectOmittedContinuityTurn(turn)
+        : projectContinuityTurn(turn),
+    );
   let selected: RecentActionContinuity['turns'] = [];
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     const candidate = candidates[index];
@@ -149,6 +156,23 @@ function projectContinuityTurnFallback(turn: EntityTurn): RecentActionContinuity
       ok: turn.outcome.ok === true,
       eventType: String(turn.outcome.eventType || ''),
       ...(turn.outcome.error ? { error: boundedContinuityText(turn.outcome.error, 400) } : {}),
+      resultOmittedFromWorkingContinuity: true,
+    },
+  };
+}
+
+function projectOmittedContinuityTurn(turn: EntityTurn): RecentActionContinuity['turns'][number] {
+  return {
+    turn: turn.sequence,
+    completedAt: turn.completedAt,
+    controller: String(turn.action.source),
+    action: {
+      name: String(turn.action.name),
+      inputOmittedFromWorkingContinuity: true,
+    },
+    outcome: {
+      ok: turn.outcome.ok === true,
+      eventType: String(turn.outcome.eventType || ''),
       resultOmittedFromWorkingContinuity: true,
     },
   };

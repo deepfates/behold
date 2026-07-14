@@ -314,7 +314,7 @@ function refreshFromInspection(places: Map<string, InhabitantPlace>, turn: Entit
       sameDimension(place.anchor.dimension, dimension) &&
       distance(place.anchor, result.seedFeet) <= 4,
   );
-  if (!candidate) return;
+  if (!candidate || candidate.evidence !== 'space_enclosed') return;
   if (
     result.sealed === true &&
     result.fullyCovered === true &&
@@ -341,10 +341,17 @@ function upsertPlace(places: Map<string, InhabitantPlace>, candidate: Inhabitant
     places.set(candidate.id, candidate);
     return;
   }
-  const keepCandidateIdentity =
-    candidate.evidence === 'space_enclosed' && nearby.evidence !== 'space_enclosed';
-  const id = keepCandidateIdentity ? candidate.id : nearby.id;
-  if (keepCandidateIdentity) places.delete(nearby.id);
+  const nearbyPriority = evidencePriority(nearby.evidence);
+  const candidatePriority = evidencePriority(candidate.evidence);
+  // One place record has one evidence/provenance chain. Never let a weaker,
+  // later completion relabel stronger legacy geometry or advance its witness.
+  if (candidatePriority < nearbyPriority) return;
+  if (candidatePriority > nearbyPriority) {
+    places.delete(nearby.id);
+    places.set(candidate.id, candidate);
+    return;
+  }
+  const id = nearby.id;
   places.set(id, {
     ...nearby,
     ...candidate,

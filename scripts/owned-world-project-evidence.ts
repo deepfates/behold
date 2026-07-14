@@ -281,6 +281,8 @@ export function assessOwnedWorldProjectEvidence(
       projectOperation(completeTurn, expected.projectId) === 'complete' &&
       completeTurn?.outcome?.ok === true &&
       terminalMinecraftResult(completeTurn)?.evidence?.satisfied === true &&
+      terminalMinecraftResult(completeTurn)?.conclusion?.authority === 'inhabitant' &&
+      terminalMinecraftResult(completeTurn)?.conclusion?.worldStateCertified === false &&
       secondPlacementIndex >= 0 &&
       completeIndex > secondPlacementIndex,
     completedLifeYielded:

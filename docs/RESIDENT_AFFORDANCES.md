@@ -70,6 +70,18 @@ Projects, remembered places, relationships, and commitments are not extra
 Minecraft powers. They are sparse projections over the resident's own history
 that help it choose among the same player affordances after a restart.
 
+Project completion is therefore a resident conclusion, not an omniscient
+verdict. It must be grounded in the resident's own post-start consequence, and
+is recorded with `authority: inhabitant` and `worldStateCertified: false`.
+An evaluator may separately certify a stronger property such as exact enclosure,
+but its loaded-block scan does not enter the resident's observation or replay.
+Legacy `space_enclosed` turns remain readable for immutable-history and place
+compatibility; a current resident must repair such an active project to an
+ordinary evidence channel or abandon it. New construction uses
+`world_change`, which remembers only a built-or-modified site. Learning doors,
+interiors, and shelter affordances through ordinary looking and movement is an
+honest remaining gap, not a reason to restore symbolic topology as a sense.
+
 ## Primitive versus body skill
 
 The model should not choose every keyboard tick, but a body skill must not
@@ -121,6 +133,8 @@ What is already sound:
 - bounded movement, collection, combat, digging, placing, doors, crafting,
   containers, eating, sleeping, chat, and independently witnessed consequence;
 - privileged scans and raw controls are excluded from the normal mind.
+- non-resident action inputs and results remain in the authoritative audit
+  history but are omitted from resident restart replay and urgent continuity.
 
 What remains red, in priority order:
 
@@ -156,6 +170,10 @@ What remains red, in priority order:
 6. **Long survival competence.** Materials, tools, food, light, shelter, sleep,
    hazards, death, and recovery need one continuous untasked-life evaluation,
    not separate scripted successes.
+7. **Embodied place learning.** A resident can remember where it acted, but new
+   construction does not magically become a certified room, doorway, or safe
+   interior. Those affordances must be learned through its camera, movement,
+   ordinary use, and later consequences; exact topology remains evaluator-side.
 
 ## How we learn without whack-a-mole
 
