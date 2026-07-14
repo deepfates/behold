@@ -196,6 +196,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const modelTools = executableTools.some((spec) => spec.function.name === WAIT_TOOL)
     ? executableTools
     : [...executableTools, WAIT_TOOL_SPEC];
+  let activeModelRequest: AbortController | null = null;
+  let stopped = false;
+  let stopPromise: Promise<void> | null = null;
+  let resolveStop: (() => void) | null = null;
   const loomContext = createLoomContextView(history, {
     entityId,
     model: opts.model,
@@ -204,7 +208,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     foldBatchTurns: opts.foldBatchTurns ?? 24,
     foldTriggerTurns: opts.foldTriggerTurns ?? 8,
     now,
-    summarize: opts.summarizeLoom ?? ((request) => summarizeLoom(request, opts)),
+    summarize: opts.summarizeLoom
+      ? (request) => withModelRequest((signal) => abortable(opts.summarizeLoom!(request), signal))
+      : (request) =>
+          withModelRequest((signal) => abortable(summarizeLoom(request, opts, signal), signal)),
   });
   const messages: any[] = [{ role: 'system', content: controllerSystemPrompt(modelTools) }];
 
@@ -231,7 +238,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let suspended = false;
 
   async function wake(force = false) {
-    if (suspended) return;
+    if (stopped || suspended) return;
     if (pending || deciding || preparingContext) {
       wakeQueued = true;
       return;
@@ -241,10 +248,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       preparingContext = true;
       try {
         await loomContext.prepare();
+        if (stopped) return;
         rebuildMessagesFromLoom();
         contextPrepared = true;
+      } catch (error: any) {
+        if (!stopped)
+          log(`[policy] could not prepare loom context: ${error?.message || String(error)}`);
+        return;
       } finally {
         preparingContext = false;
+        settleStop();
       }
     }
 
@@ -264,7 +277,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   async function continueTurn() {
-    if (suspended) {
+    if (stopped || suspended) {
       turnActive = false;
       turnSteps = 0;
       wakeQueued = false;
@@ -280,13 +293,21 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       preparingContext = true;
       try {
         const folded = await loomContext.prepare();
+        if (stopped) return;
         if (folded) {
           rebuildMessagesFromLoom();
           if (currentObservation) appendWorldUpdate(currentObservation, 'Current world experience');
           log(`[policy] folded own loom through turn ${loomContext.state().foldedThrough}`);
         }
+      } catch (error: any) {
+        if (!stopped)
+          log(`[policy] could not fold loom context: ${error?.message || String(error)}`);
+        turnActive = false;
+        turnSteps = 0;
+        return;
       } finally {
         preparingContext = false;
+        settleStop();
       }
     }
     if (turnSteps >= maxTurnSteps) {
@@ -319,8 +340,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         allow,
         blockedUrgentTool,
       );
-      const decision = await callLLM(availableTools, messages, opts, requiredTool);
-      if (suspended) {
+      const decision = await withModelRequest((signal) =>
+        abortable(callLLM(availableTools, messages, opts, requiredTool, signal), signal),
+      );
+      if (stopped || suspended) {
         turnActive = false;
         turnSteps = 0;
         return;
@@ -513,20 +536,23 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       }
       pending = { intent, toolCallId: decision.toolCallId, draft };
     } catch (e: any) {
-      log(`[policy] error: ${e?.message || String(e)}`);
-      opts.onModelError?.({
-        at: now(),
-        model: opts.model,
-        error: e?.message || String(e),
-        call: e instanceof ModelCallError ? e.call : null,
-      });
+      if (!stopped) {
+        log(`[policy] error: ${e?.message || String(e)}`);
+        opts.onModelError?.({
+          at: now(),
+          model: opts.model,
+          error: e?.message || String(e),
+          call: e instanceof ModelCallError ? e.call : null,
+        });
+      }
       turnActive = false;
       turnSteps = 0;
     } finally {
       deciding = false;
-      if (continueImmediately && turnActive && !pending) {
+      settleStop();
+      if (!stopped && continueImmediately && turnActive && !pending) {
         setImmediate(() => void continueTurn());
-      } else if (wakeQueued && !pending) {
+      } else if (!stopped && wakeQueued && !pending) {
         wakeQueued = false;
         setImmediate(() => void wake());
       }
@@ -600,8 +626,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     } finally {
       preparingContext = false;
     }
-    if (turnActive && !suspended) setImmediate(() => void continueTurn());
-    else if (wakeQueued) {
+    if (!stopped && turnActive && !suspended) setImmediate(() => void continueTurn());
+    else if (!stopped && wakeQueued) {
       wakeQueued = false;
       setImmediate(() => void wake());
     }
@@ -695,14 +721,26 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function start() {
-    if (!timer) timer = setInterval(() => void wake(), tickMs);
+    if (!stopped && !timer) timer = setInterval(() => void wake(), tickMs);
   }
 
   function stop() {
+    if (stopPromise) return stopPromise;
+    stopped = true;
+    suspended = true;
+    wakeQueued = false;
+    turnActive = false;
+    turnSteps = 0;
     if (timer) clearInterval(timer);
     timer = null;
     if (resumeTimer) clearTimeout(resumeTimer);
     resumeTimer = null;
+    stopPromise = new Promise<void>((resolve) => {
+      resolveStop = resolve;
+    });
+    activeModelRequest?.abort(abortError('policy stopped'));
+    settleStop();
+    return stopPromise;
   }
 
   function suspend(reason = 'human_stop') {
@@ -716,6 +754,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function resume() {
+    if (stopped) return;
     consecutiveCommunicationActions = 0;
     if (!suspended) {
       void wake();
@@ -724,6 +763,26 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     suspended = false;
     log('[policy] resumed by world interaction');
     void wake(true);
+  }
+
+  async function withModelRequest<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (stopped) throw abortError('policy stopped');
+    if (activeModelRequest) throw new Error('a model request is already active');
+    const controller = new AbortController();
+    activeModelRequest = controller;
+    try {
+      return await operation(controller.signal);
+    } finally {
+      if (activeModelRequest === controller) activeModelRequest = null;
+      settleStop();
+    }
+  }
+
+  function settleStop() {
+    if (!stopped || deciding || preparingContext || activeModelRequest) return;
+    const resolve = resolveStop;
+    resolveStop = null;
+    resolve?.();
   }
 
   return {
@@ -742,6 +801,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       messageCount: messages.length,
       entityTurns: entitySequence,
       suspended,
+      stopped,
+      modelRequestActive: activeModelRequest !== null,
       loomContext: loomContext.state(),
     }),
   };
@@ -790,7 +851,9 @@ function controllerSystemPrompt(specs: readonly ToolSpec[]) {
     );
   }
   if (tools.has('approach_entity')) {
-    lines.push('Prefer approach_entity for a named nearby person. Navigation succeeds only when arrival is confirmed.');
+    lines.push(
+      'Prefer approach_entity for a named nearby person. Navigation succeeds only when arrival is confirmed.',
+    );
   }
   if (hasAny('find_blocks', 'dig_block')) {
     lines.push(
@@ -818,13 +881,19 @@ function controllerSystemPrompt(specs: readonly ToolSpec[]) {
     );
   }
   if (hasAny('craft_item', 'equip', 'consume', 'sleep_in_bed', 'attack_entity')) {
-    lines.push('Crafting, equipping, eating, sleep, and defense are ordinary parts of caring for your Minecraft life.');
+    lines.push(
+      'Crafting, equipping, eating, sleep, and defense are ordinary parts of caring for your Minecraft life.',
+    );
   }
   if (hasAny('inspect_volume', 'inspect_reachable_space', 'inspect_container', 'status')) {
-    lines.push('Use available inspect or status tools when uncertain, then manipulate the world from their evidence.');
+    lines.push(
+      'Use available inspect or status tools when uncertain, then manipulate the world from their evidence.',
+    );
   }
   if (tools.has('survey_area')) {
-    lines.push('survey_area is privileged symbolic sensing. Use it only when the task or a human explicitly permits it.');
+    lines.push(
+      'survey_area is privileged symbolic sensing. Use it only when the task or a human explicitly permits it.',
+    );
   }
   lines.push(
     'Do not repeat a failed action without new evidence or a changed input. Do not repeat merely because a timer fired. Continue from the tool results and world events already in this conversation.',
@@ -911,6 +980,30 @@ function finiteAtMost(value: unknown, threshold: number) {
   return Number.isFinite(number) && number <= threshold;
 }
 
+function abortError(message: string) {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason ?? abortError('operation aborted'));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? abortError('operation aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 function hasUnfinishedAction(frame: any) {
   const status = frame?.self?.currentAction?.status;
   return (
@@ -980,7 +1073,7 @@ function relevantChat(event: any, frame: any) {
   );
 }
 
-async function summarizeLoom(request: LoomFoldRequest, opts: Options) {
+async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: AbortSignal) {
   const messages = [
     {
       role: 'system',
@@ -1031,7 +1124,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options) {
   };
   let response: Response;
   try {
-    response = await fetch(endpoint, { method: 'POST', headers, body: requestBody });
+    response = await fetch(endpoint, { method: 'POST', headers, body: requestBody, signal });
   } catch (error: any) {
     const completedAt = opts.now ? opts.now() : Date.now();
     const call: ModelCallFailureEvidence = {
@@ -1044,13 +1137,15 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options) {
       request: requestEvidence,
       response: { status: null, bodyPreview: null },
     };
-    opts.onAuxiliaryModelError?.({
-      at: completedAt,
-      model: opts.model,
-      purpose: 'loom_fold',
-      error: error?.message || String(error),
-      call,
-    });
+    if (!signal.aborted) {
+      opts.onAuxiliaryModelError?.({
+        at: completedAt,
+        model: opts.model,
+        purpose: 'loom_fold',
+        error: error?.message || String(error),
+        call,
+      });
+    }
     throw new ModelCallError(`loom fold network error: ${error?.message || String(error)}`, call);
   }
   if (!response.ok) {
@@ -1113,6 +1208,7 @@ async function callLLM(
   messages: any[],
   opts: Options,
   requiredTool: string | null = null,
+  signal?: AbortSignal,
 ): Promise<ModelDecision> {
   const body = {
     model: opts.model,
@@ -1147,7 +1243,7 @@ async function callLLM(
   };
   let res: Response;
   try {
-    res = await fetch(endpoint, { method: 'POST', headers, body: requestBody });
+    res = await fetch(endpoint, { method: 'POST', headers, body: requestBody, signal });
   } catch (error: any) {
     const completedAt = opts.now ? opts.now() : Date.now();
     throw new ModelCallError(`llm network error: ${error?.message || String(error)}`, {

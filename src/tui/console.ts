@@ -322,8 +322,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         },
         onModelError: (failure) => appendJournal('model_call_failed', failure),
         onAuxiliaryModelCall: (turn) => appendJournal('model_auxiliary_call', turn),
-        onAuxiliaryModelError: (failure) =>
-          appendJournal('model_auxiliary_call_failed', failure),
+        onAuxiliaryModelError: (failure) => appendJournal('model_auxiliary_call_failed', failure),
         onEntityTurn: async (turn) => {
           projects.validate(turn);
           places.validate(turn);
@@ -412,7 +411,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         appendJournal('run_stopping', { reason });
         if (displayTimer) clearInterval(displayTimer);
         displayTimer = null;
-        policy?.stop();
+        await policy?.stop();
         const drain = await engine!.shutdown(reason);
         if (!drain.drained) throw new Error('engine did not drain its active action');
         if (taskRuntime) {

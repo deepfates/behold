@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,11 +11,16 @@ import {
   isMinecraftReadyLine,
   isMinecraftSaveAcknowledgement,
   managedControllerProfile,
+  recoverAbandonedManagedWorld,
   resetHeldManagedWorldFixture,
   startManagedWorld,
   WorldRunnerError,
 } from '../scripts/world-runner';
-import { acquireWorldControl, inspectWorldControl } from '../src/runtime/world-control';
+import {
+  acquireWorldControl,
+  inspectWorldControl,
+  verifyWorldLifecycleJournal,
+} from '../src/runtime/world-control';
 import {
   createFixtureExecutionCapability,
   digestTree,
@@ -63,6 +68,94 @@ test('Come-See-Do-Report is an explicit managed evaluation profile', () => {
     target: 'Builder',
     allowTools: COME_SEE_DO_REPORT_ALLOW_TOOLS,
   });
+});
+
+test('recovery preserves evidence before releasing an exact dead same-host epoch', async (t) => {
+  const fixture = makeFixture(t);
+  const entityRoot = path.dirname(path.dirname(fixture.lease));
+  fs.writeFileSync(
+    path.join(path.dirname(fixture.lease), 'circle.json'),
+    JSON.stringify({
+      protocol: 'behold.entity-circle-binding.v1',
+      entityId: 'Scout',
+      circleId: 'fixture',
+    }),
+  );
+  const worldControlModule = path.resolve(__dirname, '../src/runtime/world-control.js');
+  const abandoned = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const fs = require('node:fs');
+        const os = require('node:os');
+        const { acquireWorldControl } = require(process.argv[1]);
+        const controlRoot = process.argv[2];
+        const runtime = process.argv[3];
+        const lease = process.argv[4];
+        const control = acquireWorldControl({
+          controlRoot, world: 'fixture', runtimePath: runtime,
+          pid: process.pid, hostname: os.hostname()
+        });
+        fs.writeFileSync(lease, JSON.stringify({
+          protocol: 'behold.entity-runtime-lease.v1', entityId: 'Scout',
+          pid: process.pid, hostname: os.hostname(), managedRunId: 'fixture-1',
+          startedAt: Date.now(), token: 'fixture-token'
+        }));
+        control.update('starting', {
+          server: { pid: process.pid, jarSha256: 'abc' },
+          controllers: [{ entityId: 'Scout', pid: process.pid, leasePath: lease }]
+        });
+        control.update('recovery_required');
+      `,
+      worldControlModule,
+      fixture.controlRoot,
+      fixture.options.world.runtime.worldPath,
+      fixture.lease,
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.equal(abandoned.status, 0, abandoned.stderr);
+  const held = inspectWorldControl(fixture.controlRoot, 'fixture');
+  assert.equal(held.state, 'held');
+  assert.equal(held.state === 'held' ? held.record.state : null, 'recovery_required');
+  const lifecycleFile = path.join(fixture.controlRoot, 'fixture', 'lifecycle-1.jsonl');
+  const lifecycleTip = verifyWorldLifecycleJournal(lifecycleFile).tipDigest;
+
+  let clock = 0;
+  const recovered = await recoverAbandonedManagedWorld(
+    {
+      worldId: 'fixture',
+      world: fixture.options.world,
+      controlRoot: fixture.controlRoot,
+      entityRoot,
+    },
+    {
+      inspectRuntime: async () => runtimeEvidence(null),
+      now: () => new Date(++clock * 1000),
+    },
+  );
+
+  assert.equal(recovered.classification, 'abandoned_unclean_shutdown');
+  assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
+  assert.equal(fs.existsSync(fixture.lease), false);
+  assert.equal(fs.existsSync(recovered.preparedEvidence), true);
+  assert.equal(fs.existsSync(recovered.completedEvidence), true);
+  const prepared = JSON.parse(fs.readFileSync(recovered.preparedEvidence, 'utf8'));
+  const completed = JSON.parse(fs.readFileSync(recovered.completedEvidence, 'utf8'));
+  assert.equal(prepared.lifecycle.tipDigest, lifecycleTip);
+  assert.equal(prepared.lifecycle.saveAcknowledged, false);
+  assert.equal(prepared.controllerLeases[0].record.managedRunId, 'fixture-1');
+  assert.equal(completed.preparedSha256.length, 64);
+  assert.equal(verifyWorldLifecycleJournal(lifecycleFile).tipDigest, lifecycleTip);
+
+  const next = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: 'fixture',
+    runtimePath: fixture.options.world.runtime.worldPath,
+  });
+  assert.equal(next.record().epoch, 2);
+  next.release();
 });
 
 test('managed world runner owns readiness, controller lease, save, stop, and durable evidence', async (t) => {

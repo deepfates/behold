@@ -26,8 +26,10 @@ import {
   inspectWorldControl,
   issueManagedWorldResetCapability,
   settleManagedWorldResetCapability,
+  verifyWorldLifecycleJournal,
   type HeldWorldControl,
   type ManagedWorldResetScope,
+  type WorldOwnerRecord,
 } from '../src/runtime/world-control';
 import { DEFAULT_LLM_MODEL } from '../src/config';
 
@@ -132,6 +134,22 @@ export type ManagedWorldRun = Readonly<{
   finished: Promise<void>;
   quiesceController(reason?: string): Promise<void>;
   stop(reason?: string): Promise<void>;
+}>;
+
+export type ManagedWorldRecoveryOptions = Readonly<{
+  worldId: string;
+  world: WorldLabDefinition;
+  controlRoot: string;
+  entityRoot: string;
+}>;
+
+export type ManagedWorldRecovery = Readonly<{
+  protocol: 'behold.world-recovery-result.v1';
+  world: string;
+  epoch: number;
+  classification: 'abandoned_after_save_ack' | 'abandoned_unclean_shutdown';
+  preparedEvidence: string;
+  completedEvidence: string;
 }>;
 
 export class WorldRunnerError extends Error {
@@ -512,6 +530,144 @@ export async function startManagedWorld(
     }
     throw failure;
   }
+}
+
+/**
+ * Releases only a same-host recovery-required owner whose entire recorded
+ * process set is dead and whose runtime, lifecycle journal, port, session
+ * lock, and controller leases still match the abandoned epoch. Immutable
+ * evidence is durable before any stale ownership file is removed.
+ */
+export async function recoverAbandonedManagedWorld(
+  options: ManagedWorldRecoveryOptions,
+  dependencies: Pick<WorldRunnerDependencies, 'inspectRuntime' | 'now'> = {},
+): Promise<ManagedWorldRecovery> {
+  const inspectRuntime =
+    dependencies.inspectRuntime ?? (() => statusWorld(options.worldId, options.world));
+  const now = dependencies.now ?? (() => new Date());
+  const inspection = inspectWorldControl(options.controlRoot, options.worldId);
+  if (inspection.state !== 'held' || inspection.record.state !== 'recovery_required') {
+    throw new WorldRunnerError(
+      `World ${options.worldId} has no recovery-required owner`,
+      'world_control_not_recoverable',
+      inspection,
+    );
+  }
+  const owner = inspection.record;
+  const ownerFile = inspection.file;
+  const ownerStats = plainFileStats(ownerFile, 'world owner');
+  const ownerBytes = fs.readFileSync(ownerFile);
+  const ownerSha256 = sha256Bytes(ownerBytes);
+  if (owner.hostname !== os.hostname()) {
+    throw new WorldRunnerError(
+      `Recovery refuses owner from ${owner.hostname}; this host is ${os.hostname()}`,
+      'recovery_owner_remote',
+      { owner: owner.hostname, local: os.hostname() },
+    );
+  }
+  assertRecoveryRuntimeIdentity(owner);
+
+  const lifecycleFile = path.join(path.dirname(ownerFile), `lifecycle-${owner.epoch}.jsonl`);
+  plainFileStats(lifecycleFile, 'world lifecycle journal');
+  const lifecycle = verifyWorldLifecycleJournal(lifecycleFile);
+  assertRecoveryLifecycle(owner, lifecycle);
+
+  const processes = recoveryProcesses(owner);
+  const alive = processes.filter((entry) => isProcessAlive(entry.pid));
+  if (alive.length) {
+    throw new WorldRunnerError(
+      'Recovery refuses while a recorded owner process may still be alive',
+      'recovery_process_alive',
+      alive,
+    );
+  }
+
+  const entityRoot = fs.realpathSync.native(options.entityRoot);
+  const circleIds = worldCircleIds(options.worldId, options.world);
+  const leases = inspectRecoveryLeases(owner, entityRoot, circleIds);
+  const runtime = await inspectRuntime();
+  assertStoppedEvidence(runtime, 'before_abandoned_owner_recovery');
+  const saveAcknowledged = lifecycle.events.some(
+    (event) => event.type === 'server_save_acknowledged',
+  );
+  const classification = saveAcknowledged
+    ? ('abandoned_after_save_ack' as const)
+    : ('abandoned_unclean_shutdown' as const);
+  const evidenceStem = `recovery-${owner.epoch}-${String(lifecycle.tipDigest).slice(0, 12)}`;
+  const preparedEvidence = path.join(path.dirname(ownerFile), `${evidenceStem}.prepared.json`);
+  const prepared = Object.freeze({
+    protocol: 'behold.world-recovery-evidence.v1',
+    phase: 'prepared',
+    preparedAt: now().toISOString(),
+    classification,
+    world: owner.world,
+    epoch: owner.epoch,
+    owner: { file: ownerFile, sha256: ownerSha256, record: owner },
+    lifecycle: {
+      file: lifecycle.file,
+      tipDigest: lifecycle.tipDigest,
+      eventCount: lifecycle.events.length,
+      saveAcknowledged,
+    },
+    runtime,
+    processes: processes.map((entry) => ({ ...entry, observedDead: true })),
+    controllerLeases: leases.map((lease) => ({
+      file: lease.file,
+      present: lease.present,
+      sha256: lease.sha256,
+      record: lease.record,
+    })),
+    recoveryCode: gitProvenance(),
+  });
+  writeImmutableEvidence(preparedEvidence, prepared, {
+    world: owner.world,
+    epoch: owner.epoch,
+    ownerSha256,
+    lifecycleTipDigest: lifecycle.tipDigest,
+  });
+
+  assertRecoveryOwnerUnchanged(ownerFile, ownerStats, ownerSha256, owner);
+  assertRecoveryLeasesUnchanged(leases);
+  const finalRuntime = await inspectRuntime();
+  assertStoppedEvidence(finalRuntime, 'immediately_before_abandoned_owner_release');
+  for (const lease of leases) {
+    if (!lease.present) continue;
+    fs.unlinkSync(lease.file);
+    fsyncDirectory(path.dirname(lease.file));
+  }
+  assertNoControllerLeasesAtRoot(entityRoot, circleIds, 'after_abandoned_lease_release');
+  assertRecoveryOwnerUnchanged(ownerFile, ownerStats, ownerSha256, owner);
+  fs.unlinkSync(ownerFile);
+  fsyncDirectory(path.dirname(ownerFile));
+
+  const completedEvidence = path.join(path.dirname(ownerFile), `${evidenceStem}.completed.json`);
+  const preparedSha256 = sha256File(preparedEvidence);
+  writeImmutableEvidence(completedEvidence, {
+    protocol: 'behold.world-recovery-evidence.v1',
+    phase: 'completed',
+    completedAt: now().toISOString(),
+    classification,
+    world: owner.world,
+    epoch: owner.epoch,
+    preparedEvidence,
+    preparedSha256,
+    releasedOwnerFile: ownerFile,
+    releasedControllerLeases: leases.filter((lease) => lease.present).map((lease) => lease.file),
+  });
+  if (inspectWorldControl(options.controlRoot, options.worldId).state !== 'clear') {
+    throw new WorldRunnerError(
+      'Recovered owner file did not become clear',
+      'recovery_owner_release_failed',
+    );
+  }
+  return Object.freeze({
+    protocol: 'behold.world-recovery-result.v1',
+    world: owner.world,
+    epoch: owner.epoch,
+    classification,
+    preparedEvidence,
+    completedEvidence,
+  });
 }
 
 async function quiesceManagedController(input: {
@@ -953,6 +1109,265 @@ function leaseOwnedBy(file: string, pid: number, entityId: string, managedRunId:
   }
 }
 
+type RecoveryLease = Readonly<{
+  file: string;
+  present: boolean;
+  stats: Readonly<{ device: number; inode: number }> | null;
+  sha256: string | null;
+  record: unknown;
+}>;
+
+function assertRecoveryRuntimeIdentity(owner: WorldOwnerRecord) {
+  const canonical = fs.realpathSync.native(owner.runtime.path);
+  const stats = fs.statSync(canonical);
+  if (
+    canonical !== owner.runtime.path ||
+    !stats.isDirectory() ||
+    stats.dev !== owner.runtime.device ||
+    stats.ino !== owner.runtime.inode
+  ) {
+    throw new WorldRunnerError(
+      'Recovery runtime identity no longer matches the abandoned owner',
+      'recovery_runtime_changed',
+      { expected: owner.runtime, actual: { path: canonical, device: stats.dev, inode: stats.ino } },
+    );
+  }
+}
+
+function assertRecoveryLifecycle(
+  owner: WorldOwnerRecord,
+  lifecycle: ReturnType<typeof verifyWorldLifecycleJournal>,
+) {
+  const first: any = lifecycle.events[0];
+  const last: any = lifecycle.events.at(-1);
+  const initialOwner = first?.data?.owner;
+  const expectedState = {
+    state: owner.state,
+    runtime: owner.runtime,
+    server: owner.server,
+    controllers: owner.controllers,
+  };
+  if (
+    lifecycle.world !== owner.world ||
+    lifecycle.epoch !== owner.epoch ||
+    first?.type !== 'control_acquired' ||
+    initialOwner?.world !== owner.world ||
+    initialOwner?.epoch !== owner.epoch ||
+    initialOwner?.token !== owner.token ||
+    initialOwner?.hostname !== owner.hostname ||
+    initialOwner?.managerPid !== owner.managerPid ||
+    last?.type !== 'control_state_changed' ||
+    JSON.stringify(last?.data) !== JSON.stringify(expectedState)
+  ) {
+    throw new WorldRunnerError(
+      'Recovery lifecycle does not terminate at the exact abandoned owner state',
+      'recovery_lifecycle_mismatch',
+      { first, last, owner },
+    );
+  }
+}
+
+function recoveryProcesses(owner: WorldOwnerRecord) {
+  return [
+    { role: 'manager', pid: owner.managerPid },
+    ...(owner.server ? [{ role: 'server', pid: owner.server.pid }] : []),
+    ...owner.controllers.map((controller) => ({
+      role: `controller:${controller.entityId}`,
+      pid: controller.pid,
+    })),
+  ];
+}
+
+function isProcessAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: any) {
+    return error?.code !== 'ESRCH';
+  }
+}
+
+function inspectRecoveryLeases(
+  owner: WorldOwnerRecord,
+  entityRoot: string,
+  circleIds: readonly string[],
+): RecoveryLease[] {
+  const expected = new Set<string>();
+  const runId = `${owner.world}-${owner.epoch}`;
+  const leases = owner.controllers.map((controller) => {
+    const requestedFile = path.resolve(controller.leasePath);
+    const file = fs.existsSync(requestedFile)
+      ? fs.realpathSync.native(requestedFile)
+      : path.join(
+          fs.realpathSync.native(path.dirname(requestedFile)),
+          path.basename(requestedFile),
+        );
+    const required = path.join(entityRoot, controller.entityId, 'runtime.lock');
+    if (file !== required || expected.has(file)) {
+      throw new WorldRunnerError(
+        'Recovery controller lease path is outside its exact entity slot or duplicated',
+        'recovery_lease_path_invalid',
+        { file, required },
+      );
+    }
+    expected.add(file);
+    if (!fs.existsSync(file)) {
+      return Object.freeze({ file, present: false, stats: null, sha256: null, record: null });
+    }
+    const stats = plainFileStats(file, 'controller lease');
+    const bytes = fs.readFileSync(file);
+    const record = JSON.parse(bytes.toString('utf8'));
+    if (
+      record?.protocol !== 'behold.entity-runtime-lease.v1' ||
+      record?.entityId !== controller.entityId ||
+      record?.pid !== controller.pid ||
+      record?.hostname !== owner.hostname ||
+      record?.managedRunId !== runId
+    ) {
+      throw new WorldRunnerError(
+        'Recovery controller lease does not belong to the abandoned owner epoch',
+        'recovery_lease_mismatch',
+        { file, record, controller, runId },
+      );
+    }
+    return Object.freeze({
+      file,
+      present: true,
+      stats: Object.freeze({ device: stats.dev, inode: stats.ino }),
+      sha256: sha256Bytes(bytes),
+      record,
+    });
+  });
+  const fence = inspectEntityLeaseFence(entityRoot, circleIds);
+  const observed = new Set(fence.owned.map((lease) => path.resolve(lease.leasePath)));
+  const present = new Set(leases.filter((lease) => lease.present).map((lease) => lease.file));
+  if (
+    fence.state === 'unknown' ||
+    observed.size !== present.size ||
+    [...observed].some((file) => !present.has(file))
+  ) {
+    throw new WorldRunnerError(
+      'Recovery found controller ownership beyond the exact abandoned epoch',
+      'recovery_lease_fence_mismatch',
+      { fence, expected: [...present] },
+    );
+  }
+  return leases;
+}
+
+function assertRecoveryOwnerUnchanged(
+  file: string,
+  expectedStats: fs.Stats,
+  expectedSha256: string,
+  owner: WorldOwnerRecord,
+) {
+  const stats = plainFileStats(file, 'world owner');
+  const bytes = fs.readFileSync(file);
+  const observed = JSON.parse(bytes.toString('utf8'));
+  if (
+    stats.dev !== expectedStats.dev ||
+    stats.ino !== expectedStats.ino ||
+    sha256Bytes(bytes) !== expectedSha256 ||
+    observed?.token !== owner.token ||
+    observed?.epoch !== owner.epoch
+  ) {
+    throw new WorldRunnerError('Recovery owner changed after inspection', 'recovery_owner_changed');
+  }
+}
+
+function assertRecoveryLeasesUnchanged(leases: readonly RecoveryLease[]) {
+  for (const lease of leases) {
+    if (!lease.present) {
+      if (fs.existsSync(lease.file)) {
+        throw new WorldRunnerError(
+          'A controller lease appeared during recovery',
+          'recovery_lease_changed',
+          { file: lease.file },
+        );
+      }
+      continue;
+    }
+    const stats = plainFileStats(lease.file, 'controller lease');
+    const bytes = fs.readFileSync(lease.file);
+    if (
+      stats.dev !== lease.stats?.device ||
+      stats.ino !== lease.stats?.inode ||
+      sha256Bytes(bytes) !== lease.sha256
+    ) {
+      throw new WorldRunnerError(
+        'A controller lease changed during recovery',
+        'recovery_lease_changed',
+        { file: lease.file },
+      );
+    }
+  }
+}
+
+function plainFileStats(file: string, label: string) {
+  const stats = fs.lstatSync(file);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new WorldRunnerError(
+      `Recovery ${label} is not a plain file: ${file}`,
+      'recovery_file_invalid',
+    );
+  }
+  return stats;
+}
+
+function writeImmutableEvidence(
+  file: string,
+  value: unknown,
+  expected?: Readonly<{
+    world: string;
+    epoch: number;
+    ownerSha256: string;
+    lifecycleTipDigest: string | null;
+  }>,
+) {
+  const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+  try {
+    const descriptor = fs.openSync(file, 'wx', 0o600);
+    try {
+      fs.writeSync(descriptor, bytes);
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    fsyncDirectory(path.dirname(file));
+    return;
+  } catch (error: any) {
+    if (error?.code !== 'EEXIST' || !expected) throw error;
+  }
+  const existing = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (
+    existing?.protocol !== 'behold.world-recovery-evidence.v1' ||
+    existing?.phase !== 'prepared' ||
+    existing?.world !== expected.world ||
+    existing?.epoch !== expected.epoch ||
+    existing?.owner?.sha256 !== expected.ownerSha256 ||
+    existing?.lifecycle?.tipDigest !== expected.lifecycleTipDigest
+  ) {
+    throw new WorldRunnerError(
+      'Existing recovery evidence does not match this abandoned epoch',
+      'recovery_evidence_conflict',
+      { file },
+    );
+  }
+}
+
+function sha256Bytes(bytes: Uint8Array) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+function fsyncDirectory(directory: string) {
+  const descriptor = fs.openSync(directory, 'r');
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
 function sha256File(file: string) {
   return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
@@ -1033,6 +1448,16 @@ export async function runCli(argv = process.argv.slice(2)) {
       ? 0
       : 1;
   }
+  if (command === 'recover') {
+    const result = await recoverAbandonedManagedWorld({
+      worldId,
+      world,
+      controlRoot,
+      entityRoot: path.resolve('.behold-entities'),
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
   if (command !== 'start')
     throw new WorldRunnerError(`Unknown command: ${command}`, 'unknown_command');
 
@@ -1101,10 +1526,12 @@ function usage() {
   return [
     'Usage:',
     '  world-runner status --config <file> --world <id>',
+    '  world-runner recover --config <file> --world <id>',
     '  world-runner start --config <file> --world <id> [--model <slug>] [--task <name>] [--target <player>]',
     '',
     'Without --task, the foreground runner starts an untasked resident with the full safe inhabitant action surface.',
     'Come-See-Do-Report remains available explicitly with --task come-see-do-report.',
+    'Recovery releases only an exact same-host abandoned epoch after durable evidence and stopped-world verification.',
     'The foreground runner refuses foreign-owned ports, session locks, and owner records.',
   ].join('\n');
 }

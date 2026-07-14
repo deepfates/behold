@@ -30,6 +30,105 @@ test('task-directed attention wakes for the target or an addressed message', () 
   assert.equal(hasDecisionRelevantEvent(frame('importdf', true), 4), true);
 });
 
+test('stopping a policy aborts an in-flight model request and waits until it is idle', async () => {
+  const originalFetch = globalThis.fetch;
+  let started!: () => void;
+  const requestStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let observedSignal: AbortSignal | null = null;
+  globalThis.fetch = (async (_url: any, init: any) => {
+    observedSignal = init?.signal ?? null;
+    started();
+    return await new Promise((_resolve, reject) => {
+      observedSignal?.addEventListener(
+        'abort',
+        () => reject(observedSignal?.reason ?? new Error('aborted')),
+        { once: true },
+      );
+    });
+  }) as typeof fetch;
+
+  const modelErrors: unknown[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'test-key',
+      model: 'test/model',
+      acceptEngineEvent: () => true,
+      onModelError: (error) => modelErrors.push(error),
+    },
+  );
+
+  try {
+    const tick = policy.tick();
+    await requestStarted;
+    assert.equal(policy.state().modelRequestActive, true);
+
+    await Promise.race([
+      policy.stop(),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('policy stop timed out')), 250),
+      ),
+    ]);
+    await tick;
+
+    assert.equal(observedSignal?.aborted, true);
+    assert.equal(policy.state().modelRequestActive, false);
+    assert.equal(policy.state().stopped, true);
+    assert.equal(policy.state().turnActive, false);
+    assert.deepEqual(modelErrors, [], 'an intentional shutdown is not a model failure');
+  } finally {
+    await policy.stop();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('stopping also interrupts a custom loom fold that cannot accept an AbortSignal', async () => {
+  let started!: () => void;
+  const foldStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'test-key',
+      model: 'test/model',
+      acceptEngineEvent: () => true,
+      history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
+      foldRecentTurns: 1,
+      foldBatchTurns: 1,
+      foldTriggerTurns: 1,
+      summarizeLoom: async () => {
+        started();
+        return await new Promise<string>(() => {});
+      },
+    },
+  );
+
+  const tick = policy.tick();
+  await foldStarted;
+  await Promise.race([
+    policy.stop(),
+    new Promise<never>((_resolve, reject) =>
+      setTimeout(() => reject(new Error('policy fold stop timed out')), 250),
+    ),
+  ]);
+  await tick;
+  assert.equal(policy.state().stopped, true);
+  assert.equal(policy.state().modelRequestActive, false);
+});
+
 test('controller receives real action results and continues the same bounded turn', async () => {
   const originalFetch = globalThis.fetch;
   const requests: any[] = [];
@@ -277,9 +376,7 @@ test('loom-fold model usage is journalable instead of hidden from resident budge
 
   const auxiliary: any[] = [];
   const turns: EntityTurn[] = [];
-  const history = Array.from({ length: 16 }, (_, index) =>
-    failedTurn(index + 1, 'status'),
-  );
+  const history = Array.from({ length: 16 }, (_, index) => failedTurn(index + 1, 'status'));
   const policy = startLLMPolicy(
     {
       entityId: 'Scout',
