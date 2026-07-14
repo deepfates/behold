@@ -1,6 +1,6 @@
 ---
 id: beh-w8qi
-status: in_progress
+status: closed
 deps: [beh-uij3, beh-10lb]
 links: []
 created: 2026-07-13T23:49:26Z
@@ -32,3 +32,7 @@ Started from the strongest ignored SF proof rather than treating diagnostic tran
 **2026-07-14T00:28:54Z**
 
 Added generic immutable-world sightline/reveal inspection with versioned cross-place view specs, bounded local-peak endpoint selection, voxel transparency/occlusion evidence, and vertical lift series explicitly separated from render LOD and simulation. Real results: Sutro has a clear 7,572-block physical line to Golden Gate from base peak; Ferry/downtown are occluded by generated skyline even at +256, while Salesforce->Sutro clears at +128. One World Trade->Battery clears from base; OWT->City Hall clears at +256. These are director-useful physical facts, not client rendering claims.
+
+**2026-07-14T00:31:50Z**
+
+Generalized active atlas configuration as scripts/place-compiler/configure-atlas.mjs: any accepted recipe/run now produces loopback BlueMap configs from exact projection bounds, spawn, dynamically inspected landmark surfaces, and a bound atlas manifest. Real SF and Manhattan configurations succeeded; the fixed SF configurator is explicitly retained only as the historical v1 reproducer. Route/sightline/atlas/reveal acceptance is now met; visual LOD and simulated-region claims remain intentionally separate.

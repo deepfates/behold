@@ -122,6 +122,17 @@ node scripts/place-compiler/inspect-sightlines.mjs \
 
 This proves physical block visibility only. Client render distance, Distant Horizons LOD reach, and actively simulated regions remain separate claims and require separate evidence.
 
+Generate a loopback-only BlueMap configuration for any accepted place from its recipe, exact world bounds, and generated landmark surfaces:
+
+```bash
+node scripts/place-compiler/configure-atlas.mjs \
+  --run-root .behold-artifacts/places/PLACE/runs/RUN_ID \
+  --place docs/place-compiler/places/PLACE.json \
+  --atlas-root .behold-artifacts/place-atlases/PLACE/CONFIG_ID
+```
+
+The resulting `atlas-manifest.json` binds the recipe, source run, projection bounds, derived cave cutoff, loopback server, and coordinate-bearing markers. Rendering remains a view over the immutable world, never world authority.
+
 The package contains the contract and reproduction code plus visual, structural, ecological, and performance evidence. It deliberately excludes disposable runtime clones and does not repackage either multi-gigabyte world.
 
 ## Compare and package

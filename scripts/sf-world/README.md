@@ -108,6 +108,8 @@ The command refuses a locked source, an existing destination, overlapping paths,
 
 ## Configure and render the atlas
 
+This command is the frozen San Francisco v1 reproducer retained for the historical release. New Place Compiler work uses `scripts/place-compiler/configure-atlas.mjs`, which derives names, bounds, spawn, cave policy, and landmark markers from any accepted place instead of the SF landmark document.
+
 Generate a path-independent BlueMap 5.22 configuration directly from the accepted world's metadata:
 
 ```bash
