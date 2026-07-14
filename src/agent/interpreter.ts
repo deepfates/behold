@@ -797,6 +797,9 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           },
         );
         if (!navigation.ok) {
+          if (navigation.error === 'interrupted_by_human') {
+            return { ...navigation, position, phase: 'placement_reposition' };
+          }
           return {
             ok: false,
             error: 'dig_target_unreachable',
@@ -1230,9 +1233,6 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           reason: 'place_block requires air or replaceable vegetation at the destination cell.',
         };
       }
-      if (placementIntersectsBody(bot, position)) {
-        return placementBodyConflict(bot, position);
-      }
 
       const selected = await selectPlacementItem(bot, name);
       if (!selected.ok) return selected;
@@ -1254,10 +1254,57 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         };
       }
 
+      let navigation: any = null;
+      if (placementIntersectsBody(bot, position)) {
+        const conflict = placementBodyConflict(bot, position);
+        const stand = conflict.suggestedFeetPositions[0];
+        const pathfinder = (bot as any).pathfinder;
+        if (!stand || !pathfinder) return conflict;
+        navigation = await runPathfinderGoal(
+          bot,
+          new (goals as any).GoalBlock(stand.x, stand.y, stand.z),
+          {
+            destination: stand,
+            near: 0,
+            timeoutMs: Math.min(clamp(Number(timeoutMs), 1000, 120_000), 6_500),
+            target: 'placement step-aside',
+            signal: execution?.signal,
+            movementEnvelope: {
+              maxHorizontalFromStart: 3,
+              maxVerticalFromStart: 2,
+            },
+          },
+        );
+        if (!navigation.ok) {
+          return {
+            ...conflict,
+            error: 'placement_reposition_failed',
+            navigation,
+          };
+        }
+        destination = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
+        if (!isReplaceablePlacementTarget(destination)) {
+          return {
+            ok: false,
+            error: 'placement_target_changed_during_reposition',
+            position,
+            target: summarizeBlock(destination),
+            navigation,
+          };
+        }
+        if (placementIntersectsBody(bot, position)) {
+          return {
+            ...placementBodyConflict(bot, position),
+            error: 'placement_reposition_unconfirmed',
+            navigation,
+          };
+        }
+        references = placementReferences(bot, position);
+      }
+
       const me = (bot as any).entity?.position;
       const targetDistance =
         me?.distanceTo?.(new Vec3(position.x + 0.5, position.y, position.z + 0.5)) ?? 0;
-      let navigation: any = null;
       if (targetDistance > 4.5) {
         const pathfinder = (bot as any).pathfinder;
         if (!pathfinder) {

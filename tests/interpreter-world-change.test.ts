@@ -467,3 +467,60 @@ test('placement exposes safe repositioning when the desired cell contains the bo
   );
   assert.equal(attempted, false);
 });
+
+test('place_block owns a bounded step-aside and preserves the exact placement target', async () => {
+  const bot = fakeBot();
+  const target = new Vec3(16, 64, 10);
+  const support = { ...block('dirt', 4, new Vec3(16, 63, 10)), boundingBox: 'block' };
+  const safeSupport = {
+    ...block('grass_block', 5, new Vec3(15, 63, 10)),
+    boundingBox: 'block',
+  };
+  const air = block('air', 0, target);
+  bot.setBlock(support);
+  bot.setBlock(safeSupport);
+  bot.setBlock(air);
+  bot.entity = { position: new Vec3(16.5, 64, 10.5), width: 0.6, height: 1.8 };
+  bot.heldItem = { name: 'dirt', count: 1 };
+  bot.inventory = { items: () => [bot.heldItem] };
+  const goals: any[] = [];
+  bot.pathfinder = {
+    goto: async (goal: any) => {
+      goals.push(goal);
+      bot.entity.position = new Vec3(goal.x + 0.5, goal.y, goal.z + 0.5);
+    },
+    stop: () => {},
+  };
+  let placements = 0;
+  bot.placeBlock = async () => {
+    placements += 1;
+    const placed = block('dirt', 4, target);
+    bot.setBlock(placed);
+    bot.emit('blockUpdate', air, placed);
+  };
+  const interpreter = buildInterpreter(bot, {
+    changeConfirmationTimeoutMs: 5,
+    changeStabilityWindowMs: 1,
+  });
+
+  const result = await interpreter.run('place_block', { x: 16, y: 64, z: 10 });
+
+  assert.equal(result.ok, true);
+  assert.equal(goals.length, 1);
+  assert.deepEqual({ x: goals[0].x, y: goals[0].y, z: goals[0].z }, { x: 15, y: 64, z: 10 });
+  assert.equal(result.navigation.target, 'placement step-aside');
+  assert.deepEqual(result.navigation.final, { x: 15.5, y: 64, z: 10.5 });
+  assert.deepEqual(result.changes[0].position, { x: 16, y: 64, z: 10 });
+  assert.equal(result.changes[0].verified, true);
+  assert.equal(placements, 1);
+
+  bot.setBlock(air);
+  bot.entity.position = new Vec3(16.5, 64, 10.5);
+  bot.pathfinder.goto = async () => {
+    bot.entity.position = new Vec3(15.9, 64, 10.5);
+  };
+  const unsafeArrival = await interpreter.run('place_block', { x: 16, y: 64, z: 10 });
+  assert.equal(unsafeArrival.ok, false);
+  assert.equal(unsafeArrival.error, 'placement_reposition_unconfirmed');
+  assert.equal(placements, 1, 'an overlapping body must prevent the Minecraft placement command');
+});
