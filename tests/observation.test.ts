@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeInventory, summarizeNearbyEntities } from '../src/agent/observation';
+import {
+  droppedItemPickupGround,
+  summarizeInventory,
+  summarizeNearbyEntities,
+} from '../src/agent/observation';
 import { sanitizeName } from '../src/observability/journal';
 import { buildInterpreter, minecraftChat } from '../src/agent/interpreter';
 import { EventEmitter } from 'node:events';
@@ -43,8 +47,8 @@ test('nearby dropped stacks expose their item identity and count', () => {
       type: 'item',
       heldItem: null,
       count: 3,
-      pickupSafety: {
-        ok: true,
+      pickupGround: {
+        status: 'supported',
         feet: { x: 2, y: 64, z: 0 },
         support: { x: 2, y: 63, z: 0, name: 'stone' },
       },
@@ -52,6 +56,18 @@ test('nearby dropped stacks expose their item identity and count', () => {
       position: { x: 2, y: 64.1, z: 0 },
     },
   ]);
+});
+
+test('dropped-item ground reports a hazardous block without claiming overall safety', () => {
+  const bot: any = {
+    blockAt: (position: Vec3) => ({ name: 'magma_block', boundingBox: 'block', position }),
+  };
+
+  assert.deepEqual(droppedItemPickupGround(bot, new Vec3(2.5, 64.125, -3.5)), {
+    status: 'hazardous',
+    feet: { x: 2, y: 64, z: -4 },
+    support: { x: 2, y: 63, z: -4, name: 'magma_block' },
+  });
 });
 
 test('loaded players remain observable at companion range without widening every entity', () => {

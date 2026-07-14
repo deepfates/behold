@@ -10,18 +10,31 @@ import { createProjectMemory } from '../src/entity/projects';
 import { createAxResidentMind } from '../src/mind/ax';
 import { startLLMPolicy } from '../src/policy/llm';
 
-type Args = { journal: string; out?: string };
+type CandidateAdapter = 'ax' | 'direct';
+type Args = {
+  journal: string;
+  out?: string;
+  modelTurn?: number;
+  candidate: CandidateAdapter;
+};
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('OPENROUTER_API_KEY is required');
   const records = readJsonl(args.journal);
-  const baselineRecord = records.find((record) => record?.type === 'model_turn');
+  const baselineRecord = records.find(
+    (record) =>
+      record?.type === 'model_turn' &&
+      (args.modelTurn == null || Number(record.sequence) === args.modelTurn),
+  );
   if (!baselineRecord?.data?.call || !baselineRecord?.data?.observation) {
-    throw new Error(`No model_turn with call evidence in ${args.journal}`);
+    const selection = args.modelTurn == null ? '' : ` at journal sequence ${args.modelTurn}`;
+    throw new Error(`No model_turn with call evidence${selection} in ${args.journal}`);
   }
-  const entityId = String(baselineRecord.agent || baselineRecord.data.observation?.self?.identity || '');
+  const entityId = String(
+    baselineRecord.agent || baselineRecord.data.observation?.self?.identity || '',
+  );
   if (!entityId) throw new Error('Could not identify the resident from the journal');
   const matchingTurn = records.find(
     (record) =>
@@ -40,7 +53,9 @@ async function main() {
     if (history.length !== priorTurnCount) {
       throw new Error(`Expected ${priorTurnCount} prior turns, found ${history.length}`);
     }
-    const observation = baselineRecord.data.observation;
+    const capturedObservation = baselineRecord.data.observation;
+    const replay = observationForCurrentContract(capturedObservation);
+    const observation = replay.observation;
     const projects = createProjectMemory(entityId, history);
     const places = createPlaceMemory(entityId, history);
     // Tool construction is side-effect free; no CommandSpec.run function is
@@ -48,7 +63,7 @@ async function main() {
     const interpreter = buildInterpreter({} as Bot, {
       projects,
       places: () => places.snapshot(),
-      observe: () => observation,
+      observe: () => replayObservationAtCursor(observation),
     });
     const actions = interpreter.list('inhabitant').map((spec) => ({
       type: 'function' as const,
@@ -59,18 +74,21 @@ async function main() {
       },
     }));
     const model = String(baselineRecord.data.model);
-    const candidateMind = createAxResidentMind({
-      apiKey,
-      model,
-      apiURL: openAICompatibleBaseURL(process.env.OPENROUTER_BASE_URL),
-    });
+    const candidateMind =
+      args.candidate === 'ax'
+        ? createAxResidentMind({
+            apiKey,
+            model,
+            apiURL: openAICompatibleBaseURL(process.env.OPENROUTER_BASE_URL),
+          })
+        : null;
     let candidate: any = null;
     let candidateError: any = null;
     const attempted: any[] = [];
     policy = startLLMPolicy(
       {
         entityId,
-        observe: () => observation,
+        observe: (sinceSequence) => replayObservationAtCursor(observation, sinceSequence),
         actions,
         // This proof ends at proposal admission. It cannot mutate Minecraft.
         attempt: (intent) => {
@@ -81,7 +99,7 @@ async function main() {
       {
         apiKey,
         model,
-        mind: candidateMind,
+        ...(candidateMind ? { mind: candidateMind } : {}),
         history,
         foldCacheFile: loom.foldFile,
         maxTurnSteps: 1,
@@ -104,9 +122,12 @@ async function main() {
       generatedAt: new Date().toISOString(),
       source: {
         journal: path.resolve(args.journal),
+        modelTurnJournalSequence: Number(baselineRecord.sequence),
         entityId,
         priorTurnCount,
         observationSha256: sha256(stableJson(observation)),
+        capturedObservationSha256: sha256(stableJson(capturedObservation)),
+        observationMigrations: replay.migrations,
       },
       safety: {
         worldMutationEnabled: false,
@@ -122,7 +143,7 @@ async function main() {
       },
       candidate: candidate
         ? {
-            adapter: candidateMind.id,
+            adapter: candidateMind?.id || candidate.call?.adapter?.name || 'direct-openrouter',
             model,
             intent: candidate.intent,
             utterance: candidate.assistant?.content ?? null,
@@ -133,16 +154,14 @@ async function main() {
       matchedEpisode: candidateCall
         ? {
             model: model === candidateCall.request.model,
-            observation: true,
-            actionSet:
-              baseline.call.request.toolsSha256 === candidateCall.request.toolsSha256,
+            observation: replay.migrations.length === 0,
+            actionSet: baseline.call.request.toolsSha256 === candidateCall.request.toolsSha256,
             contextProjection: {
               messageCount:
                 baseline.call.request.messageCount === candidateCall.request.messageCount,
               messagesSha256:
                 baseline.call.request.messagesSha256 === candidateCall.request.messagesSha256,
-              note:
-                'Context may differ when the disposable loom fold advanced after the captured baseline; source turns remain the same.',
+              note: 'Context may differ when the disposable loom fold advanced after the captured baseline; source turns remain the same.',
             },
           }
         : null,
@@ -166,13 +185,35 @@ async function main() {
 function parseArgs(argv: string[]): Args {
   let journal = '';
   let out: string | undefined;
+  let modelTurn: number | undefined;
+  let candidate: CandidateAdapter = 'ax';
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--journal') journal = String(argv[++index] || '');
     else if (argv[index] === '--out') out = String(argv[++index] || '');
-    else throw new Error(`Unknown argument ${argv[index]}`);
+    else if (argv[index] === '--model-turn') {
+      modelTurn = Number(argv[++index]);
+      if (!Number.isSafeInteger(modelTurn) || modelTurn < 1) {
+        throw new Error('--model-turn must be a positive journal sequence');
+      }
+    } else if (argv[index] === '--candidate') {
+      const value = String(argv[++index] || '');
+      if (value !== 'ax' && value !== 'direct') {
+        throw new Error('--candidate must be ax or direct');
+      }
+      candidate = value;
+    } else throw new Error(`Unknown argument ${argv[index]}`);
   }
-  if (!journal) throw new Error('Usage: mind-differential --journal <run.jsonl> [--out result.json]');
-  return { journal, ...(out ? { out } : {}) };
+  if (!journal) {
+    throw new Error(
+      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--candidate ax|direct] [--out result.json]',
+    );
+  }
+  return {
+    journal,
+    candidate,
+    ...(modelTurn == null ? {} : { modelTurn }),
+    ...(out ? { out } : {}),
+  };
 }
 
 function readJsonl(file: string) {
@@ -207,6 +248,47 @@ function stableJson(value: any): string {
       .join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+function observationForCurrentContract(captured: any) {
+  const observation = structuredClone(captured);
+  const migrations: string[] = [];
+  for (const entity of observation?.scene?.entities || []) {
+    if (!entity?.pickupSafety || entity.pickupGround) continue;
+    const legacy = entity.pickupSafety;
+    entity.pickupGround = {
+      status: legacy.ok
+        ? 'supported'
+        : legacy.reason === 'hazardous_support'
+          ? 'hazardous'
+          : legacy.reason === 'unsupported_destination'
+            ? 'unsupported'
+            : 'unknown',
+      ...(legacy.feet ? { feet: legacy.feet } : {}),
+      ...(legacy.support ? { support: legacy.support } : {}),
+    };
+    delete entity.pickupSafety;
+    if (!migrations.includes('scene.entities.pickupSafety->pickupGround')) {
+      migrations.push('scene.entities.pickupSafety->pickupGround');
+    }
+  }
+  return { observation, migrations };
+}
+
+function replayObservationAtCursor(observation: any, sinceSequence = 0) {
+  const observedThrough = Number(observation?.sequence) || 0;
+  if (Number(sinceSequence) < observedThrough) return structuredClone(observation);
+  return {
+    ...structuredClone(observation),
+    eventWindow: {
+      requestedAfterSequence: Number(sinceSequence),
+      oldestAvailableSequence: Number(observation?.eventWindow?.oldestAvailableSequence) || 1,
+      newestAvailableSequence: observedThrough,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
+    events: [],
+  };
 }
 
 main().catch((error) => {

@@ -888,7 +888,7 @@ function controllerSystemPrompt(specs: readonly ToolSpec[]) {
   }
   if (tools.has(COLLECT_TOOL)) {
     lines.push(
-      'After respawning, or when inventory is unexpectedly empty and dropped items are nearby, recover safe drops before narrating or beginning another project; dropped items expire.',
+      'After death, dropped inventory expires. Decide whether and how to recover it from your current body, nearby creatures, distance, and terrain. An item pickupGround describes only the ground directly beneath it; it does not claim that approaching is situationally safe.',
     );
   }
   if (hasAny('chat', 'whisper', 'approach_entity', 'drop_item')) {

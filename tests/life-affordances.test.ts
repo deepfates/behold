@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Vec3 } from 'vec3';
 import { buildInterpreter } from '../src/agent/interpreter';
-import { droppedItemPickupSafety } from '../src/agent/observation';
+import { droppedItemPickupGround } from '../src/agent/observation';
 
 function baseBot() {
   const bot: any = new EventEmitter();
@@ -1302,15 +1302,15 @@ test('item collection refuses to pathfind or nudge into an unsupported drop', as
   const approach = await interpreter.run('approach_entity', { name: 'item' });
   const result = await interpreter.run('collect_nearby_item', {});
 
-  assert.equal(approach.error, 'use_safe_item_collection');
+  assert.equal(approach.error, 'use_dropped_item_collection');
   assert.equal(result.ok, false);
-  assert.equal(result.error, 'unsafe_item_destination');
-  assert.equal(result.pickupSafety.reason, 'unsupported_destination');
+  assert.equal(result.error, 'unapproachable_item_ground');
+  assert.equal(result.pickupGround.status, 'unsupported');
   assert.equal(navigationCalls, 0);
   assert.equal(nudgeCalls, 0);
 });
 
-test('dropped-item pickup safety grounds a real entity position below zero', () => {
+test('dropped-item pickup ground describes a real entity position below zero', () => {
   const bot = baseBot();
   bot.blockAt = (position: Vec3) => ({
     name: position.y === -61 ? 'grass_block' : 'air',
@@ -1318,10 +1318,10 @@ test('dropped-item pickup safety grounds a real entity position below zero', () 
     position,
   });
 
-  const safety = droppedItemPickupSafety(bot, new Vec3(3, -59.875, 0));
+  const ground = droppedItemPickupGround(bot, new Vec3(3, -59.875, 0));
 
-  assert.deepEqual(safety, {
-    ok: true,
+  assert.deepEqual(ground, {
+    status: 'supported',
     feet: { x: 3, y: -60, z: 0 },
     support: { x: 3, y: -61, z: 0, name: 'grass_block' },
   });

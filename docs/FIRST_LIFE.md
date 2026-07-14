@@ -357,6 +357,10 @@ The useful architecture came from concrete failures:
   collection. A bounded collection skill can confirm Minecraft attribution, but
   the later handoff proof deliberately used walking plus automatic pickup when
   that native sequence was the question under test.
+- Calling a terrain-support check `pickupSafety` made an item on ordinary ground
+  look situationally safe even beside a hostile creature. The observation now
+  reports `pickupGround` as supported, unsupported, hazardous, or unknown; the
+  resident must judge threats, distance, body condition, and purpose itself.
 - The first policy decision once raced ahead of local entity synchronization.
   Initial world sync and later live appearances now have distinct provenance,
   and the mind does not start until a bounded synchronization window completes.

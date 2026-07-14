@@ -10,7 +10,7 @@ export type NearbyEntitySummary = {
   type?: string;
   heldItem: string | null;
   count?: number;
-  pickupSafety?: DroppedItemPickupSafety;
+  pickupGround?: DroppedItemPickupGround;
   distance: number;
   position: { x: number; y: number; z: number };
 };
@@ -20,9 +20,8 @@ export type NearbyBlockSummary = {
   nearest?: { x: number; y: number; z: number; distance: number };
 };
 
-export type DroppedItemPickupSafety = {
-  ok: boolean;
-  reason?: 'item_position_unknown' | 'hazardous_support' | 'unsupported_destination';
+export type DroppedItemPickupGround = {
+  status: 'supported' | 'unsupported' | 'hazardous' | 'unknown';
   feet?: { x: number; y: number; z: number };
   support?: { x: number; y: number; z: number; name: string | null };
 };
@@ -111,7 +110,7 @@ export function summarizeNearbyEntities(
         type: dropped ? 'item' : entity.type,
         heldItem: itemName(entity.heldItem),
         ...(dropped?.count != null ? { count: dropped.count } : {}),
-        ...(dropped ? { pickupSafety: droppedItemPickupSafety(bot, entity.position) } : {}),
+        ...(dropped ? { pickupGround: droppedItemPickupGround(bot, entity.position) } : {}),
         distance: round(distance),
         position: {
           x: round(entity.position.x),
@@ -126,8 +125,8 @@ function isPlayerEntity(entity: any) {
   return String(entity?.type || '').toLowerCase() === 'player' || !!entity?.username;
 }
 
-export function droppedItemPickupSafety(bot: Bot, target: any): DroppedItemPickupSafety {
-  if (!target) return { ok: false, reason: 'item_position_unknown' };
+export function droppedItemPickupGround(bot: Bot, target: any): DroppedItemPickupGround {
+  if (!target) return { status: 'unknown' };
   const feet = {
     x: Math.floor(Number(target.x)),
     y: Math.floor(Number(target.y)),
@@ -153,14 +152,13 @@ export function droppedItemPickupSafety(bot: Bot, target: any): DroppedItemPicku
   const air = ['air', 'cave_air', 'void_air'].includes(name);
   if (!support || air || support?.boundingBox === 'empty' || hazardous.has(name)) {
     return {
-      ok: false,
-      reason: hazardous.has(name) ? 'hazardous_support' : 'unsupported_destination',
+      status: hazardous.has(name) ? 'hazardous' : 'unsupported',
       feet,
       support: { ...supportPosition, name: name || null },
     };
   }
   return {
-    ok: true,
+    status: 'supported',
     feet,
     support: { ...supportPosition, name },
   };

@@ -1,7 +1,7 @@
 import type { Bot } from 'mineflayer';
 import {
   collectObservation,
-  type DroppedItemPickupSafety,
+  type DroppedItemPickupGround,
   type NearbyEntitySummary,
 } from './observation';
 import type { InhabitantProject } from '../entity/projects';
@@ -134,7 +134,7 @@ export type SceneEntity = {
   name: string;
   heldItem?: string | null;
   count?: number;
-  pickupSafety?: DroppedItemPickupSafety;
+  pickupGround?: DroppedItemPickupGround;
   source: 'proximity';
   position: { x: number; y: number; z: number };
   distance: number;
@@ -684,7 +684,7 @@ function sceneEntity(
     name: entity.name,
     heldItem: entity.heldItem,
     ...(entity.count != null ? { count: entity.count } : {}),
-    ...(entity.pickupSafety ? { pickupSafety: entity.pickupSafety } : {}),
+    ...(entity.pickupGround ? { pickupGround: entity.pickupGround } : {}),
     source: 'proximity',
     position: entity.position,
     distance: entity.distance,

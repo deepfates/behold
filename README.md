@@ -134,6 +134,23 @@ LLM Autopilot (optional)
 - Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `openai/gpt-5.6-luna`).
 - The console starts a resident policy that proposes one admitted action at a time using the same command registry you use as a human. `BEHOLD_MIND=ax` uses Ax structured generation; Behold still validates and executes every proposal.
 
+Trajectory counterfactuals
+
+Use a captured model turn to compare a current direct or Ax mind without exposing
+an executable command or mutating Minecraft:
+
+```bash
+npm run eval:mind-differential -- \
+  --journal .behold-runs/<run>/<resident>/<journal>.jsonl \
+  --model-turn <journal-sequence> \
+  --candidate direct \
+  --out .behold-runs/<run>/<resident>/<comparison>.json
+```
+
+The report binds the captured and replayed observation hashes, records any
+explicit observation migration, and rejects the candidate proposal at the
+admission boundary.
+
 Command registry and tools
 
 - Interpreter commands live in `src/agent/interpreter.ts` (chat/look/move/dig/place/inventory/sense).

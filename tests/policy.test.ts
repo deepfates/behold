@@ -1007,7 +1007,7 @@ test('system guidance follows the admitted affordances instead of describing abs
       /ordering, preconditions, and prohibitions.*take precedence over the generic action heuristics/i,
     );
     assert.match(system, /self\.projects is your bounded/i);
-    assert.match(system, /dropped items are nearby/i);
+    assert.match(system, /dropped inventory expires/i);
     assert.match(system, /bodyFeet.*occupied by bodies/i);
     assert.doesNotMatch(system, /Minecraft chat is narrow/i);
     assert.doesNotMatch(system, /descend_step/i);
@@ -1102,7 +1102,7 @@ test('controller breaks a communication-only loop until the body acts or a human
               kind: 'item',
               name: 'spruce_log',
               distance: 2,
-              pickupSafety: { ok: true },
+              pickupGround: { status: 'supported' },
             },
           ],
         },
@@ -1280,7 +1280,7 @@ test('a remembered-place conflict must be resolved before more embodied construc
   }
 });
 
-test('a safe dropped stack stays available without becoming a controller-required goal', async () => {
+test('a dropped stack on supported ground stays available without becoming a controller goal', async () => {
   const originalFetch = globalThis.fetch;
   let request: any = null;
   globalThis.fetch = (async (_url: any, init: any) => {
@@ -1328,7 +1328,7 @@ test('a safe dropped stack stays available without becoming a controller-require
               kind: 'item',
               name: 'birch_log',
               distance: 2,
-              pickupSafety: { ok: true },
+              pickupGround: { status: 'supported' },
             },
           ],
         },
@@ -1341,6 +1341,11 @@ test('a safe dropped stack stays available without becoming a controller-require
   try {
     await policy.tick();
     assert.equal(request.tool_choice, 'auto');
+    assert.match(
+      String(request.messages[0]?.content),
+      /pickupGround describes only the ground directly beneath it/,
+    );
+    assert.doesNotMatch(String(request.messages[0]?.content), /recover safe drops/);
     assert.equal(
       request.tools.some((spec: any) => spec.function.name === 'chat'),
       false,

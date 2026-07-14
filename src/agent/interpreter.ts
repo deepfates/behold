@@ -2,7 +2,7 @@ import { Vec3 } from 'vec3';
 import type { Bot } from 'mineflayer';
 import { goals } from 'mineflayer-pathfinder';
 import mcDataLoader from 'minecraft-data';
-import { droppedItemPickupSafety, onlinePlayerNames } from './observation';
+import { droppedItemPickupGround, onlinePlayerNames } from './observation';
 import { surveyArea } from '../skills/survey';
 import {
   MANAGE_PROJECT_TOOL,
@@ -312,7 +312,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       if (isDroppedItem(target)) {
         return {
           ok: false,
-          error: 'use_safe_item_collection',
+          error: 'use_dropped_item_collection',
           reason:
             'Dropped items must be approached through collect_nearby_item so destination support and collection evidence are checked.',
         };
@@ -436,16 +436,16 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         return { ok: false, error: 'dropped_item_not_observed', requested: name || null };
       }
 
-      const pickupSafety = droppedItemPickupSafety(bot, target.entity.position);
-      if (!pickupSafety.ok) {
+      const pickupGround = droppedItemPickupGround(bot, target.entity.position);
+      if (pickupGround.status !== 'supported') {
         return {
           ok: false,
-          error: 'unsafe_item_destination',
+          error: 'unapproachable_item_ground',
           item: target.item,
           distance: round(target.distance),
-          pickupSafety,
+          pickupGround,
           reason:
-            'The dropped stack is over an unsupported or hazardous destination. Do not pathfind or nudge into it.',
+            'The dropped stack is over unsupported or hazardous ground. Do not pathfind or nudge into it.',
         };
       }
 
@@ -3831,11 +3831,11 @@ async function boundedPickupNudge(
   const me = (bot as any).entity?.position;
   const target = entity?.position;
   const initialDistance = me && target ? me.distanceTo(target) : Infinity;
-  const pickupSafety = target ? droppedItemPickupSafety(bot, target) : null;
+  const pickupGround = target ? droppedItemPickupGround(bot, target) : null;
   if (
     !me ||
     !target ||
-    !pickupSafety?.ok ||
+    pickupGround?.status !== 'supported' ||
     initialDistance > 2.75 ||
     typeof (bot as any).setControlState !== 'function'
   ) {
@@ -3843,13 +3843,13 @@ async function boundedPickupNudge(
       attempted: false,
       collected: false,
       reason:
-        pickupSafety && !pickupSafety.ok
-          ? 'unsafe_item_destination'
+        pickupGround && pickupGround.status !== 'supported'
+          ? 'unapproachable_item_ground'
           : initialDistance > 2.75
             ? 'item_not_within_nudge_range'
             : 'direct_movement_unavailable',
       initialDistance: round(initialDistance),
-      pickupSafety,
+      pickupGround,
     };
   }
   const oxygen = Number((bot as any).oxygenLevel ?? (bot as any).oxygen);
