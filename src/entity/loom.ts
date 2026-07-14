@@ -238,6 +238,7 @@ type LyncEntityLoom = {
   childrenOf: (parentId: string | null) => Promise<LyncStoredTurn[]>;
   threadTo: (turnId: string) => Promise<LyncStoredTurn[]>;
   leaves: () => Promise<LyncStoredTurn[]>;
+  close: () => void;
 };
 
 /**
@@ -454,6 +455,16 @@ export async function validateEntityLifeRangeReference(
   value: unknown,
   root = process.env.BEHOLD_ENTITY_DIR || path.resolve(process.cwd(), '.behold-entities'),
 ): Promise<EntityLifeRangeReference> {
+  return (await readEntityLifeRange(value, root)).reference;
+}
+
+/** Read only the authenticated interval an evaluator was explicitly given. */
+export async function readEntityLifeRange(
+  value: unknown,
+  root = process.env.BEHOLD_ENTITY_DIR || path.resolve(process.cwd(), '.behold-entities'),
+): Promise<
+  Readonly<{ reference: EntityLifeRangeReference; turns: readonly Readonly<EntityTurn>[] }>
+> {
   const range = parseEntityLifeRangeReference(value);
   const storageDirectory = path.join(root, sanitizeName(range.entityId), 'lync');
   const { loom, info } = await openEntityLoomReadOnly(
@@ -461,35 +472,54 @@ export async function validateEntityLifeRangeReference(
     range.life.loomId,
     storageDirectory,
   );
-  const ancestry = await loom.threadTo(range.end.turnId);
-  validateEntityTrajectory(
-    ancestry.map((turn) => turn.payload),
-    range.entityId,
-    `Lync loom ${range.life.loomId}`,
-  );
-  const startIndex = ancestry.findIndex((turn) => turn.id === range.start.turnId);
-  if (startIndex < 0) {
-    throw new Error('entity life range start is not an ancestor of its end');
+  try {
+    const ancestry = await loom.threadTo(range.end.turnId);
+    validateEntityTrajectory(
+      ancestry.map((turn) => turn.payload),
+      range.entityId,
+      `Lync loom ${range.life.loomId}`,
+    );
+    const startIndex = ancestry.findIndex((turn) => turn.id === range.start.turnId);
+    if (startIndex < 0) {
+      throw new Error('entity life range start is not an ancestor of its end');
+    }
+    const selected = ancestry.slice(startIndex);
+    const start = selected[0];
+    const end = selected.at(-1)!;
+    if (
+      start.payload.sequence !== range.sequences.start ||
+      end.payload.sequence !== range.sequences.end ||
+      (info.meta?.circleId ?? null) !== range.circleId
+    ) {
+      throw new Error('entity life range metadata differs from its exact Lync anchors');
+    }
+    for (const turn of selected) validateLyncTurnMeta(turn, range.entityId);
+    const reference = deepFreeze({
+      protocol: 'behold.entity-life-range.v1' as const,
+      entityId: range.entityId,
+      circleId: info.meta?.circleId ?? null,
+      life: { v: 1 as const, kind: 'loom' as const, loomId: loom.id },
+      start: {
+        v: 1 as const,
+        kind: 'turn' as const,
+        loomId: loom.id,
+        turnId: start.id,
+      },
+      end: {
+        v: 1 as const,
+        kind: 'turn' as const,
+        loomId: loom.id,
+        turnId: end.id,
+      },
+      sequences: { start: start.payload.sequence, end: end.payload.sequence },
+    });
+    return deepFreeze({
+      reference,
+      turns: selected.map((turn) => structuredClone(turn.payload)),
+    });
+  } finally {
+    loom.close();
   }
-  const start = ancestry[startIndex];
-  const end = ancestry.at(-1)!;
-  if (
-    start.payload.sequence !== range.sequences.start ||
-    end.payload.sequence !== range.sequences.end ||
-    (info.meta?.circleId ?? null) !== range.circleId
-  ) {
-    throw new Error('entity life range metadata differs from its exact Lync anchors');
-  }
-  for (const turn of ancestry.slice(startIndex)) validateLyncTurnMeta(turn, range.entityId);
-  return deepFreeze({
-    protocol: 'behold.entity-life-range.v1',
-    entityId: range.entityId,
-    circleId: info.meta?.circleId ?? null,
-    life: { v: 1, kind: 'loom', loomId: loom.id },
-    start: { v: 1, kind: 'turn', loomId: loom.id, turnId: start.id },
-    end: { v: 1, kind: 'turn', loomId: loom.id, turnId: end.id },
-    sequences: { start: start.payload.sequence, end: end.payload.sequence },
-  });
 }
 
 async function openEntityLoomReadOnly(entityId: string, loomId: string, storageDirectory: string) {
