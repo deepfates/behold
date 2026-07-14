@@ -51,6 +51,11 @@ export function chooseDirectedSurface(candidates, previousOffset = { dx: 0, dz: 
   )[0];
 }
 
+export function hasTwoBlockHeadroom(feet, head) {
+  const air = /^(?:minecraft:)?(?:air|cave_air|void_air)$/;
+  return (!feet || air.test(feet)) && (!head || air.test(head));
+}
+
 export function summarizeRouteSamples(samples, swept) {
   const statusCounts = Object.fromEntries(
     ['exact-clear', 'offset-clear', 'unresolved'].map((status) => [

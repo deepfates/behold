@@ -7,6 +7,7 @@ import { AnvilWorldReader } from './anvil-reader.mjs';
 import { loadPlaceRecipe, sha256, timestamp } from './core.mjs';
 import {
   chooseDirectedSurface,
+  hasTwoBlockHeadroom,
   sampleRouteGeometry,
   summarizeRouteSamples,
 } from './route-core.mjs';
@@ -53,11 +54,7 @@ async function inspectCandidate(reader, surfaces, policy, x, z, dx, dz) {
   if (!column.accepted) return { x, z, dx, dz, clear: false, reason: 'no-route-surface' };
   const feet = await reader.blockAt(x, column.accepted.y + 1, z);
   const head = await reader.blockAt(x, column.accepted.y + 2, z);
-  const clear =
-    column.top &&
-    column.top.y - column.accepted.y <= policy.maximumStepBlocks &&
-    (!feet || AIR.test(feet)) &&
-    (!head || AIR.test(head));
+  const clear = hasTwoBlockHeadroom(feet, head);
   return {
     x,
     z,

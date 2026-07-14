@@ -34,9 +34,13 @@ test('route sampling projects geography and keeps endpoints', async () => {
 });
 
 test('directed routes prefer clear nearby surfaces and summarize honest gaps', async () => {
-  const { chooseDirectedSurface, summarizeRouteSamples } = await import(
+  const { chooseDirectedSurface, hasTwoBlockHeadroom, summarizeRouteSamples } = await import(
     pathToFileURL(modulePath).href
   );
+  assert.equal(hasTwoBlockHeadroom('minecraft:air', 'minecraft:air'), true);
+  assert.equal(hasTwoBlockHeadroom('minecraft:air', 'minecraft:oak_leaves'), false);
+  // High canopy is deliberately absent from this contract: only the body's two cells determine
+  // whether a route column is passable.
   const selected = chooseDirectedSurface(
     [
       { x: 0, z: 0, dx: 0, dz: 0, surfaceY: 64, clear: false },
