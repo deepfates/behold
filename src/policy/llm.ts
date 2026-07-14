@@ -1343,6 +1343,7 @@ function conversationForAttention(
             'Reassess the current body and scene. Treat interrupted work as stale until the immediate danger or critical condition is mitigated.',
             'Choose an action whose immediate expected consequence addresses the danger or obtains perception needed to do so. Movement, cover, defense, food, and escape are ordinary Minecraft possibilities only when current evidence supports them. Do not continue unrelated construction while taking active damage or critically low on health.',
             'At critical health during active harm, prefer an action that changes exposure now. A perception-only action is safe only when acting without that perception would be worse and the body can survive the delay.',
+            'A threat leaving the camera is not proof of safety. When no hostile is currently visible, do not flee blindly forever; use a bounded look or current terrain and inventory evidence to locate food, defensible cover, or a safe route.',
             'Every admitted embodied action remains available; private project bookkeeping is deferred until bodily urgency ends. No response has been selected for you.',
           ]
         : [

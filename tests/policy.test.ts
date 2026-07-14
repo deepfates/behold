@@ -486,6 +486,10 @@ test('critical body condition keeps urgent cognition through failure and release
       requests[1].conversation.map((message: any) => String(message.content || '')).join('\n'),
       /Continuing bodily urgency[\s\S]*remains unresolved/,
     );
+    assert.match(
+      requests[1].conversation.map((message: any) => String(message.content || '')).join('\n'),
+      /threat leaving the camera is not proof of safety[\s\S]*do not flee blindly forever/i,
+    );
 
     sequence = 3;
     health = 8;
