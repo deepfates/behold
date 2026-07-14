@@ -431,6 +431,13 @@ function actionWitness(turn: EntityTurn) {
     action: turn.action.name,
     input: turn.action.input,
     result: turn.outcome.result,
+    world: {
+      circleId: turn.circleId ?? null,
+      dimension:
+        turn.nextObservation?.self?.condition?.dimension ??
+        turn.observation?.self?.condition?.dimension ??
+        null,
+    },
   };
 }
 

@@ -189,6 +189,45 @@ test('fold evidence carries only new events while retaining action consequences'
   );
 });
 
+test('fold requests omit direct and nested non-resident evidence', async () => {
+  const privileged = entityTurn(1, 'Scout');
+  privileged.action.name = 'inspect_reachable_space';
+  privileged.action.input = { secret: 'direct-private-input' };
+  privileged.outcome.result = { secret: 'direct-private-result' };
+  const nested = entityTurn(2, 'Scout');
+  nested.action.name = 'manage_project';
+  nested.outcome.result = {
+    ok: true,
+    evidence: {
+      satisfied: true,
+      expected: 'space_enclosed',
+      witness: {
+        action: 'inspect_reachable_space',
+        input: { secret: 'nested-private-input' },
+        result: { protectedCells: ['nested-private-result'] },
+      },
+    },
+  };
+  const frontier = entityTurn(3, 'Scout');
+  let requestText = '';
+  const view = createLoomContextView([privileged, nested, frontier], {
+    entityId: 'Scout',
+    model: 'test/model',
+    recentTurns: 1,
+    foldBatchTurns: 2,
+    foldTriggerTurns: 1,
+    summarize: async (request) => {
+      requestText = JSON.stringify(request);
+      return 'safe bounded summary';
+    },
+  });
+
+  await view.prepare();
+  assert.match(requestText, /not_resident_observable/);
+  assert.doesNotMatch(requestText, /direct-private|nested-private/);
+  assert.equal(view.view().fold?.protocol, 'behold.loom-fold.v2');
+});
+
 test('fold batches reuse causal observation deltas and expose bounded event loss', async () => {
   const turns = [entityTurn(1, 'Scout'), entityTurn(2, 'Scout'), entityTurn(3, 'Scout')];
   turns[1].observation.events = Array.from({ length: 30 }, (_, index) => ({

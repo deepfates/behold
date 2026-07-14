@@ -15,6 +15,7 @@ import {
   type InhabitantPlace,
   type SituatedInhabitantPlace,
 } from '../entity/places';
+import { projectResidentVisibleValue } from '../mind/resident-visibility';
 
 export type ObservationSource =
   'body' | 'cursor' | 'vision' | 'sound' | 'server_roster' | 'event' | 'memory' | 'privileged';
@@ -353,11 +354,13 @@ export class InhabitantExperience {
     const focus = focusObject(this.bot);
     const yaw = finiteOrNull(entity?.yaw);
     const projects = this.options.projects?.() ?? [];
-    const places = situatePlaces(
-      this.options.places?.() ?? [],
-      base.position,
-      base.dimension == null ? null : String(base.dimension),
-    );
+    const places = projectResidentVisibleValue(
+      situatePlaces(
+        this.options.places?.() ?? [],
+        base.position,
+        base.dimension == null ? null : String(base.dimension),
+      ),
+    ) as SituatedInhabitantPlace[];
     const managedRunId = stringOrNull(this.options.managedRunId);
     const sceneEntities = base.nearbyEntities.map((nearby) =>
       sceneEntity(nearby, base.position, yaw),

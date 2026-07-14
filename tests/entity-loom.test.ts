@@ -9,6 +9,7 @@ import {
   openEntityLoom,
   type EntityTurn,
 } from '../src/entity/loom';
+import { residentTurnMayReplay } from '../src/mind/resident-visibility';
 import { acquireWorldControl } from '../src/runtime/world-control';
 
 function turn(sequence: number, parentId: string | null, entityId = 'Scout'): EntityTurn {
@@ -101,6 +102,28 @@ test('history replay preserves an audit marker but omits non-resident action kno
   assert.match(messages[0]?.content, /inspect_reachable_space/);
   assert.match(messages[0]?.content, /not_resident_observable/);
   assert.doesNotMatch(messages[0]?.content, /private-input|private-result|private scan/);
+});
+
+test('history replay omits privileged evidence nested in a resident completion', () => {
+  const completion = turn(1, null);
+  completion.action.name = 'manage_project';
+  completion.utterance.assistant.content = 'The nested-private topology is sealed.';
+  completion.outcome.result = {
+    evidence: {
+      satisfied: true,
+      expected: 'space_enclosed',
+      witness: {
+        action: 'inspect_reachable_space',
+        input: { secret: 'nested-private-input' },
+        result: { secret: 'nested-private-result' },
+      },
+    },
+  };
+
+  const messages = historyMessages([completion], undefined, residentTurnMayReplay);
+  const serialized = JSON.stringify(messages);
+  assert.match(serialized, /not_resident_observable/);
+  assert.doesNotMatch(serialized, /nested-private/);
 });
 
 test('Lync becomes authoritative without rewriting the legacy autobiography', async () => {

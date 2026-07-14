@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IntentSource } from '../loop/arbiter';
 import type { ResidentAttention } from '../mind/interface';
+import { projectResidentVisibleValue } from '../mind/resident-visibility';
 import { sanitizeName } from '../observability/journal';
 import {
   beginManagedControllerAdmission,
@@ -792,8 +793,8 @@ export function historyMessages(
             previousTurn,
             phase: 'observation',
           }),
-          action: turn.action,
-          outcome: turn.outcome,
+          action: projectResidentVisibleValue(turn.action),
+          outcome: projectResidentVisibleValue(turn.outcome),
           nextObservation: projectObservation(turn.nextObservation, {
             index,
             turn,
@@ -816,7 +817,7 @@ export function historyMessages(
       )}`,
     });
     messages.push(replayAssistantMessage(turn.utterance.assistant));
-    const content = JSON.stringify(turn.outcome);
+    const content = JSON.stringify(projectResidentVisibleValue(turn.outcome));
     if (turn.action.toolCallId) {
       messages.push({
         role: 'tool',

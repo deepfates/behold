@@ -142,7 +142,10 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   assert.equal(initial.self.places[0]?.source, 'memory');
   assert.equal(initial.self.places[0]?.sameDimension, true);
   assert.equal(initial.self.places[0]?.distance, 5);
-  assert.match(initial.self.places[0]?.note || '', /current conditions require observation/);
+  assert.deepEqual(initial.self.places[0]?.protectedBodyCells, []);
+  assert.deepEqual(initial.self.places[0]?.entrances, []);
+  assert.deepEqual(initial.self.places[0]?.affordances, ['legacy-external-place-record']);
+  assert.match(initial.self.places[0]?.note || '', /geometry is withheld/);
   assert.deepEqual(initial.self.placeConflicts, []);
   assert.equal(initial.scene.focus?.source, 'cursor');
   assert.deepEqual(initial.scene.social.playersOnline, ['importdf']);

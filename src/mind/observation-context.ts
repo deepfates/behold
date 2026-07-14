@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { EntityTurn } from '../entity/loom';
+import { projectResidentVisibleValue } from './resident-visibility';
 
 const MODEL_EVENT_BATCH = 12;
 const RECENT_ACTION_TURN_LIMIT = 6;
@@ -60,7 +61,7 @@ export function projectRecentActionContinuity(
   turns: readonly EntityTurn[],
   turnLimit = RECENT_ACTION_TURN_LIMIT,
   byteLimit = RECENT_ACTION_BYTE_LIMIT,
-  mayReplayAction: (name: string) => boolean = () => true,
+  mayReplayTurn: (turn: EntityTurn) => boolean = () => true,
 ): RecentActionContinuity | null {
   if (!turns.length) return null;
   const boundedTurns = integerInRange(turnLimit, 1, 12, RECENT_ACTION_TURN_LIMIT);
@@ -73,9 +74,7 @@ export function projectRecentActionContinuity(
   const candidates = turns
     .slice(-boundedTurns)
     .map((turn) =>
-      !mayReplayAction(turn.action.name)
-        ? projectOmittedContinuityTurn(turn)
-        : projectContinuityTurn(turn),
+      !mayReplayTurn(turn) ? projectOmittedContinuityTurn(turn) : projectContinuityTurn(turn),
     );
   let selected: RecentActionContinuity['turns'] = [];
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
@@ -127,13 +126,13 @@ function projectContinuityTurn(turn: EntityTurn): RecentActionContinuity['turns'
     ...publicIntention(turn),
     action: {
       name: String(turn.action.name),
-      input: compactContinuityValue(turn.action.input),
+      input: compactContinuityValue(projectResidentVisibleValue(turn.action.input)),
     },
     outcome: {
       ok: turn.outcome.ok === true,
       eventType: String(turn.outcome.eventType || ''),
       ...(turn.outcome.error ? { error: boundedContinuityText(turn.outcome.error, 400) } : {}),
-      result: compactContinuityValue(turn.outcome.result),
+      result: compactContinuityValue(projectResidentVisibleValue(turn.outcome.result)),
     },
   };
   if (Buffer.byteLength(JSON.stringify(projected), 'utf8') <= RECENT_ACTION_TURN_BYTE_LIMIT) {
@@ -386,11 +385,11 @@ function projectHistoricalSelf(self: any) {
 
 function projectSelf(self: any) {
   if (!self || typeof self !== 'object') return self;
-  return {
+  return projectResidentVisibleValue({
     ...self,
     ...(self.pose ? { pose: projectCurrentPose(self.pose) } : {}),
     currentAction: projectCurrentAction(self.currentAction),
-  };
+  });
 }
 
 function projectCurrentPose(pose: any) {

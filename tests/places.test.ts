@@ -96,6 +96,68 @@ test('ordinary world changes remember only the embodied site consequence', () =>
   assert.equal(place?.provenance.witnessAction, 'place_block');
 });
 
+test('a worksite anchors to the verified mutation rather than later completion position', () => {
+  const changed = completedWorldChangeTurn('Scout', 2, {
+    projectId: 'first-wall',
+    title: 'Build the first wall',
+    anchor: { x: 12, y: 64, z: -3 },
+  });
+  changed.observation = worldObservation('Scout', { x: 80, y: 70, z: 80 });
+  changed.nextObservation = worldObservation('Scout', { x: 81, y: 70, z: 80 });
+
+  assert.deepEqual(createPlaceMemory('Scout', [changed]).snapshot()[0]?.anchor, {
+    dimension: 'overworld',
+    x: 12,
+    y: 64,
+    z: -3,
+  });
+});
+
+test('non-spatial or cross-dimension witnesses cannot create a worksite place', () => {
+  const unverified = completedWorldChangeTurn('Scout', 2, {
+    projectId: 'unverified-wall',
+    title: 'Claim an unverified wall',
+    anchor: { x: 12, y: 64, z: -3 },
+  });
+  delete unverified.outcome.result.evidence.witness.result.changes[0].verified;
+  assert.deepEqual(createPlaceMemory('Scout', [unverified]).snapshot(), []);
+
+  const container = completedWorldChangeTurn('Scout', 2, {
+    projectId: 'stock-cache',
+    title: 'Stock the cache',
+    anchor: { x: 12, y: 64, z: -3 },
+  });
+  container.outcome.result.evidence.witness = {
+    sequence: 1,
+    action: 'deposit_in_container',
+    input: { name: 'apple', count: 1 },
+    result: {
+      requested: 1,
+      bodyRemoved: 1,
+      containerAdded: 1,
+      confirmation: 'mineflayer:container_inventory_delta',
+    },
+    world: { circleId: 'minecraft:test', dimension: 'overworld' },
+  };
+  assert.deepEqual(createPlaceMemory('Scout', [container]).snapshot(), []);
+
+  const mismatched = completedWorldChangeTurn('Scout', 2, {
+    projectId: 'wrong-world',
+    title: 'Change another dimension',
+    anchor: { x: 12, y: 64, z: -3 },
+  });
+  mismatched.outcome.result.evidence.witness.world.dimension = 'the_nether';
+  assert.deepEqual(createPlaceMemory('Scout', [mismatched]).snapshot(), []);
+
+  const wrongCircle = completedWorldChangeTurn('Scout', 2, {
+    projectId: 'wrong-circle',
+    title: 'Change another world',
+    anchor: { x: 12, y: 64, z: -3 },
+  });
+  wrongCircle.outcome.result.evidence.witness.world.circleId = 'minecraft:other';
+  assert.deepEqual(createPlaceMemory('Scout', [wrongCircle]).snapshot(), []);
+});
+
 test('later weaker world changes cannot relabel legacy certified place geometry', () => {
   const legacy = completedPlaceTurn('Scout', 2, {
     projectId: 'legacy-home',
@@ -279,6 +341,7 @@ function completedWorldChangeTurn(
   },
 ): EntityTurn {
   const turn = completedPlaceTurn(entityId, sequence, options);
+  turn.circleId = 'minecraft:test';
   turn.observation.scene.terrain.materials = [];
   turn.nextObservation.scene.terrain.materials = [];
   turn.outcome.result.project.evidence = 'world_change';
@@ -296,10 +359,12 @@ function completedWorldChangeTurn(
             position: options.anchor,
             before: 'air',
             after: 'oak_planks',
+            verified: true,
             confirmation: { source: 'mineflayer:blockUpdate' },
           },
         ],
       },
+      world: { circleId: 'minecraft:test', dimension: 'overworld' },
     },
   };
   return turn;

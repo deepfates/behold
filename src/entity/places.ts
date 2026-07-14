@@ -8,6 +8,12 @@ const SPATIAL_PROJECT_EVIDENCE = new Set<ProjectEvidence>([
   'place_reached',
   'world_change',
 ]);
+const SPATIAL_WORLD_CHANGE_ACTIONS = new Set([
+  'dig_block',
+  'place_against',
+  'place_block',
+  'toggle_block',
+]);
 
 export type PlaceAnchor = {
   dimension: string | null;
@@ -208,6 +214,12 @@ function placeFromCompletedProject(turn: EntityTurn): InhabitantPlace | null {
   const evidence = String(result?.evidence?.expected || result?.project?.evidence || '');
   if (!SPATIAL_PROJECT_EVIDENCE.has(evidence as ProjectEvidence)) return null;
   if (result?.evidence?.satisfied !== true) return null;
+  if (
+    evidence === 'world_change' &&
+    !SPATIAL_WORLD_CHANGE_ACTIONS.has(String(result?.evidence?.witness?.action || ''))
+  ) {
+    return null;
+  }
 
   const anchor = witnessAnchor(result?.evidence?.witness, turn, evidence as ProjectEvidence);
   if (!anchor) return null;
@@ -244,23 +256,62 @@ function witnessAnchor(
   turn: EntityTurn,
   evidence: ProjectEvidence,
 ): PlaceAnchor | null {
-  const position =
-    (evidence === 'space_enclosed' && witness?.result?.seedFeet) ||
-    (evidence === 'place_reached' && witness?.after) ||
-    turn.nextObservation?.self?.pose?.position ||
-    turn.observation?.self?.pose?.position ||
-    spatialInput(witness?.input) ||
-    spatialInput(witness?.result);
-  if (!isPosition(position)) return null;
-  const dimension =
+  const completionDimension =
     stringOrNull(turn.nextObservation?.self?.condition?.dimension) ??
     stringOrNull(turn.observation?.self?.condition?.dimension);
+  const witnessDimension = stringOrNull(witness?.world?.dimension);
+  const completionCircle =
+    stringOrNull(turn.circleId) ??
+    stringOrNull(turn.nextObservation?.circle?.id) ??
+    stringOrNull(turn.observation?.circle?.id);
+  const witnessCircle = stringOrNull(witness?.world?.circleId);
+  if (
+    (completionDimension != null &&
+      witnessDimension != null &&
+      completionDimension !== witnessDimension) ||
+    (completionCircle != null && witnessCircle != null && completionCircle !== witnessCircle)
+  ) {
+    return null;
+  }
+  const position =
+    evidence === 'world_change'
+      ? witnessedWorldChangePosition(witness)
+      : (evidence === 'space_enclosed' && witness?.result?.seedFeet) ||
+        (evidence === 'place_reached' && witness?.after) ||
+        turn.nextObservation?.self?.pose?.position ||
+        turn.observation?.self?.pose?.position ||
+        spatialInput(witness?.input) ||
+        spatialInput(witness?.result);
+  if (!isPosition(position)) return null;
   return {
-    dimension,
+    dimension: witnessDimension ?? completionDimension,
     x: round(Number(position.x)),
     y: round(Number(position.y)),
     z: round(Number(position.z)),
   };
+}
+
+function witnessedWorldChangePosition(witness: any) {
+  if (['dig_block', 'place_against', 'place_block'].includes(String(witness?.action || ''))) {
+    const change = Array.isArray(witness?.result?.changes)
+      ? witness.result.changes.find(
+          (candidate: any) =>
+            candidate?.verified === true &&
+            candidate?.confirmation?.source === 'mineflayer:blockUpdate' &&
+            isPosition(candidate?.position),
+        )
+      : null;
+    return change?.position ?? null;
+  }
+  if (
+    witness?.action === 'toggle_block' &&
+    witness?.result?.verified === true &&
+    witness?.result?.confirmation?.source === 'mineflayer:blockUpdate' &&
+    isPosition(witness?.result?.block?.position)
+  ) {
+    return witness.result.block.position;
+  }
+  return null;
 }
 
 function spatialInput(value: any) {

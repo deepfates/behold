@@ -6,6 +6,7 @@ import {
   projectHistoricalModelObservation,
   projectRecentActionContinuity,
 } from '../src/policy/context';
+import { residentTurnMayReplay } from '../src/mind/resident-visibility';
 
 test('model context suppresses only duplicated own-success lifecycle events without skipping them', () => {
   const frame = observation();
@@ -369,7 +370,7 @@ test('recent continuity omits actions outside the resident action surface', () =
     [privileged],
     6,
     12_000,
-    (name) => name !== 'inspect_reachable_space',
+    (turn) => turn.action.name !== 'inspect_reachable_space',
   );
   assert.equal(projected?.turns[0]?.action.name, 'inspect_reachable_space');
   assert.equal(projected?.turns[0]?.action.inputOmittedFromWorkingContinuity, true);
@@ -378,6 +379,31 @@ test('recent continuity omits actions outside the resident action surface', () =
   assert.equal(serialized.includes('private-input'), false);
   assert.equal(serialized.includes('private-result'), false);
   assert.equal(serialized.includes('private topology'), false);
+});
+
+test('recent continuity omits privileged evidence nested in a resident result', () => {
+  const completion = continuityTurn(
+    1,
+    'Scout',
+    'manage_project',
+    { operation: 'complete' },
+    {
+      evidence: {
+        expected: 'space_enclosed',
+        witness: {
+          action: 'inspect_reachable_space',
+          input: { secret: 'nested-private-input' },
+          result: { secret: 'nested-private-result' },
+        },
+      },
+    },
+  );
+  completion.utterance.assistant.content = 'Nested-private geometry is ready.';
+
+  const projected = projectRecentActionContinuity([completion], 6, 12_000, residentTurnMayReplay);
+  assert.equal(projected?.turns[0]?.action.inputOmittedFromWorkingContinuity, true);
+  assert.equal(projected?.turns[0]?.outcome.resultOmittedFromWorkingContinuity, true);
+  assert.doesNotMatch(JSON.stringify(projected), /nested-private/);
 });
 
 function observation() {

@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { residentMayReplayAction } from '../agent/action-audience';
 import { isCriticalBodyCondition } from '../agent/condition';
 import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
@@ -32,6 +31,7 @@ import {
   type CognitionPriority,
 } from '../mind/cognition';
 import { validateResidentActionInput } from '../mind/schema';
+import { residentTurnMayReplay } from '../mind/resident-visibility';
 import {
   ResidentMindCallError,
   type ModelCallEvidence,
@@ -447,7 +447,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
                     loomContext.view().turns,
                     undefined,
                     undefined,
-                    residentMayReplayAction,
+                    residentTurnMayReplay,
                   )
                 : null,
             ),
@@ -927,7 +927,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               ? 'same_turn_observation'
               : 'previous_turn_next_observation',
           ),
-        (turn) => residentMayReplayAction(turn.action.name),
+        residentTurnMayReplay,
       ),
     );
   }
