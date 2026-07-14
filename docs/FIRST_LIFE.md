@@ -118,6 +118,44 @@ belong to `initial_world_sync` or the live world. The final proof also stages th
 giver eight seconds before the recipient, so it tests a handoff instead of an
 unrelated race for an unowned item.
 
+## The first shared cache proof
+
+On July 13, 2026, `AppleKeeper` and `CarrotKeeper` entered one managed epoch
+without a shared controller. Each picked up a different ordinary food item,
+put exactly one contribution into the same nearby chest, told the other
+resident what it had done, received the other resident's message through its
+own observation stream, and opened the chest for itself. Both saw exactly one
+apple and one carrot before yielding.
+
+The admitted surface was the player-scale acts pick up, put in a chest, look
+inside a chest, and speak, plus explicit controller yield. No collaboration
+command, controller-owned cache state, shared private context, symbolic terrain
+probe, or withdrawal action was admitted. A separately connected Minecraft
+body opened the real chest and observed the two items; fresh connections as
+each resident observed no contribution left in either inventory and no prepared
+drop remaining. Both controllers then restarted together from separate Lync
+histories and yielded without depositing, withdrawing, or announcing again.
+
+The clean passing run used `openai/gpt-5.6-luna`, made 13 model calls, consumed
+50,510 tokens, cost $0.0679585, and completed both managed epochs in 73.5
+seconds. Model concurrency peaked at two, the slowest call took 3.3 seconds,
+and the largest resident journal and Lync autobiography were 478,080 and
+189,052 bytes. A pure reassessment reparsed and rehashed the lifecycle journals,
+resident journals, trajectories, and Lync logs and reproduced every assertion.
+
+Two preceding runs exposed an evidence-harness race rather than a resident
+failure. Chunk readiness preceded a reliably interactive local scene, so a
+fresh witness sent its chest interaction before Minecraft would open a window.
+A direct diagnostic showed that the same four-second synchronization window
+already used before resident policy startup made the fresh body open the chest
+and see both contributions. Fresh proof witnesses now use that measured
+synchronization window instead of weakening the external witness.
+
+This proves a small shared institution: two private lives can establish and
+independently recognize one persistent common resource through Minecraft. It
+does not prove open-ended cooperation, relationship development, contention,
+repair, survival, or a household that remains coherent for hours.
+
 ## The architecture we actually need
 
 The implementation has seven boundaries. They are useful because each corresponds
@@ -365,8 +403,8 @@ When one exposes a real bottleneck, we change the smallest boundary that owns it
    need or threat.
 2. Bring Scout back later and see whether it continues a named, multi-session
    building project and its relationship with the player.
-3. Extend the proved handoff into a useful shared activity with interruption,
-   contention, and more than one exchange.
+3. Turn the proved handoff and shared cache into a sustained household with
+   interruption, contention, maintenance, and more than one exchange.
 4. Run the pair long enough to measure whether bounded attention still produces
    coherent behavior.
 5. Only then extract patterns that also explain our other inhabited worlds.

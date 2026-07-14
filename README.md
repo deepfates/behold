@@ -169,6 +169,13 @@ Managed population
   inventories, and both lives restart. The proof admits no social macro,
   collection macro, or symbolic sensing tool and independently reassesses the
   saved evidence.
+- `npm run proof:owned-world-cache` runs a clean-revision shared-resource proof:
+  two separately controlled residents pick up different food, put it into the
+  same real chest, exchange and independently receive ordinary Minecraft chat,
+  inspect the completed cache from both viewpoints, and restart without
+  repeating or undoing the work. A third fresh body opens the chest, resident
+  body witnesses verify empty inventories, and the saved evidence can be purely
+  reassessed with `--reassess <cache-report.json>`.
 
 If you see "Connection throttled! Please wait before reconnecting."
 

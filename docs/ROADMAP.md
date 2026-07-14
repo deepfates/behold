@@ -26,6 +26,9 @@ test, not the organizing purpose of the system.
 - Ordinary life affordances for finding, collecting, crafting, sleeping, and defense
 - One player-grain two-resident handoff using only walking, dropping, automatic
   Minecraft pickup, independent observations, and restart continuity
+- One shared-cache proof in which two private lives independently acquire,
+  contribute, communicate, inspect the same Minecraft chest, and restart
+  without repeating or undoing the work
 - Native Minecraft 1.21.4 client and isolated local server launch flow
 - World-lab status, topology, digest, lock-owner, port-owner, dry-run reset planning, and fixture-only atomic reset tests
 - TypeScript build and lint, with adversarial regression coverage for lifecycle authenticity, single terminals, deferred preemption, consequence attribution, and observation gaps
@@ -36,8 +39,9 @@ test, not the organizing purpose of the system.
 - Production reset/recovery with an exclusive operation fence, durable journal, managed server lifecycle, and two real resets
 - A repeatable production-path Come–See–Do–Report runner; passing unit and fixture tests do not establish the live story
 - A real one-decision step control; the previous hook was dead and has been removed
-- Sustained multi-resident interaction, cooperation, contention, and soak behavior;
-  one staged handoff establishes a causal exchange, not a society
+- Sustained multi-resident interaction, cooperation, contention, and soak
+  behavior; one staged handoff and one shared cache establish causal exchange
+  and a common resource, not a household or society
 
 ### First Life proved so far
 
@@ -53,13 +57,19 @@ test, not the organizing purpose of the system.
 - GiverResident and ReceiverResident completed a native walk/drop/walk/pickup
   exchange, independently witnessed their own consequences, and restarted
   without repeating it. No social macro or symbolic sensing tool was admitted.
+- AppleKeeper and CarrotKeeper stocked and independently inspected one shared
+  chest, observed each other's messages through separate viewpoints, and
+  restarted from separate Lync histories without depositing or announcing
+  again. A fresh Minecraft body opened the chest and saw exactly one apple and
+  one carrot; pure reassessment and all declared budgets passed.
 
 ## Immediate priorities
 
 1. Let Scout encounter and manage a bodily need or world threat.
 2. Continue a recognizable building project across another session.
-3. Turn the proved handoff into a longer shared activity, then test resource
-   contention, interruption, and repair after misunderstanding.
+3. Stop multiplying scripted exchange scenarios: compress the repeated proof
+   machinery, then run a minimally scripted household with a human and several
+   continuing residents maintaining one shared place.
 4. Run a multi-hour soak test and measure context, latency, cost, reconnects, and
    autobiography growth.
 5. Extend relationship and project memory only where lived tests show that the
