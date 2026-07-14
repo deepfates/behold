@@ -351,18 +351,30 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'attack_entity',
     description:
-      'Attack a nearby entity by name. The action reports whether Minecraft emitted a matching hurt event.',
+      'Fight one observed nearby entity. This body follows, faces, and attacks that exact entity until Minecraft confirms its death, it escapes, this bounded attempt expires, this body dies, or a human interrupts.',
     parameters: {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        maxDistance: { type: 'number', minimum: 1, maximum: 6 },
+        maxDistance: {
+          type: 'number',
+          minimum: 1,
+          maximum: 16,
+          description: 'Stop rather than pursuing the selected entity beyond this distance.',
+        },
+        timeoutMs: {
+          type: 'number',
+          minimum: 1000,
+          maximum: 30000,
+          description: 'Maximum duration of this one chosen fight.',
+        },
       },
       required: ['name'],
     },
-    run: async ({ name, maxDistance = 4.5 }) => {
+    run: async ({ name, maxDistance = 8, timeoutMs = 15_000 }, execution) => {
       const targetName = String(name).toLowerCase();
       const me = (bot as any).entity?.position;
+      const pursuitLimit = clamp(Number(maxDistance), 1, 16);
       const target = (Object.values((bot as any).entities || {}) as any[])
         .filter((entity) => entity?.position && entity?.id !== (bot as any).entity?.id)
         .map((entity) => ({ entity, distance: me?.distanceTo(entity.position) ?? Infinity }))
@@ -370,23 +382,20 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           const candidate = String(
             entity?.username || entity?.displayName || entity?.name || entity?.type || '',
           ).toLowerCase();
-          return candidate.includes(targetName) && distance <= Number(maxDistance);
+          return candidate.includes(targetName) && distance <= pursuitLimit;
         })
         .sort((a, b) => a.distance - b.distance)[0];
       if (!target) {
         return { ok: false, error: 'entity_not_in_reach', target: String(name) };
       }
 
-      const confirmation = waitForEntityEvent(bot, 'entityHurt', target.entity.id, 1000);
-      (bot as any).attack(target.entity);
-      const confirmed = await confirmation;
-      return {
-        ok: confirmed,
-        ...(confirmed ? {} : { error: 'attack_unconfirmed' }),
-        target: summarizeEntity(target.entity),
-        distance: round(target.distance),
-        confirmation: confirmed ? 'mineflayer:entityHurt' : null,
-      };
+      return runBoundedFight(bot, target.entity, {
+        targetAtStart: summarizeEntity(target.entity),
+        startedDistance: target.distance,
+        maxDistance: pursuitLimit,
+        timeoutMs: clamp(Number(timeoutMs), 100, 30_000),
+        signal: execution?.signal,
+      });
     },
     category: 'combat',
   });
@@ -3958,6 +3967,204 @@ async function waitForInventoryTransaction(
 
 function round(value: number) {
   return Number.isFinite(value) ? Math.round(value * 10) / 10 : value;
+}
+
+async function runBoundedFight(
+  bot: Bot,
+  selectedTarget: any,
+  options: {
+    targetAtStart: any;
+    startedDistance: number;
+    maxDistance: number;
+    timeoutMs: number;
+    signal?: AbortSignal;
+  },
+) {
+  const startedAt = Date.now();
+  const targetId = selectedTarget.id;
+  const targetAtStart = options.targetAtStart;
+  const pathfinder = (bot as any).pathfinder;
+  const attackReach = 3;
+  const attackIntervalMs = 650;
+  let attacksAttempted = 0;
+  let targetHurtEvents = 0;
+  let attributedHits = 0;
+  let targetDead = false;
+  let selfDead = false;
+  let pursuing = false;
+  let pathfinderEngaged = false;
+  let stopIssued = false;
+
+  const currentTarget = () => (bot as any).entities?.[targetId] ?? null;
+  const currentDistance = () => {
+    const me = (bot as any).entity?.position;
+    const target = currentTarget();
+    return me && target?.position ? me.distanceTo(target.position) : null;
+  };
+  const finish = (terminal: Record<string, unknown>) => {
+    const finalDistance = currentDistance();
+    return {
+      ...terminal,
+      target: targetAtStart,
+      targetEntityId: targetId,
+      startedDistance: round(options.startedDistance),
+      finalDistance: finalDistance == null ? null : round(finalDistance),
+      attacksAttempted,
+      targetHurtEvents,
+      attributedHits,
+      durationMs: Date.now() - startedAt,
+    };
+  };
+  const fail = (error: string, extra: Record<string, unknown> = {}) =>
+    finish({ ok: false, error, confirmation: null, ...extra });
+  const requestStop = () => {
+    if (!pursuing || !pathfinder?.stop) return !pursuing;
+    try {
+      pathfinder.stop();
+      stopIssued = true;
+      pursuing = false;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const onTargetHurt = (entity: any, source: any) => {
+    if (entity?.id !== targetId) return;
+    targetHurtEvents += 1;
+    if (source?.id === (bot as any).entity?.id) attributedHits += 1;
+  };
+  const onEntityDead = (entity: any) => {
+    if (entity?.id === targetId) targetDead = true;
+    if (entity?.id === (bot as any).entity?.id) selfDead = true;
+  };
+  const onSelfDeath = () => {
+    selfDead = true;
+  };
+  const onAbort = () => requestStop();
+
+  (bot as any).on('entityHurt', onTargetHurt);
+  (bot as any).on('entityDead', onEntityDead);
+  (bot as any).on('death', onSelfDeath);
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+
+  try {
+    while (true) {
+      if (options.signal?.aborted) {
+        const stopAcknowledged = !pathfinderEngaged || stopIssued || requestStop();
+        if (!stopAcknowledged) {
+          return fail('interruption_unconfirmed', {
+            cancellation: {
+              acknowledged: false,
+              adapter: 'mineflayer-combat',
+            },
+            pathfinderStopAcknowledged: false,
+          });
+        }
+        return finish({
+          ...cancelledAction('mineflayer-combat'),
+          pathfinderStopAcknowledged: true,
+          confirmation: null,
+        });
+      }
+      if (targetDead && selfDead) {
+        return fail('mutual_defeat', {
+          targetDefeated: true,
+          bodyDefeated: true,
+          confirmations: ['mineflayer:entityDead', 'mineflayer:death'],
+        });
+      }
+      if (targetDead) {
+        return finish({
+          ok: true,
+          status: 'target_defeated',
+          confirmation: 'mineflayer:entityDead',
+        });
+      }
+      if (selfDead) {
+        return fail('self_defeated', {
+          confirmation: 'mineflayer:death',
+        });
+      }
+      if (Date.now() - startedAt >= options.timeoutMs) {
+        return fail('attack_timeout');
+      }
+
+      const target = currentTarget();
+      if (!target?.position) {
+        return fail('target_lost');
+      }
+      const me = (bot as any).entity?.position;
+      const distanceToTarget = me?.distanceTo(target.position) ?? Infinity;
+      if (distanceToTarget > options.maxDistance) {
+        return fail('target_escaped', {
+          maxDistance: options.maxDistance,
+        });
+      }
+
+      if (distanceToTarget > attackReach) {
+        if (!pathfinder?.setGoal) {
+          return fail('pathfinder_unavailable');
+        }
+        if (!pursuing) {
+          try {
+            pathfinder.setGoal(new (goals as any).GoalFollow(target, 2.25), true);
+            pursuing = true;
+            pathfinderEngaged = true;
+          } catch (error: any) {
+            return fail(navigationError(error));
+          }
+        }
+        await waitForFightTick(
+          Math.min(100, Math.max(0, options.timeoutMs - (Date.now() - startedAt))),
+          options.signal,
+        );
+        continue;
+      }
+
+      requestStop();
+      try {
+        await (bot as any).lookAt(
+          target.position.offset(0, Math.max(0.5, Number(target.height || 1.6) * 0.8), 0),
+          true,
+        );
+      } catch {}
+      if (options.signal?.aborted || targetDead || selfDead) continue;
+      try {
+        (bot as any).attack(target);
+        attacksAttempted += 1;
+      } catch (error: any) {
+        return fail('attack_failed', {
+          detail: String(error?.message || error),
+        });
+      }
+      await waitForFightTick(
+        Math.min(attackIntervalMs, Math.max(0, options.timeoutMs - (Date.now() - startedAt))),
+        options.signal,
+      );
+    }
+  } finally {
+    requestStop();
+    (bot as any).removeListener('entityHurt', onTargetHurt);
+    (bot as any).removeListener('entityDead', onEntityDead);
+    (bot as any).removeListener('death', onSelfDeath);
+    options.signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+async function waitForFightTick(ms: number, signal?: AbortSignal) {
+  if (signal?.aborted) return;
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener('abort', finish, { once: true });
+  });
 }
 
 async function runPathfinderGoal(

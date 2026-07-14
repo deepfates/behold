@@ -904,7 +904,7 @@ test('consume succeeds only after an observed body or inventory consequence', as
   assert.equal(result.confirmation, 'mineflayer:body_or_inventory_delta');
 });
 
-test('sleep and combat return observed body/world consequences', async () => {
+test('sleep and a chosen fight return observed body/world consequences', async () => {
   const bot = baseBot();
   const bed = { name: 'red_bed', position: new Vec3(1, 64, 0) };
   const zombie = {
@@ -919,7 +919,11 @@ test('sleep and combat return observed body/world consequences', async () => {
   bot.sleep = async () => {
     bot.isSleeping = true;
   };
-  bot.attack = () => setImmediate(() => bot.emit('entityHurt', zombie));
+  bot.attack = () =>
+    setImmediate(() => {
+      bot.emit('entityHurt', zombie, bot.entity);
+      bot.emit('entityDead', zombie);
+    });
   const interpreter = buildInterpreter(bot);
 
   const slept = await interpreter.run('sleep_in_bed', {});
@@ -928,7 +932,249 @@ test('sleep and combat return observed body/world consequences', async () => {
 
   const attacked = await interpreter.run('attack_entity', { name: 'zombie' });
   assert.equal(attacked.ok, true);
-  assert.equal(attacked.confirmation, 'mineflayer:entityHurt');
+  assert.equal(attacked.status, 'target_defeated');
+  assert.equal(attacked.attacksAttempted, 1);
+  assert.equal(attacked.attributedHits, 1);
+  assert.equal(attacked.confirmation, 'mineflayer:entityDead');
+});
+
+test('one chosen fight sustains legal-paced attacks until the exact target dies', async () => {
+  const bot = baseBot();
+  const zombie = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(2, 64, 0),
+  };
+  bot.entities[2] = zombie;
+  let attacks = 0;
+  bot.attack = () => {
+    attacks += 1;
+    setImmediate(() => {
+      bot.emit('entityHurt', zombie, bot.entity);
+      if (attacks === 3) bot.emit('entityDead', zombie);
+    });
+  };
+
+  const result = await buildInterpreter(bot).run('attack_entity', {
+    name: 'zombie',
+    timeoutMs: 3000,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'target_defeated');
+  assert.equal(result.targetEntityId, 2);
+  assert.equal(result.attacksAttempted, 3);
+  assert.equal(result.targetHurtEvents, 3);
+  assert.equal(result.attributedHits, 3);
+  assert.equal(result.confirmation, 'mineflayer:entityDead');
+});
+
+test('hurt events without exact target death do not claim victory', async () => {
+  const bot = baseBot();
+  const zombie = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(2, 64, 0),
+  };
+  bot.entities[2] = zombie;
+  bot.attack = () => setImmediate(() => bot.emit('entityHurt', zombie, bot.entity));
+
+  const result = await buildInterpreter(bot).run('attack_entity', {
+    name: 'zombie',
+    timeoutMs: 100,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'attack_timeout');
+  assert.equal(result.attacksAttempted, 1);
+  assert.equal(result.attributedHits, 1);
+  assert.equal(result.confirmation, null);
+});
+
+test('another entity dying and the target disappearing cannot confirm a fight', async () => {
+  const bot = baseBot();
+  const zombie = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(2, 64, 0),
+  };
+  const skeleton = {
+    id: 3,
+    name: 'skeleton',
+    type: 'mob',
+    position: new Vec3(3, 64, 0),
+  };
+  bot.entities[2] = zombie;
+  bot.entities[3] = skeleton;
+  bot.attack = () =>
+    setImmediate(() => {
+      bot.emit('entityDead', skeleton);
+      delete bot.entities[2];
+    });
+
+  const result = await buildInterpreter(bot).run('attack_entity', {
+    name: 'zombie',
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'target_lost');
+  assert.equal(result.targetEntityId, 2);
+  assert.equal(result.confirmation, null);
+});
+
+test('a selected target escaping the pursuit boundary ends the fight', async () => {
+  const bot = baseBot();
+  const zombie = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(2, 64, 0),
+  };
+  bot.entities[2] = zombie;
+  bot.attack = () => {
+    zombie.position = new Vec3(10, 64, 0);
+  };
+
+  const result = await buildInterpreter(bot).run('attack_entity', {
+    name: 'zombie',
+    maxDistance: 4,
+    timeoutMs: 1500,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'target_escaped');
+  assert.equal(result.attacksAttempted, 1);
+  assert.equal(result.finalDistance, 10);
+  assert.equal(result.confirmation, null);
+});
+
+test('body death is a world-confirmed terminal fight outcome', async () => {
+  const bot = baseBot();
+  const zombie = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(2, 64, 0),
+  };
+  bot.entities[2] = zombie;
+  bot.attack = () => setImmediate(() => bot.emit('death'));
+
+  const result = await buildInterpreter(bot).run('attack_entity', {
+    name: 'zombie',
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'self_defeated');
+  assert.equal(result.confirmation, 'mineflayer:death');
+});
+
+test('a simultaneous kill and body death is not reported as clean victory', async () => {
+  const bot = baseBot();
+  const zombie = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(2, 64, 0),
+  };
+  bot.entities[2] = zombie;
+  bot.attack = () =>
+    setImmediate(() => {
+      bot.emit('entityDead', zombie);
+      bot.emit('death');
+    });
+
+  const result = await buildInterpreter(bot).run('attack_entity', { name: 'zombie' });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'mutual_defeat');
+  assert.equal(result.targetDefeated, true);
+  assert.equal(result.bodyDefeated, true);
+  assert.deepEqual(result.confirmations, ['mineflayer:entityDead', 'mineflayer:death']);
+});
+
+test('human interruption stops active combat pursuit before it is acknowledged', async () => {
+  const bot = baseBot();
+  const zombie = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(5, 64, 0),
+  };
+  bot.entities[2] = zombie;
+  let pursuitStarted!: () => void;
+  const pursuing = new Promise<void>((resolve) => (pursuitStarted = resolve));
+  let stopCalls = 0;
+  bot.pathfinder = {
+    setGoal: () => pursuitStarted(),
+    stop: () => {
+      stopCalls += 1;
+    },
+  };
+  bot.attack = () => assert.fail('an out-of-reach body must not swing before approaching');
+  const controller = new AbortController();
+  const pending = buildInterpreter(bot).run(
+    'attack_entity',
+    { name: 'zombie', maxDistance: 8 },
+    { signal: controller.signal },
+  );
+
+  await pursuing;
+  controller.abort('human_stop');
+  const result = await pending;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'interrupted_by_human');
+  assert.equal(result.pathfinderStopAcknowledged, true);
+  assert.equal(stopCalls, 1);
+  assert.deepEqual(result.cancellation, {
+    acknowledged: true,
+    adapter: 'mineflayer-combat',
+  });
+});
+
+test('combat does not fabricate cancellation acknowledgement when pursuit cannot stop', async () => {
+  const bot = baseBot();
+  const zombie = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(5, 64, 0),
+  };
+  bot.entities[2] = zombie;
+  let pursuitStarted!: () => void;
+  const pursuing = new Promise<void>((resolve) => (pursuitStarted = resolve));
+  let stopCalls = 0;
+  bot.pathfinder = {
+    setGoal: () => pursuitStarted(),
+    stop: () => {
+      stopCalls += 1;
+      throw new Error('pathfinder stop failed');
+    },
+  };
+  const controller = new AbortController();
+  const pending = buildInterpreter(bot).run(
+    'attack_entity',
+    { name: 'zombie', maxDistance: 8 },
+    { signal: controller.signal },
+  );
+
+  await pursuing;
+  controller.abort('human_stop');
+  const result = await pending;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'interruption_unconfirmed');
+  assert.equal(result.pathfinderStopAcknowledged, false);
+  assert.ok(stopCalls >= 2);
+  assert.deepEqual(result.cancellation, {
+    acknowledged: false,
+    adapter: 'mineflayer-combat',
+  });
 });
 
 test('movement and item collection require consequences beyond pathfinder acknowledgement', async () => {
