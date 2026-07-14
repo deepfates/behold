@@ -89,20 +89,20 @@ or whether to keep fighting belongs to the resident.
 This is the forward-looking census. “Partial” means we can already perform
 ordinary examples but have not covered the whole native family.
 
-| Player family                              | Current status                  | Important missing native experiences                                                              |
-| ------------------------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Seeing, hearing, HUD, and events           | Partial                         | exact-camera visual evidence; more legible obstruction and interaction feedback                   |
-| Looking and facing                         | Implemented; live proof pending | validate relative looking in an untasked life; decide when images are worth their cost            |
-| Walking and exploration                    | Partial                         | egocentric steps; intentional sneak/sprint when semantically relevant; swimming/climbing feedback |
-| Breaking, placing, and ordinary use        | Partial                         | one consistent visible-target language; held-item use rather than block-specific controller verbs |
-| Inventory, equipment, pickup, and drop     | Strong basic coverage           | offhand and inventory arrangement only when gameplay makes them meaningful                        |
-| Crafting and storage                       | Partial                         | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions            |
-| Food, sleep, hazards, death, and recovery  | Partial                         | continuous survival competence and honest recovery across long lives                              |
-| Creatures and combat                       | Partial                         | independently proven sustained combat; feed, breed, tame, leash, fish, and ordinary entity use    |
-| Villagers and multiplayer relations        | Partial                         | inspect/select trades, exchange/gifts with witnessed transfer, longer collaboration               |
-| Books, signs, maps, and built culture      | Red                             | read/write native artifacts and understand visual builds without an oracle                        |
-| Vehicles and world traversal               | Red                             | mount/dismount, boats/minecarts, portals/dimensions, and later elytra                             |
-| Projects, places, commitments, and restart | Strong core                     | evidence from longer lives and multiple concurrent residents                                      |
+| Player family                              | Current status             | Important missing native experiences                                                              |
+| ------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
+| Seeing, hearing, HUD, and events           | Partial                    | exact-camera visual evidence; more legible obstruction and interaction feedback                   |
+| Looking and facing                         | Live-proven basic coverage | decide when images are worth their cost; face selected visible targets consistently               |
+| Walking and exploration                    | Partial                    | egocentric steps; intentional sneak/sprint when semantically relevant; swimming/climbing feedback |
+| Breaking, placing, and ordinary use        | Partial                    | one consistent visible-target language; held-item use rather than block-specific controller verbs |
+| Inventory, equipment, pickup, and drop     | Strong basic coverage      | offhand and inventory arrangement only when gameplay makes them meaningful                        |
+| Crafting and storage                       | Partial                    | furnace, brewing, smithing, anvil, enchanting, and other real workstation transactions            |
+| Food, sleep, hazards, death, and recovery  | Partial                    | continuous survival competence and honest recovery across long lives                              |
+| Creatures and combat                       | Partial                    | independently proven sustained combat; feed, breed, tame, leash, fish, and ordinary entity use    |
+| Villagers and multiplayer relations        | Partial                    | inspect/select trades, exchange/gifts with witnessed transfer, longer collaboration               |
+| Books, signs, maps, and built culture      | Red                        | read/write native artifacts and understand visual builds without an oracle                        |
+| Vehicles and world traversal               | Red                        | mount/dismount, boats/minecarts, portals/dimensions, and later elytra                             |
+| Projects, places, commitments, and restart | Strong core                | evidence from longer lives and multiple concurrent residents                                      |
 
 Mineflayer already exposes real Minecraft mechanisms for many red cells,
 including generic block/entity/item activation, furnaces, enchanting, anvils,
@@ -126,9 +126,11 @@ What remains red, in priority order:
 
 1. **View-complete orientation.** A resident could face a known point but could
    not naturally turn to reveal unseen terrain. `look_direction` now supplies
-   that missing native primitive. We still need to decide, with evidence,
-   whether structured rays are sufficient or an on-demand first-person image
-   is necessary for architecture and visual culture.
+   that missing native primitive. A fresh untasked resident used `around` as
+   its first free action and later used `left`, with Minecraft observations
+   changing after both turns. We still need to decide, with evidence, whether
+   structured rays are sufficient or an on-demand first-person image is
+   necessary for architecture and visual culture.
 2. **Egocentric local movement.** `move_to` accepts exact feet coordinates,
    which is useful for known places but poor for exploration. We need a bounded
    player-grain way to walk forward/left/right/back or approach a selected
