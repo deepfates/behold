@@ -162,6 +162,10 @@ try {
     );
     progress.emit('client', 'connected', { username: options.visitorName });
     server.command(`gamemode spectator ${options.visitorName}`);
+    server.command('team add PlaceCamera');
+    server.command('team modify PlaceCamera nametagVisibility never');
+    server.command(`team join PlaceCamera ${director.username}`);
+    server.command(`effect give ${director.username} minecraft:invisibility infinite 0 true`);
     server.command(`spectate ${director.username} ${options.visitorName}`);
     if (options.captureSeconds > 0) {
       progress.emit('client', 'settling', { milliseconds: 8_000 });
@@ -169,28 +173,25 @@ try {
     }
   }
 
+  if (options.captureSeconds > 0) {
+    const movie = path.join(evidenceRoot, 'visit.mov');
+    capture = launchWindowCapture(captureExecutable, movie, options.captureSeconds);
+    await sleep(1_000);
+    progress.emit('capture', 'started', { seconds: options.captureSeconds });
+  }
   const stages = {};
   stages.arrival = await proveArrival(server, director, plan, progress);
   if (options.launchClient) {
     progress.emit('arrival', 'presented', { milliseconds: 3_000 });
     await sleep(3_000);
   }
-  const beginCapture =
-    options.captureSeconds > 0
-      ? async () => {
-          const movie = path.join(evidenceRoot, 'visit.mov');
-          capture = launchWindowCapture(captureExecutable, movie, options.captureSeconds);
-          await sleep(1_000);
-          progress.emit('capture', 'started', { seconds: options.captureSeconds });
-        }
-      : null;
   stages.groundLeg = await proveGroundLeg(
     server,
     director,
     plan,
     progress,
     options.launchClient ? 3_000 : 0,
-    beginCapture,
+    null,
   );
   if (options.launchClient) server.command(`execute as ${options.visitorName} run spectate`);
   stages.reveal = await proveReveal(server, director, plan, progress, options.visitorName);
@@ -480,9 +481,19 @@ async function proveReveal(server, bot, visit, progress, visitorName) {
     `tp ${bot.username} ${reveal.observer.x} ${reveal.observer.y} ${reveal.observer.z} facing ${reveal.target.x} ${reveal.target.y + 2} ${reveal.target.z}`,
   );
   if (options.launchClient) {
-    server.command(
-      `tp ${visitorName} ${reveal.observer.x} ${reveal.observer.y} ${reveal.observer.z} facing ${reveal.target.x} ${reveal.target.y + 2} ${reveal.target.z}`,
-    );
+    const baseY = reveal.observer.y - reveal.liftBlocks + 2;
+    const steps = Math.max(1, Math.ceil(Math.abs(reveal.observer.y - baseY) * 2));
+    progress.emit('reveal-camera', 'lifting', { steps, fromY: baseY, toY: reveal.observer.y });
+    for (let step = 0; step <= steps; step += 1) {
+      const ratio = step / steps;
+      const eased = ratio * ratio * (3 - 2 * ratio);
+      const y = baseY + (reveal.observer.y - baseY) * eased;
+      server.command(
+        `tp ${visitorName} ${reveal.observer.x} ${y} ${reveal.observer.z} facing ${reveal.target.x} ${reveal.target.y + 2} ${reveal.target.z}`,
+      );
+      await sleep(50);
+    }
+    progress.emit('reveal-camera', 'lifted', { steps, y: reveal.observer.y });
   }
   await waitPosition(bot, reveal.observer, 2, 'city reveal');
   await sleep(2_000);
