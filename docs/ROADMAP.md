@@ -32,6 +32,10 @@ test, not the organizing purpose of the system.
 - One shared-cache proof in which two private lives independently acquire,
   contribute, communicate, inspect the same Minecraft chest, and restart
   without repeating or undoing the work
+- One selected real model that starts, records, stops, resumes, and completes a
+  Minecraft-confirmed building project across two managed epochs inside an
+  independently packaged Venice place, with fresh-body witnesses and pure
+  reassessment
 - Native Minecraft 1.21.4 client and isolated local server launch flow
 - World-lab status, topology, digest, lock-owner, port-owner, dry-run reset planning, and fixture-only atomic reset tests
 - TypeScript build and lint, with adversarial regression coverage for lifecycle authenticity, single terminals, deferred preemption, consequence attribution, and observation gaps
@@ -67,6 +71,9 @@ test, not the organizing purpose of the system.
   restarted from separate Lync histories without depositing or announcing
   again. A fresh Minecraft body opened the chest and saw exactly one apple and
   one carrot; pure reassessment and all declared budgets passed.
+- ProjectResident used Luna to build one two-block Venice landmark across two
+  world epochs. Its first resumed action restated the surviving project, it did
+  not repeat the first placement, and independent bodies saw both stages.
 
 ## Immediate priorities
 
@@ -74,7 +81,9 @@ test, not the organizing purpose of the system.
    measuring decision freshness rather than assuming compact prompts are fast.
 2. Finish the player-grain action audit and prove bounded body skills against a
    real server independently of whether a model happens to choose them.
-3. Continue a recognizable building project across another session.
+3. Move continuing projects beyond prepared exact cells: let a resident orient,
+   choose an ordinary site, and resume recognizable work through native looking,
+   movement, and first-person evidence.
 4. Stop multiplying scripted exchange scenarios: compress the repeated proof
    machinery, then run a minimally scripted household with a human and several
    continuing residents maintaining one shared place.

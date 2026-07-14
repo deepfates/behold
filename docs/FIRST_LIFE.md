@@ -190,6 +190,24 @@ synthetic occlusion, moving-target, body-motion, and five-turn continuity proof.
 The full evidence, failure analysis, digest identities, and nonclaims are in
 [the packaged-place first-person report](reports/2026-07-14-packaged-place-first-person.md).
 
+## The first model project inside a packaged place
+
+The next Venice run replaced the scripted inhabitant with the selected
+`openai/gpt-5.6-luna` mind. `ProjectResident` collected two visible cobblestone,
+started a landmark, placed and recorded one Minecraft-confirmed block, stopped,
+then reopened in a second managed epoch with the same body, inventory, five
+prior Lync turns, active project, and prior world consequence. It restated the
+unfinished commitment before acting, placed the distinct adjacent block, and
+completed only after confirmation. Fresh Minecraft bodies witnessed the partial
+and final builds.
+
+The model had first-person observations and no loaded-world scan. Nine calls
+cost $0.06260825; an independent reassessment verified both lifecycle chains,
+the exact journal-to-Lync trajectory, Place provenance, immutable inputs,
+runtime progression, and the two witnesses. The exact proof and its useful
+failed orientation attempt are recorded in [the packaged-place model project
+report](reports/2026-07-14-model-project-in-packaged-place.md).
+
 ## The architecture we actually need
 
 The implementation has seven boundaries. They are useful because each corresponds
