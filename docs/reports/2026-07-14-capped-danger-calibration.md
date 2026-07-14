@@ -248,10 +248,64 @@ action-outcome legibility to compose ordinary player acts into a coherent
 recovery. Adding more low-level verbs or hard-coding a shelter routine would
 not answer that question.
 
+Revision `9ce1e52...` corrected the immediate context loss without adding a
+map. Urgent requests now receive at most six recent committed action/outcome
+pairs from the resident's own entity loom, bounded to 12,000 bytes. The
+projection carries exact ordinary results when they fit, exposes omissions,
+rejects mixed identities, excludes historical scenes and provider-private
+reasoning, and says explicitly that the current observation wins over
+historical state. Ordinary deliberation pays no projection cost because it
+already retains its bounded recent trajectory.
+
+Epoch 20 exercised that correction. Wren returned from the abandoned point to
+the earlier planks, where first-person terrain again exposed the structure,
+and added two Minecraft-confirmed upper wall blocks. It then attempted a block
+inside its own body. Minecraft returned the exact target, body position, six
+supported feet alternatives, and the instruction to move aside and retry the
+same placement cell. Wren moved to a valid alternative but changed the target
+to its new body cell and repeated the collision. Eight Luna calls cost
+`$0.06701675`, with 44,823 prompt tokens and request sizes from 25,915 to
+27,240 bytes. Health and food did not improve, and there was no enclosure
+witness.
+
+This exposed a second discontinuity. The action and result survived, but a
+tool-calling model normally emitted no public assistant content, so its
+short-lived purpose was unavailable to both the human and the next decision.
+Revision `154f217...` makes one concise public intention part of every choice
+and retains it beside the action and outcome. It remains distinct from private
+provider reasoning. The same field works for direct tool calling, Ax, and
+future mind adapters; no new mind contract was required. Existing prompt text
+was compressed so the complete guidance stayed under its prior byte budget.
+
+Epoch 21 proved that public layer mechanically: all eight turns contained a
+plain intention. It did not prove recovery. Wren moved between the canopy and
+the partial structure, deliberately mined one of its own planks to open an
+escape route, retrieved it, and ended with one new confirmed placement. Eight
+Luna calls cost `$0.07374225`; mean provider latency was 4.802 seconds, request
+sizes reached 30,055 bytes, health remained 2.33, and food remained 14. The
+trajectory was easier to understand but still asked a multi-second language
+model to perform coordinate-level motor bookkeeping.
+
+The next correction therefore belongs in the body, not in another prompt.
+Mineflayer's own block-interaction pattern navigates into placement range and
+then clicks as one operation. Our `place_block` already promised to approach,
+but returned early when the requested cell intersected the body. Revision
+`0bf1281...` keeps that local step-aside inside the original placement action:
+it chooses a supported nearby feet cell, preserves the immutable destination,
+limits movement to three horizontal and two vertical blocks, propagates human
+interruption, rechecks the body and target, and still succeeds only after the
+Minecraft block update. If no safe path exists it retains the old precise
+failure and alternatives. The full repository gate passes 336 tests, including
+an adversarial case where apparent arrival still overlaps the target and no
+placement command may run. This compound motor skill is not yet claimed as a
+live-world pass.
+
 ## Next gate
 
 The small paid tier, teardown validation, continuing urgency, canopy descent,
-and player-scale mutation are now green. The composed recovery remains red.
+player-scale mutation, bounded recent-outcome continuity, and public intention
+are now green. The composed recovery remains red, and the local compound
+placement correction remains unit-proven rather than live-proven.
 The next danger gate should keep Gemini for ordinary cognition and Luna only
 for bodily urgency, and should prove all of the following from journals and
 Minecraft consequences:
@@ -264,6 +318,9 @@ Minecraft consequences:
 - recent successful placements and precise failures remain legible enough to
   revise the same plan instead of abandoning the structure or repeating an
   impossible placement;
+- a real body-intersection placement demonstrates one bounded reposition and
+  one Minecraft-confirmed mutation under the same admitted action, without
+  exceeding the movement envelope or hiding an intermediate failure;
 - a recovery pass requires food/health improvement or independently verified
   defensible cover, not disappearance of a hostile from the camera; and
 - exact prompt tokens, cost, latency, cancellation, body state, and resulting
@@ -280,7 +337,7 @@ problem and needs its own causal compression gate.
   `.behold-runs/first-life-v1-13/{ScoutLife,WrenLife}/*.jsonl`
 - cognition: `.behold-runs/first-life-v1-13/_cognition/broker.jsonl`
 - live tier/body validation:
-  `.behold-runs/first-life-v1-{14,15,16,17,18,19}/`, with owner lifecycle and recovery
+  `.behold-runs/first-life-v1-{14,15,16,17,18,19,20,21}/`, with owner lifecycle and recovery
   evidence under `.behold-runtime/world-control/first-life-v1/`
 - provider-free request profiles and exact-frame candidate records under the
   two resident run directories
