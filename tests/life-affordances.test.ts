@@ -27,9 +27,18 @@ test('the inhabitant action space excludes raw motor controls and privileged sur
   assert.ok(inhabitantActions.includes('inspect_volume'));
   assert.ok(inhabitantActions.includes('craft_item'));
   assert.ok(inhabitantActions.includes('attack_entity'));
+  const move = interpreter.describe('move_to');
+  assert.deepEqual(move?.parameters.required, ['x', 'y', 'z']);
+  assert.deepEqual(Object.keys(move?.parameters.properties || {}), ['x', 'y', 'z', 'near']);
+  const approach = interpreter.describe('approach_entity');
+  assert.deepEqual(approach?.parameters.required, ['target']);
+  assert.deepEqual(Object.keys(approach?.parameters.properties || {}), ['target']);
   const fight = interpreter.describe('attack_entity');
   assert.deepEqual(fight?.parameters.required, ['target']);
   assert.deepEqual(Object.keys(fight?.parameters.properties || {}), ['target']);
+  const pickup = interpreter.describe('collect_nearby_item');
+  assert.deepEqual(pickup?.parameters.required, ['target']);
+  assert.deepEqual(Object.keys(pickup?.parameters.properties || {}), ['target']);
   assert.equal(inhabitantActions.includes('set_control'), false);
   assert.equal(inhabitantActions.includes('clear_controls'), false);
   assert.equal(inhabitantActions.includes('survey_area'), false);
@@ -272,7 +281,7 @@ test('inspect_volume refuses exact geometry sensing outside the local worksite',
   assert.equal(result.error, 'volume_center_not_local');
 });
 
-test('move_to can expose a fresh observation after one generic short travel leg', async () => {
+test('the body bounds one move_to leg without asking the resident for a travel budget', async () => {
   const bot = baseBot();
   bot.pathfinder = {
     goto: async (goal: any) => {
@@ -281,16 +290,16 @@ test('move_to can expose a fresh observation after one generic short travel leg'
     stop: () => {},
   };
 
-  const result = await buildInterpreter(bot).run('move_to', {
+  const result = await buildInterpreter(bot, { moveLegDistance: 6 }).run('move_to', {
     x: 20,
     y: 64,
     z: 0,
-    maxTravel: 6,
   });
 
   assert.equal(result.ok, true);
   assert.equal(result.status, 'advanced_toward');
   assert.deepEqual(result.requestedDestination, { x: 20, y: 64, z: 0 });
+  assert.equal(result.bodyLegLimit, 6);
   assert.deepEqual(result.legDestination, { x: 6, y: 64, z: 0 });
   assert.equal(result.remainingDistance, 14);
   assert.equal(result.arrivedAtRequestedDestination, false);
@@ -329,6 +338,151 @@ test('move_to reports cancellation only after Mineflayer pathfinding acknowledge
   assert.deepEqual(result.start, { x: 0, y: 64, z: 0 });
   assert.deepEqual(result.final, { x: 0, y: 64, z: 0 });
   assert.equal(result.remainingDistance, 8);
+});
+
+test('approach_entity follows the exact perceived entity as it moves and verifies current proximity', async () => {
+  const bot = baseBot();
+  const decoy = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(2, 64, 0),
+  };
+  const target = {
+    id: 3,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(8, 64, 0),
+  };
+  bot.entities[2] = decoy;
+  bot.entities[3] = target;
+  bot.lookAt = async () => {};
+  let followed: any = null;
+  let dynamic = false;
+  bot.pathfinder = {
+    setGoal: (goal: any, isDynamic: boolean) => {
+      followed = goal.entity;
+      dynamic = isDynamic;
+      setTimeout(() => {
+        target.position = new Vec3(10, 64, 0);
+        bot.entity.position = new Vec3(8, 64, 0);
+      }, 5);
+    },
+    stop: () => bot.emit('path_stop'),
+  };
+
+  const result = await buildInterpreter(bot, { approachTimeoutMs: 1000 }).run('approach_entity', {
+    target: 'entity:3',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'arrived');
+  assert.equal(result.target, 'entity:3');
+  assert.equal(result.targetEntityId, 3);
+  assert.equal(result.finalDistance, 2);
+  assert.equal(result.confirmation, 'mineflayer:body_target_proximity');
+  assert.equal(result.pathfinderStopAcknowledged, true);
+  assert.equal(followed, target);
+  assert.equal(dynamic, true);
+});
+
+test('approach_entity rechecks proximity after Mineflayer acknowledges the stop', async () => {
+  const bot = baseBot();
+  const target = {
+    id: 3,
+    name: 'villager',
+    type: 'mob',
+    position: new Vec3(8, 64, 0),
+  };
+  bot.entities[3] = target;
+  bot.pathfinder = {
+    setGoal: () => {
+      setTimeout(() => {
+        bot.entity.position = new Vec3(6, 64, 0);
+      }, 5);
+    },
+    stop: () => {
+      target.position = new Vec3(12, 64, 0);
+      bot.emit('path_stop');
+    },
+  };
+
+  const result = await buildInterpreter(bot, { approachTimeoutMs: 1000 }).run('approach_entity', {
+    target: 'entity:3',
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'arrival_unconfirmed');
+  assert.equal(result.finalDistance, 6);
+  assert.equal(result.confirmation, null);
+  assert.equal(result.pathfinderStopAcknowledged, true);
+  assert.equal(result.claimedTerminal.status, 'arrived');
+});
+
+test('approach_entity fails closed for stale and wrong-kind exact targets', async () => {
+  const bot = baseBot();
+  bot.pathfinder = { setGoal: () => {}, stop: () => bot.emit('path_stop') };
+  const item = {
+    id: 4,
+    name: 'item',
+    type: 'object',
+    objectType: 'Item',
+    position: new Vec3(2, 64.125, 0),
+    getDroppedItem: () => ({ name: 'apple', count: 1 }),
+  };
+  bot.entities[4] = item;
+  const interpreter = buildInterpreter(bot);
+
+  assert.deepEqual(await interpreter.run('approach_entity', { target: 'entity:404' }), {
+    ok: false,
+    error: 'target_not_observed',
+    target: 'entity:404',
+  });
+  const wrongKind = await interpreter.run('approach_entity', { target: 'entity:4' });
+  assert.equal(wrongKind.ok, false);
+  assert.equal(wrongKind.error, 'target_is_dropped_item');
+  assert.equal(wrongKind.target, 'entity:4');
+});
+
+test('approach_entity reports interruption only after dynamic pathfinding acknowledges stop', async () => {
+  const bot = baseBot();
+  const target = {
+    id: 2,
+    name: 'zombie',
+    type: 'mob',
+    position: new Vec3(8, 64, 0),
+  };
+  bot.entities[2] = target;
+  let goalStarted!: () => void;
+  const started = new Promise<void>((resolve) => (goalStarted = resolve));
+  let stops = 0;
+  bot.pathfinder = {
+    setGoal: (goal: any) => {
+      if (goal) goalStarted();
+    },
+    stop: () => {
+      stops += 1;
+      bot.emit('path_stop');
+    },
+  };
+  const controller = new AbortController();
+  const pending = buildInterpreter(bot, { approachTimeoutMs: 5000 }).run(
+    'approach_entity',
+    { target: 'entity:2' },
+    { signal: controller.signal },
+  );
+  await started;
+  controller.abort('human_stop');
+  const result = await pending;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'interrupted_by_human');
+  assert.deepEqual(result.cancellation, {
+    acknowledged: true,
+    adapter: 'mineflayer-pathfinder',
+  });
+  assert.equal(result.pathfinderStopAcknowledged, true);
+  assert.equal(stops, 1);
 });
 
 test('digging a distant loaded block approaches into reach before the confirmed mutation', async () => {
@@ -1201,10 +1355,87 @@ test('movement and item collection require consequences beyond pathfinder acknow
     bot.entity.position = new Vec3(2, 64, 0);
     bot.emit('playerCollect', bot.entity, item);
   };
-  const collected = await interpreter.run('collect_nearby_item', { name: 'Item' });
+  const collected = await interpreter.run('collect_nearby_item', { target: 'entity:3' });
   assert.equal(collected.ok, true);
   assert.equal(collected.item, 'dirt');
   assert.equal(collected.confirmation, 'mineflayer:playerCollect');
+});
+
+test('item collection binds one exact perceived stack even when another stack has the same name', async () => {
+  const bot = baseBot();
+  const decoy = {
+    id: 3,
+    name: 'item',
+    type: 'object',
+    objectType: 'Item',
+    position: new Vec3(1, 64.125, 0),
+    getDroppedItem: () => ({ name: 'apple', count: 1 }),
+  };
+  const target = {
+    id: 4,
+    name: 'item',
+    type: 'object',
+    objectType: 'Item',
+    position: new Vec3(3, 64.125, 0),
+    getDroppedItem: () => ({ name: 'apple', count: 1 }),
+  };
+  bot.entities[3] = decoy;
+  bot.entities[4] = target;
+  bot.blockAt = (position: Vec3) => ({ name: 'stone', boundingBox: 'block', position });
+  bot.pathfinder = {
+    goto: async () => {
+      bot.entity.position = new Vec3(3, 64, 0);
+      bot.emit('playerCollect', bot.entity, target);
+    },
+    stop: () => {},
+  };
+
+  const result = await buildInterpreter(bot).run('collect_nearby_item', {
+    target: 'entity:4',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.target, 'entity:4');
+  assert.equal(result.targetEntityId, 4);
+  assert.equal(result.item, 'apple');
+  assert.equal(result.confirmation, 'mineflayer:playerCollect');
+});
+
+test('item collection fails closed for stale, wrong-kind, and body-out-of-range targets', async () => {
+  const bot = baseBot();
+  bot.pathfinder = { goto: async () => {}, stop: () => {} };
+  const player = {
+    id: 2,
+    username: 'Wren',
+    name: 'player',
+    type: 'player',
+    position: new Vec3(2, 64, 0),
+  };
+  const distantItem = {
+    id: 3,
+    name: 'item',
+    type: 'object',
+    objectType: 'Item',
+    position: new Vec3(20, 64.125, 0),
+    getDroppedItem: () => ({ name: 'apple', count: 1 }),
+  };
+  bot.entities[2] = player;
+  bot.entities[3] = distantItem;
+  const interpreter = buildInterpreter(bot, { pickupPursuitDistance: 8 });
+
+  assert.deepEqual(await interpreter.run('collect_nearby_item', { target: 'entity:404' }), {
+    ok: false,
+    error: 'target_not_observed',
+    target: 'entity:404',
+  });
+  const wrongKind = await interpreter.run('collect_nearby_item', { target: 'player:Wren' });
+  assert.equal(wrongKind.ok, false);
+  assert.equal(wrongKind.error, 'target_not_dropped_item');
+  const outOfRange = await interpreter.run('collect_nearby_item', { target: 'entity:3' });
+  assert.equal(outOfRange.ok, false);
+  assert.equal(outOfRange.error, 'target_not_in_reach');
+  assert.equal(outOfRange.pursuitLimit, 8);
+  assert.equal(outOfRange.distance, 20);
 });
 
 test('item collection does not confuse an adjacent floored block with pickup reach', async () => {
@@ -1231,7 +1462,9 @@ test('item collection does not confuse an adjacent floored block with pickup rea
     stop: () => {},
   };
 
-  const result = await buildInterpreter(bot).run('collect_nearby_item', {});
+  const result = await buildInterpreter(bot).run('collect_nearby_item', {
+    target: 'entity:4',
+  });
 
   assert.equal(result.ok, true);
   assert.equal(result.item, 'spruce_log');
@@ -1263,7 +1496,9 @@ test('item collection uses a bounded direct nudge when local pathfinding cannot 
     }
   };
 
-  const result = await buildInterpreter(bot).run('collect_nearby_item', {});
+  const result = await buildInterpreter(bot).run('collect_nearby_item', {
+    target: 'entity:5',
+  });
 
   assert.equal(result.ok, true);
   assert.equal(result.navigation.ok, false);
@@ -1297,10 +1532,10 @@ test('item collection refuses to pathfind or nudge into an unsupported drop', as
   };
 
   const interpreter = buildInterpreter(bot);
-  const approach = await interpreter.run('approach_entity', { name: 'item' });
-  const result = await interpreter.run('collect_nearby_item', {});
+  const approach = await interpreter.run('approach_entity', { target: 'entity:6' });
+  const result = await interpreter.run('collect_nearby_item', { target: 'entity:6' });
 
-  assert.equal(approach.error, 'use_dropped_item_collection');
+  assert.equal(approach.error, 'target_is_dropped_item');
   assert.equal(result.ok, false);
   assert.equal(result.error, 'unapproachable_item_ground');
   assert.equal(result.pickupGround.status, 'unsupported');

@@ -976,7 +976,7 @@ function controllerSystemPrompt(specs: readonly ToolSpec[]) {
   }
   if (tools.has('approach_entity')) {
     lines.push(
-      'Prefer approach_entity for a named nearby person. Navigation succeeds only when arrival is confirmed.',
+      'Prefer approach_entity for a particular nearby person from scene.entities. Choose the exact scene id; the body owns pursuit and conversational distance, and navigation succeeds only when current proximity is confirmed.',
     );
   }
   if (hasAny('find_blocks', 'dig_block')) {

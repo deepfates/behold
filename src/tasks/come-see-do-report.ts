@@ -136,8 +136,7 @@ export class ComeSeeDoReportPermissions {
   constructor(
     private readonly target: string,
     private readonly inspectBlock:
-      | ((position: { x: number; y: number; z: number }) => string | null)
-      | null = null,
+      ((position: { x: number; y: number; z: number }) => string | null) | null = null,
     private readonly inspectHeldItem: (() => string | null) | null = null,
   ) {}
 
@@ -280,8 +279,7 @@ export class ComeSeeDoReportVerifier {
     private readonly target: string,
     private readonly guard: WorldChangeGuard,
     private readonly inspectBlock:
-      | ((position: { x: number; y: number; z: number }) => string | null)
-      | null = null,
+      ((position: { x: number; y: number; z: number }) => string | null) | null = null,
     acceptEngineEvent?: (event: EngineEvent) => boolean,
   ) {
     this.acceptEngineEvent = acceptEngineEvent ?? (() => false);
@@ -335,14 +333,14 @@ export class ComeSeeDoReportVerifier {
     }
     const result = event.data?.result;
     if (intent?.tool === 'approach_entity') {
-      const target = String(result?.target || intent?.input?.name || '').toLowerCase();
+      const target = String(result?.target || intent?.input?.target || '');
       const finalDistance = finiteOrNull(result?.finalDistance);
       const observedTarget = observation.scene.entities.find(
-        (entity) => entity.name.toLowerCase() === this.target.toLowerCase(),
+        (entity) => entity.id === target && entity.name.toLowerCase() === this.target.toLowerCase(),
       );
       const observedDistance = finiteOrNull(observedTarget?.distance);
       if (
-        target === this.target.toLowerCase() &&
+        observedTarget != null &&
         result?.status === 'arrived' &&
         this.heardTargetAt != null &&
         event.at >= this.heardTargetAt &&

@@ -3,6 +3,7 @@ import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { goals } from 'mineflayer-pathfinder';
 import { getConfig } from '../src/config';
 import { createBot } from '../src/bot';
 import { openEntityLoom, type EntityTurn } from '../src/entity/loom';
@@ -55,6 +56,7 @@ async function main() {
     });
     const interpreter = buildInterpreter(bot as any, {
       observe: () => experience!.observe(),
+      moveLegDistance: 6,
       changeConfirmationTimeoutMs: 10_000,
       changeStabilityWindowMs: 150,
       worldCommandTimeoutMs: 30_000,
@@ -71,7 +73,7 @@ async function main() {
         list: () => interpreter.list('inhabitant'),
       },
       {
-        allowTools: ['collect_nearby_item', 'inspect_volume'],
+        allowTools: ['move_to', 'approach_entity', 'collect_nearby_item', 'inspect_volume'],
         onEvent: (event) => {
           events.push(event);
           experience!.recordEngineEvent(event);
@@ -84,6 +86,8 @@ async function main() {
     else await delay(500);
     const initialObservation = experience.observe();
     const initialDroppedItems = observedDroppedItems(bot);
+    let locomotion: Awaited<ReturnType<typeof executeTurn>> | null = null;
+    let approach: Awaited<ReturnType<typeof proveExactApproach>> | null = null;
     let collection: Awaited<ReturnType<typeof executeTurn>> | null = null;
     let resumeInspection: Awaited<ReturnType<typeof executeTurn>> | null = null;
     let independentWitness: Awaited<ReturnType<typeof observeDroppedItemsFromFreshBody>> | null =
@@ -92,10 +96,53 @@ async function main() {
     if (phase === 'act') {
       if (priorTurns !== 0)
         throw new Error(`act phase expected no prior turns, found ${priorTurns}`);
-      if (initialDroppedItems.filter((item) => item.name === 'apple').length !== 1) {
+      const apples = initialDroppedItems.filter((item) => item.name === 'apple');
+      if (apples.length !== 1) {
         throw new Error(
           `act phase expected one local apple affordance: ${JSON.stringify(initialDroppedItems)}`,
         );
+      }
+      locomotion = await executeTurn({
+        entityId,
+        loom,
+        experience,
+        engine,
+        events,
+        name: 'move_to',
+        input: { x: 0, y: -60, z: 20 },
+      });
+      if (
+        !locomotion.result?.ok ||
+        locomotion.result?.status !== 'advanced_toward' ||
+        locomotion.result?.bodyLegLimit !== 6 ||
+        locomotion.result?.arrivedAtRequestedDestination !== false
+      ) {
+        throw new Error(`body-owned movement leg was not confirmed: ${JSON.stringify(locomotion)}`);
+      }
+      approach = await proveExactApproach({
+        config: cfg,
+        resident: bot,
+        entityId,
+        loom,
+        experience,
+        engine,
+        events,
+      });
+      if (
+        !approach.turn.result?.ok ||
+        approach.turn.result?.target !== `player:${WITNESS_ID}` ||
+        approach.turn.result?.confirmation !== 'mineflayer:body_target_proximity' ||
+        !positionsDifferByAtLeast(approach.witnessStartedAt, approach.witnessFinishedAt, 3)
+      ) {
+        throw new Error(
+          `dynamic exact-target approach was not confirmed: ${JSON.stringify(approach)}`,
+        );
+      }
+      const currentApple = observedDroppedItems(bot).find(
+        (item) => item.id === apples[0].id && item.name === 'apple',
+      );
+      if (!currentApple) {
+        throw new Error('the prepared apple disappeared before its exact pickup action');
       }
       collection = await executeTurn({
         entityId,
@@ -104,7 +151,7 @@ async function main() {
         engine,
         events,
         name: 'collect_nearby_item',
-        input: { name: 'apple', maxDistance: 8, timeoutMs: 30_000 },
+        input: { target: `entity:${currentApple.id}` },
       });
       if (
         !collection.result?.ok ||
@@ -161,6 +208,8 @@ async function main() {
       resultingTurns: loom.turns().length,
       initialObservation,
       initialDroppedItems,
+      locomotion,
+      approach,
       collection,
       resumeInspection,
       independentWitness,
@@ -194,6 +243,55 @@ async function main() {
   }
 }
 
+async function proveExactApproach(input: {
+  config: ReturnType<typeof getConfig>;
+  resident: ReturnType<typeof createBot>;
+  entityId: string;
+  loom: Awaited<ReturnType<typeof openEntityLoom>>;
+  experience: InhabitantExperience;
+  engine: ReturnType<typeof createEngine>;
+  events: EngineEvent[];
+}) {
+  const witnessLoom = await openEntityLoom(WITNESS_ID, undefined, input.config.circle.id);
+  let witness: ReturnType<typeof createBot> | null = null;
+  try {
+    witness = createBot(
+      {
+        ...input.config,
+        auth: { ...input.config.auth, username: WITNESS_ID, mode: 'offline' },
+        viewer: { ...input.config.viewer, enabled: false },
+      },
+      witnessLoom.connectionCapability,
+    );
+    await waitForLocalWorld(witness, 45_000);
+    const target = await waitForPlayerEntity(input.resident, WITNESS_ID, 5_000);
+    const targetEntityId = Number(target.id);
+    const witnessStartedAt = positionSnapshot(witness);
+    const turnPromise = executeTurn({
+      entityId: input.entityId,
+      loom: input.loom,
+      experience: input.experience,
+      engine: input.engine,
+      events: input.events,
+      name: 'approach_entity',
+      input: { target: `player:${WITNESS_ID}` },
+    });
+    await delay(100);
+    await (witness as any).pathfinder.goto(new (goals as any).GoalBlock(-4, -60, 0));
+    const turn = await turnPromise;
+    return {
+      turn,
+      targetEntityId,
+      witnessStartedAt,
+      witnessFinishedAt: positionSnapshot(witness),
+      witnessMovementConfirmation: 'mineflayer-pathfinder:GoalBlock',
+    };
+  } finally {
+    if (witness) await disconnect(witness).catch(() => {});
+    await witnessLoom.close().catch(() => {});
+  }
+}
+
 async function observeDroppedItemsFromFreshBody(config: ReturnType<typeof getConfig>) {
   const witnessLoom = await openEntityLoom(WITNESS_ID, undefined, config.circle.id);
   let witness: ReturnType<typeof createBot> | null = null;
@@ -220,6 +318,36 @@ async function observeDroppedItemsFromFreshBody(config: ReturnType<typeof getCon
     if (witness) await disconnect(witness).catch(() => {});
     await witnessLoom.close().catch(() => {});
   }
+}
+
+async function waitForPlayerEntity(
+  bot: ReturnType<typeof createBot>,
+  username: string,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const entity = (Object.values((bot as any).entities || {}) as any[]).find(
+      (candidate) => candidate?.position && String(candidate?.username || '') === username,
+    );
+    if (entity) return entity;
+    await delay(25);
+  }
+  throw new Error(`resident did not observe exact player ${username}`);
+}
+
+function positionSnapshot(bot: ReturnType<typeof createBot>) {
+  const position = (bot as any).entity?.position;
+  return position ? { x: Number(position.x), y: Number(position.y), z: Number(position.z) } : null;
+}
+
+function positionsDifferByAtLeast(
+  before: { x: number; y: number; z: number } | null,
+  after: { x: number; y: number; z: number } | null,
+  minimum: number,
+) {
+  if (!before || !after) return false;
+  return Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z) >= minimum;
 }
 
 async function waitForDroppedItem(
@@ -330,7 +458,12 @@ async function executeTurn(input: {
     nextObservation,
   };
   await input.loom.append(turn);
-  return { turnId: turn.id, result: turn.outcome.result, events: actionEvents };
+  return {
+    turnId: turn.id,
+    action: turn.action,
+    result: turn.outcome.result,
+    events: actionEvents,
+  };
 }
 
 async function waitForLocalWorld(bot: ReturnType<typeof createBot>, timeoutMs: number) {

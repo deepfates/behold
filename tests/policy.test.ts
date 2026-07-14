@@ -877,7 +877,7 @@ test('controller receives real action results and continues the same bounded tur
   const originalFetch = globalThis.fetch;
   const requests: any[] = [];
   const responses = [
-    assistantTool('call-approach', 'approach_entity', { name: 'importdf', near: 2.5 }),
+    assistantTool('call-approach', 'approach_entity', { target: 'player:importdf' }),
     assistantTool('call-report', 'chat', {
       text: 'I reached you; the nearby terrain includes gray concrete.',
     }),
@@ -950,7 +950,12 @@ test('controller receives real action results and continues the same bounded tur
       id: enqueued[0].id,
       tool: enqueued[0].tool,
       status: 'completed',
-      result: { ok: true, target: 'importdf', finalDistance: 2.1 },
+      result: {
+        ok: true,
+        status: 'arrived',
+        target: 'player:importdf',
+        finalDistance: 2.1,
+      },
     };
     sequence += 1;
     policy.onEngineEvent({
@@ -1455,7 +1460,7 @@ test('controller breaks a communication-only loop until the body acts or a human
     assistantTool('chat-one', 'chat', { text: 'First message.' }),
     assistantTool('chat-two', 'chat', { text: 'Second message.' }),
     assistantTool('chat-three', 'chat', { text: 'Third message.' }),
-    assistantTool('collect-after-chat', 'collect_nearby_item', { maxDistance: 16 }),
+    assistantTool('collect-after-chat', 'collect_nearby_item', { target: 'entity:17' }),
   ];
   globalThis.fetch = (async () =>
     ({
@@ -1481,6 +1486,7 @@ test('controller breaks a communication-only loop until the body acts or a human
         scene: {
           entities: [
             {
+              id: 'entity:17',
               kind: 'item',
               name: 'spruce_log',
               distance: 2,
@@ -1674,8 +1680,7 @@ test('a dropped stack on supported ground stays available without becoming a con
         choices: [
           {
             message: assistantTool('collect-safe-drop', 'collect_nearby_item', {
-              name: 'birch_log',
-              maxDistance: 6,
+              target: 'entity:23',
             }),
           },
         ],
@@ -1707,6 +1712,7 @@ test('a dropped stack on supported ground stays available without becoming a con
           social: { playersOnline: [] },
           entities: [
             {
+              id: 'entity:23',
               kind: 'item',
               name: 'birch_log',
               distance: 2,

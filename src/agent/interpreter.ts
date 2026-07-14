@@ -49,6 +49,13 @@ type InterpreterOptions = {
   projects?: ProjectMemory;
   places?: () => InhabitantPlace[];
   observe?: () => any;
+  moveLegDistance?: number;
+  moveTimeoutMs?: number;
+  approachDistance?: number;
+  approachPursuitDistance?: number;
+  approachTimeoutMs?: number;
+  pickupPursuitDistance?: number;
+  pickupTimeoutMs?: number;
   fightPursuitDistance?: number;
   fightTimeoutMs?: number;
 };
@@ -220,35 +227,21 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         y: { type: 'number' },
         z: { type: 'number' },
         near: { type: 'number' },
-        maxTravel: {
-          type: 'number',
-          minimum: 2,
-          maximum: 16,
-          description:
-            'Optional short-horizon leg. When the requested destination is farther away, choose an intermediate feet destination at most this straight-line distance from the current body, then return a fresh observation before continuing.',
-        },
-        timeoutMs: { type: 'number', minimum: 1000, maximum: 120000 },
       },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z, near = 0, maxTravel, timeoutMs = 45_000 }, execution) => {
+    run: async ({ x, y, z, near = 0 }, execution) => {
       const pathfinder = (bot as any).pathfinder;
       if (!pathfinder) return { ok: false, error: 'pathfinder_unavailable' };
       const requestedDestination = { x: Number(x), y: Number(y), z: Number(z) };
       const requestedNear = Math.max(0, Number(near) || 0);
       const start = positionOf(bot);
-      const travelLimit = Number.isFinite(Number(maxTravel))
-        ? clamp(Number(maxTravel), 2, 16)
-        : null;
+      const travelLimit = clamp(Number(opts.moveLegDistance ?? 12), 2, 16);
       const requestedDistance = start ? distance(start, requestedDestination) : null;
       const shouldAdvance =
-        travelLimit != null &&
-        requestedDistance != null &&
-        requestedDistance > requestedNear + travelLimit;
+        requestedDistance != null && requestedDistance > requestedNear + travelLimit;
       const ratio =
-        shouldAdvance && requestedDistance != null && travelLimit != null
-          ? travelLimit / requestedDistance
-          : 1;
+        shouldAdvance && requestedDistance != null ? travelLimit / requestedDistance : 1;
       const destination =
         shouldAdvance && start
           ? {
@@ -265,7 +258,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       const result = await runPathfinderGoal(bot, goal, {
         destination,
         near: effectiveNear,
-        timeoutMs: clamp(Number(timeoutMs), 1000, 120_000),
+        timeoutMs: clamp(Number(opts.moveTimeoutMs ?? 45_000), 1000, 120_000),
         signal: execution?.signal,
       });
       const final = positionOf(bot);
@@ -279,7 +272,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           : {}),
         requestedDestination,
         requestedNear,
-        ...(travelLimit == null ? {} : { maxTravel: travelLimit }),
+        bodyLegLimit: travelLimit,
         legDestination: destination,
         remainingDistance,
         arrivedAtRequestedDestination,
@@ -291,61 +284,42 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'approach_entity',
     description:
-      'Approach a nearby entity or player by stable name and stop at conversational distance',
+      'Approach one particular nearby entity or player from scene.entities. Choose its exact observed id; this body owns pursuit, conversational distance, timing, and arrival evidence.',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string' },
-        distance: { type: 'number', minimum: 1, maximum: 12 },
-        timeoutMs: { type: 'number', minimum: 1000, maximum: 120000 },
+        target: {
+          type: 'string',
+          description: 'Exact id from scene.entities, such as player:importdf or entity:71',
+        },
       },
-      required: ['name'],
+      required: ['target'],
     },
-    run: async ({ name, distance = 2.5, timeoutMs = 45_000 }, execution) => {
+    run: async ({ target: requestedTarget }, execution) => {
       const pathfinder = (bot as any).pathfinder;
       if (!pathfinder) return { ok: false, error: 'pathfinder_unavailable' };
-      const targetName = String(name).toLowerCase();
-      const target = (Object.values((bot as any).entities || {}) as any[]).find((entity) => {
-        const candidate = String(entity?.username || entity?.name || '').toLowerCase();
-        return entity?.position && (candidate === targetName || candidate.includes(targetName));
-      });
-      if (!target?.position)
-        return { ok: false, error: 'entity_not_observed', target: String(name) };
+      const targetReference = String(requestedTarget || '');
+      const target = observedSceneEntity(bot, targetReference);
+      if (!target?.position) {
+        return { ok: false, error: 'target_not_observed', target: targetReference };
+      }
       if (isDroppedItem(target)) {
         return {
           ok: false,
-          error: 'use_dropped_item_collection',
+          error: 'target_is_dropped_item',
+          target: targetReference,
           reason:
             'Dropped items must be approached through collect_nearby_item so destination support and collection evidence are checked.',
         };
       }
-      const stopDistance = clamp(Number(distance), 1, 12);
-      const destination = {
-        x: target.position.x,
-        y: target.position.y,
-        z: target.position.z,
-      };
-      const goal = new (goals as any).GoalNear(
-        destination.x,
-        destination.y,
-        destination.z,
-        stopDistance,
-      );
-      const result = await runPathfinderGoal(bot, goal, {
-        destination,
-        near: stopDistance,
-        timeoutMs: clamp(Number(timeoutMs), 1000, 120_000),
-        target: String(target.username || target.name || name),
+      return runBoundedApproach(bot, target, {
+        targetReference,
+        targetAtStart: summarizeEntity(target),
+        stopDistance: clamp(Number(opts.approachDistance ?? 2.5), 1, 12),
+        maxDistance: clamp(Number(opts.approachPursuitDistance ?? 16), 1, 32),
+        timeoutMs: clamp(Number(opts.approachTimeoutMs ?? 45_000), 1000, 120_000),
         signal: execution?.signal,
       });
-      if (result.ok && target?.position) {
-        try {
-          await (bot as any).lookAt(
-            target.position.offset(0, Number(target.height || 1.6) * 0.8, 0),
-          );
-        } catch {}
-      }
-      return result;
     },
     category: 'move',
   });
@@ -402,37 +376,43 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'collect_nearby_item',
     description:
-      'Pick up one nearby dropped item stack by walking this body over to it. Succeed only when Minecraft attributes the pickup to this body. If several dropped stacks remain, pick them up with additional actions before they expire.',
+      'Pick up one particular nearby dropped item stack from scene.entities. Choose its exact observed id; this body owns pursuit and timing. Succeed only when Minecraft attributes that exact pickup to this body.',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string' },
-        maxDistance: { type: 'number', minimum: 1, maximum: 32 },
-        timeoutMs: { type: 'number', minimum: 1000, maximum: 120000 },
+        target: {
+          type: 'string',
+          description: 'Exact dropped-item id from scene.entities, such as entity:84',
+        },
       },
+      required: ['target'],
     },
-    run: async ({ name, maxDistance = 16, timeoutMs = 45_000 }, execution) => {
+    run: async ({ target: requestedTarget }, execution) => {
       const pathfinder = (bot as any).pathfinder;
       if (!pathfinder) return { ok: false, error: 'pathfinder_unavailable' };
-      const requested = name ? normalizeRegistryName(String(name)) : null;
-      const query =
-        requested && !['item', 'dropped_item', 'any'].includes(requested) ? requested : null;
+      const targetReference = String(requestedTarget || '');
+      const entity = observedSceneEntity(bot, targetReference);
+      if (!entity?.position) {
+        return { ok: false, error: 'target_not_observed', target: targetReference };
+      }
+      if (!isDroppedItem(entity)) {
+        return { ok: false, error: 'target_not_dropped_item', target: targetReference };
+      }
       const me = (bot as any).entity?.position;
-      const target = (Object.values((bot as any).entities || {}) as any[])
-        .filter((entity) => isDroppedItem(entity) && entity?.position)
-        .map((entity) => ({
-          entity,
-          item: droppedItemName(entity),
-          distance: me?.distanceTo(entity.position) ?? Infinity,
-        }))
-        .filter(
-          ({ item, distance }) =>
-            distance <= Number(maxDistance) &&
-            (!query || normalizeRegistryName(item).includes(query)),
-        )
-        .sort((a, b) => a.distance - b.distance)[0];
-      if (!target) {
-        return { ok: false, error: 'dropped_item_not_observed', requested: name || null };
+      const target = {
+        entity,
+        item: droppedItemName(entity),
+        distance: me?.distanceTo(entity.position) ?? Infinity,
+      };
+      const pursuitLimit = clamp(Number(opts.pickupPursuitDistance ?? 16), 1, 32);
+      if (target.distance > pursuitLimit) {
+        return {
+          ok: false,
+          error: 'target_not_in_reach',
+          target: targetReference,
+          distance: round(target.distance),
+          pursuitLimit,
+        };
       }
 
       const pickupGround = droppedItemPickupGround(bot, target.entity.position);
@@ -440,6 +420,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         return {
           ok: false,
           error: 'unapproachable_item_ground',
+          target: targetReference,
           item: target.item,
           distance: round(target.distance),
           pickupGround,
@@ -464,7 +445,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         {
           destination,
           near: 0,
-          timeoutMs: clamp(Number(timeoutMs), 1000, 120_000),
+          timeoutMs: clamp(Number(opts.pickupTimeoutMs ?? 45_000), 1000, 120_000),
           target: target.item,
           signal: execution?.signal,
         },
@@ -479,6 +460,9 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       return {
         ok: collected,
         ...(collected ? {} : { error: 'collection_unconfirmed' }),
+        target: targetReference,
+        targetEntityId: target.entity.id,
+        targetAtStart: summarizeEntity(target.entity),
         item: target.item,
         navigation,
         pickupRecovery,
@@ -2136,6 +2120,15 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     return entity?.username
       ? `player:${String(entity.username)}`
       : `entity:${String(entity?.id ?? '')}`;
+  }
+
+  function observedSceneEntity(subject: Bot, reference: string) {
+    return (Object.values((subject as any).entities || {}) as any[]).find(
+      (entity) =>
+        entity?.position &&
+        entity?.id !== (subject as any).entity?.id &&
+        sceneEntityReference(entity) === reference,
+    );
   }
 
   return {
@@ -3972,6 +3965,218 @@ async function waitForInventoryTransaction(
 
 function round(value: number) {
   return Number.isFinite(value) ? Math.round(value * 10) / 10 : value;
+}
+
+async function runBoundedApproach(
+  bot: Bot,
+  selectedTarget: any,
+  options: {
+    targetReference: string;
+    targetAtStart: any;
+    stopDistance: number;
+    maxDistance: number;
+    timeoutMs: number;
+    signal?: AbortSignal;
+  },
+) {
+  const startedAt = Date.now();
+  const targetId = selectedTarget.id;
+  const pathfinder = (bot as any).pathfinder;
+  const startedDistance =
+    (bot as any).entity?.position?.distanceTo(selectedTarget.position) ?? null;
+  let pathfinderEngaged = false;
+  let finalized = false;
+  let pathFailure: string | null = null;
+  const pathUpdates: string[] = [];
+  const pathResets: string[] = [];
+
+  const currentTarget = () => (bot as any).entities?.[targetId] ?? null;
+  const currentDistance = () => {
+    const me = (bot as any).entity?.position;
+    const target = currentTarget();
+    return me && target?.position ? me.distanceTo(target.position) : null;
+  };
+  const evidence = () => {
+    const finalDistance = currentDistance();
+    return {
+      target: options.targetReference,
+      targetEntityId: targetId,
+      targetName: String(
+        options.targetAtStart?.username || options.targetAtStart?.name || 'entity',
+      ),
+      targetAtStart: options.targetAtStart,
+      startedDistance: startedDistance == null ? null : round(startedDistance),
+      finalDistance: finalDistance == null ? null : round(finalDistance),
+      bodyStopDistance: options.stopDistance,
+      bodyPursuitLimit: options.maxDistance,
+      pathUpdates,
+      pathResets,
+      durationMs: Date.now() - startedAt,
+    };
+  };
+  const finish = async (requestedTerminal: Record<string, any>): Promise<Record<string, any>> => {
+    finalized = true;
+    const pathfinderStopAcknowledged = pathfinderEngaged
+      ? await stopDynamicPathfinder(bot, pathfinder)
+      : true;
+    if (!pathfinderStopAcknowledged) {
+      if (options.signal?.aborted) {
+        return {
+          ...evidence(),
+          ok: false,
+          error: 'interruption_unconfirmed',
+          confirmation: null,
+          cancellation: { acknowledged: false, adapter: 'mineflayer-pathfinder' },
+          pathfinderStopAcknowledged: false,
+        };
+      }
+      return {
+        ...evidence(),
+        ok: false,
+        error: 'pathfinder_stop_unconfirmed',
+        confirmation: null,
+        pathfinderStopAcknowledged: false,
+      };
+    }
+    const finalDistance = currentDistance();
+    const terminal =
+      requestedTerminal.ok === true &&
+      (finalDistance == null || finalDistance > options.stopDistance + 0.75)
+        ? {
+            ok: false,
+            error: 'arrival_unconfirmed',
+            confirmation: null,
+            claimedTerminal: requestedTerminal,
+          }
+        : requestedTerminal;
+    return {
+      ...evidence(),
+      ...terminal,
+      pathfinderStopAcknowledged,
+    };
+  };
+  const fail = (error: string, extra: Record<string, unknown> = {}) =>
+    finish({ ok: false, error, confirmation: null, ...extra });
+  const onPathUpdate = (result: any) => {
+    if (result?.status) pathUpdates.push(String(result.status));
+    if (result?.status === 'noPath') pathFailure = 'no_path';
+    if (result?.status === 'timeout') pathFailure = 'navigation_timeout';
+  };
+  const onPathReset = (reason: any) => {
+    pathResets.push(String(reason || 'unknown'));
+  };
+
+  if (startedDistance == null) return fail('body_or_target_position_unavailable');
+  if (startedDistance > options.maxDistance) {
+    return fail('target_not_in_reach', { distance: round(startedDistance) });
+  }
+  if (startedDistance <= options.stopDistance + 0.75) {
+    try {
+      await (bot as any).lookAt(
+        selectedTarget.position.offset(
+          0,
+          Math.max(0.5, Number(selectedTarget.height || 1.6) * 0.8),
+          0,
+        ),
+      );
+    } catch {}
+    return finish({
+      ok: true,
+      status: 'arrived',
+      confirmation: 'mineflayer:body_target_proximity',
+    });
+  }
+  if (!pathfinder?.setGoal || !pathfinder?.stop) return fail('pathfinder_unavailable');
+
+  (bot as any).on?.('path_update', onPathUpdate);
+  (bot as any).on?.('path_reset', onPathReset);
+  try {
+    pathfinder.setGoal(new (goals as any).GoalFollow(selectedTarget, options.stopDistance), true);
+    pathfinderEngaged = true;
+    while (true) {
+      if (options.signal?.aborted) {
+        return finish({
+          ...cancelledAction('mineflayer-pathfinder'),
+          confirmation: null,
+        });
+      }
+      if (pathFailure) return fail(pathFailure);
+      if (Date.now() - startedAt >= options.timeoutMs) return fail('approach_timeout');
+      const target = currentTarget();
+      if (!target?.position) return fail('target_lost');
+      const distanceToTarget = currentDistance();
+      if (distanceToTarget == null) return fail('body_or_target_position_unavailable');
+      if (distanceToTarget > options.maxDistance) {
+        return fail('target_escaped', { distance: round(distanceToTarget) });
+      }
+      if (distanceToTarget <= options.stopDistance + 0.75) {
+        const result = await finish({
+          ok: true,
+          status: 'arrived',
+          confirmation: 'mineflayer:body_target_proximity',
+        });
+        if (result.ok && currentTarget()?.position) {
+          try {
+            await (bot as any).lookAt(
+              currentTarget().position.offset(
+                0,
+                Math.max(0.5, Number(currentTarget().height || 1.6) * 0.8),
+                0,
+              ),
+            );
+          } catch {}
+        }
+        return result;
+      }
+      await waitForFightTick(25, options.signal);
+    }
+  } catch (error: any) {
+    return fail(navigationError(error));
+  } finally {
+    (bot as any).removeListener?.('path_update', onPathUpdate);
+    (bot as any).removeListener?.('path_reset', onPathReset);
+    if (pathfinderEngaged && !finalized) {
+      try {
+        pathfinder.stop();
+      } catch {}
+    }
+  }
+}
+
+function stopDynamicPathfinder(bot: Bot, pathfinder: any, timeoutMs = 500) {
+  if (!pathfinder?.stop) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    let fallback: NodeJS.Timeout | null = null;
+    let timeout: NodeJS.Timeout | null = null;
+    const finish = (acknowledged: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (fallback) clearTimeout(fallback);
+      if (timeout) clearTimeout(timeout);
+      (bot as any).removeListener?.('path_stop', onPathStop);
+      resolve(acknowledged);
+    };
+    const onPathStop = () => finish(true);
+    (bot as any).on?.('path_stop', onPathStop);
+    try {
+      pathfinder.stop();
+    } catch {
+      finish(false);
+      return;
+    }
+    if (settled) return;
+    fallback = setTimeout(
+      () => {
+        if (settled || typeof pathfinder.setGoal !== 'function') return;
+        try {
+          pathfinder.setGoal(null);
+        } catch {}
+      },
+      Math.min(100, Math.max(1, timeoutMs - 1)),
+    );
+    timeout = setTimeout(() => finish(false), Math.max(1, timeoutMs));
+  });
 }
 
 async function runBoundedFight(

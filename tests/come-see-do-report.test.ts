@@ -237,8 +237,8 @@ test('Come–See–Do–Report verifier requires an ordered, evidenced trajector
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2, near: 2.5 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2, near: 2.5 },
       20,
     ),
     obs,
@@ -319,8 +319,8 @@ test('verifier never credits operator reports or world changes to the resident',
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2 },
       20,
     ),
     obs,
@@ -390,8 +390,8 @@ test('verifier rejects negated scene and outcome claims', () => {
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2 },
       20,
     ),
     obs,
@@ -474,8 +474,8 @@ test('verifier requires approach after contact and agreement with embodied dista
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2 },
       5,
     ),
     far,
@@ -484,8 +484,8 @@ test('verifier requires approach after contact and agreement with embodied dista
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2 },
       20,
     ),
     far,
@@ -501,8 +501,8 @@ test('verifier uses event timestamps rather than processing order', () => {
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2 },
       20,
     ),
     obs,
@@ -526,8 +526,8 @@ test('verifier grounds a report in the model decision observation, not later wor
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2 },
       20,
     ),
     completionObservation,
@@ -554,8 +554,8 @@ test('verifier requires a recorded model decision even when completion sequence 
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2 },
       20,
     ),
     obs,
@@ -577,8 +577,8 @@ test('verifier ignores lifecycle objects that were not minted by its bound engin
   verifier.recordEngineEvent(
     completed(
       'approach_entity',
-      { name: 'importdf' },
-      { ok: true, status: 'arrived', target: 'importdf', finalDistance: 2 },
+      { target: 'player:importdf' },
+      { ok: true, status: 'arrived', target: 'player:importdf', finalDistance: 2 },
       20,
     ),
     obs,

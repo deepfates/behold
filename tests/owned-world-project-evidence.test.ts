@@ -435,7 +435,7 @@ function action(name: string, callId: string, input: any) {
 }
 
 function collection(callId: string) {
-  const turn = action('collect_nearby_item', callId, { name: expected.material });
+  const turn = action('collect_nearby_item', callId, { target: 'entity:17' });
   turn.outcome.result = {
     ok: true,
     item: expected.material,

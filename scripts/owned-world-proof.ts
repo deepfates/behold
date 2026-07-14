@@ -92,7 +92,7 @@ async function main() {
               entityId: ENTITY_ID,
               model: 'script/behold-owned-world-proof-v1',
               task: 'owned-world-continuity-proof',
-              allowTools: ['collect_nearby_item', 'inspect_volume'],
+              allowTools: ['move_to', 'approach_entity', 'collect_nearby_item', 'inspect_volume'],
             },
           ],
           startupTimeoutMs: 90_000,
@@ -158,10 +158,32 @@ async function main() {
   const assertions = {
     initialAffordanceObserved:
       act.proof.initialDroppedItems?.filter((item: any) => item?.name === TARGET.item).length === 1,
+    locomotionBudgetOwnedByBody:
+      act.proof.locomotion?.result?.ok === true &&
+      act.proof.locomotion?.result?.status === 'advanced_toward' &&
+      act.proof.locomotion?.result?.bodyLegLimit === 6 &&
+      act.proof.locomotion?.result?.arrivedAtRequestedDestination === false &&
+      Object.keys(act.proof.locomotion?.action?.input || {})
+        .sort()
+        .join(',') === 'x,y,z',
+    exactMovingEntityApproachConfirmed:
+      act.proof.approach?.turn?.result?.ok === true &&
+      act.proof.approach?.turn?.result?.target === 'player:ProofWitness' &&
+      act.proof.approach?.turn?.result?.confirmation === 'mineflayer:body_target_proximity' &&
+      act.proof.approach?.turn?.result?.pathfinderStopAcknowledged === true &&
+      positionDistance(
+        act.proof.approach?.witnessStartedAt,
+        act.proof.approach?.witnessFinishedAt,
+      ) >= 3 &&
+      act.proof.approach?.turn?.result?.finalDistance <=
+        act.proof.approach?.turn?.result?.bodyStopDistance + 0.75 &&
+      Object.keys(act.proof.approach?.turn?.action?.input || {}).join(',') === 'target',
     collectionConfirmedByMinecraft:
       act.proof.collection?.result?.ok === true &&
       act.proof.collection?.result?.item === TARGET.item &&
-      act.proof.collection?.result?.confirmation === 'mineflayer:playerCollect',
+      act.proof.collection?.result?.confirmation === 'mineflayer:playerCollect' &&
+      /^entity:\d+$/.test(String(act.proof.collection?.result?.target || '')) &&
+      Object.keys(act.proof.collection?.action?.input || {}).join(',') === 'target',
     independentConsequenceObserved:
       act.proof.independentWitness?.source === 'fresh_minecraft_connection' &&
       !act.proof.independentWitness?.droppedItems?.some((item: any) => item?.name === TARGET.item),
@@ -181,14 +203,14 @@ async function main() {
       act.managedRunId !== resume.managedRunId &&
       act.managedRunId.startsWith(`${WORLD_ID}-`) &&
       resume.managedRunId.startsWith(`${WORLD_ID}-`),
-    firstLifePersistedOneTurn: act.proof.resultingTurns === 1,
-    restartLoadedPriorLife: resume.proof.priorTurns === 1,
+    firstLifePersistedThreeTurns: act.proof.resultingTurns === 3,
+    restartLoadedPriorLife: resume.proof.priorTurns === 3,
     consequencePersistedAcrossRestart:
       resume.proof.initialObservation?.self?.inventory?.some(
         (item: any) => item?.name === TARGET.item && item?.count === TARGET.count,
       ) && !resume.proof.initialDroppedItems?.some((item: any) => item?.name === TARGET.item),
     restartDidNotRepeatCollection: resume.proof.collectionAttempts === 0,
-    restartExtendedSameLoom: resume.proof.resultingTurns === 2,
+    restartExtendedSameLoom: resume.proof.resultingTurns === 4,
     lifecycleOwnedBothRuns: act.lifecycleEvents > 0 && resume.lifecycleEvents > 0,
   };
   const failed = Object.entries(assertions)
@@ -265,6 +287,15 @@ function validateInhabitantProof(value: any, phase: 'act' | 'resume', managedRun
 
 function waitForFile(file: string, timeoutMs: number, signal?: AbortSignal) {
   return waitFor(() => fs.existsSync(file), timeoutMs, `proof file ${file}`, signal);
+}
+
+function positionDistance(before: any, after: any) {
+  if (!before || !after) return 0;
+  return Math.hypot(
+    Number(after.x) - Number(before.x),
+    Number(after.y) - Number(before.y),
+    Number(after.z) - Number(before.z),
+  );
 }
 
 void main().catch((error) => {
