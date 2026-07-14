@@ -295,7 +295,14 @@ async function proveExactApproach(input: {
         HIDDEN_WITNESS_POSITION.z,
       ),
     );
-    const target = await waitForPlayerEntity(input.resident, WITNESS_ID, 5_000);
+    await waitForBodyPosition(witness, HIDDEN_WITNESS_POSITION, 1.5, 5_000);
+    const target = await waitForTrackedPlayerPosition(
+      input.resident,
+      WITNESS_ID,
+      HIDDEN_WITNESS_POSITION,
+      1.5,
+      5_000,
+    );
     const targetEntityId = Number(target.id);
     await (input.resident as any).lookAt(
       target.position.offset(0, Math.max(0.5, Number(target.height || 1.8) * 0.8), 0),
@@ -325,6 +332,14 @@ async function proveExactApproach(input: {
         VISIBLE_WITNESS_POSITION.y,
         VISIBLE_WITNESS_POSITION.z,
       ),
+    );
+    await waitForBodyPosition(witness, VISIBLE_WITNESS_POSITION, 1.5, 5_000);
+    await waitForTrackedPlayerPosition(
+      input.resident,
+      WITNESS_ID,
+      VISIBLE_WITNESS_POSITION,
+      1.5,
+      5_000,
     );
     await (input.resident as any).lookAt(
       target.position.offset(0, Math.max(0.5, Number(target.height || 1.8) * 0.8), 0),
@@ -424,6 +439,43 @@ async function waitForPlayerEntity(
   throw new Error(`resident did not observe exact player ${username}`);
 }
 
+async function waitForTrackedPlayerPosition(
+  bot: ReturnType<typeof createBot>,
+  username: string,
+  expected: { x: number; y: number; z: number },
+  tolerance: number,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let latest: any = null;
+  while (Date.now() < deadline) {
+    latest = (Object.values((bot as any).entities || {}) as any[]).find(
+      (candidate) => candidate?.position && String(candidate?.username || '') === username,
+    );
+    if (latest && positionDistance(latest.position, expected) <= tolerance) return latest;
+    await delay(25);
+  }
+  throw new Error(
+    `resident did not track ${username} at ${JSON.stringify(expected)}; latest=${JSON.stringify(latest?.position || null)}`,
+  );
+}
+
+async function waitForBodyPosition(
+  bot: ReturnType<typeof createBot>,
+  expected: { x: number; y: number; z: number },
+  tolerance: number,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (positionDistance((bot as any).entity?.position, expected) <= tolerance) return;
+    await delay(25);
+  }
+  throw new Error(
+    `body did not reach ${JSON.stringify(expected)}; latest=${JSON.stringify(positionSnapshot(bot))}`,
+  );
+}
+
 async function waitForPerceivedEntity(
   experience: InhabitantExperience,
   reference: string,
@@ -481,6 +533,15 @@ function positionsDifferByAtLeast(
 ) {
   if (!before || !after) return false;
   return Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z) >= minimum;
+}
+
+function positionDistance(before: any, after: any) {
+  if (!before || !after) return Infinity;
+  return Math.hypot(
+    Number(after.x) - Number(before.x),
+    Number(after.y) - Number(before.y),
+    Number(after.z) - Number(before.z),
+  );
 }
 
 async function waitForDroppedItem(
