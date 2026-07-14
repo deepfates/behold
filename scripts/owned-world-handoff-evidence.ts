@@ -42,6 +42,7 @@ export type HandoffResidentEvidence = Readonly<{
 export type HandoffEvidenceInput = Readonly<{
   worldId: string;
   item: string;
+  initialItemPosition: Readonly<{ x: number; y: number; z: number }>;
   actRunId: string;
   resumeRunId: string;
   actLifecycle: readonly WorldLifecycleEvent[];
@@ -286,15 +287,7 @@ function analyzeGiver(
 ) {
   const actTurns = eventData(resident.actEvents, 'entity_turn');
   const actModelTurns = eventData(resident.actEvents, 'model_turn');
-  const moveTurn = actTurns.find(
-    (turn) =>
-      turn?.action?.name === 'move_to' &&
-      turn?.action?.source === 'llm' &&
-      turn?.outcome?.ok === true &&
-      observationInventoryCount(turn?.observation, input.item) === 0 &&
-      observationInventoryCount(turn?.nextObservation, input.item) === 1,
-  );
-  const dropTurn = actTurns.find((turn) => {
+  const dropIndex = actTurns.findIndex((turn) => {
     const result = terminalMinecraftResult(turn);
     return (
       turn?.action?.name === 'drop_item' &&
@@ -306,6 +299,19 @@ function analyzeGiver(
       result?.confirmation === 'mineflayer:inventory_delta'
     );
   });
+  const dropTurn = dropIndex >= 0 ? actTurns[dropIndex] : null;
+  const moveIndex = actTurns.findIndex((turn, index) => {
+    const destination = turn?.action?.input;
+    return (
+      index < dropIndex &&
+      turn?.action?.name === 'move_to' &&
+      turn?.action?.source === 'llm' &&
+      turn?.outcome?.ok === true &&
+      observationInventoryCount(turn?.observation, input.item) === 0 &&
+      distance(destination, input.initialItemPosition) <= 2
+    );
+  });
+  const moveTurn = moveIndex >= 0 ? actTurns[moveIndex] : null;
   const dropDecision = dropTurn
     ? actModelTurns.find((turn) => decisionMatchesEntityTurn(turn, dropTurn))
     : null;
@@ -332,7 +338,14 @@ function analyzeGiver(
     dropTurn,
     collectionObservation,
     yieldTurn,
-    acquiredThroughMove: !!moveTurn,
+    acquiredThroughMove:
+      !!moveTurn &&
+      dropIndex === moveIndex + 1 &&
+      observationInventoryCount(dropTurn?.observation, input.item) === 1 &&
+      !observationHasEvent(moveTurn?.observation, 'item_collected') &&
+      observationHasEvent(dropTurn?.observation, 'item_collected', (event) =>
+        String(event?.data?.item || '').includes(input.item),
+      ),
     freelyChoseDrop:
       dropDecision?.intent?.source === 'llm' &&
       dropDecision?.intent?.tool === 'drop_item' &&
@@ -464,4 +477,12 @@ function observationHasEvent(
   return (Array.isArray(observation?.events) ? observation.events : []).some(
     (event: any) => event?.type === type && predicate(event),
   );
+}
+
+function distance(left: any, right: Readonly<{ x: number; y: number; z: number }>) {
+  const dx = Number(left?.x) - Number(right.x);
+  const dy = Number(left?.y) - Number(right.y);
+  const dz = Number(left?.z) - Number(right.z);
+  if (![dx, dy, dz].every(Number.isFinite)) return Infinity;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }

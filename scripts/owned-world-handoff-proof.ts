@@ -211,6 +211,7 @@ async function main() {
   const assessment = assessOwnedWorldHandoffEvidence({
     worldId: OWNED_WORLD_ID,
     item: ITEM,
+    initialItemPosition: OWNED_TARGET,
     actRunId: act.managedRunId,
     resumeRunId: resume.managedRunId,
     actLifecycle: act.lifecycleEvents,
@@ -228,6 +229,7 @@ async function main() {
     runId: fixture.runId,
     worldId: OWNED_WORLD_ID,
     item: ITEM,
+    initialItemPosition: OWNED_TARGET,
     model,
     modelSelection: residentModelSelection(model),
     startedAt: fixture.startedAt,
@@ -406,6 +408,7 @@ async function reassessExistingProof(inputFile: string) {
   const assessment = assessOwnedWorldHandoffEvidence({
     worldId: String(source.worldId),
     item: String(source.item),
+    initialItemPosition: source.initialItemPosition,
     actRunId: String(source.evidence.act.managedRunId),
     resumeRunId: String(source.evidence.resume.managedRunId),
     actLifecycle: actLifecycle.events,

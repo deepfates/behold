@@ -76,6 +76,7 @@ function fixture(): HandoffEvidenceInput {
   return {
     worldId: WORLD,
     item: ITEM,
+    initialItemPosition: { x: 3, y: -60, z: 0 },
     actRunId: ACT_RUN,
     resumeRunId: RESUME_RUN,
     actLifecycle: lifecycle(1, ACT_RUN, [GIVER, RECIPIENT]),
@@ -97,7 +98,12 @@ function fixture(): HandoffEvidenceInput {
 function giverResident(): HandoffResidentEvidence {
   const task = `get the ${ITEM} to ${RECIPIENT}`;
   const empty = observation(GIVER, ACT_RUN, [], []);
-  const carrying = observation(GIVER, ACT_RUN, [{ name: ITEM, count: 1 }], []);
+  const carrying = observation(
+    GIVER,
+    ACT_RUN,
+    [{ name: ITEM, count: 1 }],
+    [{ type: 'item_collected', data: { collector: GIVER, item: ITEM } }],
+  );
   const dropped = observation(GIVER, ACT_RUN, [], []);
   const witnessed = observation(
     GIVER,
@@ -315,6 +321,7 @@ function actionTurn(
     action: {
       id: `${callId}-intent`,
       name: action,
+      input: action === 'move_to' ? { x: 3, y: -60, z: 0 } : {},
       source: 'llm',
       toolCallId: callId,
     },
