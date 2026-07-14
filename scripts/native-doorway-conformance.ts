@@ -3,7 +3,6 @@ import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { goals } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { createBot } from '../src/bot';
 import { getConfig } from '../src/config';
@@ -45,8 +44,8 @@ import {
 const ENTITY_ID = 'DoorResident';
 const WITNESS_ID = 'DoorWitness';
 const MODEL = 'script/native-doorway-conformance-v1';
-const LOWER = Object.freeze({ x: 3, y: -60, z: 0 });
-const SOUTH = Object.freeze({ x: 3, y: -60, z: 1 });
+const LOWER = Object.freeze({ x: 0, y: -60, z: 1 });
+const ORIGIN_SIDE = Object.freeze({ x: 0, y: -60, z: 0 });
 const FIXTURE_ITEM = Object.freeze({ x: -3, y: -60, z: 0, item: 'apple', count: 1 });
 const FIXTURE_BLOCKS = Object.freeze([
   {
@@ -302,7 +301,13 @@ async function runResident() {
     await waitForLocalWorld(bot, 45_000, 'native doorway local world');
     if (priorTurns !== 0)
       throw new Error(`doorway proof expected no prior turns, found ${priorTurns}`);
-    await (bot as any).pathfinder.goto(new (goals as any).GoalBlock(SOUTH.x, SOUTH.y, SOUTH.z));
+    (bot as any).pathfinder.stop();
+    (bot as any).clearControlStates?.();
+    await waitFor(
+      () => sameFeetCell((bot as any).entity?.position, ORIGIN_SIDE),
+      10_000,
+      'resident natural spawn at doorway side',
+    );
     await (bot as any).lookAt(new Vec3(LOWER.x + 0.5, LOWER.y + 0.2, LOWER.z + 0.5), false);
     await waitFor(
       () => {
@@ -361,8 +366,8 @@ async function runResident() {
       priorTurns,
       resultingTurns: loom.turns().length,
       fixtureSetup: {
-        kind: 'pathfinder_preposition_and_first_person_look_before_recorded_action',
-        destination: SOUTH,
+        kind: 'natural_spawn_and_first_person_look_before_recorded_action',
+        origin: ORIGIN_SIDE,
         door: LOWER,
       },
       initialObservation,
@@ -395,6 +400,14 @@ async function runResident() {
 
 function positionRecord(position: any) {
   return position ? { x: Number(position.x), y: Number(position.y), z: Number(position.z) } : null;
+}
+
+function sameFeetCell(position: any, expected: { x: number; y: number; z: number }) {
+  return (
+    Math.floor(Number(position?.x)) === expected.x &&
+    Math.floor(Number(position?.y)) === expected.y &&
+    Math.floor(Number(position?.z)) === expected.z
+  );
 }
 
 if (process.argv.slice(2).includes('--server')) {
