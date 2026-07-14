@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { Vec3 } from 'vec3';
 import { createBot } from '../src/bot';
 import { getConfig } from '../src/config';
 import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
@@ -46,8 +47,8 @@ import { statusWorld } from './world-lab';
 const ENTITY_ID = 'AttentionBody';
 const WITNESS_ID = 'AttentionSeen';
 const MODEL = 'script/native-attention-conformance-v1';
-const START_FEET = Object.freeze({ x: 0, y: -60, z: 0 });
-const START_HEAD = Object.freeze({ x: 0, y: -59, z: 0 });
+const START_FEET = Object.freeze({ x: 1, y: -60, z: 0 });
+const START_HEAD = Object.freeze({ x: 1, y: -59, z: 0 });
 const DESTINATION_FEET = Object.freeze({ x: 12, y: -60, z: 0 });
 const DESTINATION_HEAD = Object.freeze({ x: 12, y: -59, z: 0 });
 const DUMMY_ITEM = Object.freeze({ x: 30, y: -60, z: 0, item: 'dirt', count: 1 });
@@ -317,6 +318,7 @@ async function runResident() {
     );
     engine.start();
     await waitForLocalWorld(bot, 45_000, 'native attention underwater local world');
+    const preposition = await enterUnderwaterCorridor(bot);
     await waitFor(
       () => {
         const oxygen = Number(experience!.observe()?.self?.condition?.oxygen);
@@ -326,7 +328,7 @@ async function runResident() {
       'native attention pre-critical oxygen window',
     );
     const setupObservation = experience.observe();
-    const setup = corridorSetup(bot, setupObservation);
+    const setup = corridorSetup(bot, setupObservation, preposition);
     assertUnderwaterSetup(setup);
     experience.markLocalWorldReady();
     localWorldReady = true;
@@ -458,7 +460,11 @@ function projectMindRequest(request: ResidentMindRequest) {
 function underwaterCorridorBlocks(): OwnedWorldBlock[] {
   const blocks: OwnedWorldBlock[] = [];
   for (let x = -1; x <= 14; x += 1) {
-    blocks.push({ x, y: -58, z: 0, block: 'glass' });
+    blocks.push({ x, y: -58, z: 0, block: x === 0 ? 'water' : 'glass' });
+    if (x === 0) {
+      blocks.push({ x, y: -58, z: -1, block: 'glass' });
+      blocks.push({ x, y: -58, z: 1, block: 'glass' });
+    }
     for (const y of [-60, -59]) {
       blocks.push({ x, y, z: -1, block: 'glass' });
       blocks.push({ x, y, z: 1, block: 'glass' });
@@ -469,11 +475,45 @@ function underwaterCorridorBlocks(): OwnedWorldBlock[] {
   return blocks;
 }
 
-function corridorSetup(bot: ReturnType<typeof createBot>, observation: any) {
+async function enterUnderwaterCorridor(bot: ReturnType<typeof createBot>) {
+  const before = currentPosition(bot);
+  await (bot as any).lookAt(new Vec3(2.5, -59.5, 0.5), true);
+  (bot as any).setControlState('sneak', true);
+  try {
+    await waitFor(
+      () => Number((bot as any).entity?.position?.y) <= -59.8,
+      10_000,
+      'native attention body descent through water entrance',
+    );
+    (bot as any).setControlState('forward', true);
+    await waitFor(
+      () => Number((bot as any).entity?.position?.x) >= 1.15,
+      10_000,
+      'native attention body entry beneath corridor roof',
+    );
+  } finally {
+    (bot as any).setControlState('forward', false);
+    (bot as any).setControlState('sneak', false);
+  }
+  await delay(150);
+  return {
+    kind: 'evaluator_owned_native_controls_before_recorded_action',
+    controls: ['look_at', 'sneak', 'forward'],
+    before,
+    after: currentPosition(bot),
+  };
+}
+
+function corridorSetup(
+  bot: ReturnType<typeof createBot>,
+  observation: any,
+  preposition: Record<string, unknown>,
+) {
   const blockName = (position: { x: number; y: number; z: number }) =>
     String((bot as any).blockAt?.(position)?.name || 'unknown');
   return {
     kind: 'underwater_corridor_before_recorded_action',
+    preposition,
     startBody: currentPosition(bot),
     startFeet: START_FEET,
     startHead: START_HEAD,

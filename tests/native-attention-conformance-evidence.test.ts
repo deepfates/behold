@@ -29,7 +29,7 @@ test('native attention conformance rejects synthetic urgency and unacknowledged 
 });
 
 function passingReport(): any {
-  const start = { x: 0.5, y: -60, z: 0.5 };
+  const start = { x: 1.5, y: -60, z: 0.5 };
   const destination = { x: 12, y: -60, z: 0 };
   const bodilyEvent = {
     sequence: 8,
@@ -82,9 +82,13 @@ function passingReport(): any {
       destination,
       fixtureSetup: {
         kind: 'underwater_corridor_before_recorded_action',
+        preposition: {
+          kind: 'evaluator_owned_native_controls_before_recorded_action',
+          controls: ['look_at', 'sneak', 'forward'],
+        },
         startBody: start,
-        startFeet: { x: 0, y: -60, z: 0 },
-        startHead: { x: 0, y: -59, z: 0 },
+        startFeet: { x: 1, y: -60, z: 0 },
+        startHead: { x: 1, y: -59, z: 0 },
         destination,
         destinationFeet: destination,
         destinationHead: { x: 12, y: -59, z: 0 },
@@ -103,7 +107,7 @@ function passingReport(): any {
       },
       bodilyUrgency: {
         event: bodilyEvent,
-        bodyPosition: { x: 1, y: -60, z: 0.5 },
+        bodyPosition: { x: 2, y: -60, z: 0.5 },
       },
       engineEvents: [
         { type: 'action_started', at: 100, data: { intent } },
@@ -160,8 +164,8 @@ function passingReport(): any {
       source: 'fresh_minecraft_connection',
       entityId: 'AttentionSeen',
       blocks: [
-        { position: { x: 0, y: -60, z: 0 }, name: 'water' },
-        { position: { x: 0, y: -59, z: 0 }, name: 'water' },
+        { position: { x: 1, y: -60, z: 0 }, name: 'water' },
+        { position: { x: 1, y: -59, z: 0 }, name: 'water' },
         { position: { x: 12, y: -60, z: 0 }, name: 'water' },
         { position: { x: 12, y: -59, z: 0 }, name: 'water' },
       ],

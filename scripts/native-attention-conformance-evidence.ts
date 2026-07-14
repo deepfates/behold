@@ -43,6 +43,8 @@ export function assessNativeAttentionConformance(report: any) {
       request?.observation?.circle?.managedRunId === report.managedRunId,
     declaredUnderwaterSetup:
       phase?.fixtureSetup?.kind === 'underwater_corridor_before_recorded_action' &&
+      phase?.fixtureSetup?.preposition?.kind ===
+        'evaluator_owned_native_controls_before_recorded_action' &&
       samePosition(phase?.fixtureSetup?.startBody, start) &&
       samePosition(phase?.fixtureSetup?.destination, phase?.destination) &&
       phase?.fixtureSetup?.startFeetBlock === 'water' &&
