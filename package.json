@@ -25,6 +25,7 @@
     "place:interpret": "node scripts/place-compiler/semantic-place.mjs",
     "place:review-interpretation": "node scripts/place-compiler/review-semantic-place.mjs",
     "place:extend-benchmark": "node scripts/place-compiler/extend-benchmark.mjs",
+    "place:derive-visit": "node scripts/place-compiler/derive-visit-candidate.mjs",
     "proof:owned-world": "npm run build && node dist/scripts/owned-world-proof.js",
     "proof:verify-owned-world": "npm run build && node dist/scripts/verify-owned-world-proof.js",
     "place:visit": "node scripts/place-compiler/visit.mjs",
