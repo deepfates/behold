@@ -21,6 +21,7 @@
     "world": "npm run build && node dist/scripts/world-runner.js",
     "proof:owned-world": "npm run build && node dist/scripts/owned-world-proof.js",
     "proof:owned-world-model": "npm run build && node dist/scripts/owned-world-model-proof.js",
+    "proof:owned-world-population": "npm run build && node dist/scripts/owned-world-population-proof.js",
     "proof:owned-world-project": "npm run build && node dist/scripts/owned-world-project-proof.js",
     "proof:owned-world-portfolio": "npm run build && node dist/scripts/owned-world-portfolio.js",
     "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",

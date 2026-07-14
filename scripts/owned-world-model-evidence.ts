@@ -13,6 +13,7 @@ export type OwnedWorldModelEvidenceExpectation = Readonly<{
   task: string;
   actRunId: string;
   resumeRunId: string;
+  targetItem?: string;
 }>;
 
 export type IndependentWorldWitness = Readonly<{
@@ -30,6 +31,7 @@ export function assessOwnedWorldModelEvidence(
   witness: IndependentWorldWitness,
   expected: OwnedWorldModelEvidenceExpectation,
 ) {
+  const targetItem = String(expected.targetItem || 'apple');
   const actStarted = eventData(actEvents, 'run_started')[0] ?? null;
   const resumeStarted = eventData(resumeEvents, 'run_started')[0] ?? null;
   const actModelTurns = eventData(actEvents, 'model_turn');
@@ -103,7 +105,7 @@ export function assessOwnedWorldModelEvidence(
       collectionTurn?.outcome?.ok === true &&
       collectionTurn?.outcome?.eventType === 'action_completed' &&
       collectionResult?.ok === true &&
-      collectionResult?.item === 'apple' &&
+      collectionResult?.item === targetItem &&
       collectionResult?.confirmation === 'mineflayer:playerCollect',
     firstLifeYieldedAfterConsequence:
       actYieldTurn?.action?.name === 'wait_for_event' &&
@@ -113,7 +115,7 @@ export function assessOwnedWorldModelEvidence(
       witness.source === 'fresh_minecraft_connection' &&
       witness.worldId === expected.worldId &&
       witness.managedRunId === expected.actRunId &&
-      !witness.droppedItems.some((item) => item.name === 'apple'),
+      !witness.droppedItems.some((item) => item.name === targetItem),
     restartedAsSamePersistentEntity:
       resumeStarted?.runId === expected.resumeRunId &&
       resumeStarted?.model === expected.model &&
@@ -123,8 +125,8 @@ export function assessOwnedWorldModelEvidence(
       resumePromptObservation?.circle?.managedRunId === expected.resumeRunId &&
       resumePromptObservation?.self?.identity === expected.entityId,
     restartObservedPersistedConsequence:
-      inventoryCount(resumePromptObservation, 'apple') === 1 &&
-      !sceneHasItem(resumePromptObservation, 'apple'),
+      inventoryCount(resumePromptObservation, targetItem) === 1 &&
+      !sceneHasItem(resumePromptObservation, targetItem),
     collectionRemainedInActionSpace:
       requestToolNames(resumeRequestBody).includes('collect_nearby_item'),
     restartFreelyChoseNotToRepeat:
@@ -135,7 +137,7 @@ export function assessOwnedWorldModelEvidence(
       resumeRequestBody != null &&
       resumeRequestText.includes('collect_nearby_item') &&
       resumeRequestText.includes('mineflayer:playerCollect') &&
-      resumeRequestText.includes('apple'),
+      resumeRequestText.includes(targetItem),
     noModelCallFailed:
       actFailures.length === 0 &&
       resumeFailures.length === 0 &&

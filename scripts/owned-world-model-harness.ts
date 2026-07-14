@@ -95,7 +95,7 @@ export async function runManagedModelPhase<Witness = null>(input: {
         },
       },
     );
-    const journalFile = await waitForJournal(run.residents[0].journalDirectory, 30_000);
+    const journalFile = await waitForRunJournal(run.residents[0].journalDirectory, 30_000);
     const wait = new AbortController();
     let events: RunJournalEvent[] = [];
     try {
@@ -228,6 +228,17 @@ export function observedDroppedItems(bot: ReturnType<typeof createBot>) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export function observedInventory(bot: ReturnType<typeof createBot>) {
+  const counts = new Map<string, number>();
+  for (const item of (bot as any).inventory?.items?.() || []) {
+    const name = String(item?.name || item?.displayName || 'unknown');
+    counts.set(name, (counts.get(name) || 0) + Math.max(0, Number(item?.count) || 0));
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export function observedBlocks(
   bot: ReturnType<typeof createBot>,
   positions: readonly Readonly<{ x: number; y: number; z: number }>[],
@@ -248,7 +259,7 @@ export function readRunJournal(file: string) {
   return parseRunJournal(text);
 }
 
-async function waitForJournal(directory: string, timeoutMs: number) {
+export async function waitForRunJournal(directory: string, timeoutMs: number) {
   let journal = '';
   await waitFor(
     () => {
