@@ -39,7 +39,7 @@ const ENTITY_ID = 'BodyResident';
 const WITNESS_ID = 'BodyWitness';
 const MODEL = 'script/native-body-conformance-v1';
 const TARGET_ITEM = Object.freeze({ x: 0, y: -60, z: 0, item: 'dirt', count: 1 });
-const PREPARED_BODY_POSITION = Object.freeze({ x: 10, y: -60, z: 0 });
+const PREPARED_BODY_POSITION = Object.freeze({ x: 24, y: -60, z: 0 });
 
 async function runProof() {
   const parsed = parseArgs({
