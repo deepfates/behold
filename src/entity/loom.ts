@@ -67,6 +67,96 @@ export type EntityLoom = {
   close: () => Promise<void>;
 };
 
+export type EntityLifeReference = Readonly<{ v: 1; kind: 'loom'; loomId: string }>;
+
+export type EntityLifeTurnReference = Readonly<{
+  v: 1;
+  kind: 'turn';
+  loomId: string;
+  turnId: string;
+}>;
+
+export type EntityLifeRangeReference = Readonly<{
+  protocol: 'behold.entity-life-range.v1';
+  entityId: string;
+  circleId: string | null;
+  life: EntityLifeReference;
+  start: EntityLifeTurnReference;
+  end: EntityLifeTurnReference;
+  sequences: Readonly<{ start: number; end: number }>;
+}>;
+
+export function parseEntityLifeRangeReference(value: unknown): EntityLifeRangeReference {
+  const range = exactPlainObject(
+    value,
+    ['protocol', 'entityId', 'circleId', 'life', 'start', 'end', 'sequences'],
+    'entity life range',
+  );
+  if (range.protocol !== 'behold.entity-life-range.v1') {
+    throw new Error('unsupported entity life range protocol');
+  }
+  const entityId = requiredString(range.entityId, 'entity life range entityId');
+  const circleId =
+    range.circleId == null ? null : requiredString(range.circleId, 'entity life range circleId');
+  const life = exactPlainObject(range.life, ['v', 'kind', 'loomId'], 'entity life loom reference');
+  const start = exactPlainObject(
+    range.start,
+    ['v', 'kind', 'loomId', 'turnId'],
+    'entity life start reference',
+  );
+  const end = exactPlainObject(
+    range.end,
+    ['v', 'kind', 'loomId', 'turnId'],
+    'entity life end reference',
+  );
+  if (
+    life.v !== 1 ||
+    life.kind !== 'loom' ||
+    start.v !== 1 ||
+    start.kind !== 'turn' ||
+    end.v !== 1 ||
+    end.kind !== 'turn'
+  ) {
+    throw new Error('entity life range requires Lync v1 loom and turn references');
+  }
+  const loomId = requiredString(life.loomId, 'entity life loomId');
+  if (start.loomId !== loomId || end.loomId !== loomId) {
+    throw new Error('entity life range references must share one loom');
+  }
+  const sequences = exactPlainObject(
+    range.sequences,
+    ['start', 'end'],
+    'entity life range sequences',
+  );
+  if (
+    !Number.isSafeInteger(sequences.start) ||
+    !Number.isSafeInteger(sequences.end) ||
+    sequences.start < 1 ||
+    sequences.end < sequences.start
+  ) {
+    throw new Error('entity life range sequences must be positive integers in order');
+  }
+  return deepFreeze({
+    protocol: 'behold.entity-life-range.v1',
+    entityId,
+    circleId,
+    life: { v: 1, kind: 'loom', loomId },
+    start: {
+      v: 1,
+      kind: 'turn',
+      loomId,
+      turnId: requiredString(start.turnId, 'entity life start turnId'),
+    },
+    end: {
+      v: 1,
+      kind: 'turn',
+      loomId,
+      turnId: requiredString(end.turnId, 'entity life end turnId'),
+    },
+    sequences: { start: Number(sequences.start), end: Number(sequences.end) },
+  });
+}
+
 export type EntityConnectionCapability = Readonly<{
   kind: 'behold.entity-connection.v1';
   entityId: string;
@@ -268,7 +358,6 @@ export async function openEntityLoom(
       connectionCapability,
       Object.freeze({ entityId, circleId: boundCircleId, lease }),
     );
-
     return {
       backend: 'lync',
       circleId: boundCircleId,
@@ -300,6 +389,160 @@ export async function openEntityLoom(
     await lease.close();
     throw error;
   }
+}
+
+/**
+ * Resolve an exact closed-life range for an evaluator without acquiring body
+ * authority, selecting a branch, recovering files, or rewriting Lync state.
+ */
+export async function resolveEntityLifeRange(
+  entityId: string,
+  startSequence: number,
+  endSequence: number,
+  root = process.env.BEHOLD_ENTITY_DIR || path.resolve(process.cwd(), '.behold-entities'),
+): Promise<EntityLifeRangeReference> {
+  if (
+    !Number.isInteger(startSequence) ||
+    !Number.isInteger(endSequence) ||
+    startSequence < 1 ||
+    endSequence < startSequence
+  ) {
+    throw new Error('entity life range requires positive inclusive sequences in order');
+  }
+  const directory = path.join(root, sanitizeName(entityId));
+  if (fs.existsSync(path.join(directory, 'runtime.lock'))) {
+    throw new Error(
+      `entity ${entityId} is active; close its life before resolving an episode range`,
+    );
+  }
+  const storageDirectory = path.join(directory, 'lync');
+  const manifestFile = path.join(storageDirectory, 'manifest.json');
+  const manifest = await readManifest(manifestFile, entityId);
+  if (!manifest?.tipTurnId) {
+    throw new Error(`entity ${entityId} has no committed Lync life range`);
+  }
+  const { loom, info } = await openEntityLoomReadOnly(entityId, manifest.loomId, storageDirectory);
+  const turns = await loom.threadTo(manifest.tipTurnId);
+  validateEntityTrajectory(
+    turns.map((turn) => turn.payload),
+    entityId,
+    `Lync loom ${manifest.loomId}`,
+  );
+  const start = turns.find((turn) => turn.payload.sequence === startSequence);
+  const end = turns.find((turn) => turn.payload.sequence === endSequence);
+  if (!start || !end) {
+    throw new Error(
+      `entity ${entityId} does not contain committed range ${startSequence}..${endSequence}`,
+    );
+  }
+  for (const turn of turns.slice(turns.indexOf(start), turns.indexOf(end) + 1)) {
+    validateLyncTurnMeta(turn, entityId);
+  }
+  return deepFreeze({
+    protocol: 'behold.entity-life-range.v1',
+    entityId,
+    circleId: info.meta?.circleId ?? null,
+    life: { v: 1, kind: 'loom', loomId: manifest.loomId },
+    start: { v: 1, kind: 'turn', loomId: manifest.loomId, turnId: start.id },
+    end: { v: 1, kind: 'turn', loomId: manifest.loomId, turnId: end.id },
+    sequences: { start: startSequence, end: endSequence },
+  });
+}
+
+/** Validate already-exact anchors without consulting the mutable selected life tip. */
+export async function validateEntityLifeRangeReference(
+  value: unknown,
+  root = process.env.BEHOLD_ENTITY_DIR || path.resolve(process.cwd(), '.behold-entities'),
+): Promise<EntityLifeRangeReference> {
+  const range = parseEntityLifeRangeReference(value);
+  const storageDirectory = path.join(root, sanitizeName(range.entityId), 'lync');
+  const { loom, info } = await openEntityLoomReadOnly(
+    range.entityId,
+    range.life.loomId,
+    storageDirectory,
+  );
+  const ancestry = await loom.threadTo(range.end.turnId);
+  validateEntityTrajectory(
+    ancestry.map((turn) => turn.payload),
+    range.entityId,
+    `Lync loom ${range.life.loomId}`,
+  );
+  const startIndex = ancestry.findIndex((turn) => turn.id === range.start.turnId);
+  if (startIndex < 0) {
+    throw new Error('entity life range start is not an ancestor of its end');
+  }
+  const start = ancestry[startIndex];
+  const end = ancestry.at(-1)!;
+  if (
+    start.payload.sequence !== range.sequences.start ||
+    end.payload.sequence !== range.sequences.end ||
+    (info.meta?.circleId ?? null) !== range.circleId
+  ) {
+    throw new Error('entity life range metadata differs from its exact Lync anchors');
+  }
+  for (const turn of ancestry.slice(startIndex)) validateLyncTurnMeta(turn, range.entityId);
+  return deepFreeze({
+    protocol: 'behold.entity-life-range.v1',
+    entityId: range.entityId,
+    circleId: info.meta?.circleId ?? null,
+    life: { v: 1, kind: 'loom', loomId: loom.id },
+    start: { v: 1, kind: 'turn', loomId: loom.id, turnId: start.id },
+    end: { v: 1, kind: 'turn', loomId: loom.id, turnId: end.id },
+    sequences: { start: start.payload.sequence, end: end.payload.sequence },
+  });
+}
+
+async function openEntityLoomReadOnly(entityId: string, loomId: string, storageDirectory: string) {
+  const [{ createFileEventStore }, { createLyncLooms }] = await Promise.all([
+    import('@deepfates/lync/file-log'),
+    import('@deepfates/lync/looms'),
+  ]);
+  const store = createFileEventStore(storageDirectory);
+  const looms = createLyncLooms<EntityTurn, EntityLoomMeta, EntityTurnMeta>({
+    store,
+    author: { actor: 'behold-evaluator', via: 'behold@0.1.0-alpha.0' },
+  });
+  const loom: LyncEntityLoom = await looms.open(loomId);
+  const info = await loom.info();
+  if (
+    info.meta?.protocol !== 'behold.entity-loom.v1' ||
+    info.meta.profile !== 'org.behold.inhabitant.v1' ||
+    info.meta.entityId !== entityId
+  ) {
+    throw new Error(`Lync loom ${loomId} does not belong to ${entityId}`);
+  }
+  return { loom, info };
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    Object.freeze(value);
+    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
+  }
+  return value;
+}
+
+function exactPlainObject(value: unknown, fields: readonly string[], label: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error(`${label} must be a plain object`);
+  }
+  const object = value as Record<string, any>;
+  for (const field of Object.keys(object)) {
+    if (!fields.includes(field)) throw new Error(`${label} has unknown field ${field}`);
+  }
+  for (const field of fields) {
+    if (!(field in object)) throw new Error(`${label} is missing field ${field}`);
+  }
+  return object;
+}
+
+function requiredString(value: unknown, label: string) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} must be a string`);
+  return value;
 }
 
 /** A Mineflayer body may connect only while its own durable entity lease is held. */

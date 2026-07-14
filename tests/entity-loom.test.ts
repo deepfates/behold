@@ -7,6 +7,8 @@ import {
   assertEntityConnectionCapability,
   historyMessages,
   openEntityLoom,
+  resolveEntityLifeRange,
+  validateEntityLifeRangeReference,
   type EntityTurn,
 } from '../src/entity/loom';
 import { residentTurnMayReplay } from '../src/mind/resident-visibility';
@@ -152,6 +154,50 @@ test('Lync becomes authoritative without rewriting the legacy autobiography', as
   assert.equal(reopened.turns()[2]?.id, 'Scout:turn:3');
   assert.equal(fs.readFileSync(legacyFile, 'utf8'), legacyBytes);
   await reopened.close();
+});
+
+test('a closed life exposes stable exact ranges without evaluator mutation or body authority', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-range-'));
+  const life = await openEntityLoom('Scout', root, 'minecraft://range-world');
+  await life.append(turn(1, null));
+  await life.append(turn(2, 'Scout:turn:1'));
+  await assert.rejects(
+    resolveEntityLifeRange('Scout', 1, 2, root),
+    /close its life before resolving/,
+  );
+  await life.close();
+
+  const lyncDirectory = path.join(root, 'Scout', 'lync');
+  const before = directoryBytes(lyncDirectory);
+  const range = await resolveEntityLifeRange('Scout', 1, 2, root);
+  assert.equal(range.entityId, 'Scout');
+  assert.equal(range.circleId, 'minecraft://range-world');
+  assert.equal(range.life.loomId, range.start.loomId);
+  assert.equal(range.start.loomId, range.end.loomId);
+  assert.notEqual(range.start.turnId, range.end.turnId);
+  assert.deepEqual(range.sequences, { start: 1, end: 2 });
+  assert.deepEqual(directoryBytes(lyncDirectory), before);
+  await assert.rejects(
+    validateEntityLifeRangeReference(
+      { ...range, life: { ...range.life, v: 2 }, start: { ...range.start, v: 2 } },
+      root,
+    ),
+    /requires Lync v1/,
+  );
+  await assert.rejects(
+    validateEntityLifeRangeReference({ ...range, turns: [] }, root),
+    /unknown field turns/,
+  );
+
+  const continued = await openEntityLoom('Scout', root, 'minecraft://range-world');
+  await continued.append(turn(3, 'Scout:turn:2'));
+  await continued.close();
+  const oldRange = await resolveEntityLifeRange('Scout', 1, 2, root);
+  assert.deepEqual(oldRange, range, 'later turns must not move earlier episode anchors');
+  await assert.rejects(
+    resolveEntityLifeRange('Scout', 2, 4, root),
+    /does not contain committed range/,
+  );
 });
 
 test('Lync recovers a committed turn after a stale tip manifest and keeps inhabitants separate', async () => {
@@ -375,4 +421,17 @@ test('an unmanaged entity cannot open while any repository world lifecycle is ac
 function restoreEnvironment(name: string, value: string | undefined) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
+}
+
+function directoryBytes(directory: string): Record<string, string> {
+  const snapshot: Record<string, string> = {};
+  const visit = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const file = path.join(current, entry.name);
+      if (entry.isDirectory()) visit(file);
+      else snapshot[path.relative(directory, file)] = fs.readFileSync(file).toString('base64');
+    }
+  };
+  visit(directory);
+  return snapshot;
 }
