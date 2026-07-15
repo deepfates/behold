@@ -174,6 +174,17 @@ test('resident configuration rejects canonical identity collisions and process-b
       startManagedWorld(
         {
           ...fixture.options,
+          residents: [{ entityId: 'Scout', model: 'fixture/model', maxTurnSteps: 0 }],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_turn_step_budget_invalid',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
           maxResidents: 1,
           residents: [
             { entityId: 'Scout', model: 'fixture/model' },
@@ -316,6 +327,8 @@ test('managed cognition keeps the provider key in the runner and drains before M
         ...resident,
         urgentModel: 'fixture/urgent-model',
         policyProfile: 'neutral-benchmark-v1' as const,
+        maxTurnSteps: 1,
+        resumeAfterBudget: false,
       })),
     },
     {
@@ -332,6 +345,8 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(run.residents[0].policyProfile, 'neutral-benchmark-v1');
   assert.equal(run.residents[0].actionProfile, 'minecraft-player-v1');
   assert.equal(run.residents[0].safetyProfile, 'vanilla-player-v1');
+  assert.equal(run.residents[0].maxTurnSteps, 1);
+  assert.equal(run.residents[0].resumeAfterBudget, false);
   const captured = JSON.parse(fs.readFileSync(captureFile, 'utf8'));
   assert.equal(captured.policyProfile, 'neutral-benchmark-v1');
   assert.equal(captured.actionProfile, 'minecraft-player-v1');
@@ -359,6 +374,8 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(configured?.data?.population?.residents?.[0]?.policyProfile, 'neutral-benchmark-v1');
   assert.equal(configured?.data?.population?.residents?.[0]?.actionProfile, 'minecraft-player-v1');
   assert.equal(configured?.data?.population?.residents?.[0]?.safetyProfile, 'vanilla-player-v1');
+  assert.equal(configured?.data?.population?.residents?.[0]?.maxTurnSteps, 1);
+  assert.equal(configured?.data?.population?.residents?.[0]?.resumeAfterBudget, false);
   assert.equal(brokerReady?.data?.maxTotalModelCalls, 4);
   const drained = lifecycle.findIndex((event) => event.type === 'cognition_broker_drained');
   const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');

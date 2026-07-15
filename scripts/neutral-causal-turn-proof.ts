@@ -75,6 +75,8 @@ async function main() {
             actionProfile: 'minecraft-player-v1',
             safetyProfile: 'vanilla-player-v1',
             tickMs: 1_000,
+            maxTurnSteps: 1,
+            resumeAfterBudget: false,
           },
         ],
         maxResidents: 1,

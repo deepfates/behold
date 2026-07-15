@@ -46,6 +46,10 @@ export type ConsoleOptions = {
   urgentModel?: string;
   urgentDecisionTimeoutMs?: number;
   tickMs?: number;
+  /** Maximum entity turns in one uninterrupted cognition burst. */
+  maxTurnSteps?: number;
+  /** Whether a resident starts another burst after reaching maxTurnSteps. */
+  resumeAfterBudget?: boolean;
   paused?: boolean;
   policyProfile?: ResidentPolicyProfile;
   actionProfile?: MinecraftActionProfile;
@@ -112,6 +116,8 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   };
   const taskTarget =
     opts.task === 'come-see-do-report' ? opts.target || 'importdf' : (opts.target ?? null);
+  const maxTurnSteps = opts.maxTurnSteps ?? (opts.task ? 8 : 16);
+  const resumeAfterBudget = opts.resumeAfterBudget ?? opts.task == null;
   appendJournal('run_started', {
     runId: process.env.BEHOLD_RUN_ID || journal.id,
     journalId: journal.id,
@@ -130,6 +136,8 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       urgentModel: urgentModel ?? null,
       urgentDecisionTimeoutMs,
       tickMs: Number(process.env.AGENT_TICK_MS || 3000),
+      maxTurnSteps,
+      resumeAfterBudget,
       paused: Boolean(opts.paused),
       allowTools: opts.allowTools ?? null,
     },
@@ -443,8 +451,8 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
         cognitionTransport,
         tickMs: Number(process.env.AGENT_TICK_MS || 3000),
-        maxTurnSteps: task ? 8 : 16,
-        resumeAfterBudget: task == null,
+        maxTurnSteps,
+        resumeAfterBudget,
         allowTools: opts.allowTools ?? null,
         // The complete loom stays authoritative. The adjacent fold is only a
         // validated, disposable prompt view over older turns.

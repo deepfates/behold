@@ -158,6 +158,10 @@ export type ManagedResidentSpec = Readonly<{
   actionProfile?: MinecraftActionProfile;
   safetyProfile?: MinecraftSafetyProfile;
   tickMs?: number;
+  /** Maximum entity turns in one uninterrupted cognition burst. */
+  maxTurnSteps?: number;
+  /** Whether cognition resumes after the burst budget is reached. */
+  resumeAfterBudget?: boolean;
   task?: string;
   target?: string;
   allowTools?: readonly string[];
@@ -217,6 +221,8 @@ export type ManagedWorldRun = Readonly<{
     actionProfile: MinecraftActionProfile;
     safetyProfile: MinecraftSafetyProfile;
     tickMs: number;
+    maxTurnSteps: number | null;
+    resumeAfterBudget: boolean | null;
     paused: boolean;
     pid: number;
     leasePath: string;
@@ -287,6 +293,8 @@ type NormalizedManagedResident = Readonly<{
   actionProfile: MinecraftActionProfile;
   safetyProfile: MinecraftSafetyProfile;
   tickMs: number;
+  maxTurnSteps?: number;
+  resumeAfterBudget?: boolean;
   task?: string;
   target?: string;
   allowTools?: readonly string[];
@@ -455,6 +463,24 @@ function normalizeManagedResidents(
           { index, entityId, tickMs },
         );
       }
+      const maxTurnSteps = candidate.maxTurnSteps;
+      if (
+        maxTurnSteps != null &&
+        (!Number.isSafeInteger(maxTurnSteps) || maxTurnSteps < 1 || maxTurnSteps > 32)
+      ) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} maxTurnSteps must be an integer from 1 through 32`,
+          'resident_turn_step_budget_invalid',
+          { index, entityId, maxTurnSteps },
+        );
+      }
+      if (candidate.resumeAfterBudget != null && typeof candidate.resumeAfterBudget !== 'boolean') {
+        throw new WorldRunnerError(
+          `Resident ${entityId} resumeAfterBudget must be a boolean`,
+          'resident_turn_resume_invalid',
+          { index, entityId, resumeAfterBudget: candidate.resumeAfterBudget },
+        );
+      }
       if (candidate.target && !candidate.task) {
         throw new WorldRunnerError(
           `Resident ${entityId} has a target without a task`,
@@ -486,6 +512,10 @@ function normalizeManagedResidents(
         actionProfile,
         safetyProfile,
         tickMs,
+        ...(maxTurnSteps == null ? {} : { maxTurnSteps }),
+        ...(candidate.resumeAfterBudget == null
+          ? {}
+          : { resumeAfterBudget: candidate.resumeAfterBudget }),
         ...(candidate.task ? { task: String(candidate.task) } : {}),
         ...(candidate.target ? { target: String(candidate.target) } : {}),
         ...(candidate.allowTools ? { allowTools: Object.freeze([...candidate.allowTools]) } : {}),
@@ -529,6 +559,8 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         actionProfile: entry.resident.actionProfile,
         safetyProfile: entry.resident.safetyProfile,
         tickMs: entry.resident.tickMs,
+        maxTurnSteps: entry.resident.maxTurnSteps ?? null,
+        resumeAfterBudget: entry.resident.resumeAfterBudget ?? null,
         paused: entry.resident.paused,
         pid: entry.child.pid!,
         leasePath: entry.resident.leasePath,
@@ -745,6 +777,8 @@ export async function startManagedWorld(
           actionProfile: resident.actionProfile,
           safetyProfile: resident.safetyProfile,
           tickMs: resident.tickMs,
+          maxTurnSteps: resident.maxTurnSteps ?? null,
+          resumeAfterBudget: resident.resumeAfterBudget ?? null,
           paused: resident.paused,
           task: resident.task ?? null,
           target: resident.target ?? null,
@@ -866,6 +900,8 @@ export async function startManagedWorld(
         urgentModel: resident.urgentModel ?? null,
         mind: resident.mind,
         tickMs: resident.tickMs,
+        maxTurnSteps: resident.maxTurnSteps ?? null,
+        resumeAfterBudget: resident.resumeAfterBudget ?? null,
         paused: resident.paused,
         leasePath: resident.leasePath,
         journalDirectory,
@@ -1493,6 +1529,12 @@ function spawnDefaultController(
     '--tickMs',
     String(resident.tickMs),
   ];
+  if (resident.maxTurnSteps != null) {
+    args.push('--maxTurnSteps', String(resident.maxTurnSteps));
+  }
+  if (resident.resumeAfterBudget != null) {
+    args.push('--resumeAfterBudget', String(resident.resumeAfterBudget));
+  }
   if (resident.urgentModel) args.push('--urgentModel', resident.urgentModel);
   if (resident.task) args.push('--task', resident.task);
   if (resident.target) args.push('--target', resident.target);
