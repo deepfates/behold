@@ -30,7 +30,16 @@ test('Ax proposes a typed decision without receiving executable world functions'
     maxConcurrent: 1,
     fetch: async (_url: any, init: any) => {
       requests.push(JSON.parse(String(init?.body || '{}')));
-      const firstAttempt = requests.length === 1;
+      const actionName =
+        requests.length === 1
+          ? 'use_crafting_table'
+          : requests.length === 2
+            ? 'craft_item'
+            : 'wait_for_event';
+      const actionInput =
+        actionName === 'wait_for_event'
+          ? '{"reason":"Let the world advance","events":["scene update"]}'
+          : '{"item":"oak_planks"}';
       return new Response(
         JSON.stringify({
           id: 'ax-test-generation',
@@ -45,8 +54,8 @@ test('Ax proposes a typed decision without receiving executable world functions'
                 role: 'assistant',
                 content: [
                   'Disposition: act',
-                  `Action Name: ${firstAttempt ? 'use_crafting_table' : 'craft_item'}`,
-                  'Action Input: {"item":"oak_planks"}',
+                  `Action Name: ${actionName}`,
+                  `Action Input: ${actionInput}`,
                 ].join('\n'),
               },
             },
@@ -142,6 +151,14 @@ test('Ax proposes a typed decision without receiving executable world functions'
     const secondDecision = await mind.decide(
       {
         ...mindRequest,
+        actions: [
+          ...mindRequest.actions,
+          {
+            name: 'wait_for_event',
+            description: 'Yield until the world changes',
+            inputSchema: { type: 'object', properties: {} },
+          },
+        ],
         conversation: [
           { role: 'system', content: 'Different policy guidance for the same candidate.' },
           ...mindRequest.conversation.slice(1),
@@ -151,6 +168,11 @@ test('Ax proposes a typed decision without receiving executable world functions'
     );
     assert.equal(requests.length, 3);
     assert.match(JSON.stringify(requests[2]), /Different policy guidance/);
+    assert.equal(secondDecision.disposition, 'wait');
+    assert.deepEqual(secondDecision.action, {
+      name: 'wait_for_event',
+      input: { reason: 'Let the world advance', events: ['scene update'] },
+    });
     assert.deepEqual(secondDecision.call.program, decision.call.program);
     assert.equal(broker.snapshot().completed, 3);
   } finally {

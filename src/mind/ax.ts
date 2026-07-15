@@ -380,14 +380,19 @@ function toDecision(output: any, call: ResidentMindDecision['call']): ResidentMi
       call,
     };
   }
-  if (disposition === 'wait') {
+  const actionName = String(output?.actionName || '');
+  if (disposition === 'wait' || actionName === 'wait_for_event') {
+    const actionInput = jsonValue(output?.actionInput);
     return {
       protocol: 'behold.mind-decision.v1',
-      disposition,
+      disposition: 'wait',
       utterance,
       action: {
         name: 'wait_for_event',
-        input: { reason: String(output?.waitReason || utterance || 'waiting for a world event') },
+        input:
+          actionInput && typeof actionInput === 'object' && !Array.isArray(actionInput)
+            ? actionInput
+            : { reason: String(output?.waitReason || utterance || 'waiting for a world event') },
       },
       call,
     };
@@ -397,7 +402,7 @@ function toDecision(output: any, call: ResidentMindDecision['call']): ResidentMi
     disposition,
     utterance,
     action: {
-      name: String(output?.actionName || ''),
+      name: actionName,
       input: jsonValue(output?.actionInput),
     },
     call,
