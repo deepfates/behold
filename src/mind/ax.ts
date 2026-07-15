@@ -106,9 +106,28 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
     const admission = parseCognitionAdmission(response.headers);
     if (admission && activeAdmissions) activeAdmissions.push(admission);
     if (activeProviderResponses) {
+      const copy = response.clone();
       try {
-        activeProviderResponses.push(await response.clone().json());
-      } catch {}
+        const text = await copy.text();
+        try {
+          activeProviderResponses.push(JSON.parse(text));
+        } catch {
+          activeProviderResponses.push({
+            capture: {
+              status: response.status,
+              contentType: response.headers.get('content-type'),
+              bodyPreview: text.slice(0, 1_000),
+            },
+          });
+        }
+      } catch (error: any) {
+        activeProviderResponses.push({
+          capture: {
+            status: response.status,
+            error: error?.message || String(error),
+          },
+        });
+      }
     }
     return response;
   };
@@ -124,7 +143,10 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
         apiKey: options.apiKey,
         apiURL,
         config: { model },
-        options: { stream: false, fetch: instrumentedFetch },
+        // Behold's cognition broker owns provider-call admission. Ax may make
+        // explicit output-correction attempts, but its HTTP transport must not
+        // multiply a rejected admission behind the broker's accounting.
+        options: { stream: false, fetch: instrumentedFetch, retry: { maxRetries: 0 } },
       });
       llms.set(model, llm);
     }

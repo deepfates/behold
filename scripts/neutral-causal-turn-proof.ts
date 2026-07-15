@@ -342,7 +342,7 @@ function parseArgs(argv: string[]) {
     throw new Error('--timeoutMs must be an integer from 30000 through 600000');
   }
   const maxModelCalls =
-    requestedMaxModelCalls ?? (claim === 'decision' ? (mind === 'ax' ? 2 : 1) : 4);
+    requestedMaxModelCalls ?? (claim === 'decision' ? (mind === 'ax' ? 3 : 1) : 4);
   if (!Number.isSafeInteger(maxModelCalls) || maxModelCalls < 1 || maxModelCalls > 32) {
     throw new Error('--maxModelCalls must be an integer from 1 through 32');
   }

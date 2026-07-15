@@ -316,13 +316,17 @@ test('Ax optimizer output is narrowed to admitted inference behavior', () => {
 
 test('a failed Ax call retains the exact candidate program identity', async () => {
   const artifact = defaultAxResidentProgramArtifact();
+  let providerAttempts = 0;
   const mind = createAxResidentMind({
     apiKey: 'test-key',
     model: 'test/model',
     apiURL: 'https://models.example.test/v1',
     maxRetries: 0,
     recordModelIO: true,
-    fetch: async () => new Response('{"error":"unauthorized"}', { status: 401 }),
+    fetch: async () => {
+      providerAttempts += 1;
+      return new Response('{"error":"unauthorized"}', { status: 401 });
+    },
   });
   await assert.rejects(
     mind.decide(
@@ -348,6 +352,7 @@ test('a failed Ax call retains the exact candidate program identity', async () =
       assert.deepEqual(error.call.program, axResidentProgramIdentity(artifact));
       assert.ok((error.call.response.raw as any).providerResponses.length >= 1);
       assert.equal((error.call.response.raw as any).providerResponses[0].error, 'unauthorized');
+      assert.equal(providerAttempts, 1, 'the cognition owner, not Ax HTTP, owns call retries');
       return true;
     },
   );
