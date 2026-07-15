@@ -317,12 +317,15 @@ entity identity, body lease, observation cursor, controller, mind, journal, and
 loom. Population machinery coordinates these scopes; it does not create a
 shared private mind or weaken per-body authority.
 
-A third scope is now clearly required but not yet implemented in Behold: a
-**world history** is one persistent writable continuation that can survive many
-server epochs. It descends from an immutable place artifact or exact checkpoint.
-Its lineage, checkpoints, and branch-local clock are distinct from both the
-server process and any inhabitant's autobiography. A packaged city is therefore
-a possible beginning, not a timeline, and an epoch restart is not a world fork.
+A third scope is now implemented for Minecraft: a **world history** is one
+persistent writable continuation that can survive many server epochs. It
+descends from an exact immutable checkpoint, while Place artifacts remain a
+separate possible source. Its lineage and checkpoints are distinct from both
+the server process and any inhabitant's autobiography. Sibling histories have
+diverged from one verified checkpoint, and one private life has continued
+through three epochs in one branch while its mind adapter changed. A packaged
+city is therefore a possible beginning, not a timeline, and an epoch restart is
+not a world fork.
 
 Forking a world history, crossing into an existing history, and forking an
 inhabitant are separate acts. The same resident may cross while remaining one

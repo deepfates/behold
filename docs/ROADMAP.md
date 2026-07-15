@@ -48,13 +48,20 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   direct and Ax the same neutral request artifact; their provider projections
   and legal choices differed without changing the admitted experience. See
   `docs/reports/2026-07-14-matched-mind-input.md`
+- Direct and Ax also completed causal turns in isolated siblings of one exact
+  Minecraft checkpoint. Both freely selected and completed the same visible
+  oak-log orientation action. The Ax-started life then resumed for two more
+  epochs under direct: it recorded one honest no-op failure, received that
+  failure in its next bounded context, and changed strategy successfully. See
+  `docs/reports/2026-07-14-causal-minds-in-forked-history.md`
 - A closed resident life can now expose an exact inclusive Lync turn range
   without taking body authority or changing its files. Evaluator-owned episode
   looms preserve that range independently of later body activity or branch-tip
-  selection and never copy it into resident memory. Runtime, profile, mind, and
-  lifecycle identities are now authenticated for one neutral live turn. Budget
-  bindings, material-effect assessments, world-lineage references, and a
-  durable dataset index remain deliberately unclaimed
+  selection and never copy it into resident memory. Runtime, profile, mind,
+  lifecycle, world-history, and starting/ending world digest identities are now
+  authenticated for neutral live turns and continuations. Budget bindings,
+  material-effect assessments, and a durable dataset index remain deliberately
+  unclaimed
 - Decision evidence and world-action evidence are separate typed bindings. A
   neutral live Ax turn authenticated its exact request, content-addressed
   program, managed epoch, admitted choice, terminal adapter delivery, personal
@@ -146,7 +153,7 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   identities
 - One contrasting live world adapter passing a shared conformance assessment;
   package extraction before that proof would still be an abstraction guess
-- Persistent world histories above server epochs are partly green. Behold now
+- Persistent world histories above server epochs are mostly green. Behold now
   seals an actually stopped Minecraft runtime into an immutable
   content-addressed checkpoint, materializes isolated writable children, and
   records `source -> checkpoint -> histories` in a separately verified Lync
@@ -154,11 +161,14 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   changing the source. Both children then launched through isolated vanilla
   server profiles and admitted the same saved Minecraft body under two new,
   empty, branch-local private lives. Their native histories diverged while the
-  checkpoint and lineage remained intact. A first causal mind turn in fresh
-  siblings, branch-local clocks, crossing receipts, and authorized private-life
-  copy/cross semantics remain red. See
+  checkpoint and lineage remained intact. Direct and Ax then made independently
+  verified causal turns in fresh siblings, and one life continued in the same
+  diverged history across epochs 1, 2, and 3 while its mind changed from Ax to
+  direct. Crossing receipts, authorized private-life copy/cross semantics, and
+  longer branch-clock evidence remain red. See
   `docs/reports/2026-07-14-first-minecraft-world-history.md` and
-  `docs/reports/2026-07-14-first-sibling-body-admission.md`.
+  `docs/reports/2026-07-14-first-sibling-body-admission.md`, plus
+  `docs/reports/2026-07-14-causal-minds-in-forked-history.md`.
 - Immediate in-flight cancellation with an acknowledgement from each long-running Mineflayer action family
 - Production reset/recovery with an exclusive operation fence, durable journal, managed server lifecycle, and two real resets
 - A repeatable production-path Come–See–Do–Report runner; passing unit and fixture tests do not establish the live story
@@ -224,8 +234,9 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    policy, and resident coaching independently versioned; distinguish exact
    request replay from current-code reconstruction by hash. See
    [the neutral benchmark design](MINECRAFT_BENCHMARK.md).
-2. Run direct and content-addressed Ax minds against identical captured
-   requests, then use held-out real Minecraft episodes for outcome selection.
+2. Use the now-proved direct/Ax exact-input and sibling-rollout path to build
+   lineage-safe training and held-out episode families, then select changes by
+   held-out real Minecraft outcomes.
 3. Prove one honest turn and one continuation in a contrasting real world.
    Minecraft's observation-action-material-consequence loop now passes; extract
    shared code only after the second integration shows which semantics actually
@@ -241,9 +252,8 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    result into foundation work only when it exposes a reusable missing boundary.
 7. Run a minimally scripted household and a multi-hour soak after the
    single-life conformance and budget gates pass.
-8. Build Minecraft world-history checkpoints, forks, and crossings using the
-   live Armok Lab pattern while keeping history, life, and episode identities
-   separate.
+8. Add explicit crossing receipts and authorized life crossing/copy semantics
+   to the working Minecraft checkpoint, fork, re-entry, and continuation path.
 
 ## Useful world work
 
