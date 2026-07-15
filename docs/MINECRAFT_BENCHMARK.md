@@ -348,7 +348,15 @@ the people and agents living there.
 
 ## First implementation cut
 
-Before another open-ended paid life run:
+The first unoptimized cut is now green. At clean revision `6d9fc89`, a neutral
+GPT-5.4 Mini resident freely chose three ordinary actions, gained one oak log,
+observed the gain, and retained it in the same saved body after a fully stopped
+fresh-process restart. The outcome, exact Lync life, provider ceiling, sibling
+history, lifecycle journals, and restart observation all pass clean-process
+reassessment. See
+[`2026-07-14-neutral-inventory-gain.md`](reports/2026-07-14-neutral-inventory-gain.md).
+
+Before Ax optimization or another open-ended paid life run:
 
 1. Keep the implemented `neutral-benchmark-v1` policy, `minecraft-player-v1`
    action surface, and `vanilla-player-v1` risk profile under conformance tests
@@ -359,10 +367,11 @@ Before another open-ended paid life run:
 3. Keep Ax instruction/demo artifacts content-addressed and runtime policy
    guidance request-scoped; never apply optimizer metadata or signature changes
    as if they were an inference program.
-4. Run direct and Ax minds through identical captured-frame replays using their
-   exact program identities.
-5. Add one resettable real Minecraft episode with outcome-only scoring and a
-   held-out variation.
+4. Preserve the now-passing exact-request direct/Ax replay and resettable real
+   outcome episode as separate gates: proposal replay does not claim a world
+   consequence, and one successful rollout does not rank minds.
+5. Add held-out checkpoint and outcome families without changing the task,
+   observation, affordance, action, or scoring contract in response to results.
 
 Only then should GEPA spend model calls. A gain counts only if the serialized
 candidate reproduces on held-out real-world episodes without changing the

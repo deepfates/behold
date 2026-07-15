@@ -60,6 +60,16 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   attempts. A three-trial-per-mind GPT-5.4 Mini run completed all six calls and
   exposed genuine proposal variation; it deliberately makes no outcome-quality
   claim because replayed proposals do not mutate Minecraft
+- One resettable outcome-scored episode now closes the complete neutral loop.
+  GPT-5.4 Mini received no required action or strategy, chose to face and mine
+  one visible oak log, selected its exact dropped stack, observed the inventory
+  gain, and stopped after three calls. A fresh paused process then attached the
+  same saved body and independently observed `oak_log ×1`. The exact Lync life,
+  provider ceiling, fork lineage, two lifecycle epochs, journals, evaluator
+  episode, and all outcome assertions pass clean-process reassessment. The
+  failed predecessor also exposed and repaired a reusable observation-to-action
+  handoff bug without prompt coaching. See
+  `docs/reports/2026-07-14-neutral-inventory-gain.md`
 - A closed resident life can now expose an exact inclusive Lync turn range
   without taking body authority or changing its files. Evaluator-owned episode
   looms preserve that range independently of later body activity or branch-tip
@@ -233,6 +243,12 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   selected an ordinary forward swim through GPT-5.4-mini, recovered from oxygen
   4 to 15, and restarted at the persisted safe position with oxygen 17. See the
   [untasked recovery report](reports/2026-07-14-untasked-resident-recovery.md).
+- GainBoundV1 completed the first neutral outcome-only competence episode in a
+  fresh sibling history: face a visible oak log, mine it, collect its dropped
+  stack, observe the gain, stop cleanly, and return in a paused process with the
+  exact item persisted. It used three of six allowed GPT-5.4 Mini calls and the
+  full player-grain action surface. See the
+  [neutral inventory-gain report](reports/2026-07-14-neutral-inventory-gain.md).
 
 ## Immediate priorities
 
