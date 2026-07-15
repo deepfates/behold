@@ -38,6 +38,7 @@
     "proof:resident-recovery-live": "npm run build && node dist/scripts/resident-recovery-live.js",
     "proof:neutral-world-action-turn": "npm run build && node dist/scripts/neutral-causal-turn-proof.js --claim world-action",
     "proof:neutral-decision-turn": "npm run build && node dist/scripts/neutral-causal-turn-proof.js --claim decision",
+    "proof:minecraft-inventory-gain": "npm run build && node dist/scripts/minecraft-inventory-gain-proof.js",
     "verify:neutral-turn": "npm run build && node dist/scripts/reassess-neutral-turn.js",
     "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",
     "eval:mind-extract": "npm run build && node dist/scripts/extract-mind-request.js",
