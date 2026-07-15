@@ -11,31 +11,42 @@ import { createWorldActionRecord } from '../src/evaluation/behold-action-record'
 import { createEvaluationEpisode } from '../src/evaluation/episode';
 import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
+import {
+  minecraftHistoryWorldDefinition,
+  prepareMinecraftHistoryServer,
+  verifyMinecraftWorldHistoryFork,
+  type MinecraftWorldHistoryFork,
+} from '../src/runtime/world-history';
 import { parseRunJournal } from './owned-world-model-evidence';
 import {
   assertCleanRepository,
   durableWriteJson,
   gitRevision,
   prepareOwnedWorld,
+  readJson,
   restoreEnvironment,
   sha256File,
   waitFor,
 } from './owned-world-fixture';
 import { waitForRunJournal } from './owned-world-model-harness';
-import { startManagedWorld, type ManagedWorldRun } from './world-runner';
+import { digestTree, loadWorldLabConfig } from './world-lab';
+import { bundledJava, startManagedWorld, type ManagedWorldRun } from './world-runner';
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!process.env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY is required');
   assertCleanRepository();
   const priorUmask = process.umask(0o077);
-  let fixture: Awaited<ReturnType<typeof prepareOwnedWorld>>;
+  let fixture: Awaited<ReturnType<typeof prepareOwnedWorld>> | HistoryTurnFixture;
   try {
-    fixture = await prepareOwnedWorld(args.runId, args.port, 'neutral-turn');
+    fixture = args.historyReceipt
+      ? await prepareHistoryTurnFixture(args)
+      : await prepareOwnedWorld(args.runId, args.port, 'neutral-turn');
   } catch (error) {
     process.umask(priorUmask);
     throw error;
   }
+  const historyContext = 'historyContext' in fixture ? fixture.historyContext : null;
   const runRoot = path.join(fixture.evidenceRoot, 'runs');
   const priorRecordModelIo = process.env.BEHOLD_RECORD_MODEL_IO;
   process.env.BEHOLD_RECORD_MODEL_IO = '1';
@@ -57,6 +68,7 @@ async function main() {
         residents: [
           {
             entityId: args.entityId,
+            ...(args.bodyUsername ? { bodyUsername: args.bodyUsername } : {}),
             model: args.model,
             mind: args.mind,
             policyProfile: 'neutral-benchmark-v1',
@@ -118,7 +130,7 @@ async function main() {
       selected.entityTurn.data.sequence,
       fixture.entityRoot,
     );
-    const specificationSha256 = sha256(suiteSpecification(args.claim));
+    const specificationSha256 = sha256(suiteSpecification(args.claim, historyContext));
     episode = await createEvaluationEpisode(
       path.join(fixture.evidenceRoot, 'evaluation-episodes'),
       fixture.entityRoot,
@@ -186,6 +198,12 @@ async function main() {
       generatedAt,
       repository: { revision: repositoryRevision },
       claim: args.claim,
+      history: historyContext
+        ? {
+            ...historyContext,
+            afterTurnWorld: digestTree(fixture.runtime),
+          }
+        : null,
       suite: { specificationSha256 },
       decisionAssessment,
       uncoachedDecisionAssessment,
@@ -262,6 +280,11 @@ function parseArgs(argv: string[]) {
   let mind: 'direct' | 'ax' = 'ax';
   let claim: 'decision' | 'world-action' = 'world-action';
   let timeoutMs = 120_000;
+  let historyReceipt = '';
+  let historyId = '';
+  let parentConfig = '';
+  let parentWorld = '';
+  let bodyUsername = '';
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--runId') runId = String(argv[++index] || '');
     else if (argv[index] === '--port') port = Number(argv[++index]);
@@ -272,6 +295,11 @@ function parseArgs(argv: string[]) {
       if (value !== 'direct' && value !== 'ax') throw new Error('--mind must be direct or ax');
       mind = value;
     } else if (argv[index] === '--timeoutMs') timeoutMs = Number(argv[++index]);
+    else if (argv[index] === '--historyReceipt') historyReceipt = String(argv[++index] || '');
+    else if (argv[index] === '--history') historyId = String(argv[++index] || '');
+    else if (argv[index] === '--parentConfig') parentConfig = String(argv[++index] || '');
+    else if (argv[index] === '--parentWorld') parentWorld = String(argv[++index] || '');
+    else if (argv[index] === '--body') bodyUsername = String(argv[++index] || '');
     else if (argv[index] === '--claim') {
       const value = String(argv[++index] || '');
       if (value !== 'decision' && value !== 'world-action') {
@@ -288,16 +316,48 @@ function parseArgs(argv: string[]) {
     throw new Error('--entity must be 1-16 Minecraft-safe characters');
   }
   if (!model.trim()) throw new Error('--model is required');
+  const historyValues = [historyReceipt, historyId, parentConfig, parentWorld, bodyUsername];
+  if (historyValues.some(Boolean) && !historyValues.every(Boolean)) {
+    throw new Error(
+      'history mode requires --historyReceipt, --history, --parentConfig, --parentWorld, and --body together',
+    );
+  }
+  if (bodyUsername && !/^[A-Za-z0-9_]{1,16}$/.test(bodyUsername)) {
+    throw new Error('--body must be 1-16 Minecraft-safe characters');
+  }
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 30_000 || timeoutMs > 600_000) {
     throw new Error('--timeoutMs must be an integer from 30000 through 600000');
   }
-  return { runId, port, entityId, model, mind, claim, timeoutMs };
+  return {
+    runId,
+    port,
+    entityId,
+    model,
+    mind,
+    claim,
+    timeoutMs,
+    historyReceipt: historyReceipt || null,
+    historyId: historyId || null,
+    parentConfig: parentConfig || null,
+    parentWorld: parentWorld || null,
+    bodyUsername: bodyUsername || null,
+  };
 }
 
-function suiteSpecification(claim: 'decision' | 'world-action') {
+function suiteSpecification(
+  claim: 'decision' | 'world-action',
+  history: HistoryTurnFixture['historyContext'] | null,
+) {
   return [
     'neutral-turn-v4',
     `Claim: ${claim}`,
+    ...(history
+      ? [
+          `World history: ${history.historyId}`,
+          `Checkpoint: ${history.checkpointArtifactId}`,
+          `Initial world digest: ${history.initialWorld.digest}`,
+        ]
+      : []),
     'Start one disposable authoritative Minecraft epoch from a verified baseline.',
     'Admit one untasked resident with neutral-benchmark-v1, minecraft-player-v1, and vanilla-player-v1.',
     claim === 'decision'
@@ -307,6 +367,86 @@ function suiteSpecification(claim: 'decision' | 'world-action') {
     'Report decision-boundary and world-action verdicts separately.',
     'Project a passed world action into distinct observation, proposal, authentic permission, execution, and structural-check records without fabricating a world fact.',
   ].join('\n');
+}
+
+type HistoryTurnFixture = Awaited<ReturnType<typeof prepareHistoryTurnFixture>>;
+
+async function prepareHistoryTurnFixture(args: ReturnType<typeof parseArgs>) {
+  const receiptFile = path.resolve(String(args.historyReceipt));
+  const receipt = readJson(receiptFile) as MinecraftWorldHistoryFork;
+  const verification = await verifyMinecraftWorldHistoryFork(receipt);
+  if (
+    !verification.checkpointIntegrityOk ||
+    !verification.lineageIntegrityOk ||
+    !verification.lifecycleIntegrityOk
+  ) {
+    throw new Error('history receipt failed checkpoint or lineage verification');
+  }
+  const history = receipt.histories.find((candidate) => candidate.historyId === args.historyId);
+  if (!history) throw new Error(`history receipt has no child ${args.historyId}`);
+  const initialWorld = digestTree(history.worldPath);
+  if (initialWorld.digest !== history.initialDigest) {
+    throw new Error('history child already diverged before its neutral turn');
+  }
+  const parentConfig = loadWorldLabConfig(path.resolve(String(args.parentConfig)));
+  const parent = parentConfig.worlds[String(args.parentWorld)];
+  if (!parent) throw new Error(`unknown parent world ${args.parentWorld}`);
+  if (receipt.worldId !== args.parentWorld) {
+    throw new Error('history receipt and parent world differ');
+  }
+  const templateServerDirectory = path.dirname(parent.runtime.worldPath);
+  const serverProfile = prepareMinecraftHistoryServer({
+    history,
+    templateServerDirectory,
+    port: args.port,
+  });
+  const world = minecraftHistoryWorldDefinition(parent, receipt.checkpoint, history, args.port);
+  const root = path.resolve('.behold-runtime', 'world-histories', 'evidence', args.runId);
+  if (fs.existsSync(root)) throw new Error(`history turn proof already exists: ${root}`);
+  const evidenceRoot = path.join(root, 'evidence');
+  const entityRoot = path.join(root, 'entities');
+  const controlRoot = path.join(root, 'control');
+  for (const directory of [evidenceRoot, entityRoot, controlRoot]) {
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.chmodSync(directory, 0o700);
+  }
+  const toolLock = readJson(path.resolve('docs/sf-world/tool-lock.json'));
+  const serverJar = path.resolve(String(toolLock.tools.minecraftServer.path));
+  const expectedServerJarSha256 = String(toolLock.tools.minecraftServer.sha256);
+  if (sha256File(serverJar) !== expectedServerJarSha256) {
+    throw new Error('pinned Minecraft server JAR differs from the tool lock');
+  }
+  return {
+    worldId: history.historyId,
+    runId: args.runId,
+    port: args.port,
+    repository: process.cwd(),
+    root,
+    serverDirectory: serverProfile.serverDirectory,
+    runtime: history.worldPath,
+    entityRoot,
+    controlRoot,
+    evidenceRoot,
+    serverJar,
+    expectedServerJarSha256,
+    java: bundledJava(),
+    world,
+    historyContext: {
+      receiptFile,
+      receiptSha256: sha256File(receiptFile),
+      operationId: receipt.operationId,
+      historyId: history.historyId,
+      checkpointArtifactId: receipt.checkpoint.artifactId,
+      checkpointDigest: receipt.checkpoint.digest,
+      initialWorld,
+      serverProfile: {
+        manifestFile: serverProfile.manifestFile,
+        manifestSha256: sha256File(serverProfile.manifestFile),
+      },
+      bodyUsername: args.bodyUsername!,
+      copySemantics: 'branch-local evaluation life with no inherited private Lync' as const,
+    },
+  };
 }
 
 function sha256(value: string) {
