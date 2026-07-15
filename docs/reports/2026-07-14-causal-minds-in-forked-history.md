@@ -66,6 +66,35 @@ the mind but cannot prove a world consequence; the sibling rollouts prove real
 consequences but cannot freeze native time. Together they control the two
 different questions honestly.
 
+## Repeated exact-request sampling
+
+A later request from turn 3, after the life had experienced both the successful
+orientation and the rejected no-op, was captured with SHA-256
+`3f6ac68d61ebf4a43c86a9c9e453af858cc92efd2cbf008484e462bbdf0b056e`.
+The mutation-disabled evaluator then sampled each adapter three times from that
+one immutable request. All six calls completed, authenticated the exact input,
+and returned schema-valid decisions.
+
+| Mind   | Proposal distribution                                     | Tokens |       Cost | p50 / p95 latency |
+| ------ | --------------------------------------------------------- | -----: | ---------: | ----------------: |
+| Direct | face exact oak log ×2; no action ×1                       | 14,557 | $0.0024012 |   1.879 / 3.091 s |
+| Ax 23  | face exact oak log ×2; face exact visible birch leaves ×1 | 23,549 | $0.0030632 |   2.878 / 3.154 s |
+
+This run caught and removed three adapter artifacts before becoming evidence.
+Provider-generated call IDs had incorrectly split identical direct actions into
+separate histogram buckets. Ax also required a public utterance even though the
+shared mind contract permits silent embodied action; that accidental output
+requirement caused a real validation failure. Semantic action grouping, optional
+utterance, and canonical `wait_for_event` decisions now pass the full gate. No
+prompt, demonstration, action requirement, or world special case was added.
+
+The distribution is not an outcome score. None of these replayed proposals was
+executed, and three samples cannot rank policy quality. It does establish the
+reusable measurement boundary needed next: adapter reliability, stochastic
+proposal behavior, latency, tokens, cost, and provider attempts can be measured
+without mutating the life or world. Outcome quality still requires separately
+executed, independently witnessed, lineage-safe episodes.
+
 ## One life across three epochs and two minds
 
 The Ax branch then continued rather than being reset. The proof runner first
@@ -121,5 +150,9 @@ program or model changes.
   `.behold-runtime/world-histories/evidence/first-life-direct-neutral-v7/evidence/`
 - exact-input comparison:
   `.behold-runtime/world-histories/evidence/first-life-causal-minds-v7-exact-request-comparison.json`
+- repeated turn-3 exact-input trials:
+  `.behold-runtime/world-histories/evidence/first-life-causal-minds-v7-turn-3-three-trials-final.json`
 - reusable continuation implementation: commits `0747096` and `1aad275`
-- full repository gate: 448 tests, TypeScript, and ESLint passing
+- repeated-sampling and adapter corrections: commits `f551283`, `ed52ebc`,
+  `7944522`, and `318ca03`
+- full repository gate: 449 tests, TypeScript, and ESLint passing

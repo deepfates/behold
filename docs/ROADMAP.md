@@ -54,6 +54,12 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   epochs under direct: it recorded one honest no-op failure, received that
   failure in its next bounded context, and changed strategy successfully. See
   `docs/reports/2026-07-14-causal-minds-in-forked-history.md`
+- The same immutable continuing-life request can now be sampled repeatedly
+  without exposing executable world functions. The evaluator reports semantic
+  action distributions, adapter failures, latency, tokens, cost, and provider
+  attempts. A three-trial-per-mind GPT-5.4 Mini run completed all six calls and
+  exposed genuine proposal variation; it deliberately makes no outcome-quality
+  claim because replayed proposals do not mutate Minecraft
 - A closed resident life can now expose an exact inclusive Lync turn range
   without taking body authority or changing its files. Evaluator-owned episode
   looms preserve that range independently of later body activity or branch-tip
@@ -234,9 +240,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    policy, and resident coaching independently versioned; distinguish exact
    request replay from current-code reconstruction by hash. See
    [the neutral benchmark design](MINECRAFT_BENCHMARK.md).
-2. Use the now-proved direct/Ax exact-input and sibling-rollout path to build
-   lineage-safe training and held-out episode families, then select changes by
-   held-out real Minecraft outcomes.
+2. Use the now-proved direct/Ax exact-input sampler and sibling-rollout path to
+   build lineage-safe training and held-out episode families. Score only
+   independently witnessed Minecraft outcomes, then select program or model
+   changes by held-out results rather than one proposal or prompt-shaped pass.
 3. Prove one honest turn and one continuation in a contrasting real world.
    Minecraft's observation-action-material-consequence loop now passes; extract
    shared code only after the second integration shows which semantics actually
