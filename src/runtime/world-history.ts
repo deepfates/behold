@@ -322,9 +322,6 @@ export function prepareMinecraftHistoryServer(
   if (!fs.existsSync(history.worldPath) || !fs.statSync(history.worldPath).isDirectory()) {
     throw new Error(`Minecraft history world is missing: ${history.worldPath}`);
   }
-  if (digestTree(history.worldPath).digest !== history.initialDigest) {
-    throw new Error('Minecraft history server must be prepared before its world diverges');
-  }
   const templateDirectory = fs.realpathSync.native(path.resolve(input.templateServerDirectory));
   if (!fs.statSync(templateDirectory).isDirectory()) {
     throw new Error('Minecraft history server template is not a directory');
@@ -371,6 +368,9 @@ export function prepareMinecraftHistoryServer(
     }
     assertPreparedServerProfile(existing);
     return existing;
+  }
+  if (digestTree(history.worldPath).digest !== history.initialDigest) {
+    throw new Error('Minecraft history server must be prepared before its world diverges');
   }
 
   const outputs = [

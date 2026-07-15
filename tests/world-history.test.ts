@@ -216,6 +216,17 @@ test('a child history receives an isolated vanilla server profile without copyin
     }),
     server,
   );
+
+  fs.writeFileSync(path.join(child.worldPath, 'region', 'continued.mca'), 'later history');
+  assert.deepEqual(
+    prepareMinecraftHistoryServer({
+      history: child,
+      templateServerDirectory: fixture.templateServer,
+      port: 25_599,
+    }),
+    server,
+  );
+  assert.equal(verifyMinecraftHistoryServer(server).worldDiverged, true);
 });
 
 function worldFixture(t: test.TestContext) {
