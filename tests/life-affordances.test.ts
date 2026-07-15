@@ -1160,6 +1160,80 @@ test('exact body targets are revalidated against a fresh visual observation', as
   assert.equal(visible.status, 'arrived');
 });
 
+test('item collection preserves the exact visual admission across the decision-to-action gap', async () => {
+  const bot = baseBot();
+  const item = {
+    id: 3,
+    name: 'item',
+    type: 'object',
+    objectType: 'Item',
+    position: new Vec3(2, 63.125, 0),
+    getDroppedItem: () => ({ name: 'apple', count: 1 }),
+  };
+  bot.entities[3] = item;
+  bot.blockAt = (position: Vec3) => ({ name: 'stone', boundingBox: 'block', position });
+  let navigationCalls = 0;
+  bot.pathfinder = {
+    goto: async () => {
+      navigationCalls += 1;
+      bot.emit('playerCollect', bot.entity, item);
+    },
+    stop: () => {},
+  };
+  const admittedObservation = {
+    protocol: 'behold.inhabitant.v2',
+    sequence: 12,
+    observedAt: 1_000,
+    scene: {
+      entities: [
+        {
+          id: 'entity:3',
+          kind: 'item',
+          name: 'apple',
+          source: 'vision',
+          visibility: 'visible',
+          position: { x: 2, y: 66.125, z: 0 },
+        },
+      ],
+    },
+  };
+  const interpreter = buildInterpreter(bot, {
+    observe: () => ({
+      protocol: 'behold.inhabitant.v2',
+      sequence: 13,
+      scene: { entities: [] },
+    }),
+  });
+
+  const result = await interpreter.run(
+    'collect_nearby_item',
+    { target: 'entity:3' },
+    { signal: new AbortController().signal, observation: admittedObservation },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(navigationCalls, 1);
+  assert.equal(result.confirmation, 'mineflayer:playerCollect');
+  assert.deepEqual(result.targetAdmission, {
+    observationSequence: 12,
+    observedAt: 1_000,
+    position: { x: 2, y: 66.1, z: 0 },
+  });
+  assert.deepEqual(result.targetAtStart.position, { x: 2, y: 63.125, z: 0 });
+
+  item.getDroppedItem = () => ({ name: 'oak_log', count: 1 });
+  const replaced = await interpreter.run(
+    'collect_nearby_item',
+    { target: 'entity:3' },
+    { signal: new AbortController().signal, observation: admittedObservation },
+  );
+  assert.equal(replaced.ok, false);
+  assert.equal(replaced.error, 'target_identity_changed');
+  assert.equal(replaced.admittedItem, 'apple');
+  assert.equal(replaced.currentItem, 'oak_log');
+  assert.equal(navigationCalls, 1);
+});
+
 test('approach_entity reports interruption only after dynamic pathfinding acknowledges stop', async () => {
   const bot = baseBot();
   const target = {

@@ -5,6 +5,11 @@ export type InhabitantActionSpec = {
   function: { name: string; description?: string; parameters?: any };
 };
 
+export type InhabitantActionAdmission = Readonly<{
+  /** The exact lived frame whose action surface admitted this intent. */
+  observation: any;
+}>;
+
 /**
  * The complete boundary a controller needs in order to inhabit a world.
  *
@@ -27,5 +32,5 @@ export type InhabitantInterface = {
    * authorization constraints after this physical affordance boundary.
    */
   actionsFor?: (observation: any) => readonly InhabitantActionSpec[];
-  attempt: (intent: Intent) => boolean | void;
+  attempt: (intent: Intent, admission?: InhabitantActionAdmission) => boolean | void;
 };

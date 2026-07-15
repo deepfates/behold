@@ -267,6 +267,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     places: () => places.snapshot(),
     observe: () => experience.observe(),
   });
+  const actionAdmissions = new Map<string, any>();
   const registry = {
     authorize: (tool: string, args: any, intent: any) => {
       if (taskRuntime && intent?.source === 'llm') {
@@ -281,8 +282,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         authority: intent?.source === 'human' ? 'operator-console' : 'behold-default',
       };
     },
-    run: (tool: string, args?: any, _intent?: any, execution?: { signal: AbortSignal }) => {
-      return interp.run(tool, args, execution);
+    run: (tool: string, args?: any, intent?: any, execution?: { signal: AbortSignal }) => {
+      const observation = actionAdmissions.get(String(intent?.id || ''));
+      actionAdmissions.delete(String(intent?.id || ''));
+      return interp.run(tool, args, { ...execution, observation });
     },
     list: () => interp.list(),
   };
@@ -303,6 +306,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       };
       deliver('experience event consumer', () => experience.recordEngineEvent(event));
       deliver('run journal', () => appendJournal(event.type, event.data, { engineAt: event.at }));
+      if (['intent_blocked', 'action_completed', 'action_failed'].includes(event.type)) {
+        actionAdmissions.delete(String(event.data?.intent?.id || ''));
+      }
       if (event.type === 'preemption_deferred') {
         const requested = String(event.data?.intent?.tool || 'human action');
         const active = String(event.data?.activeIntent?.tool || 'active action');
@@ -426,7 +432,14 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         actions: toolSpecs as any,
         actionsFor: (observation) =>
           minecraftInhabitantActionsFor(toolSpecs as any, observation, { safetyProfile }),
-        attempt: (intent) => engine!.enqueueIntent(intent),
+        attempt: (intent, admission) => {
+          if (admission?.observation) {
+            actionAdmissions.set(intent.id, structuredClone(admission.observation));
+          }
+          const accepted = engine!.enqueueIntent(intent);
+          if (!accepted) actionAdmissions.delete(intent.id);
+          return accepted;
+        },
       },
       {
         apiKey,

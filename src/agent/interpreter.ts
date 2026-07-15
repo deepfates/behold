@@ -44,6 +44,8 @@ export type CommandSpec = {
 
 export type CommandExecution = Readonly<{
   signal?: AbortSignal;
+  /** The exact lived frame whose action surface admitted this command. */
+  observation?: any;
 }>;
 
 export type CommandEffects = Readonly<{
@@ -728,12 +730,26 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       const pathfinder = (bot as any).pathfinder;
       if (!pathfinder) return { ok: false, error: 'pathfinder_unavailable' };
       const targetReference = String(requestedTarget || '');
-      const entity = observedSceneEntity(bot, targetReference);
+      const admittedTarget = perceivedSceneEntity(targetReference, execution?.observation);
+      const entity = observedSceneEntity(bot, targetReference, execution?.observation);
       if (!entity?.position) {
         return { ok: false, error: 'target_not_perceived', target: targetReference };
       }
       if (!isDroppedItem(entity)) {
         return { ok: false, error: 'target_not_dropped_item', target: targetReference };
+      }
+      if (
+        admittedTarget?.name &&
+        normalizeRegistryName(String(admittedTarget.name)) !==
+          normalizeRegistryName(droppedItemName(entity))
+      ) {
+        return {
+          ok: false,
+          error: 'target_identity_changed',
+          target: targetReference,
+          admittedItem: normalizeRegistryName(String(admittedTarget.name)),
+          currentItem: normalizeRegistryName(droppedItemName(entity)),
+        };
       }
       const me = (bot as any).entity?.position;
       const target = {
@@ -815,6 +831,14 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         ...(collected ? {} : { error: 'collection_unconfirmed' }),
         target: targetReference,
         targetEntityId: target.entity.id,
+        targetAdmission:
+          execution?.observation && admittedTarget
+            ? {
+                observationSequence: finiteIntegerOrNull(execution?.observation?.sequence),
+                observedAt: finiteIntegerOrNull(execution?.observation?.observedAt),
+                position: positionRecord(admittedTarget.position),
+              }
+            : null,
         targetAtStart,
         item: target.item,
         navigation,
@@ -2501,8 +2525,20 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       : `entity:${String(entity?.id ?? '')}`;
   }
 
-  function observedSceneEntity(subject: Bot, reference: string) {
-    if (!sceneCurrentlyPerceives(reference)) return undefined;
+  function perceivedSceneEntity(reference: string, observation?: any) {
+    const frame = observation ?? opts.observe?.();
+    if (!frame && !opts.observe) return null;
+    if (frame?.protocol !== 'behold.inhabitant.v2' || !Array.isArray(frame?.scene?.entities)) {
+      return null;
+    }
+    return frame.scene.entities.find(
+      (entity: any) =>
+        entity?.id === reference && entity?.source === 'vision' && entity?.visibility === 'visible',
+    );
+  }
+
+  function observedSceneEntity(subject: Bot, reference: string, observation?: any) {
+    if (!sceneCurrentlyPerceives(reference, observation)) return undefined;
     return (Object.values((subject as any).entities || {}) as any[]).find(
       (entity) =>
         entity?.position &&
@@ -2511,19 +2547,9 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     );
   }
 
-  function sceneCurrentlyPerceives(reference: string) {
-    if (!opts.observe) return true;
-    const observation = opts.observe();
-    return (
-      observation?.protocol === 'behold.inhabitant.v2' &&
-      Array.isArray(observation?.scene?.entities) &&
-      observation.scene.entities.some(
-        (entity: any) =>
-          entity?.id === reference &&
-          entity?.source === 'vision' &&
-          entity?.visibility === 'visible',
-      )
-    );
+  function sceneCurrentlyPerceives(reference: string, observation?: any) {
+    if (!observation && !opts.observe) return true;
+    return perceivedSceneEntity(reference, observation) != null;
   }
 
   return {

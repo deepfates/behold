@@ -2591,6 +2591,65 @@ test('a nearby-item action is admitted only while a dropped item is currently ob
   }
 });
 
+test('an attempted action carries the exact observation that admitted its affordance', async () => {
+  let received: any = null;
+  const observation = {
+    ...experience(12, null, 0),
+    scene: {
+      entities: [
+        {
+          id: 'entity:8',
+          kind: 'item',
+          name: 'apple',
+          source: 'vision',
+          visibility: 'visible',
+          position: { x: 2, y: 64.125, z: 0 },
+        },
+      ],
+    },
+  };
+  const mind: ResidentMind = {
+    id: 'observation-bound-action-mind',
+    decide: async (request) => ({
+      protocol: 'behold.mind-decision.v1',
+      disposition: 'act',
+      utterance: null,
+      action: { name: 'collect_nearby_item', input: { target: 'entity:8' } },
+      call: modelCallEvidence('observation-bound-action-mind', request.model),
+    }),
+  };
+  const turns: EntityTurn[] = [];
+  const policy = startLLMPolicy(
+    withMinecraftActionSurface({
+      entityId: 'Scout',
+      actions: [tool('collect_nearby_item')],
+      observe: () => observation,
+      attempt: (_intent, admission) => {
+        received = admission;
+        return false;
+      },
+    }),
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      maxTurnSteps: 1,
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => turns.length === 1);
+    assert.equal(received.observation, observation);
+    assert.equal(received.observation.sequence, 12);
+    assert.deepEqual(received.observation.scene.entities, observation.scene.entities);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('exact entity actions advertise only target ids in the current visual scene', async () => {
   const originalFetch = globalThis.fetch;
   let request: any = null;

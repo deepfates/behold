@@ -805,7 +805,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       pending = proposedPending;
       let accepted: boolean | void;
       try {
-        accepted = environment.attempt(intent);
+        accepted = environment.attempt(intent, { observation: draft.observation });
       } catch (error) {
         if (pending === proposedPending) pending = null;
         throw error;
