@@ -47,7 +47,6 @@ test('Ax proposes a typed decision without receiving executable world functions'
                   'Disposition: act',
                   `Action Name: ${firstAttempt ? 'use_crafting_table' : 'craft_item'}`,
                   'Action Input: {"item":"oak_planks"}',
-                  'Utterance: I will turn the log into planks.',
                 ].join('\n'),
               },
             },
@@ -120,6 +119,7 @@ test('Ax proposes a typed decision without receiving executable world functions'
     assert.match(firstRequest, /Candidate strategy marker/);
     assert.match(firstRequest, /Never execute an action/);
     assert.equal(decision.disposition, 'act');
+    assert.equal(decision.utterance, null, 'an embodied action does not require public speech');
     assert.equal(decision.action?.name, 'craft_item');
     assert.deepEqual(decision.action?.input, { item: 'oak_planks' });
     assert.equal(decision.call.adapter?.name, 'ax');

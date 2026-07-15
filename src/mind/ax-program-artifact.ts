@@ -18,13 +18,13 @@ export const AX_RESIDENT_SIGNATURE = `
   disposition:class "act, wait, no_action",
   actionName?:string,
   actionInput?:json,
-  utterance:string,
+  utterance?:string,
   waitReason?:string
 ` as const;
 
 /** Hash of Ax 23.0.0's canonical rendering of AX_RESIDENT_SIGNATURE. */
 export const AX_RESIDENT_SIGNATURE_SHA256 =
-  '165c79c4fbf3b937251d7b565e9fc0a44a0f2d3ad47a14f38c2d352b268d894d' as const;
+  '286fe2c6d65cd6340453bdf0cabd77f8cd29c0825ae603db71f45d9b4b23ed2e' as const;
 
 const DEFAULT_INSTRUCTION = [
   'Use the supplied policy guidance and lived evidence without inventing hidden world state.',
