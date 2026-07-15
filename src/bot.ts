@@ -19,9 +19,15 @@ try {
   mineflayerViewer = null;
 }
 
-export function createBot(config: Config, connectionCapability: EntityConnectionCapability): Bot {
+export function createBot(
+  config: Config,
+  connectionCapability: EntityConnectionCapability,
+  entityId = config.auth.username,
+): Bot {
   const { server, auth } = config;
-  assertEntityConnectionCapability(connectionCapability, auth.username, config.circle.id);
+  // The capability belongs to the continuing private life. The auth username
+  // names the Minecraft body that life is currently authorized to drive.
+  assertEntityConnectionCapability(connectionCapability, entityId, config.circle.id);
 
   const bot = mineflayer.createBot({
     host: server.host,

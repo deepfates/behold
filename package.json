@@ -20,6 +20,7 @@
     "play": "ts-node --transpile-only scripts/play.ts",
     "world": "npm run build && node dist/scripts/world-runner.js",
     "history": "npm run build && node dist/scripts/world-history.js",
+    "proof:world-history-inhabitation": "npm run build && node dist/scripts/world-history-inhabitation.js",
     "place:epoch": "npm run build && node dist/scripts/place-epoch.js",
     "proof:owned-world": "npm run build && node dist/scripts/owned-world-proof.js",
     "proof:verify-owned-world": "npm run build && node dist/scripts/verify-owned-world-proof.js",

@@ -623,7 +623,9 @@ export async function startManagedWorld(
   dependencies: WorldRunnerDependencies = {},
 ): Promise<ManagedWorldRun> {
   const residents = normalizeManagedResidents(options);
-  const maxConcurrentModelCalls = managedModelConcurrencyLimit(options, residents.length);
+  const cognitionResidentCount = residents.filter((resident) => !resident.paused).length;
+  const maxConcurrentModelCalls =
+    cognitionResidentCount > 0 ? managedModelConcurrencyLimit(options, cognitionResidentCount) : 0;
   const maxTotalModelCalls = managedTotalModelCallLimit(options.maxTotalModelCalls);
   const inspectRuntime =
     dependencies.inspectRuntime ?? (() => statusWorld(options.worldId, options.world));
@@ -699,17 +701,19 @@ export async function startManagedWorld(
       );
     }
     const upstreamApiKey = optionalText(process.env.OPENROUTER_API_KEY);
-    if (upstreamApiKey) {
+    if (upstreamApiKey && cognitionResidentCount > 0) {
       const clients = new Map(
-        residents.map((resident) => [
-          resident.entityId,
-          Object.freeze({
-            bearer: randomBytes(32).toString('base64url'),
-            residentKey: cognitionResidentKey(managedRunId, resident.entityId),
-            model: resident.model,
-            ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
-          }),
-        ]),
+        residents
+          .filter((resident) => !resident.paused)
+          .map((resident) => [
+            resident.entityId,
+            Object.freeze({
+              bearer: randomBytes(32).toString('base64url'),
+              residentKey: cognitionResidentKey(managedRunId, resident.entityId),
+              model: resident.model,
+              ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
+            }),
+          ]),
       );
       const journalFile = path.join(runRoot, managedRunId, '_cognition', 'broker.jsonl');
       const broker = await startCognitionBroker({
@@ -1530,7 +1534,7 @@ function managedControllerEnvironment(
   ]) {
     if (process.env[name] != null) env[name] = process.env[name];
   }
-  if (cognition) {
+  if (cognition && !resident.paused) {
     const client = cognition.clients.get(resident.entityId);
     if (!client) {
       throw new WorldRunnerError(

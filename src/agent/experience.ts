@@ -434,10 +434,7 @@ export class InhabitantExperience {
         body: {
           substrate: 'minecraft',
           username: String((this.bot as any).username || 'agent'),
-          uuid:
-            typeof (this.bot as any).player?.uuid === 'string'
-              ? String((this.bot as any).player.uuid)
-              : null,
+          uuid: nativeBodyUuid(this.bot as any),
         },
         pose: {
           position: base.position,
@@ -829,6 +826,11 @@ export class InhabitantExperience {
     (this.bot as any).on?.(event, listener);
     this.cleanup.push(() => (this.bot as any).removeListener?.(event, listener));
   }
+}
+
+function nativeBodyUuid(bot: any) {
+  const value = bot?.player?.uuid ?? bot?.uuid;
+  return typeof value === 'string' && value.trim() ? value : null;
 }
 
 function focusObject(bot: Bot): SceneObject | null {

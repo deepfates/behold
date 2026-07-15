@@ -150,7 +150,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   console.error(
     `[console] connecting life ${name} to ${cfg.server.host}:${cfg.server.port} as Minecraft body ${bodyUsername}`,
   );
-  const bot = createBot(cfg, entityLoom.connectionCapability);
+  const bot = createBot(cfg, entityLoom.connectionCapability, name);
   const taskRuntime =
     opts.task === 'come-see-do-report'
       ? createComeSeeDoReportRuntime(bot as any, taskTarget!)
