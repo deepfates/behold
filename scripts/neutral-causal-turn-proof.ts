@@ -17,7 +17,7 @@ import {
   verifyMinecraftWorldHistoryFork,
   type MinecraftWorldHistoryFork,
 } from '../src/runtime/world-history';
-import { parseRunJournal } from './owned-world-model-evidence';
+import { decisionMatchesEntityTurn, parseRunJournal } from './owned-world-model-evidence';
 import {
   assertCleanRepository,
   durableWriteJson,
@@ -274,7 +274,7 @@ function selectTurn(events: readonly any[], claim: 'decision' | 'world-action') 
     const modelTurn = events.find(
       (event) =>
         event.type === 'model_turn' &&
-        event.data?.intent?.id === entityTurn.data?.action?.id &&
+        decisionMatchesEntityTurn(event.data, entityTurn.data) &&
         event.data?.call?.request?.mindRequest != null,
     );
     if (modelTurn) return { modelTurn, entityTurn };
