@@ -121,16 +121,23 @@ function summarizeArm(
   let providerAttempts = 0;
   for (const result of results) {
     if (result.decision) {
+      const action =
+        result.decision.action == null
+          ? null
+          : {
+              name: result.decision.action.name,
+              input: result.decision.action.input,
+            };
       const key = stableJson({
         disposition: result.decision.disposition,
-        action: result.decision.action,
+        action,
       });
       const existing = actionCounts.get(key);
       if (existing) existing.count += 1;
       else {
         actionCounts.set(key, {
           disposition: result.decision.disposition,
-          action: cloneJson(result.decision.action),
+          action: cloneJson(action),
           count: 1,
         });
       }

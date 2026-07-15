@@ -175,9 +175,12 @@ test('repeated immutable-request trials expose action and resource distributions
     { name: 'move_direction', input: { direction: 'forward', distance: 2 } },
     { name: 'move_direction', input: { direction: 'back', distance: 1 } },
   ]);
-  const steady = trialMind('steady', artifact.requestSha256, [
-    { name: 'move_direction', input: { direction: 'forward', distance: 2 } },
-  ]);
+  const steady = trialMind(
+    'steady',
+    artifact.requestSha256,
+    [{ name: 'move_direction', input: { direction: 'forward', distance: 2 } }],
+    true,
+  );
   const trials = await runResidentMindTrials(
     artifact,
     [
@@ -220,6 +223,13 @@ test('repeated immutable-request trials expose action and resource distributions
     ],
   );
   assert.equal(trials.minds[0].usage.cost, 0.006);
+  assert.deepEqual(trials.minds[1].actions, [
+    {
+      disposition: 'act',
+      action: { name: 'move_direction', input: { direction: 'forward', distance: 2 } },
+      count: 3,
+    },
+  ]);
   await assert.rejects(
     runResidentMindTrials(artifact, [], { trials: 21 }),
     /integer from 1 through 20/,
@@ -320,6 +330,7 @@ function trialMind(
   id: string,
   mindRequestSha256: string,
   actions: readonly { name: string; input: unknown }[],
+  varyCallId = false,
 ): ResidentMind {
   let index = 0;
   return {
@@ -331,7 +342,7 @@ function trialMind(
         protocol: 'behold.mind-decision.v1',
         disposition: 'act',
         utterance: null,
-        action,
+        action: varyCallId ? { ...action, callId: `provider-call-${index}` } : action,
         call: {
           protocol: 'behold.model-call.v1',
           requestId: `${id}-${index}`,
