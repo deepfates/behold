@@ -44,7 +44,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
         ...(options.recordModelIO ? { mindRequest: cloneJson(request) } : {}),
         messageCount: request.conversation.length,
         toolCount: request.actions.length,
-        toolChoice: body.tool_choice,
+        toolChoice: body.tool_choice ?? null,
         bodySha256: sha256(requestBody),
         bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
         byteAttribution: attributeProviderRequestBody(body),

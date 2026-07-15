@@ -2359,7 +2359,7 @@ test('model turns preserve reproducible call, usage, latency, and opt-in IO evid
     assert.equal(call.completedAt, 1027);
     assert.equal(call.latencyMs, 27);
     assert.equal(call.request.model, 'test/model');
-    assert.equal(call.request.toolChoice, 'required');
+    assert.equal(call.request.toolChoice, null);
     assert.match(call.request.bodySha256, /^[a-f0-9]{64}$/);
     assert.match(call.request.messagesSha256, /^[a-f0-9]{64}$/);
     assert.match(call.request.toolsSha256, /^[a-f0-9]{64}$/);
@@ -2522,7 +2522,7 @@ test('model action space contains only executable gates plus explicit yield', as
       request.tools.map((spec: any) => spec.function.name),
       ['inspect_volume', 'wait_for_event'],
     );
-    assert.equal(request.tool_choice, 'required');
+    assert.equal(request.tool_choice, undefined);
     assert.equal(turns[0].action.name, 'wait_for_event');
     const system = String(request.messages[0].content);
     assert.match(system, /use inspect_volume at the worksite/i);
@@ -2584,7 +2584,7 @@ test('a nearby-item action is admitted only while a dropped item is currently ob
       request.tools.map((spec: any) => spec.function.name),
       ['inspect_volume', 'wait_for_event'],
     );
-    assert.equal(request.tool_choice, 'required');
+    assert.equal(request.tool_choice, undefined);
   } finally {
     policy.stop();
     globalThis.fetch = originalFetch;
@@ -3229,7 +3229,7 @@ test('a safe untasked life may act directly without wrapping one step in a proje
   try {
     await policy.tick();
     assert.equal(enqueued[0]?.tool, 'dig_block');
-    assert.equal(requests[0]?.tool_choice, 'required');
+    assert.equal(requests[0]?.tool_choice, undefined);
 
     sequence += 1;
     currentAction = { ...currentAction, status: 'completed' };
@@ -3239,7 +3239,7 @@ test('a safe untasked life may act directly without wrapping one step in a proje
       data: { intent: enqueued[0], result: { ok: true } },
     });
     await until(() => requests.length === 2);
-    assert.equal(requests[1]?.tool_choice, 'required');
+    assert.equal(requests[1]?.tool_choice, undefined);
     assert.equal(enqueued.length, 1, 'wait_for_event does not enter the action stream');
   } finally {
     policy.stop();
@@ -3379,7 +3379,7 @@ test('a dropped stack on supported ground stays available without becoming a con
 
   try {
     await policy.tick();
-    assert.equal(request.tool_choice, 'required');
+    assert.equal(request.tool_choice, undefined);
     assert.match(
       String(request.messages[0]?.content),
       /pickupGround describes only the ground directly beneath it/,

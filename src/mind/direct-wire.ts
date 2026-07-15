@@ -16,9 +16,9 @@ export function directOpenRouterRequestBody(request: ResidentMindRequest) {
     model: request.model,
     messages: request.conversation,
     tools: directOpenRouterTools(request.actions),
-    tool_choice: request.requiredAction
-      ? { type: 'function', function: { name: request.requiredAction } }
-      : 'required',
+    ...(request.requiredAction
+      ? { tool_choice: { type: 'function', function: { name: request.requiredAction } } }
+      : {}),
     parallel_tool_calls: false,
     ...(request.model.includes('gpt-5') ? {} : { temperature: 0.2 }),
   };
