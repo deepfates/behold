@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "placeId": "berkeley",
+  "arrival": {
+    "checkpointId": "ohlone-park",
+    "selectionPolicy": "measured-natural-surface",
+    "acceptance": {
+      "minimumNativeTicks": 24000,
+      "maximumObserverDeaths": 0
+    }
+  },
+  "checkpointOverrides": [
+    {
+      "checkpointId": "ohlone-park",
+      "lat": 37.87326328215488,
+      "lon": -122.27730114718526,
+      "rationale": "Use the independently observed headroom-bearing Minecraft surface nearest the source landmark rather than aiming into its generated structure."
+    }
+  ]
+}

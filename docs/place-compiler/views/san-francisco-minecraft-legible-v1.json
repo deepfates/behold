@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "placeRecipe": "docs/place-compiler/places/san-francisco-minecraft-legible-v1.json",
+  "sightlines": [
+    {
+      "id": "sutro-to-ferry",
+      "name": "Sutro Tower to Ferry Building",
+      "observer": { "name": "Sutro Tower", "lat": 37.7552, "lon": -122.4528 },
+      "target": { "name": "Ferry Building", "lat": 37.7955, "lon": -122.3937 }
+    },
+    {
+      "id": "sutro-to-golden-gate",
+      "name": "Sutro Tower to Golden Gate Bridge",
+      "observer": { "name": "Sutro Tower", "lat": 37.7552, "lon": -122.4528 },
+      "target": { "name": "Golden Gate Bridge", "lat": 37.8199, "lon": -122.4783 }
+    },
+    {
+      "id": "sutro-to-downtown-skyline",
+      "name": "Sutro Tower to Salesforce Tower",
+      "observer": { "name": "Sutro Tower", "lat": 37.7552, "lon": -122.4528 },
+      "target": { "name": "Salesforce Tower", "lat": 37.7897, "lon": -122.3961 }
+    },
+    {
+      "id": "salesforce-to-sutro",
+      "name": "Salesforce Tower to Sutro Tower",
+      "observer": { "name": "Salesforce Tower", "lat": 37.7897, "lon": -122.3961 },
+      "target": { "name": "Sutro Tower", "lat": 37.7552, "lon": -122.4528 }
+    }
+  ]
+}

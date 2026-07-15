@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "minecraft-legible-living-places-v1",
+  "purpose": "Close the selected Minecraft-legible cartography policy across the full San Francisco hero artifact and independently generated Berkeley transfer artifact.",
+  "dimensions": [
+    "correspondence",
+    "legibility",
+    "habitability",
+    "ecology",
+    "experience",
+    "capacity"
+  ],
+  "profiles": ["cinematic", "playable", "living"],
+  "fixtures": [
+    {
+      "placeId": "san-francisco",
+      "runId": "san-francisco-minecraft-legible-v1-cache-v2",
+      "runRoot": ".behold-artifacts/places/san-francisco/runs/san-francisco-minecraft-legible-v1-cache-v2",
+      "recipePath": "docs/place-compiler/places/san-francisco-minecraft-legible-v1.json",
+      "recipeSha256": "cd7bb3e75510d109d3911e85719b37509932ffc6852280c5f4a8791baca49bde",
+      "experiencePath": "docs/place-compiler/experiences/san-francisco.json",
+      "experienceSha256": "0aee16be6f3a9e0bfd5f3048d33994c9149aa3557fee5a01d457260952b6dbc1",
+      "inputSha256": "0afff75444a2235c55fab52cac73d85bedada6b31caa3ea246cf8cb59bebe2c7",
+      "worldTreeSha256": "e82e483911101dba720ceae3ae9dd40ed66d2487ffa4c561926528c8b2645352",
+      "worldFileCount": 824,
+      "worldSizeBytes": 6018211133
+    },
+    {
+      "placeId": "berkeley",
+      "runId": "berkeley-minecraft-legible-v1-v2",
+      "runRoot": ".behold-artifacts/places/berkeley/runs/berkeley-minecraft-legible-v1-v2",
+      "recipePath": "docs/place-compiler/places/berkeley.json",
+      "recipeSha256": "e0a329f34cb0a5e3163030128e161d9403b82a718f9af607c1bc4d2db4f4254e",
+      "experiencePath": "docs/place-compiler/experiences/berkeley.json",
+      "experienceSha256": "65abafc2318d74ebc6264c8f2318059a10ea9867597826d29cabe6263ceba39c",
+      "inputSha256": "f6317e0579c42100e9dd8438d83b3fc17d89e0d86936215e27f02f3bbd484710",
+      "worldTreeSha256": "74d9760d58e283101920f54273277a0e856fb636f2009113f98b0a4955d51046",
+      "worldFileCount": 82,
+      "worldSizeBytes": 559603488
+    }
+  ],
+  "inspections": {
+    "ground": true,
+    "aerial": true,
+    "columnRadius": 8,
+    "observationRadius": 128
+  },
+  "ecologySoak": {
+    "profile": "living",
+    "settleTicks": 1200,
+    "sprintTicks": 24000,
+    "maxWallSeconds": 300
+  },
+  "performanceSweep": {
+    "profiles": ["cinematic", "playable", "living"],
+    "sprintTicks": 6000,
+    "repetitions": 2,
+    "maxWallSecondsPerCase": 180
+  },
+  "refusalRules": [
+    "fixture recipe digest mismatch",
+    "fixture experience digest mismatch",
+    "fixture generation input digest mismatch",
+    "fixture world-tree identity mismatch",
+    "source world contains session.lock",
+    "runtime profile is absent or has changed",
+    "benchmark attempts to mutate an immutable fixture",
+    "evidence omits tool, hardware, command, duration, or exit status",
+    "a failed or timed-out run is presented as a measurement"
+  ]
+}

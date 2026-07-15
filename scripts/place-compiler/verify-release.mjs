@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { archiveMemberSatisfies } from './release-core.mjs';
 
 async function sha256(file) {
   const hash = createHash('sha256');
@@ -99,13 +100,7 @@ for (const archive of manifest.archives) {
   )
     throw new Error('immutable world contains session.lock');
   for (const needle of required.get(archive.role) ?? [])
-    if (
-      !entries.some((entry) =>
-        needle.endsWith('/')
-          ? entry.startsWith(needle)
-          : entry === needle || entry.endsWith(`/${needle}`),
-      )
-    )
+    if (!entries.some((entry) => archiveMemberSatisfies(entry, needle)))
       throw new Error(`${archive.role} archive missing ${needle}`);
   process.stdout.write(`${archive.file}: VERIFIED (${entries.length} entries)\n`);
 }
