@@ -31,6 +31,7 @@ import {
 import { waitForRunJournal } from './owned-world-model-harness';
 import { digestTree, loadWorldLabConfig } from './world-lab';
 import { bundledJava, startManagedWorld, type ManagedWorldRun } from './world-runner';
+import { reassessNeutralTurn } from './reassess-neutral-turn';
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -155,6 +156,12 @@ async function main() {
     const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
     const runStarted = events.find((event) => event.type === 'run_started');
     if (!runStarted) throw new Error('resident journal has no run_started event');
+    if (
+      historyContext?.continuation &&
+      runStarted.data?.priorEntityTurns !== historyContext.continuation.priorTurnSequence
+    ) {
+      throw new Error('continued life did not resume from the authenticated prior turn');
+    }
     const assessmentInput = {
       expected: {
         worldId: fixture.worldId,
@@ -182,7 +189,10 @@ async function main() {
     const requestArtifact = createResidentMindRequestArtifact(
       selected.modelTurn.data.call.request.mindRequest,
     );
-    const requestFile = path.join(fixture.evidenceRoot, 'mind-request.json');
+    const requestFile = path.join(
+      fixture.evidenceRoot,
+      'requestFileName' in fixture ? fixture.requestFileName : 'mind-request.json',
+    );
     const generatedAt = new Date().toISOString();
     const repositoryRevision = gitRevision();
     const actionRecordAssessment = createWorldActionRecord(assessmentInput, {
@@ -196,7 +206,10 @@ async function main() {
       },
     });
     durableWriteJson(requestFile, requestArtifact);
-    const resultFile = path.join(fixture.evidenceRoot, 'turn-result.json');
+    const resultFile = path.join(
+      fixture.evidenceRoot,
+      'resultFileName' in fixture ? fixture.resultFileName : 'turn-result.json',
+    );
     durableWriteJson(resultFile, {
       protocol: 'behold.neutral-turn-proof.v4',
       generatedAt,
@@ -296,6 +309,7 @@ function parseArgs(argv: string[]) {
   let parentConfig = '';
   let parentWorld = '';
   let bodyUsername = '';
+  let continueFrom = '';
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--runId') runId = String(argv[++index] || '');
     else if (argv[index] === '--port') port = Number(argv[++index]);
@@ -313,6 +327,7 @@ function parseArgs(argv: string[]) {
     else if (argv[index] === '--parentConfig') parentConfig = String(argv[++index] || '');
     else if (argv[index] === '--parentWorld') parentWorld = String(argv[++index] || '');
     else if (argv[index] === '--body') bodyUsername = String(argv[++index] || '');
+    else if (argv[index] === '--continueFrom') continueFrom = String(argv[++index] || '');
     else if (argv[index] === '--claim') {
       const value = String(argv[++index] || '');
       if (value !== 'decision' && value !== 'world-action') {
@@ -338,6 +353,9 @@ function parseArgs(argv: string[]) {
   if (bodyUsername && !/^[A-Za-z0-9_]{1,16}$/.test(bodyUsername)) {
     throw new Error('--body must be 1-16 Minecraft-safe characters');
   }
+  if (continueFrom && !historyReceipt) {
+    throw new Error('--continueFrom requires history mode');
+  }
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 30_000 || timeoutMs > 600_000) {
     throw new Error('--timeoutMs must be an integer from 30000 through 600000');
   }
@@ -360,6 +378,7 @@ function parseArgs(argv: string[]) {
     parentConfig: parentConfig || null,
     parentWorld: parentWorld || null,
     bodyUsername: bodyUsername || null,
+    continueFrom: continueFrom || null,
   };
 }
 
@@ -377,6 +396,12 @@ function suiteSpecification(
           `World history: ${history.historyId}`,
           `Checkpoint: ${history.checkpointArtifactId}`,
           `Initial world digest: ${history.initialWorld.digest}`,
+          ...(history.continuation
+            ? [
+                `Continuation source: ${history.continuation.sourceSha256}`,
+                `Prior life turn: ${history.continuation.priorTurnSequence}`,
+              ]
+            : []),
         ]
       : []),
     'Start one disposable authoritative Minecraft epoch from a verified baseline.',
@@ -405,9 +430,70 @@ async function prepareHistoryTurnFixture(args: ReturnType<typeof parseArgs>) {
   }
   const history = receipt.histories.find((candidate) => candidate.historyId === args.historyId);
   if (!history) throw new Error(`history receipt has no child ${args.historyId}`);
-  const initialWorld = digestTree(history.worldPath);
-  if (initialWorld.digest !== history.initialDigest) {
-    throw new Error('history child already diverged before its neutral turn');
+  const currentWorld = digestTree(history.worldPath);
+  const root = path.resolve('.behold-runtime', 'world-histories', 'evidence', args.runId);
+  let continuation: null | Readonly<{
+    sourceFile: string;
+    sourceSha256: string;
+    priorTurnSequence: number;
+    priorMind: string;
+  }> = null;
+  let resultFileName = 'turn-result.json';
+  let requestFileName = 'mind-request.json';
+  if (args.continueFrom) {
+    const sourceFile = path.resolve(args.continueFrom);
+    const source = readJson(sourceFile);
+    const sourceRoot = path.dirname(path.dirname(sourceFile));
+    if (sourceRoot !== root) {
+      throw new Error('continued turn must reuse the authenticated prior proof root');
+    }
+    const reassessment = await reassessNeutralTurn(sourceFile);
+    if (reassessment.status !== 'passed') {
+      throw new Error('continued turn source failed independent reassessment');
+    }
+    if (
+      source?.history?.receiptFile !== receiptFile ||
+      source?.history?.receiptSha256 !== sha256File(receiptFile) ||
+      source?.history?.operationId !== receipt.operationId ||
+      source?.history?.historyId !== history.historyId
+    ) {
+      throw new Error('continued turn source belongs to another world history');
+    }
+    if (
+      source?.decisionAssessment?.status !== 'passed' ||
+      source?.decisionAssessment?.binding?.entity?.id !== args.entityId
+    ) {
+      throw new Error('continued turn source does not authenticate this life');
+    }
+    if (source?.history?.bodyUsername !== args.bodyUsername) {
+      throw new Error('continued turn source belongs to another Minecraft body');
+    }
+    if (source?.history?.afterTurnWorld?.digest !== currentWorld.digest) {
+      throw new Error('world history changed after the authenticated prior turn');
+    }
+    const priorTurnSequence = Number(source?.decisionAssessment?.binding?.entity?.turnSequence);
+    if (!Number.isSafeInteger(priorTurnSequence) || priorTurnSequence < 1) {
+      throw new Error('continued turn source has no valid prior life sequence');
+    }
+    const nextTurnSequence = priorTurnSequence + 1;
+    resultFileName = `turn-${nextTurnSequence}-result.json`;
+    requestFileName = `mind-request-${nextTurnSequence}.json`;
+    for (const file of [resultFileName, requestFileName]) {
+      if (fs.existsSync(path.join(root, 'evidence', file))) {
+        throw new Error(`continued turn output already exists: ${file}`);
+      }
+    }
+    continuation = {
+      sourceFile,
+      sourceSha256: sha256File(sourceFile),
+      priorTurnSequence,
+      priorMind: String(source.decisionAssessment.binding.mind.adapter),
+    };
+  } else {
+    if (currentWorld.digest !== history.initialDigest) {
+      throw new Error('history child already diverged before its neutral turn');
+    }
+    if (fs.existsSync(root)) throw new Error(`history turn proof already exists: ${root}`);
   }
   const parentConfig = loadWorldLabConfig(path.resolve(String(args.parentConfig)));
   const parent = parentConfig.worlds[String(args.parentWorld)];
@@ -422,8 +508,6 @@ async function prepareHistoryTurnFixture(args: ReturnType<typeof parseArgs>) {
     port: args.port,
   });
   const world = minecraftHistoryWorldDefinition(parent, receipt.checkpoint, history, args.port);
-  const root = path.resolve('.behold-runtime', 'world-histories', 'evidence', args.runId);
-  if (fs.existsSync(root)) throw new Error(`history turn proof already exists: ${root}`);
   const evidenceRoot = path.join(root, 'evidence');
   const entityRoot = path.join(root, 'entities');
   const controlRoot = path.join(root, 'control');
@@ -452,6 +536,8 @@ async function prepareHistoryTurnFixture(args: ReturnType<typeof parseArgs>) {
     expectedServerJarSha256,
     java: bundledJava(),
     world,
+    resultFileName,
+    requestFileName,
     historyContext: {
       receiptFile,
       receiptSha256: sha256File(receiptFile),
@@ -459,13 +545,16 @@ async function prepareHistoryTurnFixture(args: ReturnType<typeof parseArgs>) {
       historyId: history.historyId,
       checkpointArtifactId: receipt.checkpoint.artifactId,
       checkpointDigest: receipt.checkpoint.digest,
-      initialWorld,
+      initialWorld: currentWorld,
       serverProfile: {
         manifestFile: serverProfile.manifestFile,
         manifestSha256: sha256File(serverProfile.manifestFile),
       },
       bodyUsername: args.bodyUsername!,
-      copySemantics: 'branch-local evaluation life with no inherited private Lync' as const,
+      copySemantics: continuation
+        ? ('same private Lync continuing in the same writable world history' as const)
+        : ('branch-local evaluation life with no inherited private Lync' as const),
+      continuation,
     },
   };
 }

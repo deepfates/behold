@@ -273,7 +273,9 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-main().catch((error) => {
-  process.stderr.write(`[neutral-turn-reassessment] ${error?.stack || String(error)}\n`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    process.stderr.write(`[neutral-turn-reassessment] ${error?.stack || String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
