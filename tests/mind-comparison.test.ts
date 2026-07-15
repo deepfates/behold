@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compareResidentMinds } from '../src/evaluation/mind-comparison';
+import { runResidentMindTrials } from '../src/evaluation/mind-trials';
 import { createAxResidentMind } from '../src/mind/ax';
 import { createDirectResidentMind } from '../src/mind/direct';
 import type { ResidentMind } from '../src/mind/interface';
@@ -168,6 +169,63 @@ test('comparison rejects an adapter that attributes its call to another request'
   assert.match(comparison.arms[1].error || '', /does not identify/);
 });
 
+test('repeated immutable-request trials expose action and resource distributions', async () => {
+  const artifact = createResidentMindRequestArtifact(request());
+  const alternating = trialMind('alternating', artifact.requestSha256, [
+    { name: 'move_direction', input: { direction: 'forward', distance: 2 } },
+    { name: 'move_direction', input: { direction: 'back', distance: 1 } },
+  ]);
+  const steady = trialMind('steady', artifact.requestSha256, [
+    { name: 'move_direction', input: { direction: 'forward', distance: 2 } },
+  ]);
+  const trials = await runResidentMindTrials(
+    artifact,
+    [
+      { label: 'alternating', mind: alternating },
+      { label: 'steady', mind: steady },
+    ],
+    { trials: 3 },
+  );
+
+  assert.equal(trials.protocol, 'behold.mind-trials.v1');
+  assert.equal(trials.trials.length, 3);
+  assert.deepEqual(trials.verdict, {
+    inputMatched: true,
+    allCompleted: true,
+    allValid: true,
+  });
+  assert.deepEqual(
+    trials.minds.map((mind) => ({
+      label: mind.label,
+      actions: mind.actions.map((action) => action.count),
+      attempts: mind.usage.providerAttempts,
+      tokens: mind.usage.totalTokens,
+      latency: mind.latencyMs,
+    })),
+    [
+      {
+        label: 'alternating',
+        actions: [2, 1],
+        attempts: 3,
+        tokens: 180,
+        latency: { samples: 3, min: 10, p50: 20, p95: 30, max: 30, mean: 20 },
+      },
+      {
+        label: 'steady',
+        actions: [3],
+        attempts: 3,
+        tokens: 180,
+        latency: { samples: 3, min: 10, p50: 20, p95: 30, max: 30, mean: 20 },
+      },
+    ],
+  );
+  assert.equal(trials.minds[0].usage.cost, 0.006);
+  await assert.rejects(
+    runResidentMindTrials(artifact, [], { trials: 21 }),
+    /integer from 1 through 20/,
+  );
+});
+
 function request() {
   return {
     protocol: 'behold.mind-request.v1',
@@ -255,5 +313,59 @@ function scriptedMind(id: string, mindRequestSha256: string): ResidentMind {
         },
       },
     }),
+  };
+}
+
+function trialMind(
+  id: string,
+  mindRequestSha256: string,
+  actions: readonly { name: string; input: unknown }[],
+): ResidentMind {
+  let index = 0;
+  return {
+    id,
+    decide: async (request) => {
+      const action = actions[index % actions.length];
+      index += 1;
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'act',
+        utterance: null,
+        action,
+        call: {
+          protocol: 'behold.model-call.v1',
+          requestId: `${id}-${index}`,
+          endpoint: 'test://mind',
+          startedAt: index * 100,
+          completedAt: index * 100 + index * 10,
+          latencyMs: index * 10,
+          adapter: { name: id },
+          request: {
+            model: request.model,
+            mindRequestSha256,
+            messageCount: request.conversation.length,
+            toolCount: request.actions.length,
+            toolChoice: null,
+            bodySha256: '0'.repeat(64),
+            messagesSha256: '1'.repeat(64),
+            toolsSha256: '2'.repeat(64),
+            kind: 'mind_input',
+          },
+          response: {
+            id: `${id}-response-${index}`,
+            model: request.model,
+            provider: 'fixture',
+            finishReason: 'stop',
+            nativeFinishReason: 'stop',
+            usage: {
+              prompt_tokens: 50,
+              completion_tokens: 10,
+              total_tokens: 60,
+              cost: 0.002,
+            },
+          },
+        },
+      };
+    },
   };
 }
