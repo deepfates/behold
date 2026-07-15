@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadPlaceRecipe, sha256 } from './core.mjs';
+import { directoryManifest, loadPlaceRecipe, sha256 } from './core.mjs';
 import { acquisitionMatchesPlaceRequest } from './fetch-osm-snapshot.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -71,6 +71,19 @@ if (manifest.inputs.acquisition) {
     acquisition.payload?.sizeBytes !== statSync(manifest.inputs.osmJson).size
   )
     fail('OSM acquisition chain disagrees with recipe or captured payload');
+}
+if (manifest.inputs.generatorCache) {
+  const cache = manifest.inputs.generatorCache;
+  const cachePath = path.resolve(cache.path);
+  if (!cachePath.startsWith(`${runRoot}${path.sep}`) || !existsSync(cachePath))
+    fail('generator cache snapshot missing or escaped');
+  const actual = await directoryManifest(cachePath);
+  if (
+    actual.fileCount !== cache.fileCount ||
+    actual.totalSizeBytes !== cache.totalSizeBytes ||
+    actual.treeSha256 !== cache.treeSha256
+  )
+    fail('generator cache snapshot disagrees with captured input');
 }
 const output = path.join(runRoot, 'output');
 const names = readdirSync(output).filter((name) => name.startsWith('Arnis World '));

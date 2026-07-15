@@ -65,6 +65,15 @@ node scripts/place-compiler/generate.mjs \
 
 The fetcher derives one recursive Overpass query from the recipe bounds and writes a sidecar containing the endpoint, exact query, OSM timestamp, recipe digest, element count, size, and payload digest. Generation copies that acquisition record beside the frozen input when it is present.
 
+For large accepted builds, a previously captured Arnis cache can also be frozen as an explicit input. The compiler clones it into both the run inputs and the isolated generator home, records its portable tree digest, and the validator rehashes it. This avoids silently accepting partial elevation or land-cover downloads while keeping the policy place-independent:
+
+```bash
+node scripts/place-compiler/generate.mjs \
+  --place docs/place-compiler/places/san-francisco-minecraft-legible-v1.json \
+  --osm-json /path/to/san-francisco-overpass.json \
+  --generator-cache /path/to/complete-arnis-cache
+```
+
 Each run is isolated below `.behold-artifacts/places/PLACE/runs/RUN_ID`. Its manifest records the recipe, recipe digest, tool lock, tool digest, generator digest, exact command, resource policy, runtime profiles, input digest, and isolated generator home.
 
 ## Validate
@@ -276,7 +285,7 @@ Synthetic arenas are disposable experimental controls, never generation repair. 
 
 `compare-previews.mjs` creates a checksummed, labeled two-place proof from the map previews of any two recorded runs. Legacy runs require an explicit recipe so their older manifests can be interpreted without silently guessing a place.
 
-Package an accepted run into separate immutable-world, evidence, reproduction, and optional input archives, then stream-verify their digests, sizes, paths, and required contents:
+Package an accepted run into separate immutable-world, evidence, reproduction, and optional input archives, then stream-verify their digests, sizes, paths, and required contents. Schema-v3 releases additionally close the exact generator source digest, ordered patch set, build manifest, build commands, and binary digest; schema-v2 releases remain admissible but are reported as legacy integrity only:
 
 ```bash
 node scripts/place-compiler/package-release.mjs \

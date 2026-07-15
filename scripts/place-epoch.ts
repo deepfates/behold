@@ -262,7 +262,7 @@ function verifyPlaceRelease(root: string) {
   const sumsPath = path.join(root, 'SHA256SUMS');
   const manifest = readJson(manifestPath);
   if (
-    manifest.schemaVersion !== 2 ||
+    ![2, 3].includes(manifest.schemaVersion) ||
     manifest.compiler !== 'behold-place-compiler' ||
     !safeSegment(manifest.placeId) ||
     !safeSegment(manifest.runId) ||

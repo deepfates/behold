@@ -48,6 +48,20 @@ test('Behold admits a verified Place release and binds both digest domains', (t)
   assert.deepEqual(verifyAdmittedPlaceEpoch(destination), descriptor);
 });
 
+test('Behold admits the generator-closed v3 Place release envelope', (t) => {
+  const fixture = makeReleaseFixture(t, 3);
+  const descriptor = admitPlaceRelease({
+    releaseRoot: fixture.release,
+    profileId: 'living',
+    destinationRoot: path.join(fixture.root, 'admitted-v3'),
+    serverJar: fixture.serverJar,
+    expectedServerJarSha256: fixture.serverSha256,
+    port: 25594,
+  });
+  assert.equal(descriptor.place.id, 'fixture-place');
+  assert.equal(descriptor.place.verifiedWorldTreeSha256, fixture.worldTreeSha256);
+});
+
 test('Behold refuses a release whose archive no longer matches checksum closure', (t) => {
   const fixture = makeReleaseFixture(t);
   fs.appendFileSync(path.join(fixture.release, fixture.worldArchive), 'tamper');
@@ -80,7 +94,7 @@ test('admitted epoch verification detects baseline drift', (t) => {
   assert.throws(() => verifyAdmittedPlaceEpoch(destination), /baseline tree digest mismatch/);
 });
 
-function makeReleaseFixture(t: test.TestContext) {
+function makeReleaseFixture(t: test.TestContext, schemaVersion = 2) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-place-epoch-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const stage = path.join(root, 'stage');
@@ -132,7 +146,7 @@ function makeReleaseFixture(t: test.TestContext) {
     archiveRecord(release, 'reproduction-kit', reproductionArchive),
   ];
   const manifest = {
-    schemaVersion: 2,
+    schemaVersion,
     compiler: 'behold-place-compiler',
     placeId: 'fixture-place',
     placeName: 'Fixture Place',

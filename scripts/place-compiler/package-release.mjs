@@ -43,6 +43,20 @@ async function sha256(file) {
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest('hex');
 }
+function repositoryEntry(entry, label) {
+  if (
+    typeof entry !== 'string' ||
+    !entry ||
+    path.isAbsolute(entry) ||
+    entry.includes('\\') ||
+    entry.split('/').includes('..')
+  )
+    throw new Error(`unsafe ${label}: ${entry}`);
+  const absolute = path.resolve(repositoryRoot, entry);
+  if (!absolute.startsWith(`${repositoryRoot}${path.sep}`))
+    throw new Error(`${label} escapes repository: ${entry}`);
+  return entry;
+}
 
 const options = parse(process.argv.slice(2));
 const generationPath = path.join(options.runRoot, 'generation-manifest.json');
@@ -60,6 +74,46 @@ if (worlds.length !== 1 || existsSync(path.join(worldParent, worlds[0], 'session
 const placeId = generation.place.id;
 const runId = generation.runId;
 const output = options.output ?? path.join(options.runRoot, '..', '..', 'releases', runId);
+const toolLockPath = repositoryEntry(generation.generator.toolLockPath, 'tool lock path');
+const toolLockFile = path.join(repositoryRoot, toolLockPath);
+if ((await sha256(toolLockFile)) !== generation.generator.toolLockSha256)
+  throw new Error('tool lock changed since generation');
+const toolLock = JSON.parse(readFileSync(toolLockFile, 'utf8'));
+const lockedGenerator = toolLock.tools?.arnisPatched;
+if (!lockedGenerator) throw new Error('tool lock lacks tools.arnisPatched');
+const patchPaths = (generation.generator.patchPaths ?? [generation.generator.patchPath]).map(
+  (entry) => repositoryEntry(entry, 'generator patch path'),
+);
+if (new Set(patchPaths).size !== patchPaths.length)
+  throw new Error('duplicate generator patch path');
+const lockedPatchPaths = lockedGenerator.patchPaths ?? [lockedGenerator.patchPath];
+if (JSON.stringify(patchPaths) !== JSON.stringify(lockedPatchPaths))
+  throw new Error('generation and tool lock patch lists disagree');
+const buildManifestPath = repositoryEntry(
+  path.posix.join(path.posix.dirname(generation.generator.binaryPath), 'build-manifest.json'),
+  'generator build manifest path',
+);
+const buildManifestFile = path.join(repositoryRoot, buildManifestPath);
+if (!existsSync(buildManifestFile)) throw new Error('generator build manifest is missing');
+const buildManifest = JSON.parse(readFileSync(buildManifestFile, 'utf8'));
+const patchRecords = await Promise.all(
+  patchPaths.map(async (patchPath) => ({
+    path: patchPath,
+    sha256: await sha256(path.join(repositoryRoot, patchPath)),
+  })),
+);
+if (
+  buildManifest.base?.version !== generation.generator.baseVersion ||
+  JSON.stringify(buildManifest.patches) !== JSON.stringify(patchRecords) ||
+  buildManifest.build?.sha256 !== generation.generator.binarySha256 ||
+  buildManifest.build?.sha256 !== lockedGenerator.sha256 ||
+  buildManifest.build?.sizeBytes !== lockedGenerator.sizeBytes ||
+  buildManifest.build?.command !== lockedGenerator.buildCommand ||
+  buildManifest.build?.testCommand !== lockedGenerator.testCommand ||
+  buildManifest.sourceArchive?.sha256 !== toolLock.tools?.arnisOfficial?.sourceArchiveSha256 ||
+  buildManifest.sourceArchive?.sizeBytes !== toolLock.tools?.arnisOfficial?.sourceArchiveSizeBytes
+)
+  throw new Error('generator build closure disagrees with generation or tool lock');
 const archives = [
   {
     role: 'immutable-world',
@@ -80,8 +134,9 @@ const archives = [
     entries: [
       'docs/place-compiler',
       'scripts/place-compiler',
-      'docs/sf-world/tool-lock.json',
-      'docs/sf-world/tooling/arnis-v3.0.0-tall-heightmap.patch',
+      toolLockPath,
+      ...patchPaths,
+      buildManifestPath,
       'scripts/sf-world/run-recorded.mjs',
       'scripts/sf-world/tree-hash.mjs',
     ],
@@ -134,7 +189,7 @@ for (const archive of archives) {
   archive.sha256 = await sha256(destination);
 }
 const release = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   compiler: 'behold-place-compiler',
   createdAt: new Date().toISOString(),
   placeId,
@@ -147,6 +202,18 @@ const release = {
     toolLockSha256: generation.generator.toolLockSha256,
     osmSha256: generation.inputs.sha256,
     worldTreeSha256: validation.evidence.worldTreeSha256,
+    generator: {
+      baseVersion: generation.generator.baseVersion,
+      binarySha256: generation.generator.binarySha256,
+      binarySizeBytes: buildManifest.build.sizeBytes,
+      buildManifestPath,
+      buildManifestSha256: await sha256(buildManifestFile),
+      sourceArchiveSha256: buildManifest.sourceArchive.sha256,
+      sourceArchiveSizeBytes: buildManifest.sourceArchive.sizeBytes,
+      patches: patchRecords,
+      buildCommand: buildManifest.build.command,
+      testCommand: buildManifest.build.testCommand,
+    },
   },
   runtimeProfiles: Object.keys(generation.place.runtimeProfiles),
   archives: archives.map(({ role, file, sizeBytes, sha256: digest }) => ({

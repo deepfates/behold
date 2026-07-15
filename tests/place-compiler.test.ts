@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 const root = path.resolve(__dirname, '..', '..');
 const generator = path.join(root, 'scripts/place-compiler/generate.mjs');
-function dryRun(place: string) {
+function dryRun(place: string, extra: string[] = []) {
   const result = spawnSync(
     process.execPath,
     [
@@ -15,12 +17,31 @@ function dryRun(place: string) {
       '--run-id',
       'test-dry-run',
       '--dry-run',
+      ...extra,
     ],
     { cwd: root, encoding: 'utf8' },
   );
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
+
+test('generator cache is a frozen, digest-closed optional input', (t) => {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-generator-cache-'));
+  t.after(() => fs.rmSync(cache, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(cache, 'arnis-landcover-cache'));
+  fs.writeFileSync(path.join(cache, 'arnis-landcover-cache', 'header.bin'), 'header');
+  fs.writeFileSync(path.join(cache, 'arnis-landcover-cache', 'tile.bin'), 'tile');
+  const manifest = dryRun('san-francisco.json', ['--generator-cache', cache]);
+  assert.deepEqual(
+    {
+      fileCount: manifest.inputs.generatorCache.fileCount,
+      totalSizeBytes: manifest.inputs.generatorCache.totalSizeBytes,
+    },
+    { fileCount: 2, totalSizeBytes: 10 },
+  );
+  assert.match(manifest.inputs.generatorCache.treeSha256, /^[a-f0-9]{64}$/);
+  assert.equal(manifest.inputs.generatorCache.sourcePath, cache);
+});
 
 test('one place compiler emits both place commands and the same locked tool', () => {
   const sf = dryRun('san-francisco.json');

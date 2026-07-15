@@ -2,6 +2,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import {
   constants,
+  cpSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -13,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   compileArnisArguments,
+  directoryManifest,
   loadPlaceRecipe,
   loadRuntimeProfiles,
   sha256,
@@ -22,11 +24,18 @@ import {
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 function parse(argv) {
-  const options = { place: null, runId: null, osmJson: null, dryRun: false };
+  const options = {
+    place: null,
+    runId: null,
+    osmJson: null,
+    generatorCache: null,
+    dryRun: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--place') options.place = path.resolve(argv[++i]);
     else if (argv[i] === '--run-id') options.runId = argv[++i];
     else if (argv[i] === '--osm-json') options.osmJson = path.resolve(argv[++i]);
+    else if (argv[i] === '--generator-cache') options.generatorCache = path.resolve(argv[++i]);
     else if (argv[i] === '--dry-run') options.dryRun = true;
     else throw new Error(`Unknown or incomplete argument: ${argv[i]}`);
   }
@@ -47,6 +56,11 @@ export async function generate(argv) {
     throw new Error(`missing or invalid Arnis binary: ${binary}`);
   if (options.osmJson && !existsSync(options.osmJson))
     throw new Error(`missing OSM snapshot: ${options.osmJson}`);
+  if (
+    options.generatorCache &&
+    !statSync(options.generatorCache, { throwIfNoEntry: false })?.isDirectory()
+  )
+    throw new Error(`missing generator cache directory: ${options.generatorCache}`);
   const runId = options.runId ?? `${recipe.id}-${timestamp()}`;
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(runId)) throw new Error(`invalid run id: ${runId}`);
   const runRoot = path.join(repositoryRoot, '.behold-artifacts/places', recipe.id, 'runs', runId);
@@ -57,6 +71,7 @@ export async function generate(argv) {
   const osmJson = path.join(inputRoot, `${recipe.id}-overpass.json`);
   const sourceAcquisitionManifest = options.osmJson ? `${options.osmJson}.manifest.json` : null;
   const acquisitionManifest = path.join(inputRoot, 'osm-acquisition-manifest.json');
+  const generatorCacheRoot = path.join(inputRoot, 'generator-cache');
   const profilesPath = path.join(repositoryRoot, 'docs/place-compiler/runtime-profiles.json');
   const profiles = loadRuntimeProfiles(profilesPath, recipe.runtimeProfiles);
   const compilerSources = [
@@ -104,6 +119,9 @@ export async function generate(argv) {
     ...args,
   ];
   const inputDigest = options.osmJson ? await sha256(options.osmJson) : null;
+  const generatorCache = options.generatorCache
+    ? await directoryManifest(options.generatorCache)
+    : null;
   const manifest = {
     schemaVersion: 2,
     compiler: { name: 'behold-place-compiler', schemaVersion: 1 },
@@ -155,6 +173,15 @@ export async function generate(argv) {
               sha256: await sha256(sourceAcquisitionManifest),
             }
           : null,
+      generatorCache: generatorCache
+        ? {
+            sourcePath: options.generatorCache,
+            path: generatorCacheRoot,
+            fileCount: generatorCache.fileCount,
+            totalSizeBytes: generatorCache.totalSizeBytes,
+            treeSha256: generatorCache.treeSha256,
+          }
+        : null,
     },
     outputRoot,
     command,
@@ -169,6 +196,21 @@ export async function generate(argv) {
     if ((await sha256(osmJson)) !== inputDigest) throw new Error('copied OSM digest mismatch');
     if (sourceAcquisitionManifest && existsSync(sourceAcquisitionManifest))
       copyFileSync(sourceAcquisitionManifest, acquisitionManifest, constants.COPYFILE_FICLONE);
+  }
+  if (options.generatorCache) {
+    cpSync(options.generatorCache, generatorCacheRoot, {
+      recursive: true,
+      mode: constants.COPYFILE_FICLONE,
+    });
+    const copiedCache = await directoryManifest(generatorCacheRoot);
+    if (copiedCache.treeSha256 !== generatorCache.treeSha256)
+      throw new Error('copied generator cache digest mismatch');
+    const homeCache = path.join(isolatedHome, 'Library', 'Caches');
+    mkdirSync(path.dirname(homeCache), { recursive: true });
+    cpSync(generatorCacheRoot, homeCache, {
+      recursive: true,
+      mode: constants.COPYFILE_FICLONE,
+    });
   }
   writeFileSync(
     path.join(runRoot, 'generation-manifest.json'),

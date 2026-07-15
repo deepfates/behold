@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { createReadStream, readFileSync } from 'node:fs';
+import { createReadStream, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -146,6 +146,41 @@ export async function sha256(file) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest('hex');
+}
+
+export async function directoryManifest(root) {
+  const absolute = path.resolve(root);
+  const files = [];
+  const visit = (relative = '') => {
+    const directory = path.join(absolute, relative);
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
+      const child = path.join(relative, entry.name);
+      if (entry.isDirectory()) visit(child);
+      else if (entry.isFile()) files.push(child);
+      else throw new Error(`unsupported directory entry: ${path.join(absolute, child)}`);
+    }
+  };
+  visit();
+  const tree = createHash('sha256');
+  let totalSizeBytes = 0;
+  const entries = [];
+  for (const relative of files) {
+    const file = path.join(absolute, relative);
+    const sizeBytes = statSync(file).size;
+    const digest = await sha256(file);
+    const portablePath = relative.split(path.sep).join('/');
+    entries.push({ path: portablePath, sizeBytes, sha256: digest });
+    totalSizeBytes += sizeBytes;
+    tree.update(`${digest}  ${sizeBytes}  ${portablePath}\n`);
+  }
+  return {
+    fileCount: entries.length,
+    totalSizeBytes,
+    treeSha256: tree.digest('hex'),
+    entries,
+  };
 }
 
 export function timestamp() {
