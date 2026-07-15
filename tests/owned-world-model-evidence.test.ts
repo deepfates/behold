@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   assessOwnedWorldModelEvidence,
+  decisionMatchesEntityTurn,
   parseRunJournal,
   type RunJournalEvent,
 } from '../scripts/owned-world-model-evidence';
@@ -14,6 +15,33 @@ const expected = {
   actRunId: 'behold-owned-flat-v1-1',
   resumeRunId: 'behold-owned-flat-v1-2',
 };
+
+test('an intentless explicit yield matches its recorded entity turn by tool call identity', () => {
+  assert.equal(
+    decisionMatchesEntityTurn(
+      {
+        intent: null,
+        assistant: {
+          tool_calls: [
+            {
+              id: 'ax-yield-call',
+              function: { name: 'wait_for_event', arguments: '{"reason":"nothing urgent"}' },
+            },
+          ],
+        },
+      },
+      {
+        action: {
+          id: 'yield-record',
+          name: 'wait_for_event',
+          kind: 'yield',
+          toolCallId: 'ax-yield-call',
+        },
+      },
+    ),
+    true,
+  );
+});
 
 test('model-world evidence requires a free choice, real consequence, and non-repeating restart', () => {
   const act = [

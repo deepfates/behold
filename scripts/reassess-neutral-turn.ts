@@ -15,7 +15,7 @@ import {
   parseResidentMindRequestArtifact,
 } from '../src/mind/request-artifact';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
-import { parseRunJournal } from './owned-world-model-evidence';
+import { decisionMatchesEntityTurn, parseRunJournal } from './owned-world-model-evidence';
 import {
   assertCleanRepository,
   durableWriteJson,
@@ -105,7 +105,7 @@ export async function reassessNeutralTurn(resultPath: string) {
     const modelTurn = events.find(
       (event) =>
         event.type === 'model_turn' &&
-        event.data?.intent?.id === entityTurn.data?.action?.id &&
+        decisionMatchesEntityTurn(event.data, entityTurn.data) &&
         event.data?.call?.request?.mindRequest != null,
     );
     if (!modelTurn) throw new Error('run journal does not contain the exact model decision');
