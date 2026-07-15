@@ -267,7 +267,19 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
             kind: 'mind_input',
             ...(options.recordModelIO ? { body: cloneJson(input) } : {}),
           },
-          response: { status: statusOrNull(error), bodyPreview: errorPreview(error) },
+          response: {
+            status: statusOrNull(error),
+            bodyPreview: errorPreview(error),
+            ...(options.recordModelIO
+              ? {
+                  raw: cloneJson({
+                    traces: program.getTraces().slice(traceOffset),
+                    chatLog: program.getChatLog().slice(chatOffset),
+                    providerResponses,
+                  }),
+                }
+              : {}),
+          },
         };
         throw new ResidentMindCallError(
           `Ax resident decision failed: ${error?.message || String(error)}`,

@@ -81,7 +81,7 @@ async function main() {
         ],
         maxResidents: 1,
         maxConcurrentModelCalls: 1,
-        maxTotalModelCalls: args.claim === 'decision' ? 1 : 4,
+        maxTotalModelCalls: args.maxModelCalls,
         startupTimeoutMs: 90_000,
         shutdownTimeoutMs: 90_000,
       },
@@ -132,7 +132,9 @@ async function main() {
       selected.entityTurn.data.sequence,
       fixture.entityRoot,
     );
-    const specificationSha256 = sha256(suiteSpecification(args.claim, historyContext));
+    const specificationSha256 = sha256(
+      suiteSpecification(args.claim, args.maxModelCalls, historyContext),
+    );
     episode = await createEvaluationEpisode(
       path.join(fixture.evidenceRoot, 'evaluation-episodes'),
       fixture.entityRoot,
@@ -200,6 +202,10 @@ async function main() {
       generatedAt,
       repository: { revision: repositoryRevision },
       claim: args.claim,
+      cognition: {
+        providerCallAdmissionLimit: args.maxModelCalls,
+        decisionAdmissions: selected.modelTurn.data.call.admissions?.length ?? 0,
+      },
       history: historyContext
         ? {
             ...historyContext,
@@ -223,6 +229,8 @@ async function main() {
       `${JSON.stringify(
         {
           claim: args.claim,
+          providerCallAdmissionLimit: args.maxModelCalls,
+          decisionAdmissions: selected.modelTurn.data.call.admissions?.length ?? 0,
           proof: selectedAssessment.status,
           failed: selectedAssessment.failed,
           decisionBinding: uncoachedDecisionAssessment.binding,
@@ -282,6 +290,7 @@ function parseArgs(argv: string[]) {
   let mind: 'direct' | 'ax' = 'ax';
   let claim: 'decision' | 'world-action' = 'world-action';
   let timeoutMs = 120_000;
+  let requestedMaxModelCalls: number | null = null;
   let historyReceipt = '';
   let historyId = '';
   let parentConfig = '';
@@ -297,7 +306,9 @@ function parseArgs(argv: string[]) {
       if (value !== 'direct' && value !== 'ax') throw new Error('--mind must be direct or ax');
       mind = value;
     } else if (argv[index] === '--timeoutMs') timeoutMs = Number(argv[++index]);
-    else if (argv[index] === '--historyReceipt') historyReceipt = String(argv[++index] || '');
+    else if (argv[index] === '--maxModelCalls') {
+      requestedMaxModelCalls = Number(argv[++index]);
+    } else if (argv[index] === '--historyReceipt') historyReceipt = String(argv[++index] || '');
     else if (argv[index] === '--history') historyId = String(argv[++index] || '');
     else if (argv[index] === '--parentConfig') parentConfig = String(argv[++index] || '');
     else if (argv[index] === '--parentWorld') parentWorld = String(argv[++index] || '');
@@ -330,6 +341,11 @@ function parseArgs(argv: string[]) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 30_000 || timeoutMs > 600_000) {
     throw new Error('--timeoutMs must be an integer from 30000 through 600000');
   }
+  const maxModelCalls =
+    requestedMaxModelCalls ?? (claim === 'decision' ? (mind === 'ax' ? 2 : 1) : 4);
+  if (!Number.isSafeInteger(maxModelCalls) || maxModelCalls < 1 || maxModelCalls > 32) {
+    throw new Error('--maxModelCalls must be an integer from 1 through 32');
+  }
   return {
     runId,
     port,
@@ -338,6 +354,7 @@ function parseArgs(argv: string[]) {
     mind,
     claim,
     timeoutMs,
+    maxModelCalls,
     historyReceipt: historyReceipt || null,
     historyId: historyId || null,
     parentConfig: parentConfig || null,
@@ -348,11 +365,13 @@ function parseArgs(argv: string[]) {
 
 function suiteSpecification(
   claim: 'decision' | 'world-action',
+  maxModelCalls: number,
   history: HistoryTurnFixture['historyContext'] | null,
 ) {
   return [
     'neutral-turn-v4',
     `Claim: ${claim}`,
+    `Provider-call admission limit: ${maxModelCalls}`,
     ...(history
       ? [
           `World history: ${history.historyId}`,

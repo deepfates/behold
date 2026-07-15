@@ -63,6 +63,8 @@ export type ModelCallFailureEvidence = Omit<ModelCallEvidence, 'response'> & {
   response: {
     status: number | null;
     bodyPreview: string | null;
+    /** Opt-in adapter/provider attempt evidence retained for diagnosis. */
+    raw?: unknown;
   };
 };
 

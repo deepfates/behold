@@ -321,6 +321,7 @@ test('a failed Ax call retains the exact candidate program identity', async () =
     model: 'test/model',
     apiURL: 'https://models.example.test/v1',
     maxRetries: 0,
+    recordModelIO: true,
     fetch: async () => new Response('{"error":"unauthorized"}', { status: 401 }),
   });
   await assert.rejects(
@@ -345,6 +346,8 @@ test('a failed Ax call retains the exact candidate program identity', async () =
     (error: any) => {
       assert.ok(error instanceof ResidentMindCallError);
       assert.deepEqual(error.call.program, axResidentProgramIdentity(artifact));
+      assert.ok((error.call.response.raw as any).providerResponses.length >= 1);
+      assert.equal((error.call.response.raw as any).providerResponses[0].error, 'unauthorized');
       return true;
     },
   );
