@@ -150,7 +150,10 @@ async function runBranch(input: {
   const branchRoot = path.join(input.evidenceRoot, input.history.historyId);
   const entityRoot = path.join(input.evidenceRoot, 'entities');
   const runRoot = path.join(branchRoot, 'runs');
-  fs.mkdirSync(branchRoot, { recursive: true, mode: 0o700 });
+  for (const directory of [branchRoot, entityRoot, runRoot]) {
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.chmodSync(directory, 0o700);
+  }
   const beforeWorld = digestTree(input.history.worldPath);
   if (beforeWorld.digest !== input.history.initialDigest) {
     throw new Error(`${worldId} diverged before its first inhabitation`);
