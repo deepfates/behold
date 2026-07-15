@@ -38,7 +38,10 @@ const INITIAL_WORLD_SYNC_SETTLE_MS = 4_000;
 if (process.env.BEHOLD_LOAD_DOTENV !== '0') loadDotenv();
 
 export type ConsoleOptions = {
+  /** Continuing private-life identity. */
   agentName?: string;
+  /** Minecraft connection identity. Defaults to agentName. */
+  bodyUsername?: string;
   model?: string;
   urgentModel?: string;
   urgentDecisionTimeoutMs?: number;
@@ -62,12 +65,14 @@ export type ConsoleOptions = {
 };
 
 export async function runConsole(opts: ConsoleOptions = {}) {
-  if (opts.agentName) process.env.MINECRAFT_USERNAME = opts.agentName;
+  if (opts.agentName) process.env.MINECRAFT_USERNAME = opts.bodyUsername || opts.agentName;
+  else if (opts.bodyUsername) process.env.MINECRAFT_USERNAME = opts.bodyUsername;
   if (opts.model) process.env.LLM_MODEL = opts.model;
   if (opts.tickMs) process.env.AGENT_TICK_MS = String(opts.tickMs);
 
   const cfg = getConfig();
-  const name = cfg.auth.username || 'Agent';
+  const name = opts.agentName?.trim() || cfg.auth.username || 'Agent';
+  const bodyUsername = cfg.auth.username || 'BeholdBot';
   const urgentModel = opts.urgentModel?.trim() || undefined;
   const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(
     opts.urgentDecisionTimeoutMs ?? process.env.BEHOLD_URGENT_DECISION_TIMEOUT_MS,
@@ -113,6 +118,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     server: cfg.server,
     circle: cfg.circle,
     authMode: cfg.auth.mode,
+    body: { substrate: 'minecraft', username: bodyUsername },
     model: cfg.llm.model,
     urgentModel: urgentModel ?? null,
     controller: {
@@ -141,7 +147,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   );
   console.error(`[circle] ${cfg.circle.id} (${cfg.circle.source})`);
   for (const warning of entityLoom.warnings) console.error(`[entity] ${warning}`);
-  console.error(`[console] connecting to ${cfg.server.host}:${cfg.server.port} as ${name}`);
+  console.error(
+    `[console] connecting life ${name} to ${cfg.server.host}:${cfg.server.port} as Minecraft body ${bodyUsername}`,
+  );
   const bot = createBot(cfg, entityLoom.connectionCapability);
   const taskRuntime =
     opts.task === 'come-see-do-report'
@@ -152,6 +160,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   let engine: ReturnType<typeof createEngine> | null = null;
   let localWorldReady = false;
   const experience = new InhabitantExperience(bot as any, {
+    entityId: name,
     circleId: cfg.circle.id,
     managedRunId: process.env.BEHOLD_RUN_ID || null,
     task,

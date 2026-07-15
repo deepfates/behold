@@ -11,6 +11,8 @@ test('managed proof residents accept the complete launcher process contract', ()
     '25565',
     '--world',
     'world:epoch',
+    '--body',
+    'ResidentBody',
     '--model',
     'provider/model',
     '--urgentModel',
@@ -29,6 +31,7 @@ test('managed proof residents accept the complete launcher process contract', ()
     'Alex',
     '--allowTools',
     'look,wait',
+    '--paused',
   ]);
 
   assert.deepEqual(parsed.positionals, ['Resident']);
@@ -38,6 +41,7 @@ test('managed proof residents accept the complete launcher process contract', ()
       server: '127.0.0.1',
       port: '25565',
       world: 'world:epoch',
+      body: 'ResidentBody',
       model: 'provider/model',
       urgentModel: 'provider/urgent',
       policyProfile: 'resident-v1',
@@ -47,6 +51,7 @@ test('managed proof residents accept the complete launcher process contract', ()
       task: 'observe',
       target: 'Alex',
       allowTools: 'look,wait',
+      paused: true,
     },
   );
 });

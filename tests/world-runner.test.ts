@@ -136,13 +136,38 @@ test('resident configuration rejects canonical identity collisions and process-b
         {
           ...fixture.options,
           residents: [
-            { entityId: 'Scout Life', model: 'fixture/model' },
-            { entityId: 'Scout-Life', model: 'fixture/model' },
+            { entityId: 'Scout Life', bodyUsername: 'ScoutBodyOne', model: 'fixture/model' },
+            { entityId: 'Scout-Life', bodyUsername: 'ScoutBodyTwo', model: 'fixture/model' },
           ],
         },
         dependencies,
       ),
     (error: any) => error?.code === 'resident_identity_collision',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          residents: [
+            { entityId: 'FirstLife', bodyUsername: 'SharedBody', model: 'fixture/model' },
+            { entityId: 'SecondLife', bodyUsername: 'sharedbody', model: 'fixture/model' },
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_body_identity_collision',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          residents: [{ entityId: 'LongPrivateLifeIdentity', model: 'fixture/model' }],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_body_identity_invalid',
   );
   await assert.rejects(
     () =>

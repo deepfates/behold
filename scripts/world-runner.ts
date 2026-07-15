@@ -147,7 +147,10 @@ type RuntimeInspection = RuntimeEvidence & {
 };
 
 export type ManagedResidentSpec = Readonly<{
+  /** Continuing private-life identity and owner of the resident Lync. */
   entityId: string;
+  /** Minecraft connection identity. Defaults to entityId. */
+  bodyUsername?: string;
   model: string;
   urgentModel?: string;
   mind?: 'direct' | 'ax';
@@ -158,6 +161,8 @@ export type ManagedResidentSpec = Readonly<{
   task?: string;
   target?: string;
   allowTools?: readonly string[];
+  /** Connect the body and preserve the life without starting cognition. */
+  paused?: boolean;
 }>;
 
 export type ManagedWorldRunOptions = Readonly<{
@@ -204,6 +209,7 @@ export type ManagedWorldRun = Readonly<{
   serverPid: number;
   residents: readonly Readonly<{
     entityId: string;
+    bodyUsername: string;
     model: string;
     urgentModel: string | null;
     mind: 'direct' | 'ax';
@@ -211,6 +217,7 @@ export type ManagedWorldRun = Readonly<{
     actionProfile: MinecraftActionProfile;
     safetyProfile: MinecraftSafetyProfile;
     tickMs: number;
+    paused: boolean;
     pid: number;
     leasePath: string;
     journalDirectory: string;
@@ -272,6 +279,7 @@ type ManagedResetTestDependencies = Omit<
 
 type NormalizedManagedResident = Readonly<{
   entityId: string;
+  bodyUsername: string;
   model: string;
   urgentModel?: string;
   mind: 'direct' | 'ax';
@@ -282,6 +290,7 @@ type NormalizedManagedResident = Readonly<{
   task?: string;
   target?: string;
   allowTools?: readonly string[];
+  paused: boolean;
   leasePath: string;
 }>;
 
@@ -349,6 +358,7 @@ function normalizeManagedResidents(
 
   const entityRoot = path.resolve(options.entityRoot);
   const identities = new Map<string, string>();
+  const bodyUsernames = new Map<string, string>();
   const leasePaths = new Map<string, string>();
   return Object.freeze(
     options.residents.map((candidate, index) => {
@@ -383,6 +393,25 @@ function normalizeManagedResidents(
         );
       }
       identities.set(identityKey, entityId);
+
+      const bodyUsername = optionalText(candidate.bodyUsername) ?? entityId;
+      if (!/^[A-Za-z0-9_]{1,16}$/.test(bodyUsername)) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} has an invalid Minecraft body username`,
+          'resident_body_identity_invalid',
+          { index, entityId, bodyUsername },
+        );
+      }
+      const bodyKey = bodyUsername.normalize('NFKC').toLowerCase();
+      const priorBody = bodyUsernames.get(bodyKey);
+      if (priorBody) {
+        throw new WorldRunnerError(
+          `Resident lives ${priorBody} and ${entityId} cannot simultaneously inhabit Minecraft body ${bodyUsername}`,
+          'resident_body_identity_collision',
+          { index, entityId, priorEntityId: priorBody, bodyUsername },
+        );
+      }
+      bodyUsernames.set(bodyKey, entityId);
 
       const mind = candidate.mind ?? 'direct';
       if (mind !== 'direct' && mind !== 'ax') {
@@ -449,6 +478,7 @@ function normalizeManagedResidents(
       leasePaths.set(leaseKey, entityId);
       return Object.freeze({
         entityId,
+        bodyUsername,
         model,
         ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
         mind,
@@ -459,6 +489,7 @@ function normalizeManagedResidents(
         ...(candidate.task ? { task: String(candidate.task) } : {}),
         ...(candidate.target ? { target: String(candidate.target) } : {}),
         ...(candidate.allowTools ? { allowTools: Object.freeze([...candidate.allowTools]) } : {}),
+        paused: candidate.paused === true,
         leasePath,
       });
     }),
@@ -490,6 +521,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
     residents.map((entry) =>
       Object.freeze({
         entityId: entry.resident.entityId,
+        bodyUsername: entry.resident.bodyUsername,
         model: entry.resident.model,
         urgentModel: entry.resident.urgentModel ?? null,
         mind: entry.resident.mind,
@@ -497,6 +529,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         actionProfile: entry.resident.actionProfile,
         safetyProfile: entry.resident.safetyProfile,
         tickMs: entry.resident.tickMs,
+        paused: entry.resident.paused,
         pid: entry.child.pid!,
         leasePath: entry.resident.leasePath,
         journalDirectory: entry.journalDirectory,
@@ -700,6 +733,7 @@ export async function startManagedWorld(
       population: {
         residents: residents.map((resident) => ({
           entityId: resident.entityId,
+          bodyUsername: resident.bodyUsername,
           model: resident.model,
           urgentModel: resident.urgentModel ?? null,
           mind: resident.mind,
@@ -707,6 +741,7 @@ export async function startManagedWorld(
           actionProfile: resident.actionProfile,
           safetyProfile: resident.safetyProfile,
           tickMs: resident.tickMs,
+          paused: resident.paused,
           task: resident.task ?? null,
           target: resident.target ?? null,
           allowTools: resident.allowTools ?? null,
@@ -822,10 +857,12 @@ export async function startManagedWorld(
         index,
         pid: controller.pid,
         entityId: resident.entityId,
+        bodyUsername: resident.bodyUsername,
         model: resident.model,
         urgentModel: resident.urgentModel ?? null,
         mind: resident.mind,
         tickMs: resident.tickMs,
+        paused: resident.paused,
         leasePath: resident.leasePath,
         journalDirectory,
       });
@@ -1433,6 +1470,8 @@ function spawnDefaultController(
   const args = [
     options.controllerEntry,
     resident.entityId,
+    '--body',
+    resident.bodyUsername,
     '--server',
     options.world.server.host,
     '--port',
@@ -1454,6 +1493,7 @@ function spawnDefaultController(
   if (resident.task) args.push('--task', resident.task);
   if (resident.target) args.push('--target', resident.target);
   if (resident.allowTools?.length) args.push('--allowTools', resident.allowTools.join(','));
+  if (resident.paused) args.push('--paused');
   return spawn(process.execPath, args, {
     cwd: process.cwd(),
     env: environment,
@@ -1510,6 +1550,7 @@ function managedControllerEnvironment(
   env.BEHOLD_WORLD_CONTROL_ROOT = path.dirname(path.dirname(controlFile));
   env.BEHOLD_ENTITY_DIR = path.resolve(options.entityRoot);
   env.BEHOLD_RUN_DIR = journalDirectory;
+  env.MINECRAFT_USERNAME = resident.bodyUsername;
   env.BEHOLD_MIND = resident.mind;
   env.BEHOLD_POLICY_PROFILE = resident.policyProfile;
   env.BEHOLD_ACTION_PROFILE = resident.actionProfile;
@@ -2021,7 +2062,7 @@ function gitProvenance() {
   };
 }
 
-function bundledJava() {
+export function bundledJava() {
   const candidate = path.join(
     os.homedir(),
     'Library',
@@ -2053,7 +2094,9 @@ export async function runCli(argv = process.argv.slice(2)) {
       actionProfile: { type: 'string' },
       safetyProfile: { type: 'string' },
       controller: { type: 'string', multiple: true },
+      body: { type: 'string', multiple: true },
       mind: { type: 'string' },
+      paused: { type: 'boolean', default: false },
       tickMs: { type: 'string' },
       maxResidents: { type: 'string' },
       maxModelConcurrency: { type: 'string' },
@@ -2103,7 +2146,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   if (command !== 'start')
     throw new WorldRunnerError(`Unknown command: ${command}`, 'unknown_command');
 
-  if (!process.env.OPENROUTER_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY && !parsed.values.paused) {
     throw new WorldRunnerError(
       'OPENROUTER_API_KEY is required for a managed LLM run',
       'controller_credentials_missing',
@@ -2126,6 +2169,20 @@ export async function runCli(argv = process.argv.slice(2)) {
   const controllerEntityIds = parsed.values.controller?.length
     ? parsed.values.controller.map(String)
     : ['ScoutLife'];
+  const controllerBodyUsernames = parsed.values.body?.map(String) ?? [];
+  if (
+    controllerBodyUsernames.length > 0 &&
+    controllerBodyUsernames.length !== controllerEntityIds.length
+  ) {
+    throw new WorldRunnerError(
+      'Repeat --body exactly once per --controller, in the same order',
+      'controller_body_count_mismatch',
+      {
+        controllers: controllerEntityIds.length,
+        bodies: controllerBodyUsernames.length,
+      },
+    );
+  }
   const controllerProfile = managedControllerProfile(parsed.values.task, parsed.values.target);
   const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL);
   const urgentModel = optionalText(parsed.values.urgentModel || process.env.LLM_URGENT_MODEL);
@@ -2161,8 +2218,9 @@ export async function runCli(argv = process.argv.slice(2)) {
     controllerEntry: path.resolve('dist/src/cli/behold.js'),
     entityRoot: path.resolve('.behold-entities'),
     runRoot: path.resolve('.behold-runs'),
-    residents: controllerEntityIds.map((entityId) => ({
+    residents: controllerEntityIds.map((entityId, index) => ({
       entityId,
+      ...(controllerBodyUsernames[index] ? { bodyUsername: controllerBodyUsernames[index] } : {}),
       model,
       ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
       mind,
@@ -2170,6 +2228,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       actionProfile,
       safetyProfile,
       tickMs,
+      paused: parsed.values.paused,
       ...controllerProfile,
     })),
     maxResidents,
@@ -2237,9 +2296,10 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--controller <name> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
+    'Repeat --body in the same order only when a life ID differs from its Minecraft username.',
     'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 defaults to the minecraft-player-v1 action surface and vanilla-player-v1 risk policy.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
@@ -24,6 +24,7 @@ export const MINECRAFT_WORLD_HISTORY_TURN_PROTOCOL =
 export const MINECRAFT_CHECKPOINT_PROTOCOL = 'behold.minecraft-checkpoint.v1' as const;
 const MINECRAFT_CHECKPOINT_ARTIFACT_PROTOCOL = 'behold.minecraft-checkpoint-artifact.v1' as const;
 export const MINECRAFT_HISTORY_PROTOCOL = 'behold.minecraft-history.v1' as const;
+export const MINECRAFT_HISTORY_SERVER_PROTOCOL = 'behold.minecraft-history-server.v1' as const;
 
 export type MinecraftHistoryRequest = Readonly<{
   id: string;
@@ -58,6 +59,28 @@ export type MinecraftHistoryRecord = Readonly<{
   worldPath: string;
   archiveRoot: string;
   materializedAt: string;
+}>;
+
+export type MinecraftHistoryServer = Readonly<{
+  protocol: typeof MINECRAFT_HISTORY_SERVER_PROTOCOL;
+  historyId: string;
+  checkpointArtifactId: string;
+  initialWorldDigest: string;
+  serverDirectory: string;
+  worldPath: string;
+  host: string;
+  port: number;
+  template: Readonly<{
+    directory: string;
+    files: readonly Readonly<{ name: string; sha256: string }>[];
+  }>;
+  profile: Readonly<{
+    levelName: string;
+    onlineMode: false;
+  }>;
+  preparedFiles: readonly Readonly<{ name: string; sha256: string }>[];
+  manifestFile: string;
+  preparedAt: string;
 }>;
 
 export type MinecraftWorldHistoryFork = Readonly<{
@@ -264,6 +287,149 @@ export function minecraftHistoryWorldDefinition(
       ...(parent.notes ?? []),
       `Writable history ${history.historyId} descended from ${checkpoint.artifactId}.`,
     ],
+  });
+}
+
+const HISTORY_SERVER_POLICY_FILES = Object.freeze([
+  'banned-ips.json',
+  'banned-players.json',
+  'ops.json',
+  'whitelist.json',
+]);
+
+/**
+ * Give one writable history its own vanilla server directory without copying
+ * logs, caches, plugins, or another world's save. Minecraft remains the only
+ * runtime mutator of history.worldPath.
+ */
+export function prepareMinecraftHistoryServer(
+  input: Readonly<{
+    history: MinecraftHistoryRecord;
+    templateServerDirectory: string;
+    host?: string;
+    port: number;
+    now?: () => Date;
+  }>,
+): MinecraftHistoryServer {
+  const history = parseHistory(input.history);
+  const port = boundedPort(input.port);
+  const host = input.host?.trim() || '127.0.0.1';
+  if (host !== '127.0.0.1' && host !== 'localhost') {
+    throw new Error('Minecraft history servers currently require a loopback host');
+  }
+  const serverDirectory = path.dirname(history.worldPath);
+  const levelName = path.basename(history.worldPath);
+  if (!fs.existsSync(history.worldPath) || !fs.statSync(history.worldPath).isDirectory()) {
+    throw new Error(`Minecraft history world is missing: ${history.worldPath}`);
+  }
+  if (digestTree(history.worldPath).digest !== history.initialDigest) {
+    throw new Error('Minecraft history server must be prepared before its world diverges');
+  }
+  const templateDirectory = fs.realpathSync.native(path.resolve(input.templateServerDirectory));
+  if (!fs.statSync(templateDirectory).isDirectory()) {
+    throw new Error('Minecraft history server template is not a directory');
+  }
+  if (pathsOverlap(templateDirectory, history.worldPath)) {
+    throw new Error('Minecraft history server template must be outside the writable history');
+  }
+  const templatePropertiesFile = requiredPlainFile(templateDirectory, 'server.properties');
+  const templateEulaFile = requiredPlainFile(templateDirectory, 'eula.txt');
+  const eula = fs.readFileSync(templateEulaFile, 'utf8');
+  if (!/^\s*eula\s*=\s*true\s*$/m.test(eula)) {
+    throw new Error('Minecraft history server template has not accepted the EULA');
+  }
+  const properties = parseServerProperties(fs.readFileSync(templatePropertiesFile, 'utf8'));
+  if (String(properties.get('online-mode') || 'true').toLowerCase() !== 'false') {
+    throw new Error('Minecraft history server requires the currently supported offline body mode');
+  }
+  properties.set('level-name', levelName);
+  properties.set('server-ip', host === 'localhost' ? '127.0.0.1' : host);
+  properties.set('server-port', String(port));
+  properties.set('query.port', String(port));
+  const preparedProperties = serializeServerProperties(properties);
+  const templateFiles = [templatePropertiesFile, templateEulaFile];
+  const policyFiles = HISTORY_SERVER_POLICY_FILES.flatMap((name) => {
+    const file = path.join(templateDirectory, name);
+    if (!fs.existsSync(file)) return [];
+    assertPlainFile(file);
+    return [file];
+  });
+  templateFiles.push(...policyFiles);
+
+  const manifestFile = path.join(serverDirectory, 'server-launch.json');
+  if (fs.existsSync(manifestFile)) {
+    const existing = parseHistoryServer(readJson(manifestFile));
+    if (
+      existing.historyId !== history.historyId ||
+      existing.checkpointArtifactId !== history.checkpointArtifactId ||
+      existing.host !== (host === 'localhost' ? '127.0.0.1' : host) ||
+      existing.port !== port ||
+      existing.serverDirectory !== serverDirectory ||
+      existing.worldPath !== history.worldPath
+    ) {
+      throw new Error('existing Minecraft history server profile is inconsistent');
+    }
+    assertPreparedServerProfile(existing);
+    return existing;
+  }
+
+  const outputs = [
+    { name: 'server.properties', bytes: Buffer.from(preparedProperties, 'utf8') },
+    { name: 'eula.txt', bytes: fs.readFileSync(templateEulaFile) },
+    ...policyFiles.map((file) => ({ name: path.basename(file), bytes: fs.readFileSync(file) })),
+  ];
+  for (const output of outputs) {
+    const destination = path.join(serverDirectory, output.name);
+    if (fs.existsSync(destination)) {
+      throw new Error(`refusing to replace existing Minecraft history server file: ${destination}`);
+    }
+    durableWriteBytes(destination, output.bytes);
+  }
+  const preparedAt = (input.now ?? (() => new Date()))().toISOString();
+  const record: MinecraftHistoryServer = {
+    protocol: MINECRAFT_HISTORY_SERVER_PROTOCOL,
+    historyId: history.historyId,
+    checkpointArtifactId: history.checkpointArtifactId,
+    initialWorldDigest: history.initialDigest,
+    serverDirectory,
+    worldPath: history.worldPath,
+    host: host === 'localhost' ? '127.0.0.1' : host,
+    port,
+    template: {
+      directory: templateDirectory,
+      files: templateFiles.map((file) => ({
+        name: path.basename(file),
+        sha256: sha256File(file),
+      })),
+    },
+    profile: { levelName, onlineMode: false },
+    preparedFiles: outputs.map((output) => ({
+      name: output.name,
+      sha256: sha256Bytes(output.bytes),
+    })),
+    manifestFile,
+    preparedAt,
+  };
+  durableWriteJson(manifestFile, record);
+  assertPreparedServerProfile(record);
+  return deepFreeze(record);
+}
+
+/** Semantic verification remains valid after vanilla rewrites properties comments. */
+export function verifyMinecraftHistoryServer(value: MinecraftHistoryServer) {
+  const record = parseHistoryServer(value);
+  const manifest = parseHistoryServer(readJson(record.manifestFile));
+  if (stableJson(manifest) !== stableJson(record)) {
+    throw new Error('Minecraft history server manifest differs from its receipt');
+  }
+  assertPreparedServerProfile(record);
+  const currentWorld = digestTree(record.worldPath);
+  return deepFreeze({
+    protocol: MINECRAFT_HISTORY_SERVER_PROTOCOL,
+    historyId: record.historyId,
+    profileIntegrityOk: true,
+    currentWorldDigest: currentWorld.digest,
+    worldDiverged: currentWorld.digest !== record.initialWorldDigest,
   });
 }
 
@@ -760,10 +926,156 @@ function parseHistory(value: any): MinecraftHistoryRecord {
   return deepFreeze(value as MinecraftHistoryRecord);
 }
 
+function parseHistoryServer(value: any): MinecraftHistoryServer {
+  if (
+    value?.protocol !== MINECRAFT_HISTORY_SERVER_PROTOCOL ||
+    typeof value.historyId !== 'string' ||
+    typeof value.checkpointArtifactId !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(String(value.initialWorldDigest || '')) ||
+    typeof value.serverDirectory !== 'string' ||
+    typeof value.worldPath !== 'string' ||
+    value.host !== '127.0.0.1' ||
+    !Number.isSafeInteger(value.port) ||
+    value.port < 1024 ||
+    value.port > 65_535 ||
+    value.profile?.onlineMode !== false ||
+    typeof value.profile?.levelName !== 'string' ||
+    !Array.isArray(value.template?.files) ||
+    !Array.isArray(value.preparedFiles) ||
+    typeof value.manifestFile !== 'string' ||
+    typeof value.preparedAt !== 'string'
+  ) {
+    throw new Error('invalid Minecraft history server profile');
+  }
+  return deepFreeze(value as MinecraftHistoryServer);
+}
+
+function assertPreparedServerProfile(record: MinecraftHistoryServer) {
+  if (
+    path.resolve(record.serverDirectory) !== path.dirname(path.resolve(record.worldPath)) ||
+    path.basename(record.worldPath) !== record.profile.levelName
+  ) {
+    throw new Error('Minecraft history server profile does not own its declared world path');
+  }
+  const propertiesFile = requiredPlainFile(record.serverDirectory, 'server.properties');
+  const eulaFile = requiredPlainFile(record.serverDirectory, 'eula.txt');
+  const properties = parseServerProperties(fs.readFileSync(propertiesFile, 'utf8'));
+  const expected = new Map<string, string>([
+    ['level-name', record.profile.levelName],
+    ['online-mode', 'false'],
+    ['server-ip', record.host],
+    ['server-port', String(record.port)],
+    ['query.port', String(record.port)],
+  ]);
+  for (const [name, value] of expected) {
+    if (String(properties.get(name) || '').toLowerCase() !== value.toLowerCase()) {
+      throw new Error(`Minecraft history server property ${name} differs from its profile`);
+    }
+  }
+  if (!/^\s*eula\s*=\s*true\s*$/m.test(fs.readFileSync(eulaFile, 'utf8'))) {
+    throw new Error('Minecraft history server EULA evidence is missing');
+  }
+  for (const prepared of record.preparedFiles) {
+    if (
+      typeof prepared?.name !== 'string' ||
+      !/^[A-Za-z0-9._-]+$/.test(prepared.name) ||
+      !/^[a-f0-9]{64}$/.test(String(prepared.sha256 || ''))
+    ) {
+      throw new Error('Minecraft history server prepared-file record is invalid');
+    }
+    const file = requiredPlainFile(record.serverDirectory, prepared.name);
+    // Vanilla rewrites server.properties comments and order. Its active
+    // semantics are checked above; access-policy files remain byte-bound.
+    if (prepared.name !== 'server.properties' && sha256File(file) !== prepared.sha256) {
+      throw new Error(`Minecraft history server file drifted: ${prepared.name}`);
+    }
+  }
+}
+
+function parseServerProperties(source: string) {
+  const values = new Map<string, string>();
+  for (const raw of source.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith('!')) continue;
+    const equals = line.indexOf('=');
+    const colon = line.indexOf(':');
+    const separator = [equals, colon]
+      .filter((value) => value >= 0)
+      .sort((left, right) => left - right)[0];
+    if (separator == null) continue;
+    const key = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1).trim();
+    if (!key) continue;
+    if (values.has(key)) throw new Error(`duplicate Minecraft server property: ${key}`);
+    values.set(key, value);
+  }
+  return values;
+}
+
+function serializeServerProperties(values: ReadonlyMap<string, string>) {
+  return `${[...values.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')}\n`;
+}
+
+function requiredPlainFile(directory: string, name: string) {
+  const file = path.join(directory, name);
+  if (!fs.existsSync(file)) throw new Error(`required Minecraft server file is missing: ${file}`);
+  assertPlainFile(file);
+  return file;
+}
+
+function assertPlainFile(file: string) {
+  const stats = fs.lstatSync(file);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error(`Minecraft server input is not a plain file: ${file}`);
+  }
+}
+
+function boundedPort(value: number) {
+  if (!Number.isSafeInteger(value) || value < 1024 || value > 65_535) {
+    throw new Error('Minecraft history server port must be an integer from 1024 through 65535');
+  }
+  return value;
+}
+
+function sha256File(file: string) {
+  return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function sha256Bytes(value: Uint8Array) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function durableWriteBytes(file: string, value: Uint8Array) {
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  const descriptor = fs.openSync(temporary, 'wx', 0o600);
+  try {
+    fs.writeFileSync(descriptor, value);
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  fs.renameSync(temporary, file);
+  fsyncDirectory(path.dirname(file));
+}
+
 function readJson(file: string) {
   const stats = fs.lstatSync(file);
   if (!stats.isFile() || stats.isSymbolicLink()) throw new Error(`not a plain JSON file: ${file}`);
   return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 function safeSegment(value: unknown, label: string) {

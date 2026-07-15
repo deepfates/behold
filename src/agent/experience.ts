@@ -76,7 +76,15 @@ export type InhabitantObservation = {
   };
   task: TaskBrief | null;
   self: {
+    /** Continuing private-life identity; distinct from the current game body. */
     identity: string;
+    /** Present on new runtime observations; absent on historical v2 captures. */
+    body?: {
+      substrate: 'minecraft';
+      username: string;
+      /** Native player UUID when the client has received it. */
+      uuid: string | null;
+    };
     pose: {
       position: { x: number; y: number; z: number } | null;
       yaw: number | null;
@@ -181,6 +189,8 @@ export type SceneBlockTarget = {
 type EngineEvent = { type: string; at: number; data: any };
 
 export type ExperienceOptions = {
+  /** Continuing private-life identity. Defaults to the Minecraft username. */
+  entityId?: string;
   circleId?: string;
   managedRunId?: string | null;
   task?: TaskBrief | null;
@@ -420,7 +430,15 @@ export class InhabitantExperience {
       },
       task: this.task,
       self: {
-        identity: String((this.bot as any).username || 'agent'),
+        identity: String(this.options.entityId || (this.bot as any).username || 'agent'),
+        body: {
+          substrate: 'minecraft',
+          username: String((this.bot as any).username || 'agent'),
+          uuid:
+            typeof (this.bot as any).player?.uuid === 'string'
+              ? String((this.bot as any).player.uuid)
+              : null,
+        },
         pose: {
           position: base.position,
           yaw,

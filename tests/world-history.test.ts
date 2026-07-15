@@ -12,7 +12,9 @@ import {
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 import {
   forkStoppedMinecraftWorld,
+  prepareMinecraftHistoryServer,
   verifyMinecraftWorldHistoryFork,
+  verifyMinecraftHistoryServer,
 } from '../src/runtime/world-history';
 
 test('one stopped Minecraft checkpoint creates isolated writable histories and Lync lineage', async (t) => {
@@ -162,6 +164,60 @@ test('checkpointing refuses active or ambiguous runtime evidence before copying'
   assert.equal(fs.existsSync(path.join(fixture.historyRoot, 'checkpoints')), false);
 });
 
+test('a child history receives an isolated vanilla server profile without copying runtime cruft', async (t) => {
+  const fixture = worldFixture(t);
+  const fork = await forkStoppedMinecraftWorld(
+    {
+      operationId: 'launchable-history-1',
+      worldId: 'fixture-world',
+      world: fixture.world,
+      controlRoot: fixture.controlRoot,
+      historyRoot: fixture.historyRoot,
+      actor: 'test-evaluator',
+      histories: [{ id: 'candidate', label: 'Candidate', purpose: 'Launch one child.' }],
+    },
+    { inspectRuntime: async () => stoppedEvidence(fixture.runtime) },
+  );
+  const child = fork.histories[0];
+  const initialDigest = digestTree(child.worldPath).digest;
+  const server = prepareMinecraftHistoryServer({
+    history: child,
+    templateServerDirectory: fixture.templateServer,
+    host: '127.0.0.1',
+    port: 25_599,
+    now: () => new Date('2026-07-14T00:00:00.000Z'),
+  });
+
+  assert.equal(server.serverDirectory, path.dirname(child.worldPath));
+  assert.equal(server.worldPath, child.worldPath);
+  assert.equal(digestTree(child.worldPath).digest, initialDigest);
+  assert.match(
+    fs.readFileSync(path.join(server.serverDirectory, 'server.properties'), 'utf8'),
+    /^level-name=world$/m,
+  );
+  assert.match(
+    fs.readFileSync(path.join(server.serverDirectory, 'server.properties'), 'utf8'),
+    /^server-port=25599$/m,
+  );
+  assert.equal(fs.existsSync(path.join(server.serverDirectory, 'usercache.json')), false);
+  assert.equal(fs.readFileSync(path.join(server.serverDirectory, 'ops.json'), 'utf8'), '[]\n');
+  assert.deepEqual(verifyMinecraftHistoryServer(server), {
+    protocol: 'behold.minecraft-history-server.v1',
+    historyId: 'candidate',
+    profileIntegrityOk: true,
+    currentWorldDigest: initialDigest,
+    worldDiverged: false,
+  });
+  assert.deepEqual(
+    prepareMinecraftHistoryServer({
+      history: child,
+      templateServerDirectory: fixture.templateServer,
+      port: 25_599,
+    }),
+    server,
+  );
+});
+
 function worldFixture(t: test.TestContext) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-world-history-'));
   t.after(() => {
@@ -172,7 +228,24 @@ function worldFixture(t: test.TestContext) {
   const baseline = path.join(root, 'baseline');
   const runtime = path.join(root, 'runtime');
   const archive = path.join(root, 'archive');
-  for (const directory of [source, baseline, runtime, archive]) fs.mkdirSync(directory);
+  const templateServer = path.join(root, 'template-server');
+  for (const directory of [source, baseline, runtime, archive, templateServer]) {
+    fs.mkdirSync(directory);
+  }
+  fs.writeFileSync(
+    path.join(templateServer, 'server.properties'),
+    [
+      'difficulty=normal',
+      'level-name=world',
+      'online-mode=false',
+      'query.port=25565',
+      'server-ip=127.0.0.1',
+      'server-port=25565',
+    ].join('\n') + '\n',
+  );
+  fs.writeFileSync(path.join(templateServer, 'eula.txt'), 'eula=true\n');
+  fs.writeFileSync(path.join(templateServer, 'ops.json'), '[]\n');
+  fs.writeFileSync(path.join(templateServer, 'usercache.json'), '[{"name":"old"}]\n');
   fs.mkdirSync(path.join(runtime, 'region'));
   fs.writeFileSync(path.join(runtime, 'level.dat'), 'level');
   fs.writeFileSync(path.join(runtime, 'region', 'r.0.0.mca'), 'source');
@@ -197,6 +270,7 @@ function worldFixture(t: test.TestContext) {
     runtime,
     controlRoot: path.join(root, 'control'),
     historyRoot: path.join(root, 'histories-root'),
+    templateServer,
     world,
   };
 }

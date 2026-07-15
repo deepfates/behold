@@ -24,6 +24,13 @@ New Minecraft observations use `behold.inhabitant.v2`.
 
 - `self` is direct body state: pose, health, food, oxygen, sleeping state, held
   item, inventory, current action, and bounded own-trajectory projections.
+  `self.identity` names the continuing private life that owns the Lync;
+  `self.body` names the Minecraft username and native UUID currently carrying
+  that life. They normally match by convention, but they are not the same
+  authority. An evaluation copy may use the same saved Minecraft body in an
+  isolated world history only under a distinct life identity and distinct
+  private Lync. New runtime observations include `self.body`; historical v2
+  captures remain readable without it.
   Current inventory stacks carry game-adapter-derived ordinary uses such as
   `place`, `consume`, `equip`, and `drop`; this is item knowledge available to
   the body, not a recipe or loaded-world scan.

@@ -9,6 +9,7 @@ export const MANAGED_RESIDENT_CLI_OPTIONS = Object.freeze({
   server: { type: 'string' },
   port: { type: 'string' },
   world: { type: 'string' },
+  body: { type: 'string' },
   model: { type: 'string' },
   urgentModel: { type: 'string' },
   policyProfile: { type: 'string' },
@@ -18,6 +19,7 @@ export const MANAGED_RESIDENT_CLI_OPTIONS = Object.freeze({
   task: { type: 'string' },
   target: { type: 'string' },
   allowTools: { type: 'string' },
+  paused: { type: 'boolean', default: false },
 } as const);
 
 export function parseManagedResidentArgs(argv = process.argv.slice(2)) {

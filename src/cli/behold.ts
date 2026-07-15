@@ -19,6 +19,7 @@ async function main() {
       paused: { type: 'boolean', default: false },
       task: { type: 'string' },
       target: { type: 'string' },
+      body: { type: 'string' },
       server: { type: 'string' },
       port: { type: 'string' },
       world: { type: 'string' },
@@ -42,6 +43,7 @@ async function main() {
 
   await runConsole({
     agentName,
+    bodyUsername: args.values.body ? String(args.values.body) : undefined,
     model: args.values.model ? String(args.values.model) : undefined,
     urgentModel: args.values.urgentModel ? String(args.values.urgentModel) : undefined,
     urgentDecisionTimeoutMs: args.values.urgentDecisionTimeoutMs
@@ -60,7 +62,7 @@ async function main() {
 
 function usage() {
   const lines = [
-    'Usage: behold <AgentName> [--model <slug>] [--urgentModel <slug>] [--urgentDecisionTimeoutMs <ms>] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--paused] [--task come-see-do-report] [--target <player>] [--allowTools a,b,c] [--server host] [--port n] [--world <circle-id>]',
+    'Usage: behold <LifeId> [--body <MinecraftUsername>] [--model <slug>] [--urgentModel <slug>] [--urgentDecisionTimeoutMs <ms>] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--paused] [--task come-see-do-report] [--target <player>] [--allowTools a,b,c] [--server host] [--port n] [--world <circle-id>]',
     '',
     'Starts a bot + console UI. If OPENROUTER_API_KEY is set, enables LLM autopilot using the command registry.',
   ];

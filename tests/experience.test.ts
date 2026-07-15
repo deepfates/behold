@@ -136,6 +136,11 @@ test('inhabitant observation preserves embodied state, provenance, and new event
     managedRunId: 'minecraft:test-world-7',
   });
   assert.equal(initial.self.identity, 'Scout');
+  assert.deepEqual(initial.self.body, {
+    substrate: 'minecraft',
+    username: 'Scout',
+    uuid: null,
+  });
   assert.equal(initial.self.pose.yaw, 0);
   assert.equal(initial.self.condition.oxygen, 20);
   assert.equal(initial.self.projects[0]?.id, 'shared-home');
@@ -213,6 +218,22 @@ test('inhabitant observation preserves embodied state, provenance, and new event
     .observe(lowOxygen!.sequence)
     .events.find((event) => event.type === 'condition_changed' && event.data.current.food === 2);
   assert.equal(starvation?.salience, 'urgent');
+  experience.destroy();
+});
+
+test('a continuing life identity is distinct from its current Minecraft body', () => {
+  const bot = fakeBot();
+  bot.username = 'Wren';
+  bot.player = { uuid: 'offline-player-uuid' };
+  const experience = new InhabitantExperience(bot, { entityId: 'WrenDirectCopy' });
+
+  const observation = experience.observe();
+  assert.equal(observation.self.identity, 'WrenDirectCopy');
+  assert.deepEqual(observation.self.body, {
+    substrate: 'minecraft',
+    username: 'Wren',
+    uuid: 'offline-player-uuid',
+  });
   experience.destroy();
 });
 
