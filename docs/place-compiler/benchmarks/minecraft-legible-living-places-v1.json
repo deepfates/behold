@@ -14,16 +14,16 @@
   "fixtures": [
     {
       "placeId": "san-francisco",
-      "runId": "san-francisco-minecraft-legible-v1-cache-v2",
-      "runRoot": ".behold-artifacts/places/san-francisco/runs/san-francisco-minecraft-legible-v1-cache-v2",
+      "runId": "san-francisco-minecraft-legible-v1-cache-v3",
+      "runRoot": ".behold-artifacts/places/san-francisco/runs/san-francisco-minecraft-legible-v1-cache-v3",
       "recipePath": "docs/place-compiler/places/san-francisco-minecraft-legible-v1.json",
-      "recipeSha256": "cd7bb3e75510d109d3911e85719b37509932ffc6852280c5f4a8791baca49bde",
+      "recipeSha256": "ba01100418d69ffc49f655c56101f8c438ed62ed353064e0920d02fc78aa0df8",
       "experiencePath": "docs/place-compiler/experiences/san-francisco.json",
       "experienceSha256": "0aee16be6f3a9e0bfd5f3048d33994c9149aa3557fee5a01d457260952b6dbc1",
       "inputSha256": "0afff75444a2235c55fab52cac73d85bedada6b31caa3ea246cf8cb59bebe2c7",
-      "worldTreeSha256": "e82e483911101dba720ceae3ae9dd40ed66d2487ffa4c561926528c8b2645352",
+      "worldTreeSha256": "c3e476071eee935150928b6f6d9ec4c81d1a5d30b0256da66ced5b094736b71b",
       "worldFileCount": 824,
-      "worldSizeBytes": 6018211133
+      "worldSizeBytes": 6019079489
     },
     {
       "placeId": "berkeley",

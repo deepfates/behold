@@ -17,9 +17,8 @@ const contractPath = path.join(repositoryRoot, 'docs/place-compiler/visits/livin
 
 test('visit contract derives an accepted arrival, clean ground leg, and reveal for every place', async () => {
   const { loadBenchmark } = await import(pathToFileURL(benchmarkCore).href);
-  const { derivePresentationFocus, deriveVisitPlan, loadVisitContract } = await import(
-    pathToFileURL(visitCore).href
-  );
+  const { choosePresentationReveal, derivePresentationFocus, deriveVisitPlan, loadVisitContract } =
+    await import(pathToFileURL(visitCore).href);
   const benchmark = await loadBenchmark(benchmarkPath, repositoryRoot);
   const visit = await loadVisitContract(contractPath, repositoryRoot, benchmark);
   assert.deepEqual(Object.keys(visit.places).sort(), [
@@ -33,6 +32,13 @@ test('visit contract derives an accepted arrival, clean ground leg, and reveal f
     assert.ok(plan.groundLeg.distanceBlocks >= 24);
     assert.ok(plan.groundLeg.waypoints.length >= 2);
     assert.ok(plan.reveal.liftBlocks >= 2);
+    const presentationReveal = choosePresentationReveal(place.sightline);
+    assert.equal(presentationReveal.clear, true);
+    assert.ok(presentationReveal.liftBlocks >= plan.reveal.liftBlocks);
+    assert.equal(
+      presentationReveal.selectionPolicy,
+      'highest-declared-observer-with-physically-clear-ray',
+    );
     const focus = derivePresentationFocus(plan.reveal);
     assert.ok(
       Math.abs(

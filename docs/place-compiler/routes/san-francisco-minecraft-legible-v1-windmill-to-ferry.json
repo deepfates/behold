@@ -7,7 +7,7 @@
   "specPath": "docs/place-compiler/routes/san-francisco-windmill-to-ferry.spec.json",
   "specSha256": "b2205bb6bfe6df8e7b9bd116aaa93d8637b9ee311423986dee910ebe16b75427",
   "recipePath": "docs/place-compiler/places/san-francisco-minecraft-legible-v1.json",
-  "recipeSha256": "cd7bb3e75510d109d3911e85719b37509932ffc6852280c5f4a8791baca49bde",
+  "recipeSha256": "ba01100418d69ffc49f655c56101f8c438ed62ed353064e0920d02fc78aa0df8",
   "source": {
     "engine": "BRouter",
     "service": "https://brouter.de/brouter",

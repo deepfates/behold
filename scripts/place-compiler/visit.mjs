@@ -16,7 +16,12 @@ import {
   stopMinecraftServer,
   waitUntil,
 } from './minecraft-harness.mjs';
-import { derivePresentationFocus, deriveVisitPlan, loadVisitContract } from './visit-core.mjs';
+import {
+  choosePresentationReveal,
+  derivePresentationFocus,
+  deriveVisitPlan,
+  loadVisitContract,
+} from './visit-core.mjs';
 
 const { goals, Movements, pathfinder: pathfinderPlugin } = pathfinderPackage;
 
@@ -79,6 +84,7 @@ if (!place) throw new Error(`visit contract has no accepted place ${options.plac
 if (!loadedBenchmark.profiles[options.profile])
   throw new Error(`unknown profile ${options.profile}`);
 const plan = deriveVisitPlan(place);
+const presentationReveal = choosePresentationReveal(place.sightline);
 const output =
   options.output ??
   path.join(
@@ -179,28 +185,37 @@ try {
     progress.emit('arrival', 'presented', { milliseconds: 3_000 });
     await sleep(3_000);
   }
-  const startCapture =
-    options.captureSeconds > 0
-      ? async () => {
-          const movie = path.join(evidenceRoot, 'visit.mov');
-          capture = launchWindowCapture(captureExecutable, movie, options.captureSeconds);
-          await sleep(1_000);
-          progress.emit('capture', 'started', {
-            seconds: options.captureSeconds,
-            beginsAt: 'ground-corridor-ready',
-          });
-        }
-      : null;
   stages.groundLeg = await proveGroundLeg(
     server,
     director,
     plan,
     progress,
-    options.launchClient ? 3_000 : 0,
-    startCapture,
+    options.launchClient && options.captureSeconds === 0 ? 3_000 : 0,
   );
   if (options.launchClient) server.command(`execute as ${options.visitorName} run spectate`);
-  stages.reveal = await proveReveal(server, director, plan, progress, options.visitorName);
+  stages.reveal = await proveReveal(
+    server,
+    director,
+    plan,
+    progress,
+    options.visitorName,
+    options.launchClient && options.captureSeconds === 0,
+  );
+  if (options.captureSeconds > 0) {
+    const movie = path.join(evidenceRoot, 'visit.mov');
+    capture = launchWindowCapture(captureExecutable, movie, options.captureSeconds);
+    await sleep(1_000);
+    progress.emit('capture', 'started', {
+      seconds: options.captureSeconds,
+      beginsAt: 'evidence-bound-presentation',
+    });
+    stages.presentation = await presentVisit(
+      server,
+      { ...plan, presentationReveal },
+      options.visitorName,
+      progress,
+    );
+  }
   if (capture) {
     const result = await waitForChild(
       capture,
@@ -318,14 +333,7 @@ async function proveArrival(server, bot, visit, progress) {
   return result;
 }
 
-async function proveGroundLeg(
-  server,
-  bot,
-  visit,
-  progress,
-  presentationHoldMilliseconds = 0,
-  beforeTraversal = null,
-) {
+async function proveGroundLeg(server, bot, visit, progress, presentationHoldMilliseconds = 0) {
   const leg = visit.groundLeg;
   progress.emit('ground-leg', 'started', {
     routeId: leg.routeId,
@@ -338,7 +346,6 @@ async function proveGroundLeg(
   // A forced server chunk is not sent to a distant client. Move the observer to the
   // corridor first, then require every audited waypoint chunk in its client view.
   await ensureGroundCorridor(server, bot, leg, progress);
-  if (beforeTraversal) await beforeTraversal();
   if (presentationHoldMilliseconds > 0) {
     progress.emit('ground-corridor', 'presenting', {
       routeId: leg.routeId,
@@ -474,7 +481,7 @@ async function traverseWaypoint(bot, waypoint, waypointIndex, timeoutMs) {
   }
 }
 
-async function proveReveal(server, bot, visit, progress, visitorName) {
+async function proveReveal(server, bot, visit, progress, visitorName, presentCamera = true) {
   const reveal = visit.reveal;
   const presentationFocus = derivePresentationFocus(reveal);
   progress.emit('reveal', 'started', {
@@ -487,7 +494,7 @@ async function proveReveal(server, bot, visit, progress, visitorName) {
   server.command(
     `tp ${bot.username} ${reveal.observer.x} ${reveal.observer.y} ${reveal.observer.z} facing ${reveal.target.x} ${reveal.target.y + 2} ${reveal.target.z}`,
   );
-  if (options.launchClient) {
+  if (presentCamera) {
     const baseY = reveal.observer.y - reveal.liftBlocks + 2;
     const steps = Math.max(1, Math.ceil(Math.abs(reveal.observer.y - baseY) * 2));
     progress.emit('reveal-camera', 'lifting', { steps, fromY: baseY, toY: reveal.observer.y });
@@ -516,6 +523,126 @@ async function proveReveal(server, bot, visit, progress, visitorName) {
   };
   progress.emit('reveal', 'completed', { sightlineId: reveal.sightlineId });
   return result;
+}
+
+async function presentVisit(server, visit, visitorName, progress) {
+  const ground = visit.groundLeg.waypoints;
+  const cumulative = [0];
+  for (let index = 1; index < ground.length; index += 1) {
+    cumulative.push(
+      cumulative[index - 1] +
+        Math.hypot(
+          ground[index].x - ground[index - 1].x,
+          ground[index].y - ground[index - 1].y,
+          ground[index].z - ground[index - 1].z,
+        ),
+    );
+  }
+  const totalDistance = cumulative.at(-1);
+  const groundSeconds = Math.max(4, totalDistance / 12);
+  const groundSteps = Math.ceil(groundSeconds * 20);
+  progress.emit('presentation-ground', 'started', {
+    distanceBlocks: totalDistance,
+    seconds: groundSeconds,
+  });
+  server.command(`gamemode spectator ${visitorName}`);
+  server.command(`execute as ${visitorName} run spectate`);
+  for (const waypoint of ground) server.command(`forceload add ${waypoint.x} ${waypoint.z}`);
+  const first = pointAlongPolyline(ground, cumulative, 0);
+  const firstFocus = pointAlongPolyline(ground, cumulative, Math.min(16, totalDistance));
+  server.command(
+    `tp ${visitorName} ${first.x} ${first.y + 4.5} ${first.z} facing ${firstFocus.x} ${firstFocus.y + 4} ${firstFocus.z}`,
+  );
+  await sleep(2_000);
+  for (let step = 0; step <= groundSteps; step += 1) {
+    const ratio = step / groundSteps;
+    const eased = ratio * ratio * (3 - 2 * ratio);
+    const distance = totalDistance * eased;
+    const camera = pointAlongPolyline(ground, cumulative, distance);
+    const focus = pointAlongPolyline(ground, cumulative, Math.min(totalDistance, distance + 16));
+    server.command(
+      `tp ${visitorName} ${camera.x} ${camera.y + 4.5} ${camera.z} facing ${focus.x} ${focus.y + 4} ${focus.z}`,
+    );
+    await sleep(50);
+  }
+  progress.emit('presentation-ground', 'completed', { distanceBlocks: totalDistance });
+
+  progress.emit('presentation-transition', 'started');
+  server.command(`effect give ${visitorName} minecraft:blindness 4 0 true`);
+  await sleep(1_200);
+  const reveal = visit.presentationReveal ?? visit.reveal;
+  const compositionTarget =
+    [...visit.landmarks]
+      .filter(
+        (landmark) =>
+          Math.hypot(landmark.x - reveal.observer.x, landmark.z - reveal.observer.z) > 128,
+      )
+      .sort(
+        (left, right) =>
+          Math.hypot(left.x - reveal.observer.x, left.z - reveal.observer.z) -
+          Math.hypot(right.x - reveal.observer.x, right.z - reveal.observer.z),
+      )[0] ?? reveal.target;
+  const dx = compositionTarget.x - reveal.observer.x;
+  const dz = compositionTarget.z - reveal.observer.z;
+  const horizontal = Math.hypot(dx, dz);
+  const focus = {
+    x: reveal.observer.x + (dx / horizontal) * 256,
+    y: reveal.observer.y - 16,
+    z: reveal.observer.z + (dz / horizontal) * 256,
+  };
+  const start = {
+    x: reveal.observer.x,
+    y: reveal.observer.y,
+    z: reveal.observer.z,
+  };
+  const presentationEnd = { ...reveal.observer, y: reveal.observer.y + 96 };
+  server.command(`forceload add ${Math.round(start.x)} ${Math.round(start.z)}`);
+  server.command(
+    `tp ${visitorName} ${start.x} ${start.y} ${start.z} facing ${focus.x} ${focus.y} ${focus.z}`,
+  );
+  await sleep(2_200);
+  server.command(`effect clear ${visitorName} minecraft:blindness`);
+  progress.emit('presentation-transition', 'completed');
+
+  const revealSeconds = 8;
+  const revealSteps = revealSeconds * 20;
+  progress.emit('presentation-reveal', 'started', { seconds: revealSeconds });
+  for (let step = 0; step <= revealSteps; step += 1) {
+    const ratio = step / revealSteps;
+    const eased = ratio * ratio * (3 - 2 * ratio);
+    const camera = {
+      x: start.x + (presentationEnd.x - start.x) * eased,
+      y: start.y + (presentationEnd.y - start.y) * eased,
+      z: start.z + (presentationEnd.z - start.z) * eased,
+    };
+    server.command(
+      `tp ${visitorName} ${camera.x} ${camera.y} ${camera.z} facing ${focus.x} ${focus.y} ${focus.z}`,
+    );
+    await sleep(50);
+  }
+  await sleep(4_000);
+  progress.emit('presentation-reveal', 'completed', { position: presentationEnd });
+  return {
+    ground: { distanceBlocks: totalDistance, seconds: groundSeconds },
+    transition: { kind: 'blindness-mask', milliseconds: 3400 },
+    reveal: { seconds: revealSeconds, start, end: presentationEnd, focus, compositionTarget },
+  };
+}
+
+function pointAlongPolyline(points, cumulative, distance) {
+  const clamped = Math.max(0, Math.min(cumulative.at(-1), distance));
+  let index = 1;
+  while (index < cumulative.length && cumulative[index] < clamped) index += 1;
+  if (index >= cumulative.length) return points.at(-1);
+  const from = points[index - 1];
+  const to = points[index];
+  const span = cumulative[index] - cumulative[index - 1];
+  const ratio = span > 0 ? (clamped - cumulative[index - 1]) / span : 0;
+  return {
+    x: from.x + (to.x - from.x) * ratio,
+    y: from.y + (to.y - from.y) * ratio,
+    z: from.z + (to.z - from.z) * ratio,
+  };
 }
 
 function installVisitDatapack(world, visit) {

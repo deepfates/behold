@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "minecraft-legible-living-places-v1",
+  "benchmark": "docs/place-compiler/benchmarks/minecraft-legible-living-places-v1.json",
+  "purpose": "A short native-client visit assembled only from exact accepted arrival, collision-valid route, voxel sightline, and checkpoint-map evidence for the hero and transfer worlds.",
+  "places": {
+    "san-francisco": {
+      "inspection": {
+        "path": ".behold-artifacts/place-benchmarks/minecraft-legible-living-places-v1/minecraft-legible-living-places-v1-inspection-v2/inspections/san-francisco.json",
+        "sha256": "e88924ee0efbf74752b2699917b778e1d2d96d834584a2dde63ebb321dbaa525"
+      },
+      "map": {
+        "path": ".behold-artifacts/place-benchmarks/minecraft-legible-living-places-v1/minecraft-legible-living-places-v1-inspection-v2/inspections/san-francisco-checkpoint-map.png",
+        "sha256": "a6ca2b3c82bf854653780b0e630d592936c1b700c47d414a69ff4fb54456215f"
+      },
+      "route": {
+        "path": ".behold-artifacts/place-routes/san-francisco/san-francisco-minecraft-legible-v1-windmill-route-v2.json",
+        "sha256": "0290b1cf239373c48a95cdd411b45885a34b9d239329c9e0c7e9e29207152d5a"
+      },
+      "sightline": {
+        "path": ".behold-artifacts/place-sightlines/san-francisco/san-francisco-minecraft-legible-v1-sightlines-v2.json",
+        "sha256": "37bd87587d18d827759d6b7b5d01ca0f75af25982b995cedfda6db8f61282bf8"
+      }
+    },
+    "berkeley": {
+      "inspection": {
+        "path": ".behold-artifacts/place-benchmarks/minecraft-legible-living-places-v1/minecraft-legible-living-places-v1-inspection/inspections/berkeley.json",
+        "sha256": "f25380e551b790313c9d28b59bfed278bc56c70fdc2f102145b63451b95cea35"
+      },
+      "map": {
+        "path": ".behold-artifacts/place-benchmarks/minecraft-legible-living-places-v1/minecraft-legible-living-places-v1-inspection/inspections/berkeley-checkpoint-map.png",
+        "sha256": "a5fb4ad7c157f6520cf48b549daecfd4e64bc7716fa5eedbee361575f1e46ae3"
+      },
+      "route": {
+        "path": ".behold-artifacts/place-routes/berkeley/berkeley-minecraft-legible-v3-route/route-report.json",
+        "sha256": "98d005334d4fa04616a6a42d16959f8ebf9cd8cc6782afb0a2371dcfdc9acaad"
+      },
+      "sightline": {
+        "path": ".behold-artifacts/place-sightlines/berkeley/berkeley-minecraft-legible-v1-sightlines/sightline-report.json",
+        "sha256": "a0c7d641a346d0b4065e119c26a9ff16947f552a8066621349b7207a50359aa0"
+      }
+    }
+  },
+  "selection": {
+    "arrival": "experience checkpoint plus independently inspected representative ground",
+    "groundLeg": "nearest bounded consecutive route interval with zero swept one-block defects",
+    "reveal": "lowest physically clear declared voxel sightline lift",
+    "map": "checksummed checkpoint map from the exact immutable fixture"
+  }
+}

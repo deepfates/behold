@@ -211,3 +211,26 @@ export function chooseReveal(sightline) {
       : 'No tested lift cleared the voxel ray; this is the highest measured reveal, not a clear-sightline claim.',
   };
 }
+
+export function choosePresentationReveal(sightline) {
+  assert(sightline.results?.length, `${sightline.placeId} has no sightline results`);
+  const clear = sightline.results.filter((result) => result.minimumClearLiftBlocks != null);
+  assert(clear.length, `${sightline.placeId} has no physically clear presentation sightline`);
+  const selected = [...clear].sort(
+    (left, right) =>
+      right.minimumClearLiftBlocks - left.minimumClearLiftBlocks || left.id.localeCompare(right.id),
+  )[0];
+  const lift = selected.minimumClearLiftBlocks;
+  const measurement = selected.reveal.find((item) => item.liftBlocks === lift);
+  assert(measurement?.sightline?.clear, `${selected.id} clear presentation measurement is missing`);
+  return {
+    sightlineId: selected.id,
+    name: selected.name,
+    liftBlocks: lift,
+    clear: true,
+    observer: measurement.observer,
+    target: selected.target.localPeak,
+    limitation: null,
+    selectionPolicy: 'highest-declared-observer-with-physically-clear-ray',
+  };
+}
