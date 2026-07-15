@@ -476,7 +476,7 @@ function deriveContext(input: TurnAssessmentInput) {
     }
   } catch {}
   const request = requestArtifact?.request;
-  const intent = input.modelTurn.data?.intent;
+  const intent = recordedDecisionProposal(input.modelTurn);
   const turn = input.entityTurn.data as EntityTurn;
   const matchingTerminalEvents = (turn?.nextObservation?.events ?? []).filter(
     (event: any) =>
@@ -511,6 +511,25 @@ function deriveContext(input: TurnAssessmentInput) {
     terminalEvent,
     configuredResident,
   };
+}
+
+function recordedDecisionProposal(modelTurn: JournalEnvelope) {
+  const intent = modelTurn.data?.intent;
+  if (intent?.source === 'llm' && typeof intent?.id === 'string') return intent;
+  const toolCall = modelTurn.data?.assistant?.tool_calls?.[0];
+  const name = toolCall?.function?.name;
+  const id = toolCall?.id;
+  if (typeof name !== 'string' || !name || typeof id !== 'string' || !id) return null;
+  let input: unknown = toolCall.function?.arguments;
+  if (typeof input === 'string') {
+    try {
+      input = JSON.parse(input);
+    } catch {
+      return null;
+    }
+  }
+  if (input == null) input = {};
+  return { id, source: 'llm', tool: name, input };
 }
 
 function failedAssertions(assertions: Readonly<Record<string, unknown>>) {

@@ -232,7 +232,18 @@ test('an explicit yield is a valid recorded decision but not evidence of a world
     tool: 'wait_for_event',
     input: { reason: 'Nothing currently calls for action.' },
   };
-  (yielded.modelTurn.data as any).intent = intent;
+  (yielded.modelTurn.data as any).intent = null;
+  (yielded.modelTurn.data as any).assistant = {
+    role: 'assistant',
+    content: 'I will wait.',
+    tool_calls: [
+      {
+        id: intent.id,
+        type: 'function',
+        function: { name: intent.tool, arguments: JSON.stringify(intent.input) },
+      },
+    ],
+  };
   yielded.entityTurn.data.action = {
     id: intent.id,
     name: intent.tool,
