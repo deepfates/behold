@@ -150,11 +150,15 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   seals an actually stopped Minecraft runtime into an immutable
   content-addressed checkpoint, materializes isolated writable children, and
   records `source -> checkpoint -> histories` in a separately verified Lync
-  loom. The real First Life source produced two matching launchable histories
-  without changing the source. Branch launch/divergence, branch-local clocks,
-  crossing receipts, and honest resident identity behavior when a life crosses
-  or is copied remain red. See
-  `docs/reports/2026-07-14-first-minecraft-world-history.md`.
+  loom. The real First Life source produced two matching histories without
+  changing the source. Both children then launched through isolated vanilla
+  server profiles and admitted the same saved Minecraft body under two new,
+  empty, branch-local private lives. Their native histories diverged while the
+  checkpoint and lineage remained intact. A first causal mind turn in fresh
+  siblings, branch-local clocks, crossing receipts, and authorized private-life
+  copy/cross semantics remain red. See
+  `docs/reports/2026-07-14-first-minecraft-world-history.md` and
+  `docs/reports/2026-07-14-first-sibling-body-admission.md`.
 - Immediate in-flight cancellation with an acknowledgement from each long-running Mineflayer action family
 - Production reset/recovery with an exclusive operation fence, durable journal, managed server lifecycle, and two real resets
 - A repeatable production-path Come–See–Do–Report runner; passing unit and fixture tests do not establish the live story
