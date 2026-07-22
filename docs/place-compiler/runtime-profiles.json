@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "cinematic": {
+      "purpose": "Human-operated visual tours and atlas capture",
+      "minecraft": {
+        "gameMode": "creative",
+        "difficulty": "peaceful",
+        "viewDistance": 32,
+        "simulationDistance": 10
+      },
+      "ecology": { "daylightCycle": true, "weatherCycle": true, "mobSpawning": false }
+    },
+    "playable": {
+      "purpose": "Ordinary multiplayer exploration with vanilla mechanics",
+      "minecraft": {
+        "gameMode": "survival",
+        "difficulty": "normal",
+        "viewDistance": 16,
+        "simulationDistance": 10
+      },
+      "ecology": { "daylightCycle": true, "weatherCycle": true, "mobSpawning": true }
+    },
+    "living": {
+      "purpose": "Vanilla-first ecology and embodied-agent experiments",
+      "minecraft": {
+        "gameMode": "survival",
+        "difficulty": "normal",
+        "viewDistance": 12,
+        "simulationDistance": 12
+      },
+      "ecology": { "daylightCycle": true, "weatherCycle": true, "mobSpawning": true },
+      "policy": { "minecraftAuthoritative": true, "customEcologyRequired": false }
+    }
+  }
+}
