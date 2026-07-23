@@ -23,6 +23,12 @@ Owned-world proof
 - The first controller observes and collects one prepared dropped-item affordance through ordinary survival mechanics. A separately admitted fresh body must see that the item is gone. The manager then stops everything cleanly, restarts the same entity, and requires the fresh process to load its prior turn, recover the server-persisted inventory consequence, and perform zero repeated collection attempts.
 - A successful run writes generation output, both complete inhabitant trajectories, both hash-chained lifecycle journals, tree digests, the Lync log digest, and `evidence/report.json`. Any missing, indirect, or inconsistent assertion fails the command.
 
+Place Compiler boundary
+
+- Behold owns world epochs, resident identity, bodies, cognition, lifecycle, and consequence proofs. It does not own geographic compilation.
+- A Place Compiler release crosses into Behold only as an independently verifiable artifact: `release-manifest.json`, `SHA256SUMS`, and immutable-world, generation-evidence, and reproduction-kit archives. Behold verifies that closure, recomputes the portable world-tree digest, applies a named runtime profile to a separate baseline, and then assigns its own world and epoch identities.
+- Place Compiler source, recipes, benchmarks, and presentation machinery remain outside this controller product. `scripts/place-epoch.ts` is the narrow admission adapter; it imports no compiler internals.
+
 Play the San Francisco world on this Mac
 
 - Double-click `Behold SF.app`, or run `npm run play`.

@@ -30,6 +30,7 @@ module.exports = [
     rules: {
       ...js.configs.recommended.rules,
       'no-console': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
