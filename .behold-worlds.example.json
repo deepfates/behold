@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "worlds": {
-    "example": {
+    "sf-csdr": {
       "label": "Local managed world",
       "source": {
         "path": "/absolute/path/to/immutable-source-world",
