@@ -32,11 +32,12 @@ Place Compiler boundary
 Play the San Francisco world on this Mac
 
 - Double-click `Behold SF.app`, or run `npm run play`.
-- When no server is running, the app asks the foreground managed world owner to start the server and `ScoutLife`, then launches the already-installed native Minecraft 1.21.4 client as `importdf`. Closing that managed play session drains and stops both children.
+- When no server is running, the app asks the foreground managed world owner to start the server and `SFCheckpoint`, then launches the already-installed native Minecraft 1.21.4 client as `importdf`. Without an OpenRouter key the companion connects paused, so human play still works without a provider call. Closing that managed play session drains and stops both children.
 - When a server is already running, the app only attaches the human client. It reports an existing companion but never invents ownership by starting a detached controller behind an unmanaged server.
 - It does not use Microsoft credentials or modify the original world. Client settings live under `.behold-runtime/native-client/game`; the playable server uses the working copy under `.behold-runtime/server`.
 - The native launch log lives at `.behold-runtime/native-launch.log`; managed server/controller output remains attached to the owning command.
 - Run `npm run play -- --dry-run` to validate the installed Java, libraries, assets, and launch configuration without opening Minecraft.
+- The preserved `ScoutLife` autobiography remains bound to its original endpoint-circle identity. Behold does not silently relabel that life as `sf-csdr`; continuing it under the managed world requires an explicit future crossing decision.
 
 Managed world lifecycle (under active development)
 

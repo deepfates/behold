@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -8,9 +9,12 @@ import { DEFAULT_LLM_MODEL } from '../src/config';
 import { loadWorldLabConfig } from './world-lab';
 
 const dryRun = process.argv.includes('--dry-run');
-const companionName = process.env.BEHOLD_COMPANION_NAME || 'ScoutLife';
+const companionName = process.env.BEHOLD_COMPANION_NAME || 'SFCheckpoint';
 const companionModel =
   process.env.BEHOLD_COMPANION_MODEL || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
+const companionPaused = process.env.BEHOLD_COMPANION_PAUSED
+  ? ['1', 'true', 'yes', 'on'].includes(process.env.BEHOLD_COMPANION_PAUSED.toLowerCase())
+  : !process.env.OPENROUTER_API_KEY;
 const configPath = process.env.BEHOLD_WORLD_CONFIG || 'behold-worlds.json';
 const worldId = process.env.BEHOLD_MANAGED_WORLD || 'sf-csdr';
 const endpoint = resolvePlayEndpoint(configPath, worldId);
@@ -24,7 +28,7 @@ async function main() {
     reportExistingCompanion();
   } else if (dryRun) {
     console.log(
-      '[play] A real launch would ask the managed world owner to start server + companion.',
+      `[play] A real launch would ask the managed world owner to start server + ${companionName}${companionPaused ? ' (paused; no model key)' : ''}.`,
     );
   } else {
     manager = await startManagedWorld();
@@ -85,28 +89,26 @@ function leaseOwnerIsLive(owner: { pid: number; hostname?: string }) {
 }
 
 async function startManagedWorld() {
-  const child = spawn(
-    'npm',
-    [
-      'run',
-      'world',
-      '--',
-      'start',
-      '--config',
-      configPath,
-      '--world',
-      worldId,
-      '--controller',
-      companionName,
-      '--model',
-      companionModel,
-    ],
-    {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
+  const args = [
+    'run',
+    'world',
+    '--',
+    'start',
+    '--config',
+    configPath,
+    '--world',
+    worldId,
+    '--controller',
+    companionName,
+    '--model',
+    companionModel,
+  ];
+  if (companionPaused) args.push('--paused');
+  const child = spawn('npm', args, {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   child.stdout?.on('data', (chunk) => process.stdout.write(chunk));
   child.stderr?.on('data', (chunk) => process.stderr.write(chunk));
   await waitForManagedReady(child, 90_000);
