@@ -165,6 +165,8 @@ export type ManagedResidentSpec = Readonly<{
   task?: string;
   target?: string;
   allowTools?: readonly string[];
+  /** Explicit, non-authoritative variables for a specialized controller entrypoint. */
+  environment?: Readonly<Record<string, string>>;
   /** Connect the body and preserve the life without starting cognition. */
   paused?: boolean;
 }>;
@@ -298,6 +300,7 @@ type NormalizedManagedResident = Readonly<{
   task?: string;
   target?: string;
   allowTools?: readonly string[];
+  environment: Readonly<Record<string, string>>;
   paused: boolean;
   leasePath: string;
 }>;
@@ -488,6 +491,7 @@ function normalizeManagedResidents(
           { index, entityId, target: candidate.target },
         );
       }
+      const environment = normalizeResidentEnvironment(candidate.environment, entityId);
       const leasePath = path.join(entityRoot, safeEntityId, 'runtime.lock');
       const leaseKey =
         process.platform === 'win32' || process.platform === 'darwin'
@@ -519,6 +523,7 @@ function normalizeManagedResidents(
         ...(candidate.task ? { task: String(candidate.task) } : {}),
         ...(candidate.target ? { target: String(candidate.target) } : {}),
         ...(candidate.allowTools ? { allowTools: Object.freeze([...candidate.allowTools]) } : {}),
+        environment,
         paused: candidate.paused === true,
         leasePath,
       });
@@ -1576,6 +1581,7 @@ function managedControllerEnvironment(
   ]) {
     if (process.env[name] != null) env[name] = process.env[name];
   }
+  Object.assign(env, resident.environment);
   if (cognition && !resident.paused) {
     const client = cognition.clients.get(resident.entityId);
     if (!client) {
@@ -1602,6 +1608,65 @@ function managedControllerEnvironment(
   env.BEHOLD_ACTION_PROFILE = resident.actionProfile;
   env.BEHOLD_SAFETY_PROFILE = resident.safetyProfile;
   return Object.freeze(env);
+}
+
+const RESERVED_RESIDENT_ENVIRONMENT = new Set([
+  'OPENROUTER_API_KEY',
+  'OPENROUTER_BASE_URL',
+  'BEHOLD_COGNITION_TRANSPORT',
+  'VIEWER_ENABLED',
+  'BEHOLD_LOAD_DOTENV',
+  'BEHOLD_RUN_ID',
+  'BEHOLD_WORLD_ID',
+  'BEHOLD_WORLD_CONTROL_FILE',
+  'BEHOLD_WORLD_CONTROL_ROOT',
+  'BEHOLD_ENTITY_DIR',
+  'BEHOLD_RUN_DIR',
+  'MINECRAFT_USERNAME',
+  'BEHOLD_MIND',
+  'BEHOLD_POLICY_PROFILE',
+  'BEHOLD_ACTION_PROFILE',
+  'BEHOLD_SAFETY_PROFILE',
+]);
+
+function normalizeResidentEnvironment(
+  value: Readonly<Record<string, string>> | undefined,
+  entityId: string,
+) {
+  if (value == null) return Object.freeze({});
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new WorldRunnerError(
+      `Resident ${entityId} environment must be a string map`,
+      'resident_environment_invalid',
+      { entityId },
+    );
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 32) {
+    throw new WorldRunnerError(
+      `Resident ${entityId} environment exceeds 32 variables`,
+      'resident_environment_invalid',
+      { entityId, count: entries.length },
+    );
+  }
+  const normalized: Record<string, string> = {};
+  for (const [name, rawValue] of entries) {
+    if (
+      !/^BEHOLD_[A-Z0-9_]{1,120}$/.test(name) ||
+      RESERVED_RESIDENT_ENVIRONMENT.has(name) ||
+      typeof rawValue !== 'string' ||
+      rawValue.length > 4096 ||
+      rawValue.includes('\0')
+    ) {
+      throw new WorldRunnerError(
+        `Resident ${entityId} has an invalid or authoritative environment variable ${name}`,
+        'resident_environment_invalid',
+        { entityId, name },
+      );
+    }
+    normalized[name] = rawValue;
+  }
+  return Object.freeze(normalized);
 }
 
 type ProcessExit = Readonly<{ name: string; code: number | null; signal: NodeJS.Signals | null }>;

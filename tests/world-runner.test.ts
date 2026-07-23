@@ -228,6 +228,26 @@ test('resident configuration rejects canonical identity collisions and process-b
     (error: any) => error?.code === 'resident_profile_invalid',
   );
   assert.equal(inspections, 0);
+  for (const environment of [
+    { BEHOLD_RUN_ID: 'forged-run' },
+    { NODE_OPTIONS: '--require=/tmp/foreign-code.js' },
+  ]) {
+    await assert.rejects(
+      () =>
+        startManagedWorld(
+          {
+            ...fixture.options,
+            residents: fixture.options.residents.map((resident) => ({
+              ...resident,
+              environment,
+            })),
+          },
+          dependencies,
+        ),
+      (error: any) => error?.code === 'resident_environment_invalid',
+    );
+  }
+  assert.equal(inspections, 0);
 });
 
 test('managed cognition keeps the provider key in the runner and drains before Minecraft stops', async (t) => {
@@ -261,6 +281,7 @@ test('managed cognition keeps the provider key in the runner and drains before M
         policyProfile: process.env.BEHOLD_POLICY_PROFILE,
         actionProfile: process.env.BEHOLD_ACTION_PROFILE,
         safetyProfile: process.env.BEHOLD_SAFETY_PROFILE
+        ,fixtureProofPhase: process.env.BEHOLD_FIXTURE_PROOF_PHASE
       }));
       console.log('[bot] Local world loaded.');
       process.stdin.resume();
@@ -329,6 +350,7 @@ test('managed cognition keeps the provider key in the runner and drains before M
         policyProfile: 'neutral-benchmark-v1' as const,
         maxTurnSteps: 1,
         resumeAfterBudget: false,
+        environment: { BEHOLD_FIXTURE_PROOF_PHASE: 'act' },
       })),
     },
     {
@@ -351,6 +373,7 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(captured.policyProfile, 'neutral-benchmark-v1');
   assert.equal(captured.actionProfile, 'minecraft-player-v1');
   assert.equal(captured.safetyProfile, 'vanilla-player-v1');
+  assert.equal(captured.fixtureProofPhase, 'act');
   assert.notEqual(captured.keySha256, createHash('sha256').update(providerSecret).digest('hex'));
   assert.ok(captured.keyLength >= 32);
   assert.match(captured.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/v1\/chat\/completions$/);

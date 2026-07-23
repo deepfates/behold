@@ -13,7 +13,6 @@ import {
   prepareAdmittedPlaceWorld,
   prepareOwnedWorld,
   readJson,
-  restoreEnvironment,
   sha256File,
   waitFor,
 } from './owned-world-fixture';
@@ -113,14 +112,6 @@ async function main() {
   const transcript: string[] = [];
   const runPhase = async (phase: 'act' | 'resume') => {
     const proofFile = path.join(evidenceRoot, `${phase}.json`);
-    const previous = {
-      phase: process.env.BEHOLD_PROOF_PHASE,
-      file: process.env.BEHOLD_PROOF_FILE,
-      scenario: process.env.BEHOLD_PROOF_SCENARIO,
-    };
-    process.env.BEHOLD_PROOF_PHASE = phase;
-    process.env.BEHOLD_PROOF_FILE = proofFile;
-    process.env.BEHOLD_PROOF_SCENARIO = proofScenario;
     let run: Awaited<ReturnType<typeof startManagedWorld>> | null = null;
     try {
       run = await startManagedWorld(
@@ -141,6 +132,11 @@ async function main() {
               model: 'script/behold-owned-world-proof-v1',
               task: 'owned-world-continuity-proof',
               allowTools: ['move_to', 'approach_entity', 'collect_nearby_item', 'status'],
+              environment: {
+                BEHOLD_PROOF_PHASE: phase,
+                BEHOLD_PROOF_FILE: proofFile,
+                BEHOLD_PROOF_SCENARIO: proofScenario,
+              },
             },
           ],
           startupTimeoutMs: 90_000,
@@ -185,10 +181,6 @@ async function main() {
     } catch (error) {
       if (run) await run.stop(`owned_world_${phase}_failed`).catch(() => {});
       throw error;
-    } finally {
-      restoreEnvironment('BEHOLD_PROOF_PHASE', previous.phase);
-      restoreEnvironment('BEHOLD_PROOF_FILE', previous.file);
-      restoreEnvironment('BEHOLD_PROOF_SCENARIO', previous.scenario);
     }
   };
 
