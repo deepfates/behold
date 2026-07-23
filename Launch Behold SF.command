@@ -3,7 +3,13 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
-export PATH="/Users/deepfates/.nvm/versions/node/v22.14.0/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "Behold requires Node.js 22 or newer on PATH."
+  read -k 1
+  exit 1
+fi
 
 mkdir -p "$ROOT/.behold-runtime"
 LOG="$ROOT/.behold-runtime/native-launch.log"

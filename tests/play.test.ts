@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolvePlayEndpoint } from '../scripts/play';
+import { resolvePlayEndpoint, resolvePlaySelection } from '../scripts/play';
 
 test('play joins the selected managed world endpoint', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-play-endpoint-'));
@@ -50,5 +50,28 @@ test('explicit native endpoint overrides the world configuration consistently', 
   assert.throws(
     () => resolvePlayEndpoint('/missing.json', 'missing', { NATIVE_MC_PORT: '70000' }),
     /Invalid native Minecraft port/,
+  );
+});
+
+test('play resolves explicit config before env and local default', () => {
+  assert.deepEqual(
+    resolvePlaySelection(
+      ['--config', 'explicit.json', '--world', 'demo', '--dry-run'],
+      { BEHOLD_WORLD_CONFIG: 'env.json', BEHOLD_MANAGED_WORLD: 'env-world' },
+      '/workspace',
+    ),
+    {
+      configPath: '/workspace/explicit.json',
+      worldId: 'demo',
+      dryRun: true,
+    },
+  );
+  assert.equal(
+    resolvePlaySelection([], { BEHOLD_WORLD_CONFIG: 'env.json' }, '/workspace').configPath,
+    '/workspace/env.json',
+  );
+  assert.equal(
+    resolvePlaySelection([], {}, '/workspace').configPath,
+    '/workspace/behold-worlds.json',
   );
 });

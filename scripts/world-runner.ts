@@ -10,6 +10,7 @@ import {
   assertFixtureExecutionScope,
   digestTree,
   loadWorldLabConfig,
+  resolveWorldLabConfigPath,
   resetWorld,
   statusWorld,
   verifyWorld,
@@ -2223,7 +2224,9 @@ export async function runCli(argv = process.argv.slice(2)) {
     process.stdout.write(`${usage()}\n`);
     return 0;
   }
-  const configPath = path.resolve(String(parsed.values.config || 'behold-worlds.json'));
+  const configPath = resolveWorldLabConfigPath({
+    explicit: parsed.values.config == null ? undefined : String(parsed.values.config),
+  });
   const worldId = String(parsed.values.world || 'sf-csdr');
   const config = loadWorldLabConfig(configPath);
   const world = config.worlds[worldId];

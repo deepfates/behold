@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
+import { resolveWorldLabConfigPath } from './world-lab';
 
-const config = process.env.BEHOLD_WORLD_CONFIG || 'behold-worlds.json';
+const forwarded = process.argv.slice(2);
+const configFlag = forwarded.indexOf('--config');
+const explicitConfig = configFlag >= 0 ? forwarded[configFlag + 1] : undefined;
+if (configFlag >= 0) {
+  if (!explicitConfig || explicitConfig.startsWith('--')) {
+    throw new Error('--config requires a value');
+  }
+  forwarded.splice(configFlag, 2);
+}
+const config = resolveWorldLabConfigPath({ explicit: explicitConfig });
 const world = process.env.BEHOLD_MANAGED_WORLD || 'sf-csdr';
 
 console.error(
@@ -9,7 +19,7 @@ console.error(
 );
 const child = spawn(
   'npm',
-  ['run', 'world', '--', 'start', '--config', config, '--world', world, ...process.argv.slice(2)],
+  ['run', 'world', '--', 'start', '--config', config, '--world', world, ...forwarded],
   { cwd: process.cwd(), env: process.env, stdio: 'inherit' },
 );
 

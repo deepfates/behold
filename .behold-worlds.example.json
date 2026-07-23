@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 2,
+  "worlds": {
+    "example": {
+      "label": "Local managed world",
+      "source": {
+        "path": "/absolute/path/to/immutable-source-world",
+        "digestProfile": "behold-tree-v2",
+        "expectedDigest": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "preparedBaseline": null,
+      "runtime": {
+        "worldPath": "/absolute/path/to/behold-runtime/server/world",
+        "archiveRoot": "/absolute/path/to/behold-runtime/world-runs"
+      },
+      "server": {
+        "host": "127.0.0.1",
+        "port": 25565
+      },
+      "notes": [
+        "Replace every placeholder path and digest for this machine.",
+        "Configure a distinct stopped preparedBaseline before managed start; source is provenance, not a runnable baseline."
+      ]
+    }
+  }
+}

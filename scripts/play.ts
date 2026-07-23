@@ -6,17 +6,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { sanitizeName } from '../src/observability/journal';
 import { DEFAULT_LLM_MODEL } from '../src/config';
-import { loadWorldLabConfig } from './world-lab';
+import { loadWorldLabConfig, resolveWorldLabConfigPath } from './world-lab';
 
-const dryRun = process.argv.includes('--dry-run');
+const selection = resolvePlaySelection(process.argv.slice(2));
+const dryRun = selection.dryRun;
 const companionName = process.env.BEHOLD_COMPANION_NAME || 'SFCheckpoint';
 const companionModel =
   process.env.BEHOLD_COMPANION_MODEL || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
 const companionPaused = process.env.BEHOLD_COMPANION_PAUSED
   ? ['1', 'true', 'yes', 'on'].includes(process.env.BEHOLD_COMPANION_PAUSED.toLowerCase())
   : !process.env.OPENROUTER_API_KEY;
-const configPath = process.env.BEHOLD_WORLD_CONFIG || 'behold-worlds.json';
-const worldId = process.env.BEHOLD_MANAGED_WORLD || 'sf-csdr';
+const configPath = selection.configPath;
+const worldId = selection.worldId;
 const endpoint = resolvePlayEndpoint(configPath, worldId);
 const { host, port } = endpoint;
 
@@ -196,6 +197,39 @@ export function resolvePlayEndpoint(
     throw new Error(`Invalid native Minecraft port: ${String(env.NATIVE_MC_PORT || port)}`);
   }
   return Object.freeze({ host, port, server: `${host}:${port}` });
+}
+
+export function resolvePlaySelection(
+  argv: string[],
+  env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
+) {
+  let explicitConfig: string | undefined;
+  let explicitWorld: string | undefined;
+  let dryRunSelected = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--config') {
+      explicitConfig = requiredArgValue(argv, ++index, '--config');
+    } else if (arg === '--world') {
+      explicitWorld = requiredArgValue(argv, ++index, '--world');
+    } else if (arg === '--dry-run') {
+      dryRunSelected = true;
+    } else {
+      throw new Error(`Unknown play option: ${arg}`);
+    }
+  }
+  return Object.freeze({
+    configPath: resolveWorldLabConfigPath({ explicit: explicitConfig, env, cwd }),
+    worldId: explicitWorld || optionalText(env.BEHOLD_MANAGED_WORLD) || 'sf-csdr',
+    dryRun: dryRunSelected,
+  });
+}
+
+function requiredArgValue(argv: string[], index: number, flag: string) {
+  const value = optionalText(argv[index]);
+  if (!value || value.startsWith('--')) throw new Error(`${flag} requires a value`);
+  return value;
 }
 
 function parseServer(value: string) {

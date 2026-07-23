@@ -7,6 +7,9 @@ yarn.lock
 # Env
 .env
 
+# Local world registry (copy the tracked example, then configure this machine)
+behold-worlds.json
+
 # Build
 dist/
 

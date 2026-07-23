@@ -14,6 +14,8 @@ import {
 export const CONFIG_SCHEMA_VERSION = 2;
 export const SESSION_LOCK = 'session.lock';
 export const TREE_DIGEST_PROFILE = 'behold-tree-v2';
+export const LOCAL_WORLD_CONFIG = 'behold-worlds.json';
+export const EXAMPLE_WORLD_CONFIG = '.behold-worlds.example.json';
 
 export interface HashedDirectory {
   path: string;
@@ -618,6 +620,46 @@ export function loadWorldLabConfig(configPath: string): WorldLabConfig {
     );
   }
   return validateWorldLabConfig(parsed);
+}
+
+/** Explicit CLI selection wins, then the environment, then the ignored local registry. */
+export function resolveWorldLabConfigPath(options: {
+  explicit?: string;
+  env?: NodeJS.ProcessEnv;
+  cwd?: string;
+} = {}): string {
+  const env = options.env ?? process.env;
+  const selected = optionalConfigPath(options.explicit)
+    ?? optionalConfigPath(env.BEHOLD_WORLD_CONFIG)
+    ?? LOCAL_WORLD_CONFIG;
+  return path.resolve(options.cwd ?? process.cwd(), selected);
+}
+
+/** Create the editable local registry without ever overwriting an existing one. */
+export function initializeLocalWorldLabConfig(cwd = process.cwd()): {
+  source: string;
+  target: string;
+} {
+  const source = path.resolve(cwd, EXAMPLE_WORLD_CONFIG);
+  const target = path.resolve(cwd, LOCAL_WORLD_CONFIG);
+  try {
+    fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+  } catch (error: any) {
+    const code = error?.code === 'EEXIST' ? 'local_config_exists' : 'config_init_failed';
+    throw new WorldLabError(
+      code === 'local_config_exists'
+        ? `Local world config already exists: ${target}`
+        : `Could not initialize ${target} from ${source}: ${String(error?.message || error)}`,
+      code,
+      { source, target },
+    );
+  }
+  return { source, target };
+}
+
+function optionalConfigPath(value: unknown): string | undefined {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || undefined;
 }
 
 /** Stable identity for the complete world definition consumed by lifecycle authority. */

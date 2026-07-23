@@ -29,10 +29,17 @@ Place Compiler boundary
 - A Place Compiler release crosses into Behold only as an independently verifiable artifact: `release-manifest.json`, `SHA256SUMS`, and immutable-world, generation-evidence, and reproduction-kit archives. Behold verifies that closure, recomputes the portable world-tree digest, applies a named runtime profile to a separate baseline, and then assigns its own world and epoch identities.
 - Place Compiler source, recipes, benchmarks, and presentation machinery remain outside this controller product. `scripts/place-epoch.ts` is the narrow admission adapter; it imports no compiler internals.
 
-Play the San Francisco world on this Mac
+Configure a managed world
 
-- Double-click `Behold SF.app`, or run `npm run play`.
-- When no server is running, the app asks the foreground managed world owner to start the server and `SFCheckpoint`, then launches the already-installed native Minecraft 1.21.4 client as `importdf`. Without an OpenRouter key the companion connects paused, so human play still works without a provider call. Closing that managed play session drains and stops both children.
+- The tracked `.behold-worlds.example.json` is a portable template only. It contains placeholder paths and no workstation identity.
+- Run `npm run world:init` once to copy that template to the ignored local `behold-worlds.json`, then replace its paths, source digest, and prepared baseline with values for this machine. The command refuses to overwrite an existing local registry.
+- Configuration resolution is consistent across the managed runner and play surface: explicit `--config <path>`, then `BEHOLD_WORLD_CONFIG`, then the ignored `behold-worlds.json` in the working directory.
+- Keep immutable source, a distinct stopped prepared baseline, the disposable runtime, and its archive root at disjoint absolute paths. A source world is provenance and is never silently promoted into a runnable baseline.
+
+Play a locally configured world
+
+- Run `npm run play -- --world <id>`, optionally with `--config <path>`. A workstation may also provide its own launcher around this command; launchers and machine paths are not part of the portable product contract.
+- When no server is running, play asks the foreground managed world owner to start the server and configured companion, then launches the locally configured native Minecraft 1.21.4 client. Without an OpenRouter key the companion connects paused, so human play still works without a provider call. Closing that managed play session drains and stops both children.
 - When a server is already running, the app only attaches the human client. It reports an existing companion but never invents ownership by starting a detached controller behind an unmanaged server.
 - It does not use Microsoft credentials or modify the original world. Client settings live under `.behold-runtime/native-client/game`; the playable server uses the working copy under `.behold-runtime/server`.
 - The native launch log lives at `.behold-runtime/native-launch.log`; managed server/controller output remains attached to the owning command.
@@ -41,18 +48,19 @@ Play the San Francisco world on this Mac
 
 Managed world lifecycle (under active development)
 
-- `npm run world -- status --world sf-csdr` reports world-control, process ownership, world-bound controller leases, baseline, and topology evidence without changing the world. The tracked `behold-worlds.json` is the canonical configuration for this Mac.
-- `npm run world -- start --world sf-csdr` is fail-closed: it requires a clean Git worktree, an OpenRouter key, the pinned server jar, a stopped and unowned runtime, a prepared baseline, and an archive root.
+- `npm run world -- status --world <id>` reports world-control, process ownership, world-bound controller leases, baseline, and topology evidence without changing the world. It uses the ignored local registry unless `--config` or `BEHOLD_WORLD_CONFIG` selects another one.
+- `npm run world -- start --world <id>` is fail-closed: it requires a clean Git worktree, the pinned server jar, a stopped and unowned runtime, a prepared baseline, and an archive root. Residents may be connected paused without a model key; active cognition requires its configured provider credentials.
 - The foreground runner owns the server and controller together. A normal stop drains the controller, releases its entity lease, receives Minecraft's `save-all flush` acknowledgement, stops the JVM, verifies the port and `session.lock` are clear, and then releases its durable owner record.
 - Disposable-world tests prove that a stopped lifecycle owner can authorize exactly one canonical reset transaction and rebind itself to the newly activated runtime inode. Production reset remains deliberately absent from the CLI until managed crash recovery and a named, operator-attested baseline are proven.
 - Every repository-created Mineflayer body now requires its entity's unforgeable live connection capability. Managed bodies must join the exact owner epoch; unmanaged bodies check the repository-wide world-control fence both before and after creating their durable lease. The old direct server command delegates to the managed owner. Arbitrary foreign same-user processes remain outside this cooperative boundary and must not be treated as safely excluded.
-- The canonical SF runtime and a stopped prepared baseline now live under the workshop's central `data/behold/.behold-runtime/` tree. The baseline is the transferred First Life runtime, not the separately compiled full-city SF release.
+- Runtime and baseline locations are deliberately local concerns. They belong in ignored `behold-worlds.json`, never in the tracked portable template.
 
 Quickstart
 
 - Install + configure:
   - `npm install`
   - `cp .env.example .env` (edit host/username/auth; set `OPENROUTER_API_KEY` to enable autopilot)
+  - `npm run world:init` (then edit the ignored `behold-worlds.json` for this machine)
 - Run the console (starts the bot; autopilot if API key present):
   - `npm run console`
 - Try a few commands:
@@ -205,7 +213,7 @@ Running Tips
 
 Managed population
 
-- `npm run swarm -- --world sf-csdr --controller Scout --controller Builder` is an alias for the canonical managed-world runner.
+- `npm run swarm -- --world <id> --controller Scout --controller Builder` is an alias for the canonical managed-world runner.
 - Repeating `--controller` admits independently leased resident lives into one exact world epoch. They keep distinct observations, journals, Lync autobiographies, models, and body authority. A matching repeated `--body` may explicitly name each Minecraft username when it differs from the life ID; `--paused` connects those bodies without starting cognition.
 - `--model`, `--mind direct|ax`, and `--tickMs` currently apply to every named resident on the CLI. Programmatic callers may configure them per resident.
 - `--maxResidents` bounds resident processes (default 16), while `--maxModelConcurrency` independently bounds simultaneous aggregate provider calls.

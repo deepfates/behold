@@ -19,6 +19,7 @@
     "native": "ts-node --transpile-only scripts/native-client.ts",
     "play": "ts-node --transpile-only scripts/play.ts",
     "world": "npm run build && node dist/scripts/world-runner.js",
+    "world:init": "npm run build && node dist/scripts/world-init.js",
     "history": "npm run build && node dist/scripts/world-history.js",
     "proof:world-history-inhabitation": "npm run build && node dist/scripts/world-history-inhabitation.js",
     "place:epoch": "npm run build && node dist/scripts/place-epoch.js",
