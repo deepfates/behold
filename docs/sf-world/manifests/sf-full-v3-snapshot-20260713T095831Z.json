@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "runId": "sf-full-v3-snapshot-20260713T095831Z",
+  "status": "complete",
+  "artifactRoot": ".behold-artifacts/sf/runs/full-city/sf-full-v3-snapshot-20260713T095831Z",
+  "sourceWorld": {
+    "path": ".behold-artifacts/sf/runs/full-city/sf-full-v3-snapshot-20260713T095831Z/output/Arnis World 1",
+    "minecraftVersion": "1.21.4",
+    "sizeBytes": 6138031022,
+    "fileCount": 824,
+    "regionCount": 812,
+    "treeSha256": "4fd327ebe85e90931e3fee4cd01c50490fd3ae4638f98ac53d1e6045d29554d1",
+    "checksumManifest": ".behold-artifacts/sf/runs/full-city/sf-full-v3-snapshot-20260713T095831Z/evidence/world-checksums.json",
+    "sessionLockPresent": false,
+    "openedByServer": false
+  },
+  "geography": {
+    "bounds": {
+      "minLat": 37.707,
+      "minLon": -122.516,
+      "maxLat": 37.834,
+      "maxLon": -122.349
+    },
+    "minecraftBounds": {
+      "minX": 0,
+      "maxX": 14678,
+      "minZ": 0,
+      "maxZ": 14121
+    },
+    "projection": "local",
+    "scaleBlocksPerMeter": 1,
+    "rotationDegrees": 0
+  },
+  "generator": {
+    "name": "Arnis",
+    "baseVersion": "3.0.0",
+    "officialSourceArchiveSha256": "260deb29ba75fbce68e39190a7d35bce56f77433963f148b64592b873447cab0",
+    "officialArchiveSha256": "6ef82e075f022e20119a96dc52d2605f607807558b43dba1ca22c67a328bd951",
+    "officialBinarySha256": "48c4d2abe8b0b6be16c77e3d2d839277ef9ea1d2a3bca36a75bf6e21ffd71319",
+    "patchedBinarySha256": "ce00bf95d025b12f0b7d466e3b79c7fd0df28c4a6df1f17c41eaace9ce93eb24",
+    "patch": "docs/sf-world/tooling/arnis-v3.0.0-tall-heightmap.patch",
+    "rustc": "1.97.0 (2d8144b78 2026-07-07)",
+    "patchTests": {
+      "passed": 4,
+      "failed": 0
+    }
+  },
+  "input": {
+    "provider": "BBBike",
+    "sourceUrl": "https://download.bbbike.org/osm/bbbike/SanFrancisco/SanFrancisco.osm.pbf",
+    "sourceLastModified": "2026-07-11T17:05:27Z",
+    "pbfSizeBytes": 32587807,
+    "pbfMd5": "61b7340e323859ea402e798c43d75231",
+    "pbfSha256": "d22d87fbfb8496d14f8a67535f2f0c9acfb53840377758db40855abf114e01b7",
+    "overpassJsonSizeBytes": 381749723,
+    "overpassJsonSha256": "0afff75444a2235c55fab52cac73d85bedada6b31caa3ea246cf8cb59bebe2c7",
+    "elements": {
+      "nodes": 3696034,
+      "ways": 442800,
+      "relations": 10212
+    },
+    "enrichmentCacheFileCount": 1343,
+    "enrichmentCacheSizeBytes": 1401800814,
+    "enrichmentCacheTreeSha256": "1e73aeae550c8db0001aae08181598e9a4a04a9eb4abfa2ed593e8c3ff55859b",
+    "overtureCatalogLatestObserved": "2026-06-17.0",
+    "overtureCatalogSha256": "2c96d71be607018c3f3c9f5967672161ba930825dc1b83f52be812ba4513fbba",
+    "overtureRawRangeResponsesCaptured": false
+  },
+  "generation": {
+    "startedAt": "2026-07-13T09:59:02.725Z",
+    "finishedAt": "2026-07-13T10:11:01.177Z",
+    "durationSeconds": 718.452,
+    "peakResidentBytes": 12704120832,
+    "nice": 10,
+    "rayonThreads": 4,
+    "streamToDisk": true,
+    "terrain": true,
+    "interiors": true,
+    "overture": true,
+    "overtureBuildingsAdded": 1343,
+    "stadiumModelsPlaced": 5,
+    "fillGround": true,
+    "extendedHeight": true,
+    "bakedLighting": true,
+    "exitCode": 0
+  },
+  "preview": {
+    "path": ".behold-artifacts/sf/runs/full-city/sf-full-v3-snapshot-20260713T095831Z/output/Arnis World 1/arnis_world_map.png",
+    "width": 3670,
+    "height": 3531,
+    "sizeBytes": 16484131,
+    "sha256": "090cbe91cb631bed7cdfd5da267176dc29895345c914cc5e6ae99c6f908b448a"
+  },
+  "serverSmoke": {
+    "copyType": "APFS clone",
+    "serverVersion": "1.21.4",
+    "serverJarSha1": "4707d00eb834b446575d89a61a11b5d548d8c001",
+    "serverJarSha256": "1066970b09e9c671844572291c4a871cc1ac2b85838bf7004fa0e778e10f1358",
+    "bind": "127.0.0.1:25575",
+    "sourceWorldMutated": false,
+    "distributedChunksLoaded": 8,
+    "bedrockAtYMinus64": true,
+    "stoneAtYMinus63": true,
+    "heightmapWarnings": 0,
+    "chunkErrors": 0,
+    "exceptions": 0,
+    "saveAndStopClean": true
+  },
+  "atlas": {
+    "status": "complete",
+    "tool": "BlueMap 5.22",
+    "toolSha256": "a2289d649f6a83e04cf222abcd3d4f2df4e32e61147015f921c05066f63eefb7",
+    "minecraftClientSha1": "a7e5a6024bfd3cd614625aa05629adf760020304",
+    "minecraftClientSha256": "c17c450c6e72cc51297daa57ce38f800aa01cf022b743daa21a0512d326d894e",
+    "resourceExtensionsSha256": "cd0f467ef8ec6bd7622fad444aa2d3f2813f5cd2d531c78aeb6d8a6672d382f1",
+    "startedAt": "2026-07-13T10:18:08.088Z",
+    "finishedAt": "2026-07-13T13:25:43.416Z",
+    "renderDurationSeconds": 11211.413,
+    "markerPublishDurationSeconds": 0.283,
+    "peakResidentBytes": 4641013760,
+    "finalRenderThreads": 8,
+    "threadPriority": 1,
+    "renderLegs": [
+      {
+        "id": "render-run",
+        "renderThreads": 2,
+        "nice": 10,
+        "durationSeconds": 1652.062,
+        "exitCode": 130,
+        "disposition": "controlled-checkpoint"
+      },
+      {
+        "id": "render-resume-run",
+        "renderThreads": 4,
+        "nice": 10,
+        "durationSeconds": 1742.167,
+        "exitCode": 130,
+        "disposition": "controlled-checkpoint"
+      },
+      {
+        "id": "render-final-run",
+        "renderThreads": 8,
+        "nice": 15,
+        "durationSeconds": 7817.184,
+        "exitCode": 0,
+        "disposition": "complete"
+      }
+    ],
+    "views": ["perspective", "flat", "free-flight"],
+    "highResolution": true,
+    "ignoreMissingLightData": false,
+    "landmarkMarkers": 8,
+    "neighborhoodMarkers": 18,
+    "bind": "127.0.0.1:8106",
+    "loopbackOnly": true,
+    "http4xxOr5xx": 0,
+    "browserConsoleWarningsOrErrors": 0,
+    "webTreeSha256": "a967f6b85087e187826df2e681b57b5206f7c96513a81c6b64a4f113ce0d00e8",
+    "sizeBytes": 17663332886,
+    "fileCount": 204211,
+    "visualLimitations": [
+      "Water coloration contains visible render or source-tile patterns.",
+      "Landmark geometry is geographic and procedural rather than photorealistic; the Golden Gate crossing is present but is not an iconic red suspension-bridge reconstruction."
+    ]
+  },
+  "release": {
+    "status": "verified",
+    "path": ".behold-artifacts/sf/releases/sf-full-v3-snapshot-20260713T095831Z",
+    "createdAt": "2026-07-13T13:40:36.493Z",
+    "manifestSha256": "be13cef600d5f3bb78bc826a30dd52598cea3aea17090d746c1abeccb2f4ffb0",
+    "checksumFileSha256": "08366a1cfd928fd053c467834d0101d0eeee512ade39f4a6c042f2f89c2c4118",
+    "contentArchiveSizeBytes": 17954438961,
+    "archives": [
+      {
+        "role": "immutable-world",
+        "sizeBytes": 4145569544,
+        "sha256": "9b17fdf4b20671b2bf78852cd02791994476a9efa67227416113df0a41a1d2b9"
+      },
+      {
+        "role": "generation-evidence",
+        "sizeBytes": 112800,
+        "sha256": "d7b103a2c48733e1f02d736ed46d221222798dd03e25b77fa1d65aa5caaed880"
+      },
+      {
+        "role": "reproduction-kit",
+        "sizeBytes": 32564,
+        "sha256": "f65f3dee141ff24e2efdf6fb85568ea928cb79757c4bd23932c4c4a4049b9996"
+      },
+      {
+        "role": "generation-inputs",
+        "sizeBytes": 997494200,
+        "sha256": "b18ba358d0119951d92a47946c6de4503456da9aa3b65da41421cd3d012ebc43"
+      },
+      {
+        "role": "bluemap-atlas",
+        "sizeBytes": 12800761189,
+        "sha256": "67c7aee54c75ab270529d4dfd0ac93935e3e6537dadd1a74c5504818ce1b2acb"
+      },
+      {
+        "role": "bluemap-evidence",
+        "sizeBytes": 10468664,
+        "sha256": "f5c3aba12f843e4cce9caf65cb6c6a31b78075eec07c64e8896455514a441b22"
+      }
+    ],
+    "verificationPassed": true,
+    "extractedWorldTreeVerified": true,
+    "contentArchivesByteIdenticalAcrossTwoProductionBuilds": true
+  },
+  "isolation": {
+    "liveBeholdWorld": ".behold-runtime/server/world",
+    "liveBeholdBind": "127.0.0.1:25565",
+    "liveBeholdTouched": false
+  }
+}

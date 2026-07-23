@@ -5,6 +5,7 @@ import { getConfig } from '../config';
 import { createBot } from '../bot';
 import { buildTools } from '../tools';
 import { runStdioHarness } from '../agent/harness_stdio';
+import { openEntityLoom, type EntityLoom } from '../entity/loom';
 
 type Sub = 'agent' | 'tools' | 'help';
 
@@ -42,34 +43,35 @@ async function main() {
 
 async function runAgentStdio(values: Record<string, any>) {
   const cfg = getConfig();
-  console.error(`[cli] Connecting to ${cfg.server.host}:${cfg.server.port} as ${cfg.auth.username}`);
-  const bot = createBot(cfg);
+  console.error(
+    `[cli] Connecting to ${cfg.server.host}:${cfg.server.port} as ${cfg.auth.username}`,
+  );
+  const { bot, loom } = await openLeasedBot(cfg);
   bot.once('spawn', async () => {
     const { fns, specs } = buildTools(bot as any);
-    const allow = values.allowTools ? String(values.allowTools).split(',').map((s) => s.trim()).filter(Boolean) : null;
-    await runStdioHarness(
-      bot as any,
-      cfg as any,
-      fns,
-      specs,
-      {
-        tickMs: toNum(values.tickMs, 3000),
-        maxSteps: toNum(values.maxSteps, 128),
-        thinkTimeoutMs: toNum(values.thinkTimeoutMs, 8000),
-        rateMax: toNum(values.rateMax, 20),
-        rateWindowMs: toNum(values.rateWindowMs, 60000),
-        allowTools: allow,
-      },
-    );
-    try { (bot as any).end(); } catch {}
-    process.exit(0);
+    const allow = values.allowTools
+      ? String(values.allowTools)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : null;
+    await runStdioHarness(bot as any, cfg as any, fns, specs, {
+      tickMs: toNum(values.tickMs, 3000),
+      maxSteps: toNum(values.maxSteps, 128),
+      thinkTimeoutMs: toNum(values.thinkTimeoutMs, 8000),
+      rateMax: toNum(values.rateMax, 20),
+      rateWindowMs: toNum(values.rateWindowMs, 60000),
+      allowTools: allow,
+    });
+    await stopLeasedBot(bot, loom);
+    process.exitCode = 0;
   });
 }
 
 async function printTools(asJson: boolean) {
   const cfg = getConfig();
-  const bot = createBot(cfg);
-  bot.once('spawn', () => {
+  const { bot, loom } = await openLeasedBot(cfg);
+  bot.once('spawn', async () => {
     const { specs } = buildTools(bot as any);
     if (asJson) {
       process.stdout.write(JSON.stringify(specs, null, 2) + '\n');
@@ -81,9 +83,31 @@ async function printTools(asJson: boolean) {
         process.stdout.write(`- ${name}: ${desc}\n`);
       }
     }
-    try { (bot as any).end(); } catch {}
-    process.exit(0);
+    await stopLeasedBot(bot, loom);
+    process.exitCode = 0;
   });
+}
+
+async function openLeasedBot(cfg: ReturnType<typeof getConfig>) {
+  const loom = await openEntityLoom(cfg.auth.username, undefined, cfg.circle.id);
+  try {
+    return { bot: createBot(cfg, loom.connectionCapability), loom };
+  } catch (error) {
+    await loom.close();
+    throw error;
+  }
+}
+
+async function stopLeasedBot(bot: ReturnType<typeof createBot>, loom: EntityLoom) {
+  await new Promise<void>((resolve) => {
+    bot.once('end', () => resolve());
+    try {
+      (bot as any).end();
+    } catch {
+      resolve();
+    }
+  });
+  await loom.close();
 }
 
 function toNum(v: any, def: number) {
@@ -125,4 +149,3 @@ main().catch((err) => {
   console.error('[cli] fatal:', err);
   process.exit(1);
 });
-

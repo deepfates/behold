@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "runId": "sf-full-v3-snapshot-20260713T095831Z",
+  "scoutedAt": "2026-07-13T20:02:47.000Z",
+  "coordinateConvention": {
+    "yaw": "Minecraft degrees: 0 south, -90 east, +/-180 north, 90 west",
+    "pitch": "Minecraft degrees: positive looks down"
+  },
+  "candidates": [
+    {
+      "id": "sutro-city-establishing",
+      "position": { "x": 5556, "y": 450, "z": 8753, "yaw": -128, "pitch": 24 },
+      "role": ["opening", "closing", "city-scale"],
+      "strengths": [
+        "whole-city legibility",
+        "downtown skyline",
+        "neighborhood extent",
+        "park and bay context"
+      ],
+      "limitations": [
+        "tower structure can occlude the left edge",
+        "requires a short lateral move before the main reveal"
+      ],
+      "directorRank": 1,
+      "liveScouted": true
+    },
+    {
+      "id": "downtown-density-reveal",
+      "position": { "x": 10468, "y": 450, "z": 4926, "yaw": 90, "pitch": 35 },
+      "role": ["scale-shock", "vertical-fly-out", "urban-density"],
+      "strengths": [
+        "extreme generated density",
+        "varied towers",
+        "hills-to-bay depth",
+        "immediate visual impact"
+      ],
+      "limitations": [
+        "not an occupiable viewpoint",
+        "needs a slow descent or orbit to connect to street experience"
+      ],
+      "directorRank": 2,
+      "liveScouted": true
+    },
+    {
+      "id": "jfk-rider-height",
+      "position": { "x": 577, "y": 68.15, "z": 7089 },
+      "role": ["embodied-anchor", "ground-ride", "inhabitability"],
+      "strengths": [
+        "clear generated path",
+        "water and bridge detail",
+        "human-scale vegetation",
+        "collision-audited spline"
+      ],
+      "limitations": [
+        "park canopy hides city scale",
+        "later Golden Gate Park cluster needs a transition or overlay"
+      ],
+      "directorRank": 3,
+      "liveScouted": true
+    },
+    {
+      "id": "golden-gate-city-approach",
+      "position": { "x": 3313, "y": 220, "z": 1567, "yaw": -45, "pitch": 20 },
+      "role": ["geographic-signature", "water-crossing", "secondary-aerial"],
+      "strengths": [
+        "recognizable crossing location",
+        "large water scale",
+        "city and Marin context"
+      ],
+      "limitations": [
+        "procedural bridge is not an iconic red suspension reconstruction",
+        "do not make it the fidelity claim of the film"
+      ],
+      "directorRank": 4,
+      "liveScouted": true
+    }
+  ],
+  "provisionalSequence": [
+    "sutro-city-establishing",
+    "downtown-density-reveal",
+    "jfk-rider-height",
+    "golden-gate-park-vertical-transition",
+    "market-street-embodied-run",
+    "ferry-waterfront-arrival"
+  ],
+  "acceptance": "scout-pass-only"
+}

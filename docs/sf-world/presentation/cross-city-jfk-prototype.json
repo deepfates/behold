@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "runId": "sf-full-v3-snapshot-20260713T095831Z",
+  "createdAt": "2026-07-13T19:59:55.000Z",
+  "purpose": "Directed rider-height proof of method for geographic-to-generated-world reconciliation",
+  "sourceWorldTreeSha256": "4fd327ebe85e90931e3fee4cd01c50490fd3ae4638f98ac53d1e6045d29554d1",
+  "route": {
+    "name": "Dutch Windmill to Ferry Building",
+    "engine": "BRouter-1.7.9",
+    "profile": "trekking",
+    "lengthMeters": 15979,
+    "sourcePointCount": 833,
+    "sha256": "8b6182129ad0710e1674438afdfb7032a3e11ba2db1286e8aceeb9ad3ccf582a"
+  },
+  "audit": {
+    "uniqueRouteSamples": 770,
+    "exactClearSamples": 495,
+    "lateralClearSamples": 228,
+    "stagePatchCandidates": 47,
+    "sweptSpacingBlocks": 0.75,
+    "sweptPoints": 20547,
+    "cameraCollisionPoints": 276,
+    "actorCollisionPoints": 817,
+    "sha256": "427bb048313a86203f0798d96d22da00a1f1f77bfe374df2d2326eb131ae000e"
+  },
+  "prototype": {
+    "routeSampleRange": [3, 140],
+    "routeSamples": 133,
+    "controlPoints": 136,
+    "sweptDetours": 3,
+    "durationSeconds": 41.55,
+    "eyeOffsetBlocks": 2.15,
+    "speedBlocksPerTick": 4,
+    "manifestSha256": "0813145d8fc4e6d934ea1efae0aa3bc6f914b01656c1f74f7365dfdd5d9c2f06",
+    "acceptance": "proof-of-method",
+    "liveRehearsal": "passed"
+  },
+  "mutationPolicy": {
+    "immutableSourceModified": false,
+    "disposableStageBlocksModified": false,
+    "futurePresentationEdits": "idempotent reversible overlay only"
+  }
+}

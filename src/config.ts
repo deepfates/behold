@@ -1,10 +1,12 @@
-const REQUIRED_FOR_MINECRAFT = ["SERVER_HOST", "SERVER_PORT", "MINECRAFT_USERNAME"] as const;
+const REQUIRED_FOR_MINECRAFT = ['SERVER_HOST', 'SERVER_PORT', 'MINECRAFT_USERNAME'] as const;
+export const DEFAULT_LLM_MODEL = 'google/gemini-3.5-flash';
 
 export interface Config {
   server: { host: string; port: number };
+  circle: { id: string; source: 'explicit' | 'endpoint-fallback' };
   auth: { username: string; password?: string; mode: 'offline' | 'microsoft' };
   agent: { tickMs: number };
-  viewer: { enabled: boolean; port: number; firstPerson: boolean };
+  viewer: { enabled: boolean; port: number; firstPerson: boolean; viewDistance: number };
   input: { mode: 'hold' | 'toggle' };
   llm: { apiKey?: string; model: string };
 }
@@ -20,17 +22,23 @@ function envBool(name: string, def: boolean) {
   const raw = process.env[name];
   if (raw == null || raw === '') return def;
   const s = String(raw).toLowerCase();
-  if (["1", "true", "yes", "on"].includes(s)) return true;
-  if (["0", "false", "no", "off"].includes(s)) return false;
+  if (['1', 'true', 'yes', 'on'].includes(s)) return true;
+  if (['0', 'false', 'no', 'off'].includes(s)) return false;
   return def;
 }
 
 export function getConfig(): Config {
+  const host = process.env.SERVER_HOST || 'localhost';
+  const port = envInt('SERVER_PORT', 25565);
+  const explicitCircle = String(process.env.BEHOLD_WORLD_ID || '').trim();
   const cfg: Config = {
     server: {
-      host: process.env.SERVER_HOST || 'localhost',
-      port: envInt('SERVER_PORT', 25565),
+      host,
+      port,
     },
+    circle: explicitCircle
+      ? { id: explicitCircle, source: 'explicit' }
+      : { id: endpointCircleId(host, port), source: 'endpoint-fallback' },
     auth: {
       username: process.env.MINECRAFT_USERNAME || 'BeholdBot',
       password: process.env.MINECRAFT_PASSWORD || undefined,
@@ -43,11 +51,14 @@ export function getConfig(): Config {
       enabled: envBool('VIEWER_ENABLED', true),
       port: envInt('VIEWER_PORT', 3007),
       firstPerson: envBool('VIEWER_FIRST_PERSON', true),
+      viewDistance: envInt('VIEWER_DISTANCE', 8),
     },
-    input: { mode: ((process.env.KEY_MODE || 'hold').toLowerCase() === 'toggle') ? 'toggle' : 'hold' },
+    input: {
+      mode: (process.env.KEY_MODE || 'hold').toLowerCase() === 'toggle' ? 'toggle' : 'hold',
+    },
     llm: {
       apiKey: process.env.OPENROUTER_API_KEY || undefined,
-      model: process.env.LLM_MODEL || 'openai/gpt-4o-mini',
+      model: process.env.LLM_MODEL || DEFAULT_LLM_MODEL,
     },
   };
 
@@ -57,4 +68,13 @@ export function getConfig(): Config {
     }
   }
   return cfg;
+}
+
+function endpointCircleId(host: string, port: number) {
+  const normalizedHost = ['localhost', '::1', '0:0:0:0:0:0:0:1'].includes(
+    String(host).toLowerCase(),
+  )
+    ? '127.0.0.1'
+    : String(host).toLowerCase();
+  return `minecraft://${normalizedHost}:${port}`;
 }

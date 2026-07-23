@@ -1,0 +1,378 @@
+# A neutral Minecraft agent benchmark
+
+## Purpose
+
+Measure whether a mind can inhabit and act in Minecraft through a stable,
+human-legible interface. The benchmark must reveal weak perception, planning,
+memory, and action choice. It must not hide those weaknesses behind a long
+strategy prompt, a benchmark-specific macro, or controller code that chooses
+the next move.
+
+Behold can use the same environment to run a continuing resident, but the
+resident product and the benchmark are different compositions.
+
+## The minimum contract
+
+One decision step needs only:
+
+```text
+observation + available actions -> proposed action
+proposed action -> terminal result -> next observation
+```
+
+Around that loop, the harness owns identity, world/epoch provenance, action
+admission, interruption, journaling, save/restart, and independently observed
+consequences. Those mechanisms make a result trustworthy; they do not tell the
+mind what to do.
+
+The mind request should contain:
+
+- this body's bounded current observation;
+- bounded history that this same resident actually lived;
+- the exact actions and inputs admitted for this step;
+- an optional user task or the explicit fact that the life is untasked;
+- a disclosed time, token, action, and cost budget.
+
+The neutral protocol instruction should say only that the model is the embodied
+resident, must choose from the admitted action space, and cannot claim a result
+until Minecraft returns it. Survival advice, project strategy, preferred action
+ordering, failure recovery recipes, and benchmark solutions do not belong in
+that instruction.
+
+## Four layers that must not collapse
+
+### 1. Minecraft environment
+
+The environment owns sensory projection and player-like execution. Dynamic
+action projection answers “can this action be meaningfully attempted from this
+state?”, not “would this be a wise action?”
+
+It may remove an inventory action when the body lacks the item, bind a target to
+an object actually perceived by this body, or reject a stale entity id. It must
+not hide a risky but legal choice merely to improve model behavior. A human can
+mine a supporting block, walk into danger, waste an item, or repeat a bad idea;
+the benchmark should normally let Minecraft expose that consequence.
+
+Any non-vanilla safety policy—protected regions, mutation budgets, no downward
+digging—must be an explicit, versioned episode policy shared by every candidate,
+not an invisible recommendation embedded in the affordance compiler.
+
+### 2. Benchmark episode
+
+An episode pins:
+
+- immutable starting artifact and world/epoch identity;
+- game version and runtime profile;
+- spawn/body identity;
+- observation and action profile versions;
+- task, if any;
+- budgets and terminal conditions;
+- outcome verifiers and metrics;
+- model, mind program, prompt artifact, and random seed where supported.
+
+Evaluation should use ordinary consequences whenever possible: position,
+inventory, health, block and entity changes, communication received by each
+body, persistence after restart, elapsed world time, and causal attribution.
+The verifier may inspect privileged state after the episode, but that state
+must not enter the resident's observation or prompt.
+
+### 3. Mind program
+
+The mind maps the request to one proposal. Direct tool calling, Ax, another
+DSPy-style system, a human, or a hand-written policy should all fit the same
+boundary. Behold validates the proposal but does not repair its reasoning.
+
+Prompts, demonstrations, model routing, sampling settings, and learned
+instructions are mind artifacts. They are candidate variables, not environment
+semantics.
+
+### 4. Continuing resident
+
+Lync autobiography, sparse project/place projections, attention routing,
+personality, proactive goals, and a user-selected safety constitution can make
+a better persistent character. They should be evaluated as optional agent
+features over the neutral environment. They must not silently become the
+benchmark baseline.
+
+## A world is not an episode
+
+The current proofs use a linear-looking path from a packaged place to a managed
+server run. That is enough for one resident proof, but it is not the long-term
+lifecycle. Four different things can vary or branch, for different reasons:
+
+1. **World making.** One intent can produce revised source selections, recipes,
+   generated artifacts, and accepted builds. The Place Compiler owns this
+   design and provenance history. A place artifact is a reusable possible
+   beginning, not a lived timeline.
+2. **World history.** An exact committed save can become an immutable checkpoint
+   with one or more isolated writable continuations. Minecraft owns every
+   continuation's subsequent facts and clock.
+3. **Inhabitant life.** A resident can cross between histories, remain dormant
+   while another history advances, or itself be copied into concurrent lives.
+   Crossing and copying are not the same identity operation.
+4. **Learning.** Evaluators and optimizers can select ranges, compare sibling
+   rollouts, branch prompt candidates, and change judgments without rewriting
+   either the world or the lives that produced the evidence.
+
+These are related graphs, not one universal graph. They should meet through
+typed references to exact artifacts, turns, bodies, clocks, and evidence. They
+should not share one mutable “current timeline” record.
+
+The runtime terms should remain small:
+
+- A **place artifact** is an immutable compiled starting world with provenance.
+- A **checkpoint** is an immutable image of one exact committed state in a
+  lived world history.
+- A **history** is one isolated writable continuation descended from a place
+  artifact or checkpoint.
+- A **world epoch** is one server-process incarnation that may advance exactly
+  one history. A history can survive many epochs.
+- A **crossing** changes which existing history a person or resident inhabits;
+  it does not create a history.
+- A **fork** commits an exact source state and creates a new writable history;
+  it does not select which history is current and does not itself advance play.
+- An **episode** is a bounded reference over activity in one or more histories
+  and lives. It is not a save, server, or identity.
+
+A trustworthy fork therefore needs a fresh exact source identity and clock, a
+committed immutable checkpoint digest, an isolated writable destination,
+idempotent gesture or request identity, and a receipt. Forking must not issue
+gameplay or advance the simulation. Each history keeps its own local clock.
+Crossing should separately pause or fence the history being left, attach the
+chosen one, and confirm its identity before presenting it as current.
+
+World-state merge is intentionally absent. Lync logs can be united without
+losing events, but two divergent Minecraft saves cannot be generically merged.
+A future world-specific reconciliation would have to earn its own semantics and
+evidence rather than borrowing the word “merge” from an event store.
+
+## Lync lives, world lineages, and episodes
+
+Lync is not only long-term memory. Its append-only turns, branches, thread
+references, computed views, and indexes are also a natural episode substrate.
+We do not need a second mutable “episode database.”
+
+The scopes should remain explicit:
+
+- A **world-lineage loom** records checkpoint and history lineage, immutable
+  artifact references, selection/crossing receipts, and exact clocks. It does
+  not contain the Minecraft save bytes or pretend to be world truth.
+- A **world epoch** is one authoritative server incarnation over one selected
+  history and its admitted bodies. Minecraft lifecycle evidence owns this fact.
+- A **resident life** is one identity's continuing Lync loom. Its selected
+  thread can cross controller stops, model changes, and many world epochs.
+- A **controller episode** is a bounded range of lived turns between anchors in
+  that life. Current turns already carry the observed `managedRunId`, so
+  run-bound ranges can be derived without rewriting history. Finer wake-to-yield
+  boundaries can be appended as explicit episode events when they become useful.
+- A **benchmark episode** is an evaluator-owned record that references one or
+  more resident-life ranges and world-lineage ranges plus the immutable world
+  start, policy profile, mind artifact, budgets, and verifier results.
+- A **dataset** is a Lync index of episode looms or references, with an explicit
+  train/validation/held-out partition.
+
+An episode is therefore a durable view over source events, not a replacement
+source of truth. For a single-life episode on one history, start and terminal
+turn references are enough. A multi-resident, restart, fork, or crossing
+episode can use its own small Lync loom whose events reference each
+participant's life range, the relevant world-lineage subgraph, and the evidence
+artifacts. Evaluator judgments and privileged witnesses stay on that evaluator
+loom; the resident sees only its own life view.
+
+A world fork does not automatically fork a resident. One continuing resident
+may cross between histories while only one body lease is active. If a resident
+snapshot is copied and both descendants can act independently, they are two
+active identities with explicit lineage, new leases, and an explicit memory
+transfer policy. Benchmark candidates cloned from one checkpoint are trial
+inhabitants; they must not be represented as one continuing person merely
+because they received the same prompt or memory packet.
+
+This is especially useful for optimization. We can append candidate mind
+artifacts, rollout references, objective metrics, selections, and retractions
+without editing prior results. Lync's branches retain rejected prompt candidates
+and its indexes define portable episode corpora. Exported Ax examples are
+projections of selected Lync evidence, while the Lync source remains available
+for audit and later re-scoring.
+
+## Human-ish action grain
+
+The benchmark does not need raw keyboard ticks, and it should not supply story
+solutions. One action may contain the reactive motor work a human performs
+while holding one intention, provided it does not choose the next intention.
+
+Good core examples are: look in a relative direction, walk a bounded distance,
+approach one perceived body, mine one perceived block, use or place the held
+item, select/equip/drop an inventory item, craft one available recipe, attack
+one perceived target, speak, and yield.
+
+Composite skills such as “excavate a safe staircase”, “cross and close this
+door”, or “inspect whether this space is a complete shelter” may be useful
+product utilities. They change the problem presented to the model and therefore
+belong in separately named action profiles. Loaded-volume scans, evaluator
+topology, and story commands never belong in the neutral profile.
+
+## What belongs only to the continuing-resident profile
+
+The production `resident-v1` policy includes several useful product heuristics
+that are not neutral evaluation machinery:
+
+- a long system prompt describing how to survive, build, collaborate, recover,
+  manage projects, and sequence particular action families;
+- a controller rule that can require `manage_project` before accepting any
+  other model choice;
+- hard-coded rejection after repeated actions, repeated failed action families,
+  or two consecutive communications;
+- danger-specific advice and action-surface changes;
+- a no-downward-dig rule presented as body safety even though vanilla permits
+  the attempt.
+
+Lifecycle limits, stale-action rejection, schema validation, authority, and
+causal consequence checks remain valid. The behavioral rules now remain behind
+the named resident profile. `neutral-benchmark-v1` uses a three-sentence
+protocol prompt, never forces project bookkeeping, never rejects a legal choice
+for repetition or speech cadence, and emits a factual interruption notice
+without recommending a response. In benchmark mode, a bad choice remains a bad
+scored choice.
+
+The action and risk surfaces are independently named. `minecraft-player-v1`
+removes resident memory utilities and disclosed compound body skills, including
+coordinate placement that chooses support, equipment, and navigation on the
+model's behalf. The current crafting command is also withheld until its recipe
+and crafting-table prerequisites are observation-bound rather than discovered
+from loaded world state. The retained player-scale intentions receive short
+semantics-only descriptions. `vanilla-player-v1` exposes risky legal Minecraft
+choices such as mining supporting blocks, approaching items over dangerous
+ground, or changing remembered protected space; `resident-safe-v1` may withhold
+them as an explicit product preference. Every managed run records the selected
+policy, action, and safety profiles.
+
+## Ax should optimize the mind, not the world
+
+`@ax-llm/ax` 23.0.0 is installed. The current adapter uses an Ax signature for
+typed one-action inference, assertions for admitted action names, model-call
+evidence, and transport admission. It does not yet run Ax optimization.
+
+It also calls `setInstruction(...)` on every decision using a controller-built
+system prompt. That prevents an applied optimized instruction from being the
+clear source of behavior. The correction is:
+
+1. Keep only fixed protocol semantics in the decision signature.
+2. Expose the candidate instruction and demonstrations as Ax-owned optimizable
+   components.
+3. Load and identify a serialized optimization artifact for evaluation.
+4. Keep observation, task, actions, and lived history as structured runtime
+   inputs rather than generated instruction text.
+5. Score candidates through the same versioned episode runner.
+
+Ax's top-level optimization path can bootstrap successful demonstrations and
+use GEPA to tune instructions. It can return multi-objective Pareto results and
+persist the chosen optimized program. We should optimize only after the episode
+contract is reproducible, because prompt search against a shifting or coached
+harness would optimize benchmark leakage.
+
+## Evaluation and optimization loop
+
+Use two gates:
+
+1. **Cheap proposal replay.** Captured lived frames test schema validity,
+   grounding, latency, cost, and obvious one-step causal mistakes without world
+   mutation. This is fast feedback, not the final score.
+2. **Disposable real-world rollout.** Each candidate receives an isolated
+   history descended from the same checkpoint and is scored by post-episode
+   Minecraft evidence. Held-out artifacts, seeds, placements, and tasks decide
+   selection. Sibling rollouts are comparable only for declared metrics and
+   budgets; their clocks and subsequent random events remain branch-local.
+
+Do not train on one expected action per frame. Several actions may be sensible,
+and long-horizon quality is determined by consequences. Prefer deterministic
+metrics when Minecraft can answer them, with a Pareto objective such as:
+
+- task or life outcome;
+- survival and irreversible loss;
+- unsupported claims or invalid actions;
+- model calls, prompt/completion tokens, wall latency, and cost;
+- persistence and non-repetition after restart.
+
+Qualitative judging is reserved for genuinely visual or cultural outcomes and
+must remain separate from the primary causal metrics.
+
+Training selection must not become resident memory. Marks such as “successful”,
+“Pareto selected”, or “held out” belong to the episode/dataset loom, not to the
+inhabitant's life. This keeps the same lived trajectory usable for evaluation,
+learning, and narrative without letting evaluator hindsight leak into the next
+Minecraft observation.
+
+## Ultimate telos
+
+The benchmark is a feedback instrument, not the product. The larger aim is a
+world in which a mind can enter through a situated body, experience only what
+that body can experience, choose culturally intelligible actions, live with
+Minecraft's consequences, form a continuing identity, and return later without
+its past being silently rewritten.
+
+Different minds should be able to inhabit the same causal interface. Different
+worlds should be able to implement it without importing Minecraft internals.
+Humans, residents, evaluators, and optimizers should be able to refer to exact
+episodes of those lives without confusing a model proposal, a body action, a
+world fact, a memory, or a judgment.
+
+In that telos:
+
+```text
+world intent -> compilation loom -> immutable place artifact
+                                      |
+                                      v
+world-lineage loom: checkpoint -> history A -> later checkpoint
+                                  \\-> history B -> later checkpoint
+                                         |
+                           one or more runtime epochs
+                                         |
+                                  embodied lives
+                                         |
+                               Lync life threads
+
+episode and evaluation looms reference exact subgraphs above;
+they never replace or rewrite them.
+```
+
+Minecraft supplies the living medium. Behold supplies the narrow causal waist
+and runtime authority. The Place Compiler supplies reproducible possible
+beginnings. Lync supplies durable compilation, lineage, life, and evaluation
+graphs plus portable corpora. Ax and other mind systems supply replaceable,
+optimizable cognition. None of those libraries is the telos by itself.
+
+Forkability is a power of the medium, not its purpose. The purpose is to make
+worlds and lives inhabitable enough that choosing another history, returning to
+an old one, comparing possible lives, or declining to fork at all can matter to
+the people and agents living there.
+
+## First implementation cut
+
+The first unoptimized cut is now green. At clean revision `6d9fc89`, a neutral
+GPT-5.4 Mini resident freely chose three ordinary actions, gained one oak log,
+observed the gain, and retained it in the same saved body after a fully stopped
+fresh-process restart. The outcome, exact Lync life, provider ceiling, sibling
+history, lifecycle journals, and restart observation all pass clean-process
+reassessment. See
+[`2026-07-14-neutral-inventory-gain.md`](reports/2026-07-14-neutral-inventory-gain.md).
+
+Before Ax optimization or another open-ended paid life run:
+
+1. Keep the implemented `neutral-benchmark-v1` policy, `minecraft-player-v1`
+   action surface, and `vanilla-player-v1` risk profile under conformance tests
+   as the environment evolves.
+2. Finish auditing action descriptions and observation fields for remaining
+   strategic language or privileged information; profile selection alone does
+   not prove the entire request is neutral.
+3. Keep Ax instruction/demo artifacts content-addressed and runtime policy
+   guidance request-scoped; never apply optimizer metadata or signature changes
+   as if they were an inference program.
+4. Preserve the now-passing exact-request direct/Ax replay and resettable real
+   outcome episode as separate gates: proposal replay does not claim a world
+   consequence, and one successful rollout does not rank minds.
+5. Add held-out checkpoint and outcome families without changing the task,
+   observation, affordance, action, or scoring contract in response to results.
+
+Only then should GEPA spend model calls. A gain counts only if the serialized
+candidate reproduces on held-out real-world episodes without changing the
+environment contract.
