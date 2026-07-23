@@ -16,7 +16,7 @@
     "console": "ts-node --transpile-only src/tui/repl.ts",
     "lint": "eslint .",
     "format": "prettier -w .",
-    "check": "eslint . && prettier -c .",
+    "check": "npm run lint && npm run build",
     "prepare": "husky",
     "cli": "ts-node --transpile-only src/tools/readline.ts"
   },
