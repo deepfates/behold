@@ -11,7 +11,7 @@ const dryRun = process.argv.includes('--dry-run');
 const companionName = process.env.BEHOLD_COMPANION_NAME || 'ScoutLife';
 const companionModel =
   process.env.BEHOLD_COMPANION_MODEL || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
-const configPath = process.env.BEHOLD_WORLD_CONFIG || '.behold-worlds.example.json';
+const configPath = process.env.BEHOLD_WORLD_CONFIG || 'behold-worlds.json';
 const worldId = process.env.BEHOLD_MANAGED_WORLD || 'sf-csdr';
 const endpoint = resolvePlayEndpoint(configPath, worldId);
 const { host, port } = endpoint;

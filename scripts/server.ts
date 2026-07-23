@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 
-const config = process.env.BEHOLD_WORLD_CONFIG || '.behold-worlds.example.json';
+const config = process.env.BEHOLD_WORLD_CONFIG || 'behold-worlds.json';
 const world = process.env.BEHOLD_MANAGED_WORLD || 'sf-csdr';
 
 console.error(

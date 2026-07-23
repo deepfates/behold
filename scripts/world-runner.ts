@@ -2222,7 +2222,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     process.stdout.write(`${usage()}\n`);
     return 0;
   }
-  const configPath = path.resolve(String(parsed.values.config || '.behold-worlds.example.json'));
+  const configPath = path.resolve(String(parsed.values.config || 'behold-worlds.json'));
   const worldId = String(parsed.values.world || 'sf-csdr');
   const config = loadWorldLabConfig(configPath);
   const world = config.worlds[worldId];
