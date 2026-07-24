@@ -39,6 +39,9 @@ Configure a managed world
 
 Play a locally configured world
 
+- For the shortest operator-facing entry, use the
+  [First Life operator entry](docs/FIRST_LIFE_OPERATOR.md): status, provider-free
+  dry run, native play, and verified shutdown.
 - Run `npm run play -- --world <id>`, optionally with `--config <path>`. A workstation may also provide its own launcher around this command; launchers and machine paths are not part of the portable product contract.
 - When no server is running, play asks the foreground managed world owner to start the server and configured companion, then launches the locally configured native Minecraft 1.21.4 client. Without an OpenRouter key the companion connects paused, so human play still works without a provider call. Closing that managed play session drains and stops both children.
 - When a server is already running, the app only attaches the human client. It reports an existing companion but never invents ownership by starting a detached controller behind an unmanaged server.
@@ -52,7 +55,8 @@ Managed world lifecycle (under active development)
 - `npm run world -- status --world <id>` reports world-control, process ownership, world-bound controller leases, baseline, and topology evidence without changing the world. It uses the ignored local registry unless `--config` or `BEHOLD_WORLD_CONFIG` selects another one.
 - `npm run world -- start --world <id>` is fail-closed: it requires a clean Git worktree, the pinned server jar, a stopped and unowned runtime, a prepared baseline, and an archive root. Residents may be connected paused without a model key; active cognition requires its configured provider credentials.
 - The foreground runner owns the server and controller together. A normal stop drains the controller, releases its entity lease, receives Minecraft's `save-all flush` acknowledgement, stops the JVM, verifies the port and `session.lock` are clear, and then releases its durable owner record.
-- Disposable-world tests prove that a stopped lifecycle owner can authorize exactly one canonical reset transaction and rebind itself to the newly activated runtime inode. Production reset remains deliberately absent from the CLI until managed crash recovery and a named, operator-attested baseline are proven.
+- If an abnormal child exit leaves a stopped same-host owner in `recovery_required`, `npm run world -- recover --world <id>` verifies the lifecycle journal, dead process set, unchanged runtime identity, clear port and session lock, and clear controller leases. It preserves prepared and completed recovery evidence before releasing the fence; it does not reset the world.
+- Disposable-world tests prove that a stopped lifecycle owner can authorize exactly one canonical reset transaction and rebind itself to the newly activated runtime inode. Production reset remains deliberately absent from the CLI; abandoned-owner recovery preserves the current runtime and does not grant reset authority.
 - Every repository-created Mineflayer body now requires its entity's unforgeable live connection capability. Managed bodies must join the exact owner epoch; unmanaged bodies check the repository-wide world-control fence both before and after creating their durable lease. The old direct server command delegates to the managed owner. Arbitrary foreign same-user processes remain outside this cooperative boundary and must not be treated as safely excluded.
 - Runtime and baseline locations are deliberately local concerns. They belong in ignored `behold-worlds.json`, never in the tracked portable template.
 
