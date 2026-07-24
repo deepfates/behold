@@ -9,6 +9,22 @@ Status: 0.1.0‑alpha.0 — See [ROADMAP](docs/ROADMAP.md) for current status an
 North star: make worlds agents can genuinely inhabit, and learn what becomes
 possible when they do. The current vertical slice is [First Life](docs/FIRST_LIFE.md).
 
+Product horizon: choose or compile a persistent world—including a geographic
+place such as San Francisco—start it with ordinary Minecraft ecology, attach
+several independently minded player characters, and watch their lives unfold
+in real time. A person should be able to join the same world through the native
+client. Each resident may use a different model or mind program, while world
+changes remain Minecraft-authoritative and resident/world histories remain
+portable Lync that can be inspected with tools such as Textile.
+
+The pieces are substantial but not yet one finished product flow. Accepted
+Place Compiler releases, managed multi-resident epochs, human native play,
+per-resident models in the programmatic runner, persistent bodies, and Lync
+histories all exist. The CLI still applies one `--model` to every named
+resident; open-ended multi-model life in the accepted San Francisco place,
+human drop-in, and a legible lore-reading handoff have not yet been exercised
+together as one repeatable experience.
+
 Build and run Minecraft agents on your own server in minutes. Behold gives you:
 
 - A tiny command API over Mineflayer (chat/look/move/dig/place/etc.).

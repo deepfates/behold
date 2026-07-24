@@ -24,6 +24,13 @@ Minecraft inhabitant. The San Francisco world is valuable terrain for that life,
 not the product goal by itself. Come–See–Do–Report remains a useful regression
 test, not the organizing purpose of the system.
 
+The product composition beyond that milestone is a living-world experience:
+compile or select a persistent place, run ordinary Minecraft ecology, attach
+several residents with independently selectable minds/models, let a human join
+the same world, and retain both authoritative world consequences and readable
+Lync life/world histories. First Life proofs establish parts of that claim;
+they do not replace the composed experience.
+
 Progress is tracked through the [verification ladder](VERIFICATION_LADDER.md).
 Minecraft life and survival are one world competence pack beside the foundation
 scoreboard; they do not define whether the portable inhabitant loop is complete.
@@ -260,10 +267,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    build lineage-safe training and held-out episode families. Score only
    independently witnessed Minecraft outcomes, then select program or model
    changes by held-out results rather than one proposal or prompt-shaped pass.
-3. Prove one honest turn and one continuation in a contrasting real world.
-   Minecraft's observation-action-material-consequence loop now passes; extract
-   shared code only after the second integration shows which semantics actually
-   repeat.
+3. Compose the accepted San Francisco place, ordinary ecology, multiple
+   independently configured residents, native human entry, persistent
+   consequences, and Lync history into one bounded repeatable living-world run.
+   Do not treat a paused companion or a scripted exchange as this acceptance.
 4. Extend the player-grain conformance gate across representative movement,
    interaction, self-care, and interruption semantics without creating one
    runner per story.
@@ -277,6 +284,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    single-life conformance and budget gates pass.
 8. Add explicit crossing receipts and authorized life crossing/copy semantics
    to the working Minecraft checkpoint, fork, re-entry, and continuation path.
+
+Contrasting-world integration remains useful research after the Minecraft
+product composition is honest; it is not the current product definition or an
+automatic Golarion/Almo dependency.
 
 ## Useful world work
 
