@@ -18,6 +18,7 @@ Build and run Minecraft agents on your own server in minutes. Behold gives you:
 
 Owned-world proof
 
+- `npm run server:jar` fetches the Minecraft 1.21.4 server named in the tracked tool lock when it is absent, then verifies its byte count, SHA-1, and SHA-256 before atomically installing it. It is a no-op when the correct jar is already present and refuses to overwrite a different file. `npm run server:jar:check` verifies without downloading.
 - `npm run proof:owned-world -- --run <safe-id> --port <unused-port>` creates a new deterministic flat Minecraft world under `.behold-runtime/owned-world-proofs/`; it never reuses or modifies an external world.
 - The proof uses the pinned real Minecraft 1.21.4 server, the production world owner, the real Mineflayer adapter, bounded inhabitant observations, the shared intent engine and interpreter, and the entity's authoritative Lync loom. It does not require a model API.
 - The first controller observes and collects one prepared dropped-item affordance through ordinary survival mechanics. A separately admitted fresh body must see that the item is gone. The manager then stops everything cleanly, restarts the same entity, and requires the fresh process to load its prior turn, recover the server-persisted inventory consequence, and perform zero repeated collection attempts.
@@ -59,6 +60,7 @@ Quickstart
 
 - Install + configure:
   - `npm install`
+  - `npm run server:jar` (needed for owned-world proofs and local managed worlds)
   - `cp .env.example .env` (edit host/username/auth; set `OPENROUTER_API_KEY` to enable autopilot)
   - `npm run world:init` (then edit the ignored `behold-worlds.json` for this machine)
 - Run the console (starts the bot; autopilot if API key present):

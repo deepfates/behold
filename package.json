@@ -15,6 +15,8 @@
     "tools": "ts-node --transpile-only src/cli/main.ts tools --json",
     "console": "ts-node --transpile-only src/tui/repl.ts",
     "server": "ts-node --transpile-only scripts/server.ts",
+    "server:jar": "npm run build && node dist/scripts/server-jar.js",
+    "server:jar:check": "npm run build && node dist/scripts/server-jar.js --check",
     "pilot": "node scripts/patch-prismarine-viewer.js && ts-node --transpile-only scripts/pilot.ts",
     "native": "ts-node --transpile-only scripts/native-client.ts",
     "play": "ts-node --transpile-only scripts/play.ts",
