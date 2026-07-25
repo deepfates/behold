@@ -1,6 +1,6 @@
 ---
 id: beh-oxford-v3
-status: open
+status: closed
 deps: []
 links: [beh-n4fe]
 created: 2026-07-25T22:30:00Z
@@ -88,3 +88,22 @@ The adapter acceptance criteria are exercised. This ticket remains open only
 until the separately requested provider-free real Minecraft start/stop proves
 that Lync history uses this content-bound world identity across the server and
 resident boundary.
+
+## 2026-07-25 live boundary checkpoint
+
+The remaining condition is now exercised. A fresh derived Oxford runtime ran
+Minecraft 1.21.4 with two scripted Mineflayer residents behind the all-ready
+barrier and `minecraft-human-semantic-v1`. Each resident retained four
+authenticated turns (`look_direction`, `move_controls`, `chat`, and
+`wait_for_event`) under the exact content-bound Oxford circle and one durable
+release epoch. Both observed the other's public chat; all six physical/chat
+actions succeeded. Broker, capture, quota, token, and cost evidence remained
+zero. Both controllers and the server exited with code 0, control was released,
+and the preserved V3 artifact re-snapshotted unchanged.
+
+The full identities, observations, retained harness failures, and evidence
+paths are in
+`docs/reports/2026-07-25-oxford-v3-provider-free-live.md`. This closes only the
+V3 admission adapter and real server/resident boundary. It does not close
+`beh-n4fe`, authorize a provider pilot, or accept the owner watch/read product
+experience.
