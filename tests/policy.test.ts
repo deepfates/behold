@@ -3236,6 +3236,144 @@ test('controller breaks a communication-only loop until the body acts or a human
   }
 });
 
+test('project bookkeeping cannot repeatedly replace world action without new lived evidence', async () => {
+  const originalFetch = globalThis.fetch;
+
+  async function run(withWorldEvidence: boolean) {
+    const responses = [
+      assistantTool('project-start', 'manage_project', {
+        operation: 'start',
+        id: 'shelter',
+        title: 'Shelter',
+        nextStep: 'Move toward visible materials.',
+      }),
+      assistantTool('project-reword', 'manage_project', {
+        operation: 'update',
+        id: 'shelter',
+        nextStep: 'Move toward the visible materials.',
+      }),
+      assistantTool('embodied-after-project', 'move_direction', {
+        direction: 'forward',
+        distance: 2,
+      }),
+    ];
+    globalThis.fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: responses.shift() }] }),
+        text: async () => '',
+      }) as any) as typeof fetch;
+
+    let sequence = 1;
+    let currentAction: any = null;
+    const enqueued: any[] = [];
+    const turns: EntityTurn[] = [];
+    const observe = (sinceSequence = 0) => ({
+      protocol: 'behold.inhabitant.v2' as const,
+      sequence,
+      task: null,
+      self: {
+        projects: [],
+        condition: { health: 20, food: 20, oxygen: null },
+        currentAction,
+      },
+      scene: { entities: [] },
+      events: [
+        {
+          sequence: 1,
+          type: 'local_world_ready',
+          source: 'body',
+          salience: 'high',
+          isNew: 1 > sinceSequence,
+          data: {},
+        },
+        ...(sequence >= 2
+          ? [
+              {
+                sequence: 2,
+                type: 'action_completed',
+                source: 'event',
+                salience: 'normal',
+                isNew: 2 > sinceSequence,
+                data: { intent: enqueued[0] },
+              },
+            ]
+          : []),
+        ...(withWorldEvidence && sequence >= 3
+          ? [
+              {
+                sequence: 3,
+                type: 'visible_block_changed',
+                source: 'vision',
+                salience: 'normal',
+                isNew: 3 > sinceSequence,
+                data: { before: 'stone', after: 'air' },
+              },
+            ]
+          : []),
+      ],
+    });
+    const policy = startLLMPolicy(
+      {
+        entityId: 'Scout',
+        actions: [tool('manage_project'), tool('move_direction')],
+        attempt: (intent) => {
+          enqueued.push(intent);
+          currentAction = { id: intent.id, tool: intent.tool, status: 'queued' };
+          return true;
+        },
+        observe,
+      },
+      {
+        apiKey: 'test-key',
+        model: 'test/model',
+        acceptEngineEvent: () => true,
+        onEntityTurn: (turn) => turns.push(turn),
+      },
+    );
+
+    try {
+      await policy.tick();
+      await until(() => enqueued.length === 1);
+      sequence = withWorldEvidence ? 3 : 2;
+      currentAction = { ...currentAction, status: 'completed' };
+      await policy.onEngineEvent({
+        type: 'action_completed',
+        at: 20,
+        data: { intent: enqueued[0], result: { ok: true } },
+      });
+      await until(() =>
+        withWorldEvidence ? enqueued.length === 2 : enqueued.length === 2 && turns.length === 2,
+      );
+      return { enqueued, turns };
+    } finally {
+      await policy.stop();
+    }
+  }
+
+  try {
+    const withoutEvidence = await run(false);
+    assert.deepEqual(
+      withoutEvidence.enqueued.map((intent) => intent.tool),
+      ['manage_project', 'move_direction'],
+    );
+    assert.equal(withoutEvidence.turns[1]?.action.name, 'manage_project');
+    assert.equal(
+      withoutEvidence.turns[1]?.outcome.error,
+      'project_bookkeeping_without_world_progress',
+    );
+
+    const withEvidence = await run(true);
+    assert.deepEqual(
+      withEvidence.enqueued.map((intent) => intent.tool),
+      ['manage_project', 'manage_project'],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('a safe untasked life may act directly without wrapping one step in a project', async () => {
   const originalFetch = globalThis.fetch;
   const requests: any[] = [];

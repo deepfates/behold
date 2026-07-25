@@ -178,6 +178,37 @@ export const DEFAULT_LOOM_FOLD_MAX_OUTPUT_TOKENS = 1_024;
 const WAIT_TOOL = 'wait_for_event';
 const COLLECT_TOOL = 'collect_nearby_item';
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
+const PROJECT_PROGRESS_EVENT_TYPES = new Set([
+  'spawned',
+  'local_world_ready',
+  'chat_received',
+  'condition_changed',
+  'visible_block_changed',
+  'block_changed_nearby',
+  'time_passed',
+  'day_phase_changed',
+  'weather_changed',
+  'inventory_changed',
+  'item_collected',
+  'nearby_player_collected_item',
+  'nearby_player_equipment_changed',
+  'visible_player_collected_item',
+  'visible_player_equipment_changed',
+  'self_hurt',
+  'visible_entity_hurt',
+  'visible_entity_died',
+  'entity_became_visible',
+  'entity_left_view',
+  'sound_heard',
+  'entity_hurt_nearby',
+  'entity_died_nearby',
+  'entity_appeared_nearby',
+  'fell_asleep',
+  'woke_up',
+  'died',
+  'dimension_changed',
+  'task_updated',
+]);
 const BODILY_URGENCY_EVENT_TYPES = new Set([
   'self_hurt',
   'condition_changed',
@@ -332,6 +363,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let lastActionSignature: string | null = null;
   let repeatedActionCount = 0;
   let consecutiveCommunicationActions = trailingCommunicationActions(history);
+  let consecutiveProjectActions = trailingProjectActions(history);
   const trailingFailures = trailingFailedEmbodiedActions(history);
   let failedEmbodiedTool = trailingFailures.tool;
   let failedEmbodiedCount = trailingFailures.count;
@@ -750,6 +782,30 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       }
       if (
         !isNeutralPolicy(policyProfile) &&
+        intent.tool === MANAGE_PROJECT_TOOL &&
+        consecutiveProjectActions >= 1
+      ) {
+        const result = {
+          ok: false,
+          error: 'project_bookkeeping_without_world_progress',
+          reason:
+            'You already changed private project bookkeeping without new lived world evidence. Act in the world or wait for new evidence before changing the project again.',
+        };
+        appendRejectedToolResult(decision, result);
+        const nextObservation = observe();
+        await closeTurn(
+          draft,
+          actionFromIntent(intent, decision.toolCallId),
+          { ok: false, eventType: 'intent_blocked', result, error: result.error },
+          nextObservation,
+        );
+        appendWorldUpdate(nextObservation, `World after loop-breaking ${intent.tool}`);
+        log(`[policy] broke project-bookkeeping loop: ${intent.tool}`);
+        continueImmediately = true;
+        return;
+      }
+      if (
+        !isNeutralPolicy(policyProfile) &&
         COMMUNICATION_TOOLS.has(intent.tool) &&
         consecutiveCommunicationActions >= 2
       ) {
@@ -1076,6 +1132,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function appendWorldUpdate(frame: any, label: string) {
+    if (hasNewProjectProgressEvidence(frame, lastSequence)) consecutiveProjectActions = 0;
     currentObservation = frame;
     const projected = projectCurrentModelObservation(frame);
     currentModelObservation = projected;
@@ -1119,6 +1176,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     await opts.onEntityTurn?.(turn);
     loomContext.append(turn);
     recordEmbodiedOutcome(turn.action.name, turn.outcome.ok);
+    recordProjectContinuity(turn.action.name, turn.outcome.ok);
     rebuildMessagesFromLoom();
     entitySequence = sequence;
     parentTurnId = turn.id;
@@ -1135,6 +1193,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       failedEmbodiedTool = tool;
       failedEmbodiedCount = 1;
     }
+  }
+
+  function recordProjectContinuity(tool: string, ok: boolean) {
+    if (tool === MANAGE_PROJECT_TOOL) {
+      if (ok) consecutiveProjectActions += 1;
+      return;
+    }
+    if (tool !== WAIT_TOOL && !COMMUNICATION_TOOLS.has(tool)) consecutiveProjectActions = 0;
   }
 
   function rebuildMessagesFromLoom() {
@@ -1196,6 +1262,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   function resume() {
     if (stopped) return;
     consecutiveCommunicationActions = 0;
+    consecutiveProjectActions = 0;
     if (!suspended) {
       void wake();
       return;
@@ -1390,6 +1457,24 @@ function trailingCommunicationActions(turns: EntityTurn[]) {
     count += 1;
   }
   return count;
+}
+
+function trailingProjectActions(turns: EntityTurn[]) {
+  let count = 0;
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (turns[index].action.name !== MANAGE_PROJECT_TOOL || !turns[index].outcome.ok) break;
+    count += 1;
+  }
+  return count;
+}
+
+function hasNewProjectProgressEvidence(frame: any, afterSequence: number) {
+  return (Array.isArray(frame?.events) ? frame.events : []).some(
+    (event: any) =>
+      Number(event?.sequence) > afterSequence &&
+      event?.isNew !== false &&
+      PROJECT_PROGRESS_EVENT_TYPES.has(String(event?.type || '')),
+  );
 }
 
 function trailingFailedEmbodiedActions(turns: EntityTurn[]) {
