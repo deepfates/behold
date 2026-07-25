@@ -40,7 +40,11 @@ import {
   verifyCognitionBrokerJournal,
   type CognitionBroker,
 } from '../src/mind/cognition-broker';
-import { COGNITION_TRANSPORT_PROTOCOL, cognitionResidentKey } from '../src/mind/cognition';
+import {
+  COGNITION_TRANSPORT_PROTOCOL,
+  cognitionAccountId,
+  cognitionResidentKey,
+} from '../src/mind/cognition';
 import {
   minecraftActionProfile,
   minecraftSafetyProfile,
@@ -53,6 +57,7 @@ import {
   usesHumanSemanticBody,
   type MinecraftBodyProfile,
 } from '../src/mind/minecraft-body';
+import { verifyQuotaLedger } from '../src/observability/quota-ledger';
 
 export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'chat',
@@ -173,6 +178,11 @@ export type ManagedResidentSpec = Readonly<{
   task?: string;
   target?: string;
   allowTools?: readonly string[];
+  /** Hard provider-attempt quotas; response tokens/cost are accounted but not predicted. */
+  providerQuotas?: Readonly<{
+    residentDecisionAttempts: number;
+    auxiliaryContextAttempts: number;
+  }>;
   /** Explicit, non-authoritative variables for a specialized controller entrypoint. */
   environment?: Readonly<Record<string, string>>;
   /** Connect the body and preserve the life without starting cognition. */
@@ -197,6 +207,7 @@ const MANAGED_RESIDENT_SET_FIELDS = new Set([
   'task',
   'target',
   'allowTools',
+  'providerQuotas',
   'paused',
 ]);
 
@@ -341,6 +352,16 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
       }
       result.allowTools = Object.freeze(candidate.allowTools.map((tool) => tool.trim()));
     }
+    if (candidate.providerQuotas !== undefined) {
+      try {
+        result.providerQuotas = normalizeProviderQuotas(candidate.providerQuotas);
+      } catch (error: any) {
+        throw residentConfigInvalid(
+          file,
+          `wrong providerQuotas for resident ${index}: ${error?.message || String(error)}`,
+        );
+      }
+    }
     if (result.target && !result.task) {
       throw residentConfigInvalid(file, `resident ${index} target requires task`);
     }
@@ -363,6 +384,27 @@ function residentConfigInvalid(file: string, reason: string) {
   return new WorldRunnerError(`Resident config ${reason}`, 'resident_config_invalid', {
     file,
     reason,
+  });
+}
+
+function normalizeProviderQuotas(value: unknown) {
+  if (!isPlainRecord(value)) {
+    throw new Error('provider quotas must be an object');
+  }
+  const expected = ['auxiliaryContextAttempts', 'residentDecisionAttempts'];
+  const actual = Object.keys(value).sort();
+  if (actual.join(',') !== expected.join(',')) {
+    throw new Error(`provider quotas require exactly ${expected.join(', ')}`);
+  }
+  for (const field of expected) {
+    const limit = value[field];
+    if (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 100_000_000) {
+      throw new Error(`${field} must be an integer from 1 through 100000000`);
+    }
+  }
+  return Object.freeze({
+    residentDecisionAttempts: Number(value.residentDecisionAttempts),
+    auxiliaryContextAttempts: Number(value.auxiliaryContextAttempts),
   });
 }
 
@@ -412,6 +454,8 @@ export type ManagedWorldRunOptions = Readonly<{
   maxResidents?: number;
   maxConcurrentModelCalls?: number;
   maxTotalModelCalls?: number;
+  /** Stable experiment identity required when per-resident provider quotas are configured. */
+  accountingScopeId?: string;
   residentStartupDelayMs?: number;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -452,6 +496,7 @@ export type ManagedWorldRun = Readonly<{
     tickMs: number;
     maxTurnSteps: number | null;
     resumeAfterBudget: boolean | null;
+    providerQuotas: ManagedResidentSpec['providerQuotas'] | null;
     paused: boolean;
     pid: number;
     leasePath: string;
@@ -462,6 +507,7 @@ export type ManagedWorldRun = Readonly<{
     concurrencyLimit: number;
     maxTotalModelCalls: number | null;
     journalFile: string;
+    accountingSnapshot(): ReturnType<CognitionBroker['snapshot']>['accounting'];
     admissionLimitReached: CognitionBroker['admissionLimitReached'];
     admissionLimitSettled: CognitionBroker['admissionLimitSettled'];
   }> | null;
@@ -528,6 +574,10 @@ type NormalizedManagedResident = Readonly<{
   task?: string;
   target?: string;
   allowTools?: readonly string[];
+  providerQuotas?: Readonly<{
+    residentDecisionAttempts: number;
+    auxiliaryContextAttempts: number;
+  }>;
   environment: Readonly<Record<string, string>>;
   paused: boolean;
   leasePath: string;
@@ -545,7 +595,19 @@ type ManagedCognition = Readonly<{
   broker: CognitionBroker;
   clients: ReadonlyMap<
     string,
-    Readonly<{ bearer: string; residentKey: string; model: string; models?: readonly string[] }>
+    Readonly<{
+      bearer: string;
+      residentKey: string;
+      model: string;
+      models?: readonly string[];
+      accounting?: {
+        scopeId: string;
+        worldId: string;
+        accountId: string;
+        ledgerFile: string;
+        limits: { resident_decision: number; loom_fold: number };
+      };
+    }>
   >;
   concurrencyLimit: number;
   maxTotalModelCalls: number | null;
@@ -730,6 +792,19 @@ function normalizeManagedResidents(
           { index, entityId, resumeAfterBudget: candidate.resumeAfterBudget },
         );
       }
+      let providerQuotas: ManagedResidentSpec['providerQuotas'];
+      try {
+        providerQuotas =
+          candidate.providerQuotas == null
+            ? undefined
+            : normalizeProviderQuotas(candidate.providerQuotas);
+      } catch (error: any) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} has invalid provider quotas: ${error?.message || String(error)}`,
+          'resident_provider_quota_invalid',
+          { index, entityId, providerQuotas: candidate.providerQuotas },
+        );
+      }
       if (candidate.target && !candidate.task) {
         throw new WorldRunnerError(
           `Resident ${entityId} has a target without a task`,
@@ -770,12 +845,103 @@ function normalizeManagedResidents(
         ...(candidate.task ? { task: String(candidate.task) } : {}),
         ...(candidate.target ? { target: String(candidate.target) } : {}),
         ...(candidate.allowTools ? { allowTools: Object.freeze([...candidate.allowTools]) } : {}),
+        ...(providerQuotas ? { providerQuotas } : {}),
         environment,
         paused: candidate.paused === true,
         leasePath,
       });
     }),
   );
+}
+
+type ManagedProviderAccounting = Readonly<{
+  scopeId: string;
+  scopeDigest: string;
+  accounts: ReadonlyMap<
+    string,
+    Readonly<{
+      accountId: string;
+      ledgerFile: string;
+      limits: Readonly<{ resident_decision: number; loom_fold: number }>;
+    }>
+  >;
+}>;
+
+function managedProviderAccounting(
+  options: ManagedWorldRunOptions,
+  residents: readonly NormalizedManagedResident[],
+): ManagedProviderAccounting | null {
+  const configured = residents.filter((resident) => resident.providerQuotas != null);
+  const requestedScope = optionalText(options.accountingScopeId);
+  if (configured.length === 0) {
+    if (requestedScope) {
+      throw new WorldRunnerError(
+        'accountingScopeId requires providerQuotas for every resident',
+        'provider_accounting_scope_without_quotas',
+        { accountingScopeId: requestedScope },
+      );
+    }
+    return null;
+  }
+  if (configured.length !== residents.length) {
+    throw new WorldRunnerError(
+      'Per-resident provider quotas must be configured for the whole population',
+      'provider_quota_population_incomplete',
+      {
+        configured: configured.map((resident) => resident.entityId),
+        missing: residents
+          .filter((resident) => resident.providerQuotas == null)
+          .map((resident) => resident.entityId),
+      },
+    );
+  }
+  if (!requestedScope || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(requestedScope)) {
+    throw new WorldRunnerError(
+      'Per-resident provider quotas require a bounded explicit accountingScopeId',
+      'provider_accounting_scope_invalid',
+      { accountingScopeId: options.accountingScopeId ?? null },
+    );
+  }
+  const shared = configured[0].providerQuotas!;
+  const mismatched = configured.filter(
+    (resident) =>
+      resident.providerQuotas!.residentDecisionAttempts !== shared.residentDecisionAttempts ||
+      resident.providerQuotas!.auxiliaryContextAttempts !== shared.auxiliaryContextAttempts,
+  );
+  if (mismatched.length > 0) {
+    throw new WorldRunnerError(
+      'Quota-controlled residents must have equal provider-attempt budgets',
+      'provider_quota_population_mismatch',
+      { residents: mismatched.map((resident) => resident.entityId) },
+    );
+  }
+  const scopeDigest = sha256Bytes(Buffer.from(requestedScope));
+  const ledgerRoot = path.join(
+    path.resolve(options.controlRoot),
+    'accounting',
+    scopeDigest,
+    'provider',
+  );
+  return Object.freeze({
+    scopeId: requestedScope,
+    scopeDigest,
+    accounts: new Map(
+      residents.map((resident) => {
+        const accountId = cognitionAccountId(requestedScope, options.worldId, resident.entityId);
+        return [
+          resident.entityId,
+          Object.freeze({
+            accountId,
+            ledgerFile: path.join(ledgerRoot, `${accountId}.jsonl`),
+            limits: Object.freeze({
+              resident_decision: resident.providerQuotas!.residentDecisionAttempts,
+              loom_fold: resident.providerQuotas!.auxiliaryContextAttempts,
+            }),
+          }),
+        ];
+      }),
+    ),
+  });
 }
 
 function managedModelConcurrencyLimit(options: ManagedWorldRunOptions, residentCount: number) {
@@ -814,6 +980,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         tickMs: entry.resident.tickMs,
         maxTurnSteps: entry.resident.maxTurnSteps ?? null,
         resumeAfterBudget: entry.resident.resumeAfterBudget ?? null,
+        providerQuotas: entry.resident.providerQuotas ?? null,
         paused: entry.resident.paused,
         pid: entry.child.pid!,
         leasePath: entry.resident.leasePath,
@@ -908,10 +1075,18 @@ export async function startManagedWorld(
   dependencies: WorldRunnerDependencies = {},
 ): Promise<ManagedWorldRun> {
   const residents = normalizeManagedResidents(options);
+  const providerAccounting = managedProviderAccounting(options, residents);
   const cognitionResidentCount = residents.filter((resident) => !resident.paused).length;
   const maxConcurrentModelCalls =
     cognitionResidentCount > 0 ? managedModelConcurrencyLimit(options, cognitionResidentCount) : 0;
   const maxTotalModelCalls = managedTotalModelCallLimit(options.maxTotalModelCalls);
+  if (providerAccounting && maxTotalModelCalls != null) {
+    throw new WorldRunnerError(
+      'Per-resident purpose quotas cannot be combined with the purpose-blind population call limit',
+      'provider_accounting_aggregate_limit_conflict',
+      { accountingScopeId: providerAccounting.scopeId, maxTotalModelCalls },
+    );
+  }
   const inspectRuntime =
     dependencies.inspectRuntime ?? (() => statusWorld(options.worldId, options.world));
   const verifyArtifacts =
@@ -990,15 +1165,27 @@ export async function startManagedWorld(
       const clients = new Map(
         residents
           .filter((resident) => !resident.paused)
-          .map((resident) => [
-            resident.entityId,
-            Object.freeze({
-              bearer: randomBytes(32).toString('base64url'),
-              residentKey: cognitionResidentKey(managedRunId, resident.entityId),
-              model: resident.model,
-              ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
-            }),
-          ]),
+          .map((resident) => {
+            const accounting = providerAccounting?.accounts.get(resident.entityId);
+            return [
+              resident.entityId,
+              Object.freeze({
+                bearer: randomBytes(32).toString('base64url'),
+                residentKey: cognitionResidentKey(managedRunId, resident.entityId),
+                model: resident.model,
+                ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
+                ...(accounting
+                  ? {
+                      accounting: Object.freeze({
+                        scopeId: providerAccounting!.scopeId,
+                        worldId: options.worldId,
+                        ...accounting,
+                      }),
+                    }
+                  : {}),
+              }),
+            ] as const;
+          }),
       );
       const journalFile = path.join(runRoot, managedRunId, '_cognition', 'broker.jsonl');
       const broker = await startCognitionBroker({
@@ -1037,12 +1224,34 @@ export async function startManagedWorld(
           task: resident.task ?? null,
           target: resident.target ?? null,
           allowTools: resident.allowTools ?? null,
+          providerAccounting: providerAccounting
+            ? {
+                accountId: providerAccounting.accounts.get(resident.entityId)!.accountId,
+                ledgerFile: providerAccounting.accounts.get(resident.entityId)!.ledgerFile,
+                limits: providerAccounting.accounts.get(resident.entityId)!.limits,
+              }
+            : null,
           leasePath: resident.leasePath,
         })),
         residentCount: residents.length,
         maxResidentProcesses: Math.max(1, Math.floor(options.maxResidents ?? 16)),
         maxConcurrentModelCalls: cognition?.concurrencyLimit ?? 0,
         maxTotalModelCalls: cognition?.maxTotalModelCalls ?? null,
+        providerAccounting: providerAccounting
+          ? {
+              protocol: 'behold.quota-ledger-event.v1',
+              scopeId: providerAccounting.scopeId,
+              scopeDigest: providerAccounting.scopeDigest,
+              layer: 'provider',
+              hardQuotaUnit: 'provider_attempt_authorization',
+              purposes: {
+                resident_decision: 'resident decision provider attempt',
+                loom_fold: 'auxiliary context provider attempt',
+              },
+              equalityEnforced: true,
+              tokensAndCost: 'provider_reported_post_settlement',
+            }
+          : null,
         residentStartupDelayMs: options.residentStartupDelayMs ?? 0,
         residentProcessLauncher: dependencies.spawnController
           ? 'injected_dependency'
@@ -1079,6 +1288,7 @@ export async function startManagedWorld(
         concurrencyLimit: cognition.concurrencyLimit,
         maxTotalModelCalls: cognition.maxTotalModelCalls,
         journalFile: cognition.broker.journalFile,
+        accounting: cognition.broker.snapshot().accounting,
       });
     }
     control.update('starting', { server: null, controllers: [] });
@@ -1259,19 +1469,21 @@ export async function startManagedWorld(
       return stopPromise;
     };
 
+    const runningCognition = cognition;
     return Object.freeze({
       runId: managedRunId,
       control,
       serverPid: server.pid,
       residents: publicResidentRecords(controllerProcesses),
-      cognition: cognition
+      cognition: runningCognition
         ? Object.freeze({
-            brokerId: cognition.broker.brokerId,
-            concurrencyLimit: cognition.concurrencyLimit,
-            maxTotalModelCalls: cognition.maxTotalModelCalls,
-            journalFile: cognition.broker.journalFile!,
-            admissionLimitReached: cognition.broker.admissionLimitReached,
-            admissionLimitSettled: cognition.broker.admissionLimitSettled,
+            brokerId: runningCognition.broker.brokerId,
+            concurrencyLimit: runningCognition.concurrencyLimit,
+            maxTotalModelCalls: runningCognition.maxTotalModelCalls,
+            journalFile: runningCognition.broker.journalFile!,
+            accountingSnapshot: () => runningCognition.broker.snapshot().accounting,
+            admissionLimitReached: runningCognition.broker.admissionLimitReached,
+            admissionLimitSettled: runningCognition.broker.admissionLimitSettled,
           })
         : null,
       finished,
@@ -1726,6 +1938,35 @@ async function drainManagedCognition(
       'cognition broker evidence violates its identity, concurrency, or admission limit',
     );
   }
+  const quotaVerification = [...cognition.clients.values()]
+    .filter((client) => client.accounting != null)
+    .map((client) => {
+      const expected = client.accounting!;
+      const verifiedQuota = verifyQuotaLedger(expected.ledgerFile).snapshot;
+      if (
+        verifiedQuota.scopeId !== expected.scopeId ||
+        verifiedQuota.worldId !== expected.worldId ||
+        verifiedQuota.accountId !== expected.accountId ||
+        verifiedQuota.layer !== 'provider' ||
+        verifiedQuota.limits.resident_decision !== expected.limits.resident_decision ||
+        verifiedQuota.limits.loom_fold !== expected.limits.loom_fold
+      ) {
+        throw new Error('provider quota ledger violates its configured resident identity');
+      }
+      return {
+        file: verifiedQuota.file,
+        accountId: verifiedQuota.accountId,
+        limits: verifiedQuota.limits,
+        used: verifiedQuota.used,
+        remaining: verifiedQuota.remaining,
+        settled: verifiedQuota.settled,
+        unsettled: verifiedQuota.unsettled,
+        usage: verifiedQuota.usage,
+        eventCount: verifiedQuota.eventCount,
+        tipDigest: verifiedQuota.tipDigest,
+      };
+    })
+    .sort((left, right) => left.accountId.localeCompare(right.accountId));
   control.append('cognition_broker_drained', {
     phase,
     brokerId: cognition.broker.brokerId,
@@ -1737,6 +1978,7 @@ async function drainManagedCognition(
       admitted: verified.admitted,
       terminal: verified.terminal,
       measuredPeakActive: verified.peakActive,
+      quotaAccounts: quotaVerification,
     },
   });
 }
@@ -2467,6 +2709,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       maxResidents: { type: 'string' },
       maxModelConcurrency: { type: 'string' },
       maxModelCalls: { type: 'string' },
+      accountingScope: { type: 'string' },
       duration: { type: 'string' },
       task: { type: 'string' },
       target: { type: 'string' },
@@ -2624,6 +2867,9 @@ export async function runCli(argv = process.argv.slice(2)) {
     maxResidents,
     maxConcurrentModelCalls,
     ...(maxTotalModelCalls == null ? {} : { maxTotalModelCalls }),
+    ...(parsed.values.accountingScope == null
+      ? {}
+      : { accountingScopeId: String(parsed.values.accountingScope) }),
   });
   process.stdout.write(
     `[world-runner] ready: ${worldId}, server ${run.serverPid}, residents ${run.residents
@@ -2686,7 +2932,7 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Repeat --body in the same order only when a life ID differs from its Minecraft username.',
@@ -2694,6 +2940,7 @@ function usage() {
     'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 defaults to the matching minecraft-human-semantic-v1 body/action surface and vanilla-player-v1 risk policy.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',
+    'With --accountingScope and resident-set providerQuotas, equal per-resident decision and auxiliary provider-attempt quotas persist across epochs.',
     'With --urgentModel, only newly urgent bodily/world evidence uses that model; ordinary and social decisions retain --model.',
     'Come-See-Do-Report remains available explicitly with --task come-see-do-report.',
     'Recovery releases only an exact same-host abandoned epoch after durable evidence and stopped-world verification.',

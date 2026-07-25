@@ -133,6 +133,11 @@ export function cognitionResidentKey(runId: string, entityId: string) {
   return sha256(`${runId}\0${entityId}`);
 }
 
+/** Stable quota identity for one resident inside an explicitly named experiment scope. */
+export function cognitionAccountId(scopeId: string, worldId: string, entityId: string) {
+  return sha256(`${scopeId}\0${worldId}\0${entityId}`);
+}
+
 function sha256(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }

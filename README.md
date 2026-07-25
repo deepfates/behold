@@ -110,6 +110,7 @@ Key files
 - `src/input/keyboard.ts` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
 - `src/tools/index.ts` — Registry of callable tools the reasoner can invoke
 - `scripts/world-runner.ts` — Foreground server/resident lifecycle, population budgets, and refusal gates
+- `src/observability/quota-ledger.ts` — Durable per-resident/per-purpose provider-attempt accounting
 - `.env.example` — Example environment variables to copy into `.env`
 
 Prerequisites
@@ -242,6 +243,7 @@ Managed population
 - `--model`, `--mind direct|ax`, and `--tickMs` remain convenient shared values for the repeated-controller form. For heterogeneous residents, use the versioned `--residents <json-file>` operator path in [`docs/MANAGED_RESIDENT_SET.md`](docs/MANAGED_RESIDENT_SET.md); it carries explicit model, mind, tick, body, and profile choices per life without positional pairing.
 - `--maxResidents` bounds resident processes (default 16), while `--maxModelConcurrency` independently bounds simultaneous aggregate provider calls.
 - `--maxModelCalls <n>` is a separate hard population-wide admission ceiling for one epoch. The broker refuses call `n + 1`, exposes a limit-reached signal to the owner, and records the configured limit and exact accepted count in its verified journal.
+- Matched experiments can instead put equal `providerQuotas` on every resident and pass a stable `--accountingScope`. These hard per-life quotas separate resident-decision provider attempts from auxiliary context work and survive owner epochs; they intentionally cannot be combined with the purpose-blind `--maxModelCalls`. Exact meanings and limitations are in [`docs/EXPERIMENT_ACCOUNTING.md`](docs/EXPERIMENT_ACCOUNTING.md).
 - `--duration <seconds>` bounds post-readiness live time and then uses the normal resident drain, Minecraft save, and verified stop path.
 - Readiness requires every named resident's exact PID/entity/run lease. Any unexpected resident exit makes the shared run unhealthy; the owner drains every resident before saving and stopping Minecraft.
 - `npm run proof:owned-world-population` runs the clean-revision two-resident,

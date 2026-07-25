@@ -280,7 +280,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    runner per story.
 5. Compress and measure the ordinary recent-turn frontier without mutating its
    authoritative Lync source. Keep exact per-episode and population budgets for
-   latency, prompt bytes, tokens, cost, and provider admissions.
+   latency, prompt bytes, tokens, cost, and provider admissions. The first
+   durable per-resident/per-purpose provider-attempt layer is specified in
+   [Experiment accounting v1](EXPERIMENT_ACCOUNTING.md); admitted decisions and
+   physical action attempts remain separately evidenced rather than conflated.
 6. Treat survival, ordinary place learning, continuing construction, and social
    life as Minecraft competence suites with outcome-only scoring. Promote a
    result into foundation work only when it exposes a reusable missing boundary.

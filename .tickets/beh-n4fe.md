@@ -35,3 +35,22 @@ Paid-endpoint falsification sf-csdr-10 after free-provider reliability limits: f
 **2026-07-25T16:51:03Z**
 
 Controller follow-up grounded in the sf-csdr-10 resident loom: Nano's three successful turns were `manage_project` start, update, and slightly reworded update while pose, inventory, and visible scene stayed unchanged; only the bookkeeping action's own lifecycle events advanced between them. The exact-action loop guard therefore could not catch the changing inputs, and the communication-only guard does not classify private project mutation. The resident policy now permits one successful project mutation, then rejects another with `project_bookkeeping_without_world_progress` until a non-communication world/perception action is attempted or a new lived body, world, social, time, or task event arrives. Neutral benchmark behavior is unchanged. Focused policy fixtures cover both the rejection and reopening after fresh visible-block evidence. Live behavior remains unverified, and the ticket remains open.
+
+**2026-07-25T20:52:01Z**
+
+Added the first body-invariant matched-population accounting checkpoint. An
+explicit stable experiment scope now binds equal hard provider-attempt quotas
+for every resident, separately for resident decisions and auxiliary loom folds;
+the runner rejects incomplete or unequal populations and rejects the legacy
+purpose-blind aggregate call ceiling in this mode. Fsynced per-life hash-chain
+ledgers survive broker and world-owner epochs, fail on configuration drift or
+tampering, retain conservative unsettled charges, and aggregate each
+provider-reported token/cost metric without treating an unreported value as a
+reported zero. Broker fixtures exercised resident/purpose isolation,
+exhaustion, restart, and usage settlement; the managed-runner fixture reopened
+a pre-existing charged account and verified it at shutdown. Physical Minecraft
+attempts, accepted resident decisions, broker admissions, provider attempts,
+and auxiliary work remain explicitly separate evidence layers; only provider
+attempt authorization is hard-capped in this version. Full `npm run check`
+passed 478/478. No provider-backed scientific campaign was run, the all-ready
+release barrier remains next, and beh-n4fe remains open.

@@ -16,7 +16,9 @@ import {
   cognitionResidentKey,
   parseCognitionAdmission,
   type CognitionPriority,
+  type CognitionPurpose,
 } from '../src/mind/cognition';
+import { verifyQuotaLedger } from '../src/observability/quota-ledger';
 
 const UPSTREAM_KEY = 'upstream-secret-fixture';
 
@@ -125,7 +127,7 @@ test('concurrent resident arrivals cannot overshoot the aggregate admission ceil
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
     allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
-    clients: residents.map(client),
+    clients: residents.map((name) => client(name)),
     maxConcurrent: 3,
     maxAccepted: 3,
     fetch: async () => {
@@ -232,7 +234,9 @@ test('urgent cognition jumps the ordinary queue without starving it', async () =
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
     allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
-    clients: ['blocker', 'ordinary', 'urgent-1', 'urgent-2', 'urgent-3'].map(client),
+    clients: ['blocker', 'ordinary', 'urgent-1', 'urgent-2', 'urgent-3'].map((name) =>
+      client(name),
+    ),
     maxConcurrent: 1,
     maxUrgentBurst: 2,
     fetch: async (_input, init) => {
@@ -430,6 +434,126 @@ test('queued cancellation makes no upstream call and in-flight cancellation reta
   } finally {
     await broker.close();
   }
+});
+
+test('resident-purpose provider quotas are durable, isolated, and usage-accounted', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-accounting-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const clients = ['a', 'b'].map((name) =>
+    client(name, {
+      scopeId: 'experiment-1',
+      worldId: 'world-1',
+      accountId: name.repeat(64),
+      ledgerFile: path.join(root, `${name}.jsonl`),
+      limits: { resident_decision: 1, loom_fold: 1 },
+    }),
+  );
+  const upstream: string[] = [];
+  const first = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients,
+    maxConcurrent: 2,
+    fetch: async (_input, init) => {
+      const label = JSON.parse(String(init?.body)).messages[0].content;
+      upstream.push(label);
+      return jsonResponse({
+        id: label,
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12, cost: 0.01 },
+      });
+    },
+  });
+  const aDecision = await brokerRequest(
+    first,
+    'a',
+    requestBody('fixture/model', 'a-decision'),
+    'deliberative',
+    'a-decision',
+  );
+  assert.equal(aDecision.status, 200);
+  await aDecision.text();
+  const aDecisionRefused = await brokerRequest(
+    first,
+    'a',
+    requestBody('fixture/model', 'a-decision-refused'),
+    'deliberative',
+    'a-decision-refused',
+  );
+  assert.equal(aDecisionRefused.status, 429);
+  assert.equal(
+    ((await aDecisionRefused.json()) as any).error.code,
+    'resident_purpose_quota_exhausted',
+  );
+  const aFold = await brokerRequest(
+    first,
+    'a',
+    requestBody('fixture/model', 'a-fold'),
+    'auxiliary',
+    'a-fold',
+    undefined,
+    'loom_fold',
+  );
+  assert.equal(aFold.status, 200);
+  await aFold.text();
+  const bDecision = await brokerRequest(
+    first,
+    'b',
+    requestBody('fixture/model', 'b-decision'),
+    'deliberative',
+    'b-decision',
+  );
+  assert.equal(bDecision.status, 200);
+  await bDecision.text();
+  assert.deepEqual(upstream, ['a-decision', 'a-fold', 'b-decision']);
+  const aAccount = first
+    .snapshot()
+    .accounting!.accounts.find((account) => account.accountId === 'a'.repeat(64))!;
+  assert.deepEqual(aAccount.used, { loom_fold: 1, resident_decision: 1 });
+  assert.equal(aAccount.usage.resident_decision.totalTokens, 12);
+  assert.equal(aAccount.usage.loom_fold.costUsd, 0.01);
+  await first.close();
+
+  const resumedUpstream: string[] = [];
+  const resumed = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients,
+    maxConcurrent: 2,
+    fetch: async (_input, init) => {
+      const label = JSON.parse(String(init?.body)).messages[0].content;
+      resumedUpstream.push(label);
+      return jsonResponse({ id: label });
+    },
+  });
+  const exhausted = await brokerRequest(
+    resumed,
+    'a',
+    requestBody('fixture/model', 'after-restart-decision'),
+    'deliberative',
+    'after-restart-decision',
+  );
+  assert.equal(exhausted.status, 429);
+  const independentFold = await brokerRequest(
+    resumed,
+    'b',
+    requestBody('fixture/model', 'b-fold'),
+    'auxiliary',
+    'b-fold',
+    undefined,
+    'loom_fold',
+  );
+  assert.equal(independentFold.status, 200);
+  await independentFold.text();
+  assert.deepEqual(resumedUpstream, ['b-fold']);
+  await resumed.close();
+
+  const verifiedA = verifyQuotaLedger(path.join(root, 'a.jsonl')).snapshot;
+  const verifiedB = verifyQuotaLedger(path.join(root, 'b.jsonl')).snapshot;
+  assert.deepEqual(verifiedA.used, { loom_fold: 1, resident_decision: 1 });
+  assert.deepEqual(verifiedB.used, { loom_fold: 1, resident_decision: 1 });
+  assert.equal(verifiedA.eventCount, 5);
 });
 
 test('the transport gate rejects foreign credentials, model drift, and streaming before upstream', async () => {
@@ -759,11 +883,21 @@ test('the cognition journal durably closes every admitted request and detects ed
   assert.throws(() => verifyCognitionBrokerJournal(edited), /invalid cognition broker chain/);
 });
 
-function client(name: string) {
+function client(
+  name: string,
+  accounting?: {
+    scopeId: string;
+    worldId: string;
+    accountId: string;
+    ledgerFile: string;
+    limits: { resident_decision: number; loom_fold: number };
+  },
+) {
   return {
     bearer: token(name),
     residentKey: cognitionResidentKey('fixture-run', name),
     model: 'fixture/model',
+    ...(accounting ? { accounting } : {}),
   };
 }
 
@@ -782,6 +916,7 @@ function brokerRequest(
   priority: CognitionPriority,
   requestId: string,
   signal?: AbortSignal,
+  purpose: CognitionPurpose = 'resident_decision',
 ) {
   return fetch(broker.endpoint, {
     method: 'POST',
@@ -791,7 +926,7 @@ function brokerRequest(
       ...cognitionClientHeaders({
         requestId,
         priority,
-        purpose: 'resident_decision',
+        purpose,
         urgentTriggerSequence: priority === 'urgent' ? 42 : null,
       }),
     },

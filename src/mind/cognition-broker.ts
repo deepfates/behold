@@ -3,6 +3,12 @@ import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import {
+  openQuotaLedger,
+  type QuotaCharge,
+  type QuotaLedger,
+  type QuotaLedgerSnapshot,
+} from '../observability/quota-ledger';
+import {
   COGNITION_ADMISSION_PROTOCOL,
   COGNITION_TRANSPORT_PROTOCOL,
   cognitionAdmissionHeaders,
@@ -88,6 +94,7 @@ export type CognitionBrokerSnapshot = Readonly<{
   admissionOrdinal: number;
   closing: boolean;
   healthy: boolean;
+  accounting: Readonly<{ accounts: readonly QuotaLedgerSnapshot[] }> | null;
   journal: Readonly<{ file: string; tipDigest: string | null }> | null;
 }>;
 
@@ -113,6 +120,14 @@ export type CognitionBrokerOptions = Readonly<{
     model: string;
     /** Exact additional models this resident transport may request. */
     models?: readonly string[];
+    /** Durable per-purpose provider-attempt quota owned by this resident account. */
+    accounting?: Readonly<{
+      scopeId: string;
+      worldId: string;
+      accountId: string;
+      ledgerFile: string;
+      limits: Readonly<Record<CognitionPurpose, number>>;
+    }>;
   }>[];
   maxConcurrent: number;
   maxAccepted?: number;
@@ -135,6 +150,7 @@ type Client = Readonly<{
   residentKey: string;
   model: string;
   models: readonly string[];
+  accounting: CognitionBrokerOptions['clients'][number]['accounting'] | null;
 }>;
 
 type Job = {
@@ -154,6 +170,7 @@ type Job = {
   response: ServerResponse;
   upstreamAbort: AbortController | null;
   admission: CognitionAdmissionEvidence | null;
+  quotaCharge: QuotaCharge | null;
 };
 
 const PRIORITIES: readonly CognitionPriority[] = ['urgent', 'deliberative', 'auxiliary'];
@@ -178,6 +195,9 @@ export async function startCognitionBroker(
     options.maxAccepted == null
       ? null
       : positiveInteger(options.maxAccepted, 'maxAccepted', 100_000_000);
+  if (maxAccepted != null && clients.some((client) => client.accounting != null)) {
+    throw new Error('purpose-specific cognition accounting cannot be combined with maxAccepted');
+  }
   const maxQueued = positiveInteger(options.maxQueued ?? 256, 'maxQueued', 100_000);
   const maxQueuedPerResident = positiveInteger(
     options.maxQueuedPerResident ?? 2,
@@ -202,6 +222,7 @@ export async function startCognitionBroker(
     4_096,
   );
   const now = options.now ?? Date.now;
+  const accountingLedgers = openAccountingLedgers(clients, now);
   const callFetch = options.fetch ?? globalThis.fetch;
   const brokerId = `cognition-${randomUUID()}`;
   const journalFile = options.journalFile ? path.resolve(options.journalFile) : null;
@@ -242,6 +263,7 @@ export async function startCognitionBroker(
       fsyncDirectory(path.dirname(journalFile));
     } catch (error) {
       if (journalDescriptor != null) fs.closeSync(journalDescriptor);
+      closeAccountingLedgers(accountingLedgers);
       throw error;
     }
   }
@@ -416,6 +438,7 @@ export async function startCognitionBroker(
       response,
       upstreamAbort: null,
       admission: null,
+      quotaCharge: null,
     };
     metrics.accepted += 1;
     queues.get(priority)!.push(job);
@@ -503,6 +526,47 @@ export async function startCognitionBroker(
     while (active < maxConcurrent) {
       const job = nextJob();
       if (!job) return;
+      const accounting = accountingLedgers.get(job.client.residentKey);
+      if (accounting) {
+        let charged: ReturnType<QuotaLedger['charge']>;
+        try {
+          charged = accounting.charge(job.purpose, job.brokerRequestId, {
+            clientRequestId: job.clientRequestId,
+            residentKey: job.client.residentKey,
+            priority: job.priority,
+            purpose: job.purpose,
+            urgentTriggerSequence: job.urgentTriggerSequence,
+            model: job.model,
+            bodySha256: job.bodySha256,
+            bodyBytes: job.body.byteLength,
+          });
+        } catch (error) {
+          throw recordFatalFailure(error);
+        }
+        if (charged.ok === false) {
+          job.state = 'completed';
+          metrics.failed += 1;
+          metrics.rejected += 1;
+          emit('completed', job, {
+            status: 429,
+            ok: false,
+            error: 'resident_purpose_quota_exhausted',
+            quota: charged,
+            admitted: false,
+          });
+          if (!job.response.destroyed) {
+            writeError(
+              job.response,
+              429,
+              'resident_purpose_quota_exhausted',
+              `resident ${job.purpose} provider-attempt quota is exhausted`,
+            );
+          }
+          maybeSettleAdmissionLimit();
+          continue;
+        }
+        job.quotaCharge = charged;
+      }
       const admittedAt = now();
       const activeBeforeAdmission = active;
       const admission: CognitionAdmissionEvidence = Object.freeze({
@@ -534,7 +598,20 @@ export async function startCognitionBroker(
       metrics.totalQueueMs += admission.queueMs;
       metrics.peakActive = Math.max(metrics.peakActive, active);
       try {
-        emit('admitted', job, admission);
+        emit('admitted', job, {
+          ...admission,
+          quota: job.quotaCharge
+            ? {
+                scopeId: job.client.accounting!.scopeId,
+                accountId: job.client.accounting!.accountId,
+                purposeOrdinal: job.quotaCharge.ordinal,
+                purposeLimit: job.quotaCharge.limit,
+                purposeRemaining: job.quotaCharge.remaining,
+                ledgerFile: accounting!.file,
+                ledgerTipDigest: job.quotaCharge.event.digest,
+              }
+            : null,
+        });
       } catch (error) {
         job.state = 'cancelled';
         metrics.cancelled += 1;
@@ -635,6 +712,14 @@ export async function startCognitionBroker(
         return;
       }
       const contentType = upstreamResponse.headers.get('content-type') || 'application/json';
+      settleProviderCharge(job, {
+        outcome: 'upstream_response',
+        status: upstreamResponse.status,
+        ok: upstreamResponse.ok,
+        responseBytes: responseBody.byteLength,
+        responseSha256: sha256(responseBody),
+        usage: providerUsage(responseBody),
+      });
       job.state = 'completed';
       if (upstreamResponse.ok) metrics.completed += 1;
       else metrics.failed += 1;
@@ -652,6 +737,7 @@ export async function startCognitionBroker(
       });
       job.response.end(responseBody);
     } catch (error: any) {
+      if (error?.code === 'provider_accounting_failed') throw error;
       if (job.state === 'cancelling' || job.upstreamAbort?.signal.aborted) {
         const timeout = (job.upstreamAbort?.signal.reason as any)?.code === 'upstream_timeout';
         if (timeout && job.state !== 'cancelling') {
@@ -668,6 +754,13 @@ export async function startCognitionBroker(
         }
         return;
       }
+      settleProviderCharge(job, {
+        outcome: 'upstream_failure',
+        status: null,
+        ok: false,
+        error: error?.code || error?.message || String(error),
+        usage: null,
+      });
       metrics.failed += 1;
       job.state = 'completed';
       emit('completed', job, {
@@ -694,6 +787,13 @@ export async function startCognitionBroker(
   function recordInflightCancellation(job: Job, reason: string) {
     if (job.state === 'cancelled') return;
     job.state = 'cancelled';
+    settleProviderCharge(job, {
+      outcome: 'cancelled',
+      status: null,
+      ok: false,
+      reason,
+      usage: null,
+    });
     metrics.cancelled += 1;
     if (!journalFailure) {
       emit('cancelled', job, {
@@ -708,6 +808,13 @@ export async function startCognitionBroker(
   function recordTimeout(job: Job) {
     if (job.state === 'completed' || job.state === 'cancelled') return;
     job.state = 'completed';
+    settleProviderCharge(job, {
+      outcome: 'upstream_timeout',
+      status: null,
+      ok: false,
+      error: 'upstream_timeout',
+      usage: null,
+    });
     metrics.failed += 1;
     if (!journalFailure) {
       emit('completed', job, {
@@ -749,6 +856,22 @@ export async function startCognitionBroker(
     return count;
   }
 
+  function settleProviderCharge(job: Job, data: unknown) {
+    if (!job.quotaCharge) return;
+    const ledger = accountingLedgers.get(job.client.residentKey);
+    if (!ledger) throw codedError('provider_accounting_failed', 'provider quota ledger is missing');
+    try {
+      ledger.settle(job.brokerRequestId, data);
+    } catch (error: any) {
+      const failure = codedError(
+        'provider_accounting_failed',
+        error?.message || 'provider quota settlement failed',
+      );
+      recordFatalFailure(failure);
+      throw failure;
+    }
+  }
+
   function snapshot(): CognitionBrokerSnapshot {
     return Object.freeze({
       protocol: 'behold.cognition-broker-snapshot.v1',
@@ -761,6 +884,16 @@ export async function startCognitionBroker(
       ...metrics,
       closing,
       healthy: journalFailure == null,
+      accounting:
+        accountingLedgers.size > 0
+          ? {
+              accounts: Object.freeze(
+                [...accountingLedgers.values()]
+                  .map((ledger) => ledger.snapshot())
+                  .sort((left, right) => left.accountId.localeCompare(right.accountId)),
+              ),
+            }
+          : null,
       journal: journalFile ? { file: journalFile, tipDigest: journalTipDigest } : null,
     });
   }
@@ -775,6 +908,7 @@ export async function startCognitionBroker(
     });
   } catch (error) {
     if (journalDescriptor != null) fs.closeSync(journalDescriptor);
+    closeAccountingLedgers(accountingLedgers);
     throw error;
   }
   let endpoint: string;
@@ -789,10 +923,17 @@ export async function startCognitionBroker(
       concurrencyLimit: maxConcurrent,
       acceptedLimit: maxAccepted,
       maxCallMs,
+      accounting:
+        accountingLedgers.size > 0
+          ? [...accountingLedgers.values()]
+              .map((ledger) => ledger.snapshot())
+              .sort((left, right) => left.accountId.localeCompare(right.accountId))
+          : null,
     });
   } catch (error) {
     await closeListeningServer();
     closeJournal();
+    closeAccountingLedgers(accountingLedgers);
     throw error;
   }
   server.on('error', (error) => {
@@ -855,6 +996,13 @@ export async function startCognitionBroker(
           closeJournal();
         } catch (error) {
           rememberFailure(error);
+        }
+        for (const ledger of accountingLedgers.values()) {
+          try {
+            ledger.close();
+          } catch (error) {
+            rememberFailure(error);
+          }
         }
         try {
           await closeListeningServer();
@@ -954,6 +1102,15 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       const models = [
         ...new Set([model, ...(value?.models ?? []).map((item) => String(item).trim())]),
       ];
+      const accounting = value.accounting
+        ? Object.freeze({
+            scopeId: String(value.accounting.scopeId || ''),
+            worldId: String(value.accounting.worldId || ''),
+            accountId: String(value.accounting.accountId || ''),
+            ledgerFile: path.resolve(String(value.accounting.ledgerFile || '')),
+            limits: Object.freeze({ ...value.accounting.limits }),
+          })
+        : null;
       if (
         bearer.length < 32 ||
         bearer.length > 512 ||
@@ -961,7 +1118,13 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         !model ||
         model.length > 300 ||
         models.length > 16 ||
-        models.some((item) => !item || item.length > 300)
+        models.some((item) => !item || item.length > 300) ||
+        (accounting != null &&
+          (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(accounting.scopeId) ||
+            !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(accounting.worldId) ||
+            !/^[a-f0-9]{64}$/.test(accounting.accountId) ||
+            !path.isAbsolute(accounting.ledgerFile) ||
+            Object.keys(accounting.limits).sort().join(',') !== 'loom_fold,resident_decision'))
       ) {
         throw new Error(`invalid cognition client at index ${index}`);
       }
@@ -970,9 +1133,51 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       }
       bearers.add(bearer);
       residents.add(residentKey);
-      return Object.freeze({ bearer, residentKey, model, models: Object.freeze(models) });
+      return Object.freeze({
+        bearer,
+        residentKey,
+        model,
+        models: Object.freeze(models),
+        accounting,
+      });
     }),
   );
+}
+
+function openAccountingLedgers(clients: readonly Client[], now: () => number) {
+  const ledgers = new Map<string, QuotaLedger>();
+  const files = new Set<string>();
+  const accounts = new Set<string>();
+  try {
+    for (const client of clients) {
+      if (!client.accounting) continue;
+      if (files.has(client.accounting.ledgerFile) || accounts.has(client.accounting.accountId)) {
+        throw new Error('cognition accounting files and account ids must be unique per client');
+      }
+      files.add(client.accounting.ledgerFile);
+      accounts.add(client.accounting.accountId);
+      ledgers.set(
+        client.residentKey,
+        openQuotaLedger({
+          file: client.accounting.ledgerFile,
+          scopeId: client.accounting.scopeId,
+          worldId: client.accounting.worldId,
+          accountId: client.accounting.accountId,
+          layer: 'provider',
+          limits: client.accounting.limits,
+          now,
+        }),
+      );
+    }
+    return ledgers;
+  } catch (error) {
+    closeAccountingLedgers(ledgers);
+    throw error;
+  }
+}
+
+function closeAccountingLedgers(ledgers: ReadonlyMap<string, QuotaLedger>) {
+  for (const ledger of ledgers.values()) ledger.close();
 }
 
 function authenticate(value: string | undefined, clients: readonly Client[]) {
@@ -1116,6 +1321,25 @@ async function readResponseBody(response: Response, limit: number) {
     reader.releaseLock();
   }
   return Buffer.concat(chunks, bytes);
+}
+
+function providerUsage(body: Buffer) {
+  let value: any;
+  try {
+    value = JSON.parse(body.toString('utf8'));
+  } catch {
+    return null;
+  }
+  const usage = value?.usage;
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null;
+  const fields = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const;
+  const reported: Partial<Record<(typeof fields)[number], number>> = {};
+  for (const field of fields) {
+    if (usage[field] == null || usage[field] === '') continue;
+    const number = Number(usage[field]);
+    if (Number.isFinite(number) && number >= 0) reported[field] = number;
+  }
+  return Object.keys(reported).length > 0 ? reported : null;
 }
 
 function writeError(

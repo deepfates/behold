@@ -33,7 +33,8 @@ import {
   type WorldLabDefinition,
 } from '../scripts/world-lab';
 import { verifyCognitionBrokerJournal } from '../src/mind/cognition-broker';
-import { COGNITION_TRANSPORT_PROTOCOL } from '../src/mind/cognition';
+import { COGNITION_TRANSPORT_PROTOCOL, cognitionAccountId } from '../src/mind/cognition';
+import { openQuotaLedger, verifyQuotaLedger } from '../src/observability/quota-ledger';
 
 const CLEAR: OwnershipEvidence = { state: 'clear', probe: 'fixture', owners: [] };
 const ARTIFACTS_OK = { artifactIntegrityOk: true, artifacts: {} };
@@ -139,6 +140,10 @@ test('a versioned resident set carries heterogeneous operator configuration with
           urgentModel: 'provider/scout-urgent',
           mind: 'direct',
           tickMs: 1200,
+          providerQuotas: {
+            residentDecisionAttempts: 20,
+            auxiliaryContextAttempts: 4,
+          },
           paused: false,
         },
         {
@@ -154,6 +159,10 @@ test('a versioned resident set carries heterogeneous operator configuration with
           resumeAfterBudget: true,
           task: 'build shelter',
           allowTools: ['look', 'place_block'],
+          providerQuotas: {
+            residentDecisionAttempts: 20,
+            auxiliaryContextAttempts: 4,
+          },
           paused: true,
         },
       ],
@@ -168,6 +177,10 @@ test('a versioned resident set carries heterogeneous operator configuration with
       urgentModel: 'provider/scout-urgent',
       mind: 'direct',
       tickMs: 1200,
+      providerQuotas: {
+        residentDecisionAttempts: 20,
+        auxiliaryContextAttempts: 4,
+      },
       paused: false,
     },
     {
@@ -183,6 +196,10 @@ test('a versioned resident set carries heterogeneous operator configuration with
       resumeAfterBudget: true,
       task: 'build shelter',
       allowTools: ['look', 'place_block'],
+      providerQuotas: {
+        residentDecisionAttempts: 20,
+        auxiliaryContextAttempts: 4,
+      },
       paused: true,
     },
   ]);
@@ -211,6 +228,19 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
       {
         protocol: 'behold.managed-resident-set.v1',
         residents: [{ entityId: 'Scout', model: 'provider/model', tickMs: '1000' }],
+      },
+    ],
+    [
+      'wrong provider quotas',
+      {
+        protocol: 'behold.managed-resident-set.v1',
+        residents: [
+          {
+            entityId: 'Scout',
+            model: 'provider/model',
+            providerQuotas: { residentDecisionAttempts: 5, auxiliaryContextAttempts: 0 },
+          },
+        ],
       },
     ],
   ] as const) {
@@ -351,6 +381,23 @@ test('resident configuration rejects canonical identity collisions and process-b
     (error: any) => error?.code === 'resident_limit_exceeded',
   );
   assert.equal(inspections, 0);
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'matched-1',
+          maxTotalModelCalls: 9,
+          residents: fixture.options.residents.map((resident) => ({
+            ...resident,
+            providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 2 },
+          })),
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'provider_accounting_aggregate_limit_conflict',
+  );
+  assert.equal(inspections, 0);
   assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
 
   await assert.rejects(
@@ -366,6 +413,65 @@ test('resident configuration rejects canonical identity collisions and process-b
   await assert.rejects(
     () => startManagedWorld({ ...fixture.options, maxTotalModelCalls: 0 }, dependencies),
     (error: any) => error?.code === 'model_call_limit_invalid',
+  );
+  assert.equal(inspections, 0);
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          residents: fixture.options.residents.map((resident) => ({
+            ...resident,
+            providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 2 },
+          })),
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'provider_accounting_scope_invalid',
+  );
+  assert.equal(inspections, 0);
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'matched-1',
+          residents: [
+            {
+              entityId: 'Scout',
+              model: 'fixture/model',
+              providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 2 },
+            },
+            { entityId: 'Builder', model: 'fixture/model' },
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'provider_quota_population_incomplete',
+  );
+  assert.equal(inspections, 0);
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'matched-1',
+          residents: [
+            {
+              entityId: 'Scout',
+              model: 'fixture/model',
+              providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 2 },
+            },
+            {
+              entityId: 'Builder',
+              model: 'fixture/model',
+              providerQuotas: { residentDecisionAttempts: 5, auxiliaryContextAttempts: 2 },
+            },
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'provider_quota_population_mismatch',
   );
   assert.equal(inspections, 0);
   await assert.rejects(
@@ -468,6 +574,30 @@ test('managed cognition keeps the provider key in the runner and drains before M
     restoreTestEnvironment('AWS_SECRET_ACCESS_KEY', prior.cloud);
   });
 
+  const accountingScopeId = 'matched-fixture-1';
+  const accountId = cognitionAccountId(accountingScopeId, 'fixture', 'Scout');
+  const quotaFile = path.join(
+    fixture.controlRoot,
+    'accounting',
+    createHash('sha256').update(accountingScopeId).digest('hex'),
+    'provider',
+    `${accountId}.jsonl`,
+  );
+  const priorEpochQuota = openQuotaLedger({
+    file: quotaFile,
+    scopeId: accountingScopeId,
+    worldId: 'fixture',
+    accountId,
+    layer: 'provider',
+    limits: { resident_decision: 3, loom_fold: 2 },
+  });
+  priorEpochQuota.charge('resident_decision', 'prior-epoch-attempt');
+  priorEpochQuota.settle('prior-epoch-attempt', {
+    outcome: 'upstream_response',
+    usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 },
+  });
+  priorEpochQuota.close();
+
   let serverPid: number | null = null;
   let serverAlive = false;
   const spawnServer = () => {
@@ -499,13 +629,14 @@ test('managed cognition keeps the provider key in the runner and drains before M
       ...fixture.options,
       controllerEntry,
       maxConcurrentModelCalls: 1,
-      maxTotalModelCalls: 4,
+      accountingScopeId,
       residents: fixture.options.residents.map((resident) => ({
         ...resident,
         urgentModel: 'fixture/urgent-model',
         policyProfile: 'neutral-benchmark-v1' as const,
         maxTurnSteps: 1,
         resumeAfterBudget: false,
+        providerQuotas: { residentDecisionAttempts: 3, auxiliaryContextAttempts: 2 },
         environment: { BEHOLD_FIXTURE_PROOF_PHASE: 'act' },
       })),
     },
@@ -519,7 +650,11 @@ test('managed cognition keeps the provider key in the runner and drains before M
   );
   assert.ok(run.cognition);
   assert.equal(run.cognition.concurrencyLimit, 1);
-  assert.equal(run.cognition.maxTotalModelCalls, 4);
+  assert.equal(run.cognition.maxTotalModelCalls, null);
+  assert.equal(run.cognition.accountingSnapshot()?.accounts[0]?.limits.resident_decision, 3);
+  assert.equal(run.cognition.accountingSnapshot()?.accounts[0]?.limits.loom_fold, 2);
+  assert.equal(run.cognition.accountingSnapshot()?.accounts[0]?.used.resident_decision, 1);
+  assert.equal(run.cognition.accountingSnapshot()?.accounts[0]?.remaining.resident_decision, 2);
   assert.equal(run.residents[0].policyProfile, 'neutral-benchmark-v1');
   assert.equal(run.residents[0].bodyProfile, 'minecraft-human-semantic-v1');
   assert.equal(run.residents[0].actionProfile, 'minecraft-human-semantic-v1');
@@ -545,12 +680,12 @@ test('managed cognition keeps the provider key in the runner and drains before M
   await run.finished;
   const verified = verifyCognitionBrokerJournal(run.cognition.journalFile);
   assert.equal(verified.peakActive, 0);
-  assert.equal(verified.acceptedLimit, 4);
-  assert.equal(verified.acceptedRemaining, 4);
+  assert.equal(verified.acceptedLimit, null);
+  assert.equal(verified.acceptedRemaining, null);
   const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile).events;
   const configured: any = lifecycle.find((event) => event.type === 'run_configured');
   const brokerReady: any = lifecycle.find((event) => event.type === 'cognition_broker_ready');
-  assert.equal(configured?.data?.population?.maxTotalModelCalls, 4);
+  assert.equal(configured?.data?.population?.maxTotalModelCalls, null);
   assert.equal(configured?.data?.population?.residents?.[0]?.urgentModel, 'fixture/urgent-model');
   assert.equal(configured?.data?.population?.residents?.[0]?.policyProfile, 'neutral-benchmark-v1');
   assert.equal(
@@ -564,7 +699,19 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(configured?.data?.population?.residents?.[0]?.safetyProfile, 'vanilla-player-v1');
   assert.equal(configured?.data?.population?.residents?.[0]?.maxTurnSteps, 1);
   assert.equal(configured?.data?.population?.residents?.[0]?.resumeAfterBudget, false);
-  assert.equal(brokerReady?.data?.maxTotalModelCalls, 4);
+  assert.equal(
+    configured?.data?.population?.residents?.[0]?.providerAccounting?.limits?.resident_decision,
+    3,
+  );
+  assert.equal(configured?.data?.population?.providerAccounting?.scopeId, accountingScopeId);
+  assert.equal(configured?.data?.population?.providerAccounting?.equalityEnforced, true);
+  assert.equal(brokerReady?.data?.maxTotalModelCalls, null);
+  assert.equal(brokerReady?.data?.accounting?.accounts?.[0]?.remaining?.resident_decision, 2);
+  assert.equal(configured.data.population.residents[0].providerAccounting.ledgerFile, quotaFile);
+  const quota = verifyQuotaLedger(quotaFile).snapshot;
+  assert.equal(quota.scopeId, accountingScopeId);
+  assert.deepEqual(quota.used, { loom_fold: 0, resident_decision: 1 });
+  assert.equal(quota.usage.resident_decision.totalTokens, 10);
   const drained = lifecycle.findIndex((event) => event.type === 'cognition_broker_drained');
   const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');
   assert.ok(drained >= 0 && saved > drained);
