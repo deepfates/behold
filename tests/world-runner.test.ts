@@ -15,6 +15,7 @@ import {
   managedControllerProfile,
   managedSessionDurationMs,
   managedTotalModelCallLimit,
+  resolveManagedDataRoot,
   recoverAbandonedManagedWorld,
   resetHeldManagedWorldFixture,
   startManagedWorld,
@@ -231,6 +232,47 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
     () => assertResidentConfigExclusive({ residents: file, controller: ['Scout'] }),
     (error: any) => error?.code === 'resident_config_cli_conflict',
   );
+});
+
+test('operator data roots admit only the configured top-level symlink boundary', async (t) => {
+  const fixture = makeFixture(t);
+  const canonicalEntityRoot = fixture.options.entityRoot;
+  const canonicalRunRoot = fixture.options.runRoot;
+  fs.mkdirSync(canonicalEntityRoot, { recursive: true });
+  fs.mkdirSync(canonicalRunRoot, { recursive: true });
+  const entityLink = path.join(fixture.root, 'entity-root-link');
+  const runLink = path.join(fixture.root, 'run-root-link');
+  fs.symlinkSync(canonicalEntityRoot, entityLink, 'dir');
+  fs.symlinkSync(canonicalRunRoot, runLink, 'dir');
+
+  assert.equal(
+    resolveManagedDataRoot(entityLink, 'entity root'),
+    fs.realpathSync.native(canonicalEntityRoot),
+  );
+  assert.equal(
+    resolveManagedDataRoot(runLink, 'run root'),
+    fs.realpathSync.native(canonicalRunRoot),
+  );
+
+  const substituted = path.join(fixture.root, 'substituted-entity');
+  fs.mkdirSync(substituted);
+  fs.symlinkSync(substituted, path.join(canonicalEntityRoot, 'Substituted'), 'dir');
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          entityRoot: resolveManagedDataRoot(entityLink, 'entity root'),
+          runRoot: resolveManagedDataRoot(runLink, 'run root'),
+        },
+        {
+          inspectRuntime: async () => runtimeEvidence(null),
+          verifyArtifacts: async () => ARTIFACTS_OK,
+        },
+      ),
+    (error: any) => error?.code === 'world_controller_lease_not_clear',
+  );
+  assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
 });
 
 test('resident configuration rejects canonical identity collisions and process-budget overflow before inspecting or mutating the world', async (t) => {

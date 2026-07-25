@@ -357,6 +357,37 @@ function residentConfigInvalid(file: string, reason: string) {
   });
 }
 
+/**
+ * Resolve the one explicit operator-selected storage-root boundary. Descendant
+ * paths remain untouched so their existing no-symlink checks still fail closed.
+ */
+export function resolveManagedDataRoot(candidate: string, label: string) {
+  const requested = path.resolve(candidate);
+  try {
+    fs.lstatSync(requested);
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return requested;
+    throw new WorldRunnerError(
+      `Managed ${label} could not be inspected: ${error?.message || String(error)}`,
+      'resident_root_invalid',
+      { label, requested },
+    );
+  }
+  try {
+    const canonical = fs.realpathSync.native(requested);
+    const stats = fs.lstatSync(canonical);
+    if (!stats.isDirectory() || stats.isSymbolicLink())
+      throw new Error('target is not a plain directory');
+    return canonical;
+  } catch (error: any) {
+    throw new WorldRunnerError(
+      `Managed ${label} must resolve to a plain directory: ${error?.message || String(error)}`,
+      'resident_root_invalid',
+      { label, requested },
+    );
+  }
+}
+
 export type ManagedWorldRunOptions = Readonly<{
   worldId: string;
   world: WorldLabDefinition;
@@ -2417,14 +2448,12 @@ export async function runCli(argv = process.argv.slice(2)) {
   const world = config.worlds[worldId];
   if (!world) throw new WorldRunnerError(`Unknown world: ${worldId}`, 'unknown_world');
   const controlRoot = path.resolve('.behold-runtime/world-control');
+  const entityRoot = resolveManagedDataRoot('.behold-entities', 'entity root');
   if (command === 'status') {
     const result = {
       control: inspectWorldControl(controlRoot, worldId),
       runtime: await statusWorld(worldId, world),
-      controllerLeases: inspectEntityLeaseFence(
-        path.resolve('.behold-entities'),
-        worldCircleIds(worldId, world),
-      ),
+      controllerLeases: inspectEntityLeaseFence(entityRoot, worldCircleIds(worldId, world)),
     };
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return result.control.state === 'clear' &&
@@ -2438,7 +2467,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       worldId,
       world,
       controlRoot,
-      entityRoot: path.resolve('.behold-entities'),
+      entityRoot,
     });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
@@ -2544,8 +2573,8 @@ export async function runCli(argv = process.argv.slice(2)) {
     expectedServerJarSha256: String(toolLock.tools.minecraftServer.sha256),
     java: bundledJava(),
     controllerEntry: path.resolve('dist/src/cli/behold.js'),
-    entityRoot: path.resolve('.behold-entities'),
-    runRoot: path.resolve('.behold-runs'),
+    entityRoot,
+    runRoot: resolveManagedDataRoot('.behold-runs', 'run root'),
     residents,
     maxResidents,
     maxConcurrentModelCalls,
