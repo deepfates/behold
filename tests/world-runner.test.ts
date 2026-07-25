@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   COME_SEE_DO_REPORT_ALLOW_TOOLS,
+  digestStableReleaseRuntime,
   isControllerReleaseArmedLine,
   isControllerReadyLine,
   isMinecraftReadyLine,
@@ -77,6 +78,39 @@ test('lifecycle markers require exact positive protocol lines', () => {
     true,
   );
   assert.equal(isMinecraftSaveAcknowledgement('Saved the game failed'), false);
+});
+
+test('release runtime digest retries only concurrent writes and requires two matching reads', async () => {
+  const attempts: any[] = [];
+  const values = [
+    new Error('Filesystem entry changed while it was being hashed: world/poi/r.3.2.mca'),
+    { digest: 'a'.repeat(64) },
+    { digest: 'a'.repeat(64) },
+  ];
+  const result = await digestStableReleaseRuntime('/fixture/world', {
+    digest: (() => {
+      const value = values.shift();
+      if (value instanceof Error) throw value;
+      return value;
+    }) as any,
+    sleep: async () => {},
+    onAttempt: (attempt) => attempts.push(attempt),
+  });
+  assert.equal(result.digest, 'a'.repeat(64));
+  assert.deepEqual(
+    attempts.map((attempt) => attempt.outcome),
+    ['changed_while_hashing', 'candidate', 'stable'],
+  );
+
+  await assert.rejects(
+    digestStableReleaseRuntime('/fixture/world', {
+      digest: (() => {
+        throw new Error('permission denied');
+      }) as any,
+      sleep: async () => {},
+    }),
+    /permission denied/,
+  );
 });
 
 test('the direct proof resident accepts the canonical managed-runner arguments', () => {

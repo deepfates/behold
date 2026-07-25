@@ -1510,7 +1510,16 @@ export async function startManagedWorld(
       const accounts = new Map(
         initialAccounting.accounts.map((account) => [account.accountId, account] as const),
       );
-      const frozenBasisDigest = digestTree(options.world.runtime.worldPath).digest;
+      const frozenBasisDigest = (
+        await digestStableReleaseRuntime(options.world.runtime.worldPath, {
+          sleep,
+          onAttempt: (attempt) =>
+            control.append('experiment_setup_world_digest_attempt', {
+              phase: 'pre_population',
+              ...attempt,
+            }),
+        })
+      ).digest;
       const owner = control.record();
       const plan = createExperimentReleasePlan({
         createdAt: (dependencies.now?.() ?? new Date()).toISOString(),
@@ -1742,7 +1751,16 @@ export async function startManagedWorld(
         command: 'save-all flush',
         acknowledgement: releaseSaveAcknowledgement,
       });
-      const releaseRuntimeDigest = digestTree(options.world.runtime.worldPath).digest;
+      const releaseRuntimeDigest = (
+        await digestStableReleaseRuntime(options.world.runtime.worldPath, {
+          sleep,
+          onAttempt: (attempt) =>
+            control.append('experiment_setup_world_digest_attempt', {
+              phase: 'population_armed',
+              ...attempt,
+            }),
+        })
+      ).digest;
       control.append('experiment_population_armed', {
         phase: 'setup',
         releaseId: experiment.prepared.plan.releaseId,
@@ -2722,6 +2740,79 @@ export function isMinecraftTickRunningAcknowledgement(line: string) {
 
 export function isMinecraftSaveAcknowledgement(line: string) {
   return /^(?:\[[^\]\r\n]+\] )?\[Server thread\/INFO\]: Saved the game$/.test(line.trim());
+}
+
+export type ReleaseRuntimeDigestAttempt = Readonly<{
+  attempt: number;
+  outcome: 'changed_while_hashing' | 'candidate' | 'changed_between_reads' | 'stable';
+  digest: string | null;
+  previousDigest: string | null;
+  error: string | null;
+}>;
+
+/**
+ * A flushed, frozen Minecraft server may still finish an already-scheduled
+ * region write. Release requires two complete, consecutive reads of the same
+ * runtime tree; only the digest reader's explicit concurrent-change failure
+ * is retryable, and every attempt is exposed to the lifecycle journal.
+ */
+export async function digestStableReleaseRuntime(
+  root: string,
+  dependencies: Readonly<{
+    digest?: typeof digestTree;
+    sleep?: (milliseconds: number) => Promise<void>;
+    onAttempt?: (attempt: ReleaseRuntimeDigestAttempt) => void;
+  }> = {},
+) {
+  const readDigest = dependencies.digest ?? digestTree;
+  const wait =
+    dependencies.sleep ??
+    ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  let previous: ReturnType<typeof digestTree> | null = null;
+  const attempts: ReleaseRuntimeDigestAttempt[] = [];
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    let current: ReturnType<typeof digestTree>;
+    try {
+      current = readDigest(root);
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      if (!message.startsWith('Filesystem entry changed while it was being hashed:')) throw error;
+      previous = null;
+      const evidence = Object.freeze({
+        attempt,
+        outcome: 'changed_while_hashing' as const,
+        digest: null,
+        previousDigest: null,
+        error: message,
+      });
+      attempts.push(evidence);
+      dependencies.onAttempt?.(evidence);
+      await wait(100);
+      continue;
+    }
+    const stable = previous?.digest === current.digest;
+    const evidence = Object.freeze({
+      attempt,
+      outcome: stable
+        ? ('stable' as const)
+        : previous
+          ? ('changed_between_reads' as const)
+          : ('candidate' as const),
+      digest: current.digest,
+      previousDigest: previous?.digest ?? null,
+      error: null,
+    });
+    attempts.push(evidence);
+    dependencies.onAttempt?.(evidence);
+    if (stable) return current;
+    previous = current;
+    await wait(100);
+  }
+  throw new WorldRunnerError(
+    'Frozen Minecraft runtime did not produce two consecutive matching tree digests',
+    'experiment_release_world_digest_unstable',
+    { attempts },
+  );
 }
 
 async function setMinecraftTickState(input: {
