@@ -483,6 +483,8 @@ export type WorldRunnerDependencies = Readonly<{
     journalDirectory: string;
     environment: Readonly<NodeJS.ProcessEnv>;
   }) => ChildProcessWithoutNullStreams;
+  /** Deterministic provider-free upstream used only by managed integration fixtures. */
+  cognitionFetch?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
   stdout?: (text: string) => void;
@@ -1337,6 +1339,7 @@ export async function startManagedWorld(
         ...(maxTotalModelCalls == null ? {} : { maxAccepted: maxTotalModelCalls }),
         journalFile,
         transportCaptureDirectory,
+        ...(dependencies.cognitionFetch ? { fetch: dependencies.cognitionFetch } : {}),
       });
       cognition = Object.freeze({
         broker,

@@ -160,7 +160,8 @@ export function projectHumanSemanticObservation(frame: any) {
 }
 
 export function projectHumanSemanticValue(value: any, depth = 0): any {
-  if (value == null || typeof value === 'boolean') return value;
+  if (value === undefined) return null;
+  if (value === null || typeof value === 'boolean') return value;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'string') return projectSemanticString(value);
   if (depth >= 10) return '[detail omitted]';

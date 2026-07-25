@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -846,18 +846,34 @@ function writeIdempotentRecord(
 }
 
 function writeExclusiveJson(file: string, value: unknown) {
-  const descriptor = fs.openSync(
-    file,
+  const directory = path.dirname(file);
+  const temporary = path.join(
+    directory,
+    `.pending-${path.basename(file)}-${process.pid}-${randomUUID()}`,
+  );
+  let descriptor: number | null = fs.openSync(
+    temporary,
     fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW,
     0o600,
   );
   try {
     fs.writeFileSync(descriptor, `${JSON.stringify(value)}\n`, 'utf8');
     fs.fsyncSync(descriptor);
-  } finally {
     fs.closeSync(descriptor);
+    descriptor = null;
+    // A hard-link publish preserves O_EXCL semantics while ensuring readers
+    // can only discover the final protocol filename after all bytes are durable.
+    fs.linkSync(temporary, file);
+    fsyncDirectory(directory);
+  } finally {
+    if (descriptor != null) fs.closeSync(descriptor);
+    try {
+      fs.unlinkSync(temporary);
+      fsyncDirectory(directory);
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
   }
-  fsyncDirectory(path.dirname(file));
 }
 
 function readJson(fileValue: string) {

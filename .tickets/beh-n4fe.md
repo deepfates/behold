@@ -116,3 +116,40 @@ multi-controller managed run, no current free-route/privacy conditions have
 been validated, and no living-world pilot or readable Textile aftermath has
 been produced. Equal quotas remain resource controls, not a fair heterogeneous
 model comparison. beh-n4fe remains open.
+
+**2026-07-25T22:31:35Z**
+
+The provider-free managed integration now exercises two independently spawned
+controller processes across one all-ready epoch and a clean restart. Both use
+the exact `minecraft-human-semantic-v1` body/action profile, independently
+project a deliberately oracle-bearing raw observation, and prove that only the
+human-comparable projection enters their exact mind requests. An injected
+in-process upstream makes network/provider access impossible while still
+crossing the real cognition broker, per-resident/per-purpose ledgers, immutable
+transport capture, release references, intervention journals, and Lync leases.
+
+The initial epoch retained eight physical attempts as distinct outcomes: two
+valid resident decisions, one malformed HTTP-success response, two resident
+provider failures, one cancellation, one successful auxiliary fold, and one
+failed fold with an explicit fallback-context intervention. Each resident used
+exactly three decision attempts and one fold attempt; no failure charged the
+other resident. Restart admission reopened those durable ledgers at the same
+usage, released a new epoch only after both controllers were ready, added one
+valid decision per resident, and preserved two exact Lync turns per life with
+distinct release identities. Capture verification passed at both drains, and
+readable history projection produced `Resident tN: wait_for_event ->
+wait_for_event` for both lives.
+
+Repeat execution exposed two real integration defects and fixed them narrowly:
+sparse semantic visual fields could contain `undefined` and fail the strict
+mind-request JSON boundary, and release claim filenames became visible before
+their bytes were complete. Human-semantic projection now emits JSON values for
+sparse perception; release plan/arm/release/claim publication now writes and
+fsyncs a private temporary inode before an exclusive atomic hard-link publish.
+The focused integration passed three consecutive repetitions and full
+`npm run check` passed 490/490 with no surviving Behold process or listener.
+
+This is deterministic integration-mechanics evidence over a fake managed
+server, not a new live Minecraft body proof, real provider/free-route check,
+human co-presence, Textile experience, emergence result, or model comparison.
+Equal quotas remain resource governance. `beh-n4fe` remains open.

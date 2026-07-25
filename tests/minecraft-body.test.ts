@@ -68,6 +68,19 @@ test('human-semantic observation retains ordinary perception and removes oracle 
   assert.doesNotMatch(text, /"(?:x|y|z)":(?:12|64|-9)/);
 });
 
+test('human-semantic projection contains only JSON values when perception fields are sparse', () => {
+  const observation = rawObservation();
+  delete observation.scene.terrain.visualField.center;
+  observation.scene.terrain.visualField.dimensions = undefined;
+  (observation.events[0].data as Record<string, unknown>).optionalUiValue = undefined;
+
+  const projected = projectHumanSemanticObservation(observation);
+  assert.equal(projected.scene.terrain.visualField.center, null);
+  assert.equal(projected.scene.terrain.visualField.dimensions, null);
+  assert.equal(projected.events[0].data.optionalUiValue, null);
+  assertNoUndefinedValues(projected);
+});
+
 test('human-semantic action profile is a frozen cursor and key-control surface', () => {
   const candidates = [
     'chat',
@@ -319,6 +332,17 @@ function tool(name: string) {
 
 function assertNoForbiddenKeys(value: unknown) {
   visit(value, (key) => assert.equal(FORBIDDEN_KEYS.has(key), false, `forbidden key ${key}`));
+}
+
+function assertNoUndefinedValues(value: unknown, path: string[] = []) {
+  assert.notEqual(value, undefined, `${path.join('.')} must contain a JSON value`);
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoUndefinedValues(item, [...path, String(index)]));
+  } else if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) {
+      assertNoUndefinedValues(item, [...path, key]);
+    }
+  }
 }
 
 function visit(value: unknown, check: (key: string) => void) {

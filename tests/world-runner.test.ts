@@ -37,7 +37,9 @@ import {
 } from '../scripts/world-lab';
 import { verifyCognitionBrokerJournal } from '../src/mind/cognition-broker';
 import { COGNITION_TRANSPORT_PROTOCOL, cognitionAccountId } from '../src/mind/cognition';
+import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 import { openQuotaLedger, verifyQuotaLedger } from '../src/observability/quota-ledger';
+import { readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom';
 
 const CLEAR: OwnershipEvidence = { state: 'clear', probe: 'fixture', owners: [] };
 const ARTIFACTS_OK = { artifactIntegrityOk: true, artifacts: {} };
@@ -884,6 +886,698 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');
   assert.ok(drained >= 0 && saved > drained);
   assert.equal(lifecycle.at(-1)?.type, 'control_released');
+});
+
+test('provider-free multi-controller release keeps body, quotas, capture, interventions, and Lync distinct across restart', async (t) => {
+  const fixture = makeFixture(t);
+  const controllerEntry = path.join(fixture.root, 'provider-free-controller.js');
+  const cancellationReadyFile = path.join(fixture.root, 'cancellation-ready');
+  fs.writeFileSync(
+    controllerEntry,
+    `
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const { createRunJournal } = require(path.resolve('dist/src/observability/journal.js'));
+      const { openEntityLoom } = require(path.resolve('dist/src/entity/loom.js'));
+      const { createDirectResidentMind } = require(path.resolve('dist/src/mind/direct.js'));
+      const { cognitionClientHeaders } = require(path.resolve('dist/src/mind/cognition.js'));
+      const { createLoomContextView } = require(path.resolve('dist/src/entity/folding.js'));
+      const { projectHumanSemanticObservation } = require(path.resolve('dist/src/mind/minecraft-body.js'));
+      const { experimentReleaseGateFromEnvironment } = require(path.resolve('dist/src/runtime/experiment-release.js'));
+      const entityId = process.argv[2];
+      const arg = (name) => {
+        const index = process.argv.indexOf(name);
+        return index < 0 ? null : process.argv[index + 1];
+      };
+      const model = arg('--model');
+      const phase = process.env.BEHOLD_FIXTURE_PHASE;
+      const journal = createRunJournal(entityId, process.env.BEHOLD_RUN_DIR);
+      let loom = null;
+      let scenario = null;
+
+      function rawObservation(sequence) {
+        return {
+          protocol: 'behold.inhabitant.v2',
+          circle: { id: 'absolute-coordinate-secret', managedRunId: process.env.BEHOLD_RUN_ID },
+          sequence,
+          observedAt: 1700000000000 + sequence,
+          task: { id: 'forbidden-injected-project', goal: 'shape resident behavior' },
+          self: {
+            identity: entityId,
+            body: { username: process.env.MINECRAFT_USERNAME, uuid: 'hidden-stable-body-id' },
+            pose: {
+              position: { x: 123.5, y: 64, z: -77.25 },
+              yaw: 1.5,
+              pitch: -0.25,
+              velocity: { x: 0, y: 0, z: 0 },
+              onGround: true,
+            },
+            condition: {
+              health: 20,
+              food: 20,
+              oxygen: 20,
+              sleeping: false,
+              dimension: 'overworld',
+              isDay: true,
+            },
+            heldItem: null,
+            inventory: [],
+            projects: [{ id: 'hidden-project' }],
+            places: [{ id: 'hidden-place', coordinates: { x: 1, y: 2, z: 3 } }],
+          },
+          scene: {
+            social: { playersOnline: ['ScoutBody', 'BuilderBody'] },
+            focus: null,
+            entities: [],
+            terrain: {
+              maxDistance: 32,
+              nearest: { water: { x: 120, y: 63, z: -75 } },
+              visualField: {
+                protocol: 'behold.semantic-visual-field.v1',
+                available: true,
+                dimensions: { rows: 1, columns: 1 },
+                rowOrder: 'top-to-bottom',
+                columnOrder: 'left-to-right',
+                materialRows: ['G'],
+                depthRows: ['1'],
+                materialLegend: [{ symbol: 'G', name: 'grass_block' }],
+                depthLegend: [{ symbol: '1', label: 'interaction' }],
+                noHitSymbol: '.',
+                unavailableSymbol: '?',
+              },
+            },
+          },
+          events: [],
+        };
+      }
+
+      function projectedObservation(sequence) {
+        const projected = projectHumanSemanticObservation(rawObservation(sequence));
+        const text = JSON.stringify(projected);
+        if (
+          projected.bodyContract?.profile !== 'minecraft-human-semantic-v1' ||
+          text.includes('absolute-coordinate-secret') ||
+          text.includes('forbidden-injected-project') ||
+          text.includes('hidden-stable-body-id') ||
+          /\"(?:position|coordinates|x|y|z)\"/.test(text)
+        ) {
+          throw new Error('human-semantic fixture projection leaked oracle state');
+        }
+        return projected;
+      }
+
+      function request(marker, release, sequence) {
+        const observation = projectedObservation(sequence);
+        return {
+          protocol: 'behold.mind-request.v1',
+          entityId,
+          model,
+          policyProfile: 'neutral-benchmark-v1',
+          bodyProfile: 'minecraft-human-semantic-v1',
+          actionProfile: 'minecraft-human-semantic-v1',
+          safetyProfile: 'vanilla-player-v1',
+          experimentRelease: release,
+          observation,
+          conversation: [
+            { role: 'system', content: 'Use only the current human-semantic body and admitted action.' },
+            { role: 'user', content: 'marker:' + marker + '\\n' + JSON.stringify(observation) },
+          ],
+          actions: [{
+            name: 'wait_for_event',
+            description: 'Yield until the world changes.',
+            inputSchema: {
+              type: 'object',
+              properties: { reason: { type: 'string' } },
+              required: ['reason'],
+              additionalProperties: false,
+            },
+          }],
+          requiredAction: null,
+          attention: { mode: 'deliberative', context: 'bounded_loom', triggers: [] },
+        };
+      }
+
+      async function oneDecision(mind, marker, release, sequence, expected, signal) {
+        const opportunityId = entityId + ':' + phase + ':' + marker;
+        const candidate = request(marker, release, sequence);
+        journal.append('resident_decision_opportunity', {
+          protocol: 'behold.resident-decision-opportunity.v1',
+          opportunityId,
+          phase: 'scheduled',
+          entityId,
+          model,
+          bodyProfile: candidate.bodyProfile,
+        });
+        try {
+          const decision = await mind.decide(candidate, { signal: signal || new AbortController().signal });
+          journal.append('resident_decision_opportunity', {
+            protocol: 'behold.resident-decision-opportunity.v1',
+            opportunityId,
+            phase: 'terminal',
+            terminal: 'success',
+            call: decision.call,
+          });
+          if (expected !== 'success') throw new Error(marker + ' unexpectedly succeeded');
+          journal.append('model_turn', {
+            model,
+            bodyProfile: candidate.bodyProfile,
+            observation: candidate.observation,
+            call: decision.call,
+            disposition: decision.disposition,
+          });
+          return decision;
+        } catch (error) {
+          if (String(error?.message || '').includes('unexpectedly succeeded')) throw error;
+          const terminal = error?.call?.response?.terminal || 'controller_error';
+          journal.append('resident_decision_opportunity', {
+            protocol: 'behold.resident-decision-opportunity.v1',
+            opportunityId,
+            phase: 'terminal',
+            terminal,
+            call: error?.call || null,
+          });
+          journal.append('model_call_failed', {
+            marker,
+            terminal,
+            error: error?.stack || String(error),
+            call: error?.call || null,
+          });
+          if (terminal !== expected) {
+            throw new Error(marker + ' terminal ' + terminal + ' did not equal ' + expected);
+          }
+          return null;
+        }
+      }
+
+      function lifeTurn(sequence, release, decision) {
+        const observation = projectedObservation(sequence);
+        return {
+          protocol: 'behold.entity-turn.v1',
+          circleId: process.env.BEHOLD_WORLD_ID,
+          id: entityId + ':turn:' + sequence,
+          entityId,
+          sequence,
+          parentId: sequence === 1 ? null : entityId + ':turn:' + (sequence - 1),
+          model,
+          profiles: {
+            policy: 'neutral-benchmark-v1',
+            body: 'minecraft-human-semantic-v1',
+            actions: 'minecraft-human-semantic-v1',
+            safety: 'vanilla-player-v1',
+          },
+          experimentRelease: release,
+          startedAt: 1000 + sequence * 10,
+          completedAt: 1005 + sequence * 10,
+          observation,
+          utterance: { assistant: { role: 'assistant', content: null } },
+          action: {
+            id: entityId + ':wait:' + sequence,
+            name: 'wait_for_event',
+            input: decision?.action?.input || { reason: 'scripted provider-free integration' },
+            source: 'llm',
+            kind: 'yield',
+            toolCallId: decision?.action?.callId || null,
+          },
+          outcome: {
+            ok: true,
+            eventType: 'wait_for_event',
+            result: { status: 'waiting_for_world_event' },
+          },
+          nextObservation: projectedObservation(sequence + 1),
+        };
+      }
+
+      async function foldAttempt(release, marker, expectedKind) {
+        const turns = Array.from({ length: 4 }, (_, index) =>
+          lifeTurn(index + 1, release, null),
+        );
+        const context = createLoomContextView(turns, {
+          entityId,
+          model,
+          recentTurns: 2,
+          foldBatchTurns: 2,
+          foldTriggerTurns: 1,
+          projectionProfile: 'minecraft-human-semantic-v1',
+          summarize: async () => {
+            const response = await fetch(process.env.OPENROUTER_BASE_URL, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                authorization: 'Bearer ' + process.env.OPENROUTER_API_KEY,
+                ...cognitionClientHeaders({
+                  requestId: entityId + ':' + phase + ':fold_failure',
+                  priority: 'auxiliary',
+                  purpose: 'loom_fold',
+                  urgentTriggerSequence: null,
+                }),
+              },
+              body: JSON.stringify({
+                model,
+                messages: [{ role: 'user', content: 'marker:' + marker }],
+              }),
+            });
+            const text = await response.text();
+            if (!response.ok) {
+              journal.append('model_auxiliary_call_failed', {
+                purpose: 'loom_fold',
+                terminal: 'provider_error',
+                status: response.status,
+              });
+              throw new Error('fixture fold provider ' + response.status + ': ' + text.slice(0, 80));
+            }
+            return text;
+          },
+          onContextIntervention: (event) => journal.append('context_intervention', event),
+        });
+        await context.prepare();
+        const fold = context.view().fold;
+        if (fold?.generation?.kind !== expectedKind) {
+          throw new Error(marker + ' produced fold kind ' + fold?.generation?.kind);
+        }
+        journal.append('fixture_fold_result', fold);
+      }
+
+      async function runScenario() {
+        loom = await openEntityLoom(entityId, undefined, process.env.BEHOLD_WORLD_ID);
+        const gate = experimentReleaseGateFromEnvironment({
+          entityId,
+          bodyUsername: process.env.MINECRAFT_USERNAME,
+          model,
+          urgentModel: arg('--urgentModel'),
+          mind: process.env.BEHOLD_MIND,
+          profiles: {
+            policy: process.env.BEHOLD_POLICY_PROFILE,
+            body: process.env.BEHOLD_BODY_PROFILE,
+            actions: process.env.BEHOLD_ACTION_PROFILE,
+            safety: process.env.BEHOLD_SAFETY_PROFILE,
+          },
+          quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
+        });
+        const setupObservation = projectedObservation(loom.turns().length + 1);
+        const arm = gate.arm({ journalFile: journal.file, setupObservation });
+        journal.append('setup_experiment_release_armed', arm);
+        console.error('[bot] Experiment release armed: ' + gate.prepared.plan.releaseId + ' ' + entityId);
+        const release = await gate.waitAndClaim();
+        journal.append('experiment_release_observed', release);
+        const expectedPrior = phase === 'restart' ? 1 : 0;
+        if (loom.turns().length !== expectedPrior) {
+          throw new Error('expected ' + expectedPrior + ' prior Lync turns, found ' + loom.turns().length);
+        }
+        journal.append('fixture_prior_history', { phase, turns: loom.turns().length });
+        const mind = createDirectResidentMind({
+          apiKey: process.env.OPENROUTER_API_KEY,
+          model,
+          endpoint: process.env.OPENROUTER_BASE_URL,
+          cognitionTransport: true,
+        });
+        const sequence = loom.turns().length + 1;
+        const valid = await oneDecision(
+          mind,
+          phase === 'restart' ? 'valid_restart' : 'valid_initial',
+          release,
+          sequence,
+          'success',
+        );
+        await loom.append(lifeTurn(sequence, release, valid));
+        journal.append('entity_turn', loom.turns().at(-1));
+        if (phase === 'initial' && entityId === 'Scout') {
+          await oneDecision(mind, 'provider_failure', release, sequence + 1, 'provider_error');
+          const cancellation = new AbortController();
+          const pending = oneDecision(
+            mind,
+            'cancel_me',
+            release,
+            sequence + 1,
+            'cancelled',
+            cancellation.signal,
+          );
+          const ready = process.env.BEHOLD_FIXTURE_CANCEL_READY_FILE;
+          const deadline = Date.now() + 2000;
+          while (!fs.existsSync(ready) && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+          if (!fs.existsSync(ready)) throw new Error('cancellation upstream was never admitted');
+          cancellation.abort(new Error('fixture resident cancelled its request'));
+          await pending;
+          await foldAttempt(release, 'fold_success', 'model');
+        }
+        if (phase === 'initial' && entityId === 'Builder') {
+          await oneDecision(mind, 'malformed_output', release, sequence + 1, 'malformed_output');
+          await oneDecision(mind, 'provider_failure', release, sequence + 1, 'provider_error');
+          await foldAttempt(release, 'fold_failure', 'fallback');
+        }
+        journal.append('fixture_scenario_complete', {
+          phase,
+          entityId,
+          bodyProfile: process.env.BEHOLD_BODY_PROFILE,
+          lyncTurns: loom.turns().length,
+        });
+      }
+
+      scenario = runScenario().catch((error) => {
+        journal.append('fixture_scenario_failed', { error: error?.stack || String(error) });
+        console.error(error?.stack || String(error));
+        process.exitCode = 1;
+      });
+      process.stdin.resume();
+      process.stdin.on('end', async () => {
+        await scenario;
+        if (loom) await loom.close();
+        process.exit(process.exitCode || 0);
+      });
+    `,
+  );
+
+  let serverPid: number | null = null;
+  let serverAlive = false;
+  const spawnServer = () => {
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        `
+          const readline = require('node:readline');
+          console.log('[Server thread/INFO]: Done (0.1s)! For help, type "help"');
+          const rl = readline.createInterface({ input: process.stdin });
+          rl.on('line', (line) => {
+            if (line === 'tick freeze') console.log('[Server thread/INFO]: The game is frozen');
+            if (line === 'tick unfreeze') console.log('[Server thread/INFO]: The game is running normally');
+            if (line === 'save-all flush') console.log('[Server thread/INFO]: Saved the game');
+            if (line === 'stop') process.exit(0);
+          });
+        `,
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    ) as ChildProcessWithoutNullStreams;
+    serverPid = child.pid!;
+    serverAlive = true;
+    child.once('exit', () => {
+      serverAlive = false;
+    });
+    return child;
+  };
+
+  const upstreamAttempts: Array<{ marker: string; model: string }> = [];
+  const cognitionFetch: typeof fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    const text = JSON.stringify(body);
+    const marker =
+      [
+        'provider_failure',
+        'malformed_output',
+        'cancel_me',
+        'fold_failure',
+        'fold_success',
+        'valid_restart',
+      ].find((candidate) => text.includes(`marker:${candidate}`)) ?? 'valid_initial';
+    upstreamAttempts.push({ marker, model: String(body.model) });
+    if (marker === 'provider_failure' || marker === 'fold_failure') {
+      return new Response(JSON.stringify({ error: { code: marker } }), {
+        status: marker === 'provider_failure' ? 503 : 502,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (marker === 'malformed_output') {
+      return new Response('not-provider-json', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (marker === 'cancel_me') {
+      fs.writeFileSync(cancellationReadyFile, 'ready');
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(init.signal?.reason ?? new Error('fixture upstream cancelled')),
+          { once: true },
+        );
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        id: `fixture-${marker}-${body.model}`,
+        model: body.model,
+        provider: 'provider-free-fixture',
+        choices: [
+          {
+            finish_reason: 'tool_calls',
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: `wait-${marker}`,
+                  type: 'function',
+                  function: {
+                    name: 'wait_for_event',
+                    arguments: '{"reason":"provider-free integration"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16, cost: 0 },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  };
+
+  const priorKey = process.env.OPENROUTER_API_KEY;
+  const priorBase = process.env.OPENROUTER_BASE_URL;
+  process.env.OPENROUTER_API_KEY = 'provider-free-fixture-key';
+  process.env.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
+  t.after(() => {
+    restoreTestEnvironment('OPENROUTER_API_KEY', priorKey);
+    restoreTestEnvironment('OPENROUTER_BASE_URL', priorBase);
+  });
+
+  const accountingScopeId = 'provider-free-integration-v1';
+  const residents = (phase: 'initial' | 'restart') => [
+    {
+      entityId: 'Scout',
+      bodyUsername: 'ScoutBody',
+      model: 'fixture/free-alpha',
+      mind: 'direct' as const,
+      policyProfile: 'neutral-benchmark-v1' as const,
+      bodyProfile: 'minecraft-human-semantic-v1' as const,
+      actionProfile: 'minecraft-human-semantic-v1' as const,
+      safetyProfile: 'vanilla-player-v1' as const,
+      maxTurnSteps: 1,
+      resumeAfterBudget: false,
+      providerQuotas: { residentDecisionAttempts: 5, auxiliaryContextAttempts: 2 },
+      environment: {
+        BEHOLD_FIXTURE_PHASE: phase,
+        BEHOLD_FIXTURE_CANCEL_READY_FILE: cancellationReadyFile,
+      },
+    },
+    {
+      entityId: 'Builder',
+      bodyUsername: 'BuilderBody',
+      model: 'fixture/free-beta',
+      mind: 'direct' as const,
+      policyProfile: 'neutral-benchmark-v1' as const,
+      bodyProfile: 'minecraft-human-semantic-v1' as const,
+      actionProfile: 'minecraft-human-semantic-v1' as const,
+      safetyProfile: 'vanilla-player-v1' as const,
+      maxTurnSteps: 1,
+      resumeAfterBudget: false,
+      providerQuotas: { residentDecisionAttempts: 5, auxiliaryContextAttempts: 2 },
+      environment: {
+        BEHOLD_FIXTURE_PHASE: phase,
+        BEHOLD_FIXTURE_CANCEL_READY_FILE: cancellationReadyFile,
+      },
+    },
+  ];
+  const dependencies = {
+    spawnServer,
+    cognitionFetch,
+    verifyArtifacts: async () => ARTIFACTS_OK,
+    inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+    stdout: () => {},
+    stderr: () => {},
+  };
+  const optionsFor = (phase: 'initial' | 'restart') => ({
+    ...fixture.options,
+    controllerEntry,
+    accountingScopeId,
+    maxConcurrentModelCalls: 2,
+    residents: residents(phase),
+  });
+  const startIntegrationRun = async (phase: 'initial' | 'restart') => {
+    try {
+      return fixture.trackRun(await startManagedWorld(optionsFor(phase), dependencies));
+    } catch (error) {
+      const diagnosticDirectory = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'behold-provider-free-start-failure-'),
+      );
+      fs.cpSync(fixture.root, path.join(diagnosticDirectory, 'fixture'), { recursive: true });
+      t.diagnostic(`provider-free startup evidence: ${diagnosticDirectory}`);
+      throw error;
+    }
+  };
+  const residentEvents = (directory: string) =>
+    fs
+      .readdirSync(directory)
+      .filter((name) => name.endsWith('.jsonl'))
+      .flatMap((name) =>
+        fs
+          .readFileSync(path.join(directory, name), 'utf8')
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line)),
+      );
+  const scenariosComplete = (run: Awaited<ReturnType<typeof startManagedWorld>>) =>
+    run.residents.every(
+      (resident) =>
+        fs.existsSync(resident.journalDirectory) &&
+        residentEvents(resident.journalDirectory).some(
+          (event) => event.type === 'fixture_scenario_complete',
+        ),
+    );
+
+  const first = await startIntegrationRun('initial');
+  await waitFor(() => scenariosComplete(first), 5_000);
+  const firstJournals = Object.fromEntries(
+    first.residents.map((resident) => [
+      resident.entityId,
+      residentEvents(resident.journalDirectory),
+    ]),
+  ) as Record<string, any[]>;
+  assert.deepEqual(
+    firstJournals.Scout.filter(
+      (event) => event.type === 'resident_decision_opportunity' && event.data.phase === 'terminal',
+    ).map((event) => event.data.terminal),
+    ['success', 'provider_error', 'cancelled'],
+  );
+  assert.deepEqual(
+    firstJournals.Builder.filter(
+      (event) => event.type === 'resident_decision_opportunity' && event.data.phase === 'terminal',
+    ).map((event) => event.data.terminal),
+    ['success', 'malformed_output', 'provider_error'],
+  );
+  assert.equal(
+    firstJournals.Builder.filter((event) => event.type === 'context_intervention').length,
+    1,
+  );
+  assert.equal(
+    firstJournals.Scout.filter((event) => event.type === 'context_intervention').length,
+    0,
+  );
+  assert.equal(
+    firstJournals.Scout.find((event) => event.type === 'fixture_fold_result').data.generation.kind,
+    'model',
+  );
+  assert.equal(
+    firstJournals.Builder.find((event) => event.type === 'fixture_fold_result').data.generation
+      .kind,
+    'fallback',
+  );
+  assert.equal(firstJournals.Scout.filter((event) => event.type === 'model_turn').length, 1);
+  assert.equal(firstJournals.Builder.filter((event) => event.type === 'model_turn').length, 1);
+  const firstAccounts = first.cognition!.accountingSnapshot()!.accounts;
+  const firstScout = firstAccounts.find(
+    (account) => account.accountId === cognitionAccountId(accountingScopeId, 'fixture', 'Scout'),
+  )!;
+  const firstBuilder = firstAccounts.find(
+    (account) => account.accountId === cognitionAccountId(accountingScopeId, 'fixture', 'Builder'),
+  )!;
+  assert.deepEqual(firstScout.used, { loom_fold: 1, resident_decision: 3 });
+  assert.deepEqual(firstBuilder.used, { loom_fold: 1, resident_decision: 3 });
+  await first.stop('provider_free_initial_complete');
+  await first.finished;
+  const firstBroker = verifyCognitionBrokerJournal(first.cognition!.journalFile);
+  const firstCapture = verifyCognitionTransportCapture(
+    first.cognition!.transportCaptureDirectory,
+    firstBroker.events,
+  );
+  assert.equal(firstCapture.attempts, 8);
+  assert.equal(firstCapture.successfulResponses, 4);
+  assert.equal(firstCapture.providerFailures, 3);
+  assert.equal(firstCapture.cancellations, 1);
+  assert.equal(firstCapture.transportErrors, 0);
+  assert.deepEqual(firstCapture.usage.cost, { value: 0, reports: 3 });
+  const capturedRequests = firstCapture.starts.map((start) =>
+    fs.readFileSync(start.request.file, 'utf8'),
+  );
+  assert.ok(capturedRequests.every((body) => !body.includes('absolute-coordinate-secret')));
+  assert.ok(capturedRequests.every((body) => !body.includes('forbidden-injected-project')));
+  assert.ok(capturedRequests.every((body) => !body.includes('hidden-stable-body-id')));
+  assert.ok(
+    firstCapture.starts
+      .filter((start) => start.purpose === 'resident_decision')
+      .every((start) =>
+        fs
+          .readFileSync(start.request.file, 'utf8')
+          .includes('behold.minecraft-human-semantic-observation.v1'),
+      ),
+  );
+
+  if (fs.existsSync(cancellationReadyFile)) fs.unlinkSync(cancellationReadyFile);
+  const second = await startIntegrationRun('restart');
+  await waitFor(() => scenariosComplete(second), 5_000);
+  const secondJournals = Object.fromEntries(
+    second.residents.map((resident) => [
+      resident.entityId,
+      residentEvents(resident.journalDirectory),
+    ]),
+  ) as Record<string, any[]>;
+  assert.ok(
+    Object.values(secondJournals).every(
+      (events) => events.find((event) => event.type === 'fixture_prior_history')?.data.turns === 1,
+    ),
+  );
+  const secondAccounts = second.cognition!.accountingSnapshot()!.accounts;
+  const secondScout = secondAccounts.find(
+    (account) => account.accountId === cognitionAccountId(accountingScopeId, 'fixture', 'Scout'),
+  )!;
+  const secondBuilder = secondAccounts.find(
+    (account) => account.accountId === cognitionAccountId(accountingScopeId, 'fixture', 'Builder'),
+  )!;
+  assert.deepEqual(secondScout.used, { loom_fold: 1, resident_decision: 4 });
+  assert.deepEqual(secondBuilder.used, { loom_fold: 1, resident_decision: 4 });
+  await second.stop('provider_free_restart_complete');
+  await second.finished;
+  const secondBroker = verifyCognitionBrokerJournal(second.cognition!.journalFile);
+  const secondCapture = verifyCognitionTransportCapture(
+    second.cognition!.transportCaptureDirectory,
+    secondBroker.events,
+  );
+  assert.equal(secondCapture.attempts, 2);
+  assert.equal(secondCapture.successfulResponses, 2);
+  assert.equal(secondCapture.providerFailures, 0);
+
+  const readableHistories: Record<string, string[]> = {};
+  for (const entityId of ['Scout', 'Builder']) {
+    const range = await resolveEntityLifeRange(entityId, 1, 2, fixture.options.entityRoot);
+    const life = await readEntityLifeRange(range, fixture.options.entityRoot);
+    readableHistories[entityId] = life.turns.map(
+      (turn) =>
+        `${turn.entityId} t${turn.sequence}: ${turn.action.name} -> ${turn.outcome.eventType}`,
+    );
+    assert.deepEqual(readableHistories[entityId], [
+      `${entityId} t1: wait_for_event -> wait_for_event`,
+      `${entityId} t2: wait_for_event -> wait_for_event`,
+    ]);
+    assert.notEqual(
+      life.turns[0].experimentRelease?.releaseId,
+      life.turns[1].experimentRelease?.releaseId,
+    );
+  }
+  assert.equal(upstreamAttempts.length, 10);
+  assert.deepEqual(
+    new Set(upstreamAttempts.map((attempt) => attempt.model)),
+    new Set(['fixture/free-alpha', 'fixture/free-beta']),
+  );
+  assert.equal(
+    upstreamAttempts.every((attempt) => attempt.model.startsWith('fixture/free-')),
+    true,
+  );
+  const cleanup = await fixture.cleanupManagedRuns();
+  assert.equal(cleanup.intervened, false);
+  assert.deepEqual(cleanup.cleanupErrors, []);
+  assert.deepEqual(cleanup.openRootDescriptorsAfter, []);
 });
 
 test('recovery preserves evidence before releasing an exact dead same-host epoch', async (t) => {
@@ -1899,6 +2593,19 @@ async function cleanupOwnedManagedRuns(
           path.join(diagnosticDirectory, `cognition-${index}.jsonl`),
         );
       }
+      for (const resident of run.residents) {
+        const destination = path.join(diagnosticDirectory, `residents-${index}`, resident.entityId);
+        try {
+          fs.cpSync(resident.journalDirectory, destination, { recursive: true });
+        } catch (error: any) {
+          fs.mkdirSync(destination, { recursive: true });
+          fs.writeFileSync(
+            path.join(destination, 'unavailable.txt'),
+            `unavailable: ${error?.message || String(error)}\n`,
+            'utf8',
+          );
+        }
+      }
     }
     fs.writeFileSync(
       path.join(diagnosticDirectory, 'cleanup.json'),
@@ -1968,6 +2675,14 @@ function testPidAlive(pid: number) {
 async function waitForTestPidsToExit(pids: readonly number[], timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   while (pids.some(testPidAlive) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for test condition');
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
