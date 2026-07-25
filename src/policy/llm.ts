@@ -4,6 +4,7 @@ import { isCriticalBodyCondition } from '../agent/condition';
 import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
 import { historyMessages, type EntityTurn } from '../entity/loom';
+import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
 import { projectRecentActionContinuity, type RecentActionContinuity } from './context';
@@ -91,6 +92,8 @@ export type Options = {
   actionProfile?: MinecraftActionProfile;
   /** Versioned world/body risk policy selected by the world adapter. */
   safetyProfile?: MinecraftSafetyProfile;
+  /** Durable matched-population release observed by this resident process. */
+  experimentRelease?: () => ExperimentReleaseReference | null;
   log?: (s: string) => void;
   /** Accept only lifecycle objects minted by the engine that owns attempt(). */
   acceptEngineEvent: (event: EngineEvent) => boolean;
@@ -102,6 +105,7 @@ export type Options = {
     bodyProfile: MinecraftBodyProfile;
     actionProfile: MinecraftActionProfile;
     safetyProfile: MinecraftSafetyProfile;
+    experimentRelease: ExperimentReleaseReference | null;
     observation: any;
     assistant: any;
     intent: Intent | null;
@@ -143,6 +147,7 @@ type TurnDraft = {
   observation: any;
   assistant: any;
   attention: ResidentAttention;
+  experimentRelease: ExperimentReleaseReference | null;
 };
 
 type ModelDecision = {
@@ -590,6 +595,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const requiredTool = isNeutralPolicy(policyProfile)
         ? null
         : requiredSelfDirectionTool(currentObservation, availableTools, allow);
+      const experimentRelease = opts.experimentRelease?.() ?? null;
+      if (opts.experimentRelease && !experimentRelease) {
+        throw new Error('resident cognition cannot begin before experiment release');
+      }
       const decision = await withModelRequest(async (signal) => {
         const deadline = hasBodilyUrgency(attention)
           ? setTimeout(() => {
@@ -606,6 +615,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           bodyProfile,
           actionProfile,
           safetyProfile,
+          ...(experimentRelease ? { experimentRelease } : {}),
           observation: cloneJson(modelObservation),
           conversation: cloneJson(
             conversationForAttention(
@@ -691,6 +701,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         observation: currentObservation,
         assistant,
         attention,
+        experimentRelease,
       };
       messages.push(assistant);
       opts.onModelTurn?.({
@@ -701,6 +712,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         bodyProfile,
         actionProfile,
         safetyProfile,
+        experimentRelease,
         observation: modelObservation,
         assistant,
         intent: decision.intent,
@@ -1233,6 +1245,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         actions: actionProfile,
         safety: safetyProfile,
       },
+      ...(draft.experimentRelease ? { experimentRelease: cloneJson(draft.experimentRelease) } : {}),
       attention: draft.attention,
       startedAt: draft.startedAt,
       completedAt,

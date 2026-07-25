@@ -37,6 +37,10 @@ import {
   createComeSeeDoReportRuntime,
   createComeSeeDoReportTask,
 } from '../tasks/come-see-do-report';
+import {
+  experimentReleaseGateFromEnvironment,
+  type ExperimentReleaseReference,
+} from '../runtime/experiment-release';
 
 const INITIAL_WORLD_SYNC_SETTLE_MS = 4_000;
 
@@ -114,12 +118,29 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   );
   const mindAdapter = residentMindAdapter(process.env.BEHOLD_MIND);
   const cognitionTransport = isCognitionTransportEnabled(process.env.BEHOLD_COGNITION_TRANSPORT);
+  const releaseGate = experimentReleaseGateFromEnvironment({
+    entityId: name,
+    bodyUsername,
+    model: cfg.llm.model,
+    urgentModel: urgentModel ?? null,
+    mind: mindAdapter,
+    profiles: {
+      policy: policyProfile,
+      body: bodyProfile,
+      actions: actionProfile,
+      safety: safetyProfile,
+    },
+    quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
+  });
+  let experimentRelease: ExperimentReleaseReference | null = null;
+  let experimentActive = releaseGate == null;
   const entityLoom = await openEntityLoom(name, undefined, cfg.circle.id);
   const projects = createProjectMemory(name, entityLoom.turns());
   const places = createPlaceMemory(name, entityLoom.turns());
   const journal = createRunJournal(name);
   let shutdownStarted = false;
   let shutdownPromise: Promise<void> | null = null;
+  const releaseWaitAbort = new AbortController();
   let requestShutdown: ((reason: string, terminalError?: Error | null) => Promise<void>) | null =
     null;
   const appendJournal: typeof journal.append = (type, data, source) => {
@@ -159,6 +180,14 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       resumeAfterBudget,
       paused: Boolean(opts.paused),
       allowTools: opts.allowTools ?? null,
+      experimentRelease: releaseGate
+        ? {
+            state: 'setup_waiting',
+            releaseId: releaseGate.prepared.plan.releaseId,
+            planFile: releaseGate.prepared.planFile,
+            planSha256: releaseGate.prepared.planSha256,
+          }
+        : null,
     },
     task: opts.task ?? null,
     target: taskTarget,
@@ -194,7 +223,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     projects: () => projects.snapshot(),
     places: () => places.snapshot(),
     onEvent: (event) => {
-      if (!localWorldReady) return;
+      if (!localWorldReady || !experimentActive) return;
       if (isBodilyUrgencyEvent(event) && (policy?.shouldReclaimModelAction(event) ?? true)) {
         engine?.requestModelActionCancellation('bodily_urgent_attention', {
           eventSequence: event.sequence,
@@ -210,7 +239,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       ),
   });
   const startPolicyIfReady = () => {
-    if (!localWorldReady || !policy) return;
+    if (!localWorldReady || !experimentActive || !policy) return;
     policy.start();
     policy.wake();
   };
@@ -218,7 +247,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const recordTaskProgress = () => {
     if (!taskRuntime) return null;
     const progress = taskRuntime.verifier.snapshot(experience.observe());
-    appendJournal('task_progress', progress);
+    appendJournal(experimentActive ? 'task_progress' : 'setup_task_progress', progress);
     return progress;
   };
 
@@ -227,16 +256,20 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     if (user === (bot as any).username) return;
     cache.chatTail.push({ user, text });
     cache.chatTail = cache.chatTail.slice(-3);
-    appendJournal('chat_received', { user, text });
-    taskRuntime?.permissions.recordIncomingChat(user, text);
-    taskRuntime?.verifier.recordIncomingChat(user, text);
-    if (taskRuntime) appendJournal('task_permissions', taskRuntime.permissions.snapshot());
-    recordTaskProgress();
+    appendJournal(experimentActive ? 'chat_received' : 'setup_chat_received', { user, text });
+    if (experimentActive) {
+      taskRuntime?.permissions.recordIncomingChat(user, text);
+      taskRuntime?.verifier.recordIncomingChat(user, text);
+      if (taskRuntime) appendJournal('task_permissions', taskRuntime.permissions.snapshot());
+      recordTaskProgress();
+    }
     if (!taskRuntime || user.toLowerCase() === taskRuntime.task.target?.toLowerCase()) {
-      engine?.muteLLM(false);
-      policy?.resume();
+      if (experimentActive) {
+        engine?.muteLLM(false);
+        policy?.resume();
+      }
     } else {
-      if (localWorldReady) policy?.wake();
+      if (localWorldReady && experimentActive) policy?.wake();
     }
   });
 
@@ -324,7 +357,11 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         }
       };
       deliver('experience event consumer', () => experience.recordEngineEvent(event));
-      deliver('run journal', () => appendJournal(event.type, event.data, { engineAt: event.at }));
+      deliver('run journal', () =>
+        appendJournal(experimentActive ? event.type : `setup_${event.type}`, event.data, {
+          engineAt: event.at,
+        }),
+      );
       if (['intent_blocked', 'action_completed', 'action_failed'].includes(event.type)) {
         actionAdmissions.delete(String(event.data?.intent?.id || ''));
       }
@@ -342,7 +379,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           deliver('task progress journal', recordTaskProgress);
         }
       }
-      const policyDelivery = policy?.onEngineEvent(event);
+      const policyDelivery = experimentActive ? policy?.onEngineEvent(event) : undefined;
       const tool = String(event.data?.intent?.tool || '');
       const source = String(event.data?.intent?.source || '');
       if (
@@ -351,7 +388,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         tool !== 'chat' &&
         tool !== 'whisper'
       ) {
-        if (localWorldReady) policy?.wake();
+        if (localWorldReady && experimentActive) policy?.wake();
       }
       return policyDelivery?.catch((error: any) =>
         console.error(
@@ -384,7 +421,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   };
 
   bot.once('spawn', () => {
-    appendJournal('spawned', experience.observe());
+    appendJournal(releaseGate ? 'setup_spawned' : 'spawned', experience.observe());
     recordTaskProgress();
     show();
     void (bot as any)
@@ -392,14 +429,39 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       .then(() => waitForInitialWorldSync(bot as any, INITIAL_WORLD_SYNC_SETTLE_MS))
       .then(async () => {
         if (shutdownStarted) return;
-        await opts.beforeResidentReady?.({
-          bot,
-          observe: () => experience.observe(),
-        });
+        if (opts.beforeResidentReady) {
+          if (releaseGate) appendJournal('setup_operator_hook_started');
+          await opts.beforeResidentReady({
+            bot,
+            observe: () => experience.observe(),
+          });
+          if (releaseGate) {
+            appendJournal('setup_operator_hook_completed', experience.observe());
+          }
+        }
         if (shutdownStarted) return;
         localWorldReady = true;
         experience.markLocalWorldReady(INITIAL_WORLD_SYNC_SETTLE_MS);
-        appendJournal('local_world_ready', experience.observe());
+        const readyObservation = experience.observe();
+        if (releaseGate) {
+          appendJournal('setup_local_world_ready', readyObservation);
+          const arm = releaseGate.arm({
+            journalFile: journal.file,
+            setupObservation: readyObservation,
+          });
+          appendJournal('setup_experiment_release_armed', arm);
+          process.stderr.write(
+            `[bot] Experiment release armed: ${releaseGate.prepared.plan.releaseId} ${name}\n`,
+          );
+          const observed = await releaseGate.waitAndClaim({ signal: releaseWaitAbort.signal });
+          if (shutdownStarted) return;
+          experience.resetForExperimentRelease();
+          experimentRelease = observed;
+          experimentActive = true;
+          appendJournal('experiment_release_observed', observed);
+        } else {
+          appendJournal('local_world_ready', readyObservation);
+        }
         startPolicyIfReady();
         show();
       })
@@ -426,7 +488,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           appendJournal('observation_error', { error: error?.message || String(error) });
           return;
         }
-        appendJournal('observation', observation);
+        appendJournal(experimentActive ? 'observation' : 'setup_observation', observation);
       }
     }, 1500);
   });
@@ -472,6 +534,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         bodyProfile,
         actionProfile,
         safetyProfile,
+        ...(releaseGate ? { experimentRelease: () => experimentRelease } : {}),
         endpoint: process.env.OPENROUTER_BASE_URL || undefined,
         mind:
           mindAdapter === 'ax'
@@ -544,6 +607,16 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       show();
       return;
     }
+    if (!experimentActive) {
+      appendJournal('setup_operator_action_rejected', {
+        reason: 'experiment_not_released',
+        tool: (p as any).tool,
+        input: (p as any).args,
+      });
+      cache.last = 'experiment setup is armed; action rejected until release';
+      show();
+      return;
+    }
     const intent = {
       tool: (p as any).tool,
       input: (p as any).args,
@@ -589,6 +662,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   requestShutdown = (reason: string, terminalError: Error | null = null) => {
     if (shutdownStarted) return shutdownPromise ?? Promise.resolve();
     shutdownStarted = true;
+    releaseWaitAbort.abort(new Error(`controller shutdown before release settled: ${reason}`));
     shutdownPromise = Promise.resolve().then(async () => {
       try {
         appendJournal('run_stopping', { reason });

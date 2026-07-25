@@ -272,6 +272,31 @@ export class InhabitantExperience {
     );
   }
 
+  /**
+   * Discard setup-time perception before a matched experiment is released.
+   * The body remains connected and synchronized; the first policy observation
+   * starts from one fresh baseline rather than inheriting events accumulated
+   * while later residents were still connecting.
+   */
+  resetForExperimentRelease() {
+    this.events.splice(0);
+    this.sequence = 0;
+    this.currentAction = null;
+    this.lastCondition = {
+      health: finiteOrNull((this.bot as any).health),
+      food: finiteOrNull((this.bot as any).food),
+      oxygen: minecraftOxygenLevel((this.bot as any).oxygenLevel),
+    };
+    this.lastInventory = inventoryState(this.bot);
+    this.lastDayPhase = dayPhase(this.bot);
+    this.lastWeather = booleanOrNull((this.bot as any).isRaining);
+    this.lastDimension = stringOrNull((this.bot as any).game?.dimension);
+    this.lastPulseAt = this.now();
+    this.visibleEntities.clear();
+    this.lastSoundAt.clear();
+    this.visualSceneInitialized = false;
+  }
+
   record(
     type: string,
     data: any,

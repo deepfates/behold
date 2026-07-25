@@ -58,6 +58,15 @@ import {
   type MinecraftBodyProfile,
 } from '../src/mind/minecraft-body';
 import { verifyQuotaLedger } from '../src/observability/quota-ledger';
+import {
+  commitExperimentRelease,
+  createExperimentReleasePlan,
+  prepareExperimentRelease,
+  readExperimentReleaseClaims,
+  verifyExperimentReleaseArms,
+  verifyExperimentReleaseClaims,
+  type PreparedExperimentRelease,
+} from '../src/runtime/experiment-release';
 
 export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'chat',
@@ -511,6 +520,14 @@ export type ManagedWorldRun = Readonly<{
     admissionLimitReached: CognitionBroker['admissionLimitReached'];
     admissionLimitSettled: CognitionBroker['admissionLimitSettled'];
   }> | null;
+  experimentRelease: Readonly<{
+    releaseId: string;
+    planFile: string;
+    planSha256: string;
+    releaseFile: string;
+    lifecycleSequence: number;
+    lifecycleDigest: string;
+  }> | null;
   finished: Promise<void>;
   quiesceResidents(reason?: string): Promise<void>;
   stop(reason?: string): Promise<void>;
@@ -611,6 +628,11 @@ type ManagedCognition = Readonly<{
   >;
   concurrencyLimit: number;
   maxTotalModelCalls: number | null;
+}>;
+
+type ManagedExperimentRelease = Readonly<{
+  prepared: PreparedExperimentRelease;
+  initialAccounting: NonNullable<ReturnType<CognitionBroker['snapshot']>['accounting']>;
 }>;
 
 function normalizeManagedResidents(
@@ -895,6 +917,14 @@ function managedProviderAccounting(
       },
     );
   }
+  const paused = residents.filter((resident) => resident.paused);
+  if (paused.length > 0) {
+    throw new WorldRunnerError(
+      'Release-gated residents must keep their normal policy and broker credentials armed',
+      'provider_release_paused_resident',
+      { residents: paused.map((resident) => resident.entityId) },
+    );
+  }
   if (!requestedScope || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(requestedScope)) {
     throw new WorldRunnerError(
       'Per-resident provider quotas require a bounded explicit accountingScopeId',
@@ -913,6 +943,32 @@ function managedProviderAccounting(
       'Quota-controlled residents must have equal provider-attempt budgets',
       'provider_quota_population_mismatch',
       { residents: mismatched.map((resident) => resident.entityId) },
+    );
+  }
+  const bodyContract = {
+    bodyProfile: configured[0].bodyProfile,
+    actionProfile: configured[0].actionProfile,
+    safetyProfile: configured[0].safetyProfile,
+  };
+  const bodyMismatches = configured.filter(
+    (resident) =>
+      resident.bodyProfile !== bodyContract.bodyProfile ||
+      resident.actionProfile !== bodyContract.actionProfile ||
+      resident.safetyProfile !== bodyContract.safetyProfile,
+  );
+  if (bodyMismatches.length > 0) {
+    throw new WorldRunnerError(
+      'Release-gated residents must share one exact observation, action, and safety body contract',
+      'experiment_release_body_contract_mismatch',
+      {
+        expected: bodyContract,
+        residents: bodyMismatches.map((resident) => ({
+          entityId: resident.entityId,
+          bodyProfile: resident.bodyProfile,
+          actionProfile: resident.actionProfile,
+          safetyProfile: resident.safetyProfile,
+        })),
+      },
     );
   }
   const scopeDigest = sha256Bytes(Buffer.from(requestedScope));
@@ -942,6 +998,66 @@ function managedProviderAccounting(
       }),
     ),
   });
+}
+
+function matchedReleaseAccounting(
+  cognition: ManagedCognition,
+  configured: ManagedProviderAccounting,
+  residents: readonly NormalizedManagedResident[],
+): NonNullable<ReturnType<CognitionBroker['snapshot']>['accounting']> {
+  const accounting = cognition.broker.snapshot().accounting;
+  if (!accounting || accounting.accounts.length !== residents.length) {
+    throw new WorldRunnerError(
+      'Release cognition accounting does not cover the exact resident population',
+      'experiment_release_accounting_incomplete',
+      { expected: residents.length, actual: accounting?.accounts.length ?? 0 },
+    );
+  }
+  const balances = new Set<string>();
+  for (const resident of residents) {
+    const expected = configured.accounts.get(resident.entityId)!;
+    const actual = accounting.accounts.find((account) => account.accountId === expected.accountId);
+    if (
+      !actual ||
+      actual.file !== expected.ledgerFile ||
+      actual.scopeId !== configured.scopeId ||
+      actual.worldId !== residentWorldId(cognition, resident.entityId) ||
+      actual.layer !== 'provider' ||
+      actual.limits.resident_decision !== expected.limits.resident_decision ||
+      actual.limits.loom_fold !== expected.limits.loom_fold ||
+      actual.unsettled !== 0
+    ) {
+      throw new WorldRunnerError(
+        `Release quota account mismatches ${resident.entityId}`,
+        'experiment_release_accounting_mismatch',
+        { entityId: resident.entityId, expected, actual: actual ?? null },
+      );
+    }
+    balances.add(
+      JSON.stringify({ limits: actual.limits, used: actual.used, remaining: actual.remaining }),
+    );
+  }
+  if (balances.size !== 1) {
+    throw new WorldRunnerError(
+      'Release-gated residents do not have equal remaining per-purpose budgets',
+      'experiment_release_accounting_unmatched',
+      { accounts: accounting.accounts },
+    );
+  }
+  return accounting;
+}
+
+function residentWorldId(cognition: ManagedCognition, entityId: string) {
+  const worldId = cognition.clients.get(entityId)?.accounting?.worldId;
+  if (!worldId) throw new Error(`Cognition accounting world is missing for ${entityId}`);
+  return worldId;
+}
+
+function sameAccountingSnapshot(
+  left: NonNullable<ReturnType<CognitionBroker['snapshot']>['accounting']>,
+  right: NonNullable<ReturnType<CognitionBroker['snapshot']>['accounting']>,
+) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function managedModelConcurrencyLimit(options: ManagedWorldRunOptions, residentCount: number) {
@@ -1120,6 +1236,16 @@ export async function startManagedWorld(
   const before = await inspectRuntime();
   assertStoppedEvidence(before, 'before_control_acquisition');
   assertNoWorldControllerLeases(entityRoot, residents, circleIds, 'before_control_acquisition');
+  if (providerAccounting && !options.world.preparedBaseline) {
+    throw new WorldRunnerError(
+      'Release-gated experiments require a verified prepared baseline digest',
+      'experiment_release_baseline_missing',
+      { worldId: options.worldId },
+    );
+  }
+  const stoppedRuntimeDigest = providerAccounting
+    ? digestTree(options.world.runtime.worldPath).digest
+    : null;
   const jarSha256 = sha256File(options.serverJar);
   if (jarSha256 !== options.expectedServerJarSha256.toLowerCase()) {
     throw new WorldRunnerError(
@@ -1145,6 +1271,8 @@ export async function startManagedWorld(
   let serverOutput: OutputCapture | null = null;
   const controllerProcesses: ManagedResidentProcess[] = [];
   let cognition: ManagedCognition | null = null;
+  let experiment: ManagedExperimentRelease | null = null;
+  let committedExperimentRelease: ManagedWorldRun['experimentRelease'] = null;
   let stopping = false;
   let residentsQuiescing = false;
 
@@ -1158,6 +1286,16 @@ export async function startManagedWorld(
         'Minecraft server jar changed after control acquisition',
         'server_jar_changed_before_launch',
         { before: jarSha256, after: launchJarSha256 },
+      );
+    }
+    if (
+      stoppedRuntimeDigest &&
+      digestTree(options.world.runtime.worldPath).digest !== stoppedRuntimeDigest
+    ) {
+      throw new WorldRunnerError(
+        'Release-gated world changed between verification and fenced launch',
+        'experiment_release_world_drift',
+        { phase: 'before_server_launch', expected: stoppedRuntimeDigest },
       );
     }
     const upstreamApiKey = optionalText(process.env.OPENROUTER_API_KEY);
@@ -1202,6 +1340,13 @@ export async function startManagedWorld(
         concurrencyLimit: maxConcurrentModelCalls,
         maxTotalModelCalls,
       });
+    }
+    if (providerAccounting && !cognition) {
+      throw new WorldRunnerError(
+        'Release-gated experiments require an armed cognition broker and normal resident credentials',
+        'experiment_release_cognition_missing',
+        { accountingScopeId: providerAccounting.scopeId },
+      );
     }
     const sourceRevision = gitProvenance();
     control.append('run_configured', {
@@ -1250,6 +1395,7 @@ export async function startManagedWorld(
               },
               equalityEnforced: true,
               tokensAndCost: 'provider_reported_post_settlement',
+              releaseGate: 'behold.experiment-release-plan.v1',
             }
           : null,
         residentStartupDelayMs: options.residentStartupDelayMs ?? 0,
@@ -1279,6 +1425,7 @@ export async function startManagedWorld(
         controller: 'behold.llm-policy.v1',
         mind: 'behold.mind-request.v1 / behold.mind-decision.v1',
         cognition: cognition ? COGNITION_TRANSPORT_PROTOCOL : null,
+        experimentRelease: providerAccounting ? 'behold.experiment-release.v1' : null,
         owner: 'behold.world-owner.v1',
       },
     });
@@ -1320,6 +1467,112 @@ export async function startManagedWorld(
     );
     control.append('server_ready', { pid: server.pid });
 
+    if (providerAccounting) {
+      const freezeAcknowledgement = await setMinecraftTickState({
+        server,
+        serverExit,
+        output: serverOutput,
+        timeoutMs: startupTimeoutMs,
+        sleep,
+        state: 'frozen',
+      });
+      control.append('experiment_setup_operator_action', {
+        phase: 'setup',
+        action: 'minecraft_tick_freeze',
+        command: 'tick freeze',
+        acknowledgement: freezeAcknowledgement,
+      });
+      const saveAcknowledgement = await saveMinecraftWorld({
+        server,
+        serverExit,
+        output: serverOutput,
+        timeoutMs: startupTimeoutMs,
+        sleep,
+        reason: 'experiment_release_basis',
+      });
+      control.append('experiment_setup_operator_action', {
+        phase: 'setup',
+        action: 'minecraft_save_all_flush',
+        command: 'save-all flush',
+        acknowledgement: saveAcknowledgement,
+      });
+
+      const initialAccounting = matchedReleaseAccounting(cognition!, providerAccounting, residents);
+      const accounts = new Map(
+        initialAccounting.accounts.map((account) => [account.accountId, account] as const),
+      );
+      const frozenBasisDigest = digestTree(options.world.runtime.worldPath).digest;
+      const owner = control.record();
+      const plan = createExperimentReleasePlan({
+        createdAt: (dependencies.now?.() ?? new Date()).toISOString(),
+        world: options.worldId,
+        runId: managedRunId,
+        ownerEpoch: owner.epoch,
+        worldBasis: {
+          runtimePath: owner.runtime.path,
+          runtimeDevice: owner.runtime.device,
+          runtimeInode: owner.runtime.inode,
+          runtimeDigestProfile: 'behold-tree-v2',
+          runtimeDigest: frozenBasisDigest,
+          sourceDigest: options.world.source.expectedDigest,
+          preparedBaselineDigest: options.world.preparedBaseline!.expectedDigest,
+        },
+        accountingScope: {
+          scopeId: providerAccounting.scopeId,
+          scopeDigest: providerAccounting.scopeDigest,
+        },
+        residents: residents.map((resident) => {
+          const configured = providerAccounting.accounts.get(resident.entityId)!;
+          const account = accounts.get(configured.accountId)!;
+          return {
+            entityId: resident.entityId,
+            bodyUsername: resident.bodyUsername,
+            model: resident.model,
+            urgentModel: resident.urgentModel ?? null,
+            mind: resident.mind,
+            profiles: {
+              policy: resident.policyProfile,
+              body: resident.bodyProfile,
+              actions: resident.actionProfile,
+              safety: resident.safetyProfile,
+            },
+            quotaAccount: {
+              accountId: account.accountId,
+              ledgerFile: account.file,
+              limits: {
+                resident_decision: account.limits.resident_decision,
+                loom_fold: account.limits.loom_fold,
+              },
+              used: {
+                resident_decision: account.used.resident_decision,
+                loom_fold: account.used.loom_fold,
+              },
+              remaining: {
+                resident_decision: account.remaining.resident_decision,
+                loom_fold: account.remaining.loom_fold,
+              },
+              tipDigest: account.tipDigest,
+            },
+          };
+        }),
+      });
+      const prepared = prepareExperimentRelease(
+        path.join(runRoot, managedRunId, '_experiment_release'),
+        plan,
+      );
+      experiment = Object.freeze({ prepared, initialAccounting });
+      control.append('experiment_setup_started', {
+        phase: 'setup',
+        releaseId: plan.releaseId,
+        planFile: prepared.planFile,
+        planSha256: prepared.planSha256,
+        populationDigest: plan.populationDigest,
+        worldBasis: plan.worldBasis,
+        accountingScope: plan.accountingScope,
+        postReleaseObservationOrdering: 'resident_claim_ordinals_are_sequential',
+      });
+    }
+
     for (const [index, resident] of residents.entries()) {
       const journalDirectory = path.join(runRoot, managedRunId, sanitizeName(resident.entityId));
       const environment = managedControllerEnvironment(
@@ -1329,6 +1582,7 @@ export async function startManagedWorld(
         control.file,
         journalDirectory,
         cognition,
+        experiment,
       );
       const controller =
         dependencies.spawnController?.({
@@ -1378,30 +1632,214 @@ export async function startManagedWorld(
             startupTimeoutMs,
             sleep,
             async () =>
-              processRecord.output.lines().some(isControllerReadyLine) &&
+              processRecord.output
+                .lines()
+                .some((line) =>
+                  experiment
+                    ? isControllerReleaseArmedLine(
+                        line,
+                        experiment.prepared.plan.releaseId,
+                        resident.entityId,
+                      )
+                    : isControllerReadyLine(line),
+                ) &&
               leaseOwnedBy(resident.leasePath, controller.pid!, resident.entityId, managedRunId),
             signal,
           ),
         [serverExit, ...controllerProcesses.map((entry) => entry.exit)],
       );
       control.append('controller_ready', {
+        ...(experiment ? { phase: 'setup' } : {}),
         index,
         pid: controller.pid,
         entityId: resident.entityId,
+        releaseArmed: experiment != null,
+        releaseId: experiment?.prepared.plan.releaseId ?? null,
       });
       if (index < residents.length - 1 && (options.residentStartupDelayMs ?? 0) > 0) {
-        control.append('resident_start_stagger', {
-          afterEntityId: resident.entityId,
-          beforeEntityId: residents[index + 1].entityId,
-          milliseconds: options.residentStartupDelayMs,
-        });
+        control.append(
+          experiment ? 'experiment_setup_resident_stagger' : 'resident_start_stagger',
+          {
+            ...(experiment ? { phase: 'setup' } : {}),
+            afterEntityId: resident.entityId,
+            beforeEntityId: residents[index + 1].entityId,
+            milliseconds: options.residentStartupDelayMs,
+          },
+        );
         await sleep(options.residentStartupDelayMs!);
       }
+    }
+    let releaseClaims: ReturnType<typeof verifyExperimentReleaseClaims> = Object.freeze([]);
+    if (experiment) {
+      const arms = verifyExperimentReleaseArms(experiment.prepared);
+      for (const arm of arms) {
+        const processRecord = controllerProcesses.find(
+          (entry) => entry.resident.entityId === arm.entityId,
+        );
+        if (
+          !processRecord ||
+          arm.pid !== processRecord.child.pid ||
+          !pathIsWithin(processRecord.journalDirectory, arm.journalFile)
+        ) {
+          throw new WorldRunnerError(
+            `Release arm evidence mismatches controller ${arm.entityId}`,
+            'experiment_release_arm_mismatch',
+            { arm, controller: processRecord ? controllerRecords([processRecord])[0] : null },
+          );
+        }
+      }
+      const cognitionBeforeRelease = cognition!.broker.snapshot();
+      if (
+        cognitionBeforeRelease.accepted !== 0 ||
+        cognitionBeforeRelease.admitted !== 0 ||
+        cognitionBeforeRelease.active !== 0 ||
+        cognitionBeforeRelease.queued !== 0 ||
+        cognitionBeforeRelease.completed !== 0 ||
+        cognitionBeforeRelease.failed !== 0 ||
+        cognitionBeforeRelease.cancelled !== 0 ||
+        cognitionBeforeRelease.rejected !== 0 ||
+        cognitionBeforeRelease.admissionOrdinal !== 0
+      ) {
+        throw new WorldRunnerError(
+          'Resident cognition reached the broker before the population release',
+          'experiment_release_early_cognition',
+          cognitionBeforeRelease,
+        );
+      }
+      const accountingBeforeRelease = matchedReleaseAccounting(
+        cognition!,
+        providerAccounting!,
+        residents,
+      );
+      if (!sameAccountingSnapshot(experiment.initialAccounting, accountingBeforeRelease)) {
+        throw new WorldRunnerError(
+          'Resident quota accounting changed before the population release',
+          'experiment_release_early_quota_mutation',
+          { initial: experiment.initialAccounting, actual: accountingBeforeRelease },
+        );
+      }
+
+      const releaseSaveAcknowledgement = await saveMinecraftWorld({
+        server,
+        serverExit,
+        output: serverOutput,
+        timeoutMs: startupTimeoutMs,
+        sleep,
+        reason: 'experiment_release_population_armed',
+      });
+      control.append('experiment_setup_operator_action', {
+        phase: 'setup',
+        action: 'minecraft_save_all_flush',
+        command: 'save-all flush',
+        acknowledgement: releaseSaveAcknowledgement,
+      });
+      const releaseRuntimeDigest = digestTree(options.world.runtime.worldPath).digest;
+      control.append('experiment_population_armed', {
+        phase: 'setup',
+        releaseId: experiment.prepared.plan.releaseId,
+        arms,
+        cognition: cognitionBeforeRelease,
+        accounting: accountingBeforeRelease,
+        worldState: {
+          runtimeDigestProfile: 'behold-tree-v2',
+          runtimeDigest: releaseRuntimeDigest,
+          minecraftTicks: 'frozen_before_release',
+          saveAcknowledged: true,
+        },
+      });
+      const unfreezeAcknowledgement = await setMinecraftTickState({
+        server,
+        serverExit,
+        output: serverOutput,
+        timeoutMs: startupTimeoutMs,
+        sleep,
+        state: 'running',
+      });
+      const releaseEvent = control.append('experiment_released', {
+        releaseId: experiment.prepared.plan.releaseId,
+        planFile: experiment.prepared.planFile,
+        planSha256: experiment.prepared.planSha256,
+        populationDigest: experiment.prepared.plan.populationDigest,
+        worldState: {
+          runtimeDigestProfile: 'behold-tree-v2',
+          runtimeDigest: releaseRuntimeDigest,
+          minecraftTicks: 'frozen_before_release',
+          saveAcknowledged: true,
+        },
+        operatorBoundary: {
+          action: 'minecraft_tick_unfreeze',
+          command: 'tick unfreeze',
+          acknowledgement: unfreezeAcknowledgement,
+        },
+        postReleaseObservationOrdering: 'resident_claim_ordinals_are_sequential',
+      });
+      const release = commitExperimentRelease(experiment.prepared, {
+        releasedAt: releaseEvent.at,
+        worldState: {
+          runtimeDigestProfile: 'behold-tree-v2',
+          runtimeDigest: releaseRuntimeDigest,
+          minecraftTicks: 'frozen_before_release',
+          saveAcknowledged: true,
+        },
+        lifecycle: {
+          file: control.journalFile,
+          sequence: releaseEvent.sequence,
+          digest: releaseEvent.digest,
+        },
+      });
+      await raceProcessExits(
+        (signal) =>
+          waitForCondition(
+            'resident experiment release claims',
+            startupTimeoutMs,
+            sleep,
+            async () => {
+              if (signal.aborted) return false;
+              return (
+                readExperimentReleaseClaims(experiment!.prepared, release).length ===
+                residents.length
+              );
+            },
+            signal,
+          ),
+        [serverExit, ...controllerProcesses.map((entry) => entry.exit)],
+      );
+      releaseClaims = verifyExperimentReleaseClaims(experiment.prepared);
+      for (const claim of releaseClaims) {
+        const processRecord = controllerProcesses.find(
+          (entry) => entry.resident.entityId === claim.entityId,
+        );
+        if (!processRecord || claim.pid !== processRecord.child.pid) {
+          throw new WorldRunnerError(
+            `Release claim evidence mismatches controller ${claim.entityId}`,
+            'experiment_release_claim_mismatch',
+            claim,
+          );
+        }
+        control.append('resident_release_observed', {
+          releaseId: release.releaseId,
+          entityId: claim.entityId,
+          pid: claim.pid,
+          observedOrder: claim.reference.residentObservedOrder,
+          observedAt: claim.reference.residentObservedAt,
+          executionSemantics: 'sequential_observation_order',
+        });
+      }
+      committedExperimentRelease = Object.freeze({
+        releaseId: release.releaseId,
+        planFile: experiment.prepared.planFile,
+        planSha256: experiment.prepared.planSha256,
+        releaseFile: path.join(experiment.prepared.directory, 'release.json'),
+        lifecycleSequence: releaseEvent.sequence,
+        lifecycleDigest: releaseEvent.digest,
+      });
     }
     control.update('running');
     control.append('run_ready', {
       serverPid: server.pid,
       residents: publicResidentRecords(controllerProcesses),
+      experimentRelease: committedExperimentRelease,
+      residentReleaseClaims: releaseClaims,
     });
 
     const finished = Promise.race([
@@ -1486,6 +1924,7 @@ export async function startManagedWorld(
             admissionLimitSettled: runningCognition.broker.admissionLimitSettled,
           })
         : null,
+      experimentRelease: committedExperimentRelease,
       finished,
       quiesceResidents,
       stop,
@@ -2053,6 +2492,7 @@ function managedControllerEnvironment(
   controlFile: string,
   journalDirectory: string,
   cognition: ManagedCognition | null,
+  experiment: ManagedExperimentRelease | null,
 ) {
   const env: NodeJS.ProcessEnv = {};
   for (const name of [
@@ -2086,6 +2526,11 @@ function managedControllerEnvironment(
     env.OPENROUTER_API_KEY = client.bearer;
     env.OPENROUTER_BASE_URL = cognition.broker.endpoint;
     env.BEHOLD_COGNITION_TRANSPORT = COGNITION_TRANSPORT_PROTOCOL;
+    if (client.accounting) env.BEHOLD_COGNITION_ACCOUNT_ID = client.accounting.accountId;
+  }
+  if (experiment) {
+    env.BEHOLD_EXPERIMENT_RELEASE_PLAN = experiment.prepared.planFile;
+    env.BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256 = experiment.prepared.planSha256;
   }
   env.VIEWER_ENABLED = '0';
   env.BEHOLD_LOAD_DOTENV = '0';
@@ -2108,6 +2553,9 @@ const RESERVED_RESIDENT_ENVIRONMENT = new Set([
   'OPENROUTER_API_KEY',
   'OPENROUTER_BASE_URL',
   'BEHOLD_COGNITION_TRANSPORT',
+  'BEHOLD_COGNITION_ACCOUNT_ID',
+  'BEHOLD_EXPERIMENT_RELEASE_PLAN',
+  'BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256',
   'VIEWER_ENABLED',
   'BEHOLD_LOAD_DOTENV',
   'BEHOLD_RUN_ID',
@@ -2230,8 +2678,85 @@ export function isControllerReadyLine(line: string) {
   return line.trim() === '[bot] Local world loaded.';
 }
 
+export function isControllerReleaseArmedLine(line: string, releaseId: string, entityId: string) {
+  return line.trim() === `[bot] Experiment release armed: ${releaseId} ${entityId}`;
+}
+
+export function isMinecraftTickFrozenAcknowledgement(line: string) {
+  return /^(?:\[[^\]\r\n]+\] )?\[Server thread\/INFO\]: The game is frozen$/.test(line.trim());
+}
+
+export function isMinecraftTickRunningAcknowledgement(line: string) {
+  return /^(?:\[[^\]\r\n]+\] )?\[Server thread\/INFO\]: The game is running normally$/.test(
+    line.trim(),
+  );
+}
+
 export function isMinecraftSaveAcknowledgement(line: string) {
   return /^(?:\[[^\]\r\n]+\] )?\[Server thread\/INFO\]: Saved the game$/.test(line.trim());
+}
+
+async function setMinecraftTickState(input: {
+  server: ChildProcessWithoutNullStreams;
+  serverExit: Promise<ProcessExit>;
+  output: OutputCapture;
+  timeoutMs: number;
+  sleep: (milliseconds: number) => Promise<void>;
+  state: 'frozen' | 'running';
+}) {
+  const marker = input.output.mark();
+  const command = input.state === 'frozen' ? 'tick freeze' : 'tick unfreeze';
+  const matches =
+    input.state === 'frozen'
+      ? isMinecraftTickFrozenAcknowledgement
+      : isMinecraftTickRunningAcknowledgement;
+  input.server.stdin.write(`${command}\n`);
+  await raceProcessExits(
+    (signal) =>
+      waitForCondition(
+        `Minecraft tick ${input.state} acknowledgement`,
+        input.timeoutMs,
+        input.sleep,
+        async () => input.output.linesAfter(marker).some(matches),
+        signal,
+      ),
+    [input.serverExit],
+  );
+  return input.output.linesAfter(marker).find(matches)!;
+}
+
+async function saveMinecraftWorld(input: {
+  server: ChildProcessWithoutNullStreams;
+  serverExit: Promise<ProcessExit>;
+  output: OutputCapture;
+  timeoutMs: number;
+  sleep: (milliseconds: number) => Promise<void>;
+  reason: string;
+}) {
+  const marker = input.output.mark();
+  input.server.stdin.write('save-all flush\n');
+  await raceProcessExits(
+    (signal) =>
+      waitForCondition(
+        `Minecraft save acknowledgement for ${input.reason}`,
+        input.timeoutMs,
+        input.sleep,
+        async () => input.output.linesAfter(marker).some(isMinecraftSaveAcknowledgement),
+        signal,
+      ),
+    [input.serverExit],
+  );
+  return input.output.linesAfter(marker).find(isMinecraftSaveAcknowledgement)!;
+}
+
+function pathIsWithin(directory: string, file: string) {
+  const relative = path.relative(path.resolve(directory), path.resolve(file));
+  return (
+    relative !== '' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    relative !== '..' &&
+    !path.isAbsolute(relative)
+  );
 }
 
 async function raceProcessExits<T>(

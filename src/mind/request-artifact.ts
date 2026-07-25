@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ResidentAttention, ResidentMindAction, ResidentMindRequest } from './interface';
+import { parseExperimentReleaseReference } from '../runtime/experiment-release';
 
 export const RESIDENT_MIND_REQUEST_ARTIFACT_PROTOCOL = 'behold.mind-request-artifact.v1' as const;
 
@@ -17,6 +18,7 @@ const REQUEST_FIELDS = new Set([
   'bodyProfile',
   'actionProfile',
   'safetyProfile',
+  'experimentRelease',
   'observation',
   'conversation',
   'actions',
@@ -90,6 +92,9 @@ export function parseResidentMindRequest(value: unknown): Readonly<ResidentMindR
     ...(request.safetyProfile == null
       ? {}
       : { safetyProfile: nonEmpty(request.safetyProfile, 'resident safety profile') }),
+    ...(request.experimentRelease == null
+      ? {}
+      : { experimentRelease: parseExperimentReleaseReference(request.experimentRelease) }),
     observation,
     conversation,
     actions,

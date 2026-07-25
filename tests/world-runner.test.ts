@@ -7,9 +7,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   COME_SEE_DO_REPORT_ALLOW_TOOLS,
+  isControllerReleaseArmedLine,
   isControllerReadyLine,
   isMinecraftReadyLine,
   isMinecraftSaveAcknowledgement,
+  isMinecraftTickFrozenAcknowledgement,
+  isMinecraftTickRunningAcknowledgement,
   assertResidentConfigExclusive,
   loadManagedResidentSet,
   managedControllerProfile,
@@ -47,6 +50,26 @@ test('lifecycle markers require exact positive protocol lines', () => {
   assert.equal(isMinecraftReadyLine('Not Done loading world'), false);
   assert.equal(isControllerReadyLine('[bot] Local world loaded.'), true);
   assert.equal(isControllerReadyLine('expected marker was: [bot] Local world loaded.'), false);
+  assert.equal(
+    isControllerReleaseArmedLine(
+      `[bot] Experiment release armed: ${'a'.repeat(64)} Scout`,
+      'a'.repeat(64),
+      'Scout',
+    ),
+    true,
+  );
+  assert.equal(
+    isControllerReleaseArmedLine('expected release armed', 'a'.repeat(64), 'Scout'),
+    false,
+  );
+  assert.equal(
+    isMinecraftTickFrozenAcknowledgement('[Server thread/INFO]: The game is frozen'),
+    true,
+  );
+  assert.equal(
+    isMinecraftTickRunningAcknowledgement('[Server thread/INFO]: The game is running normally'),
+    true,
+  );
   assert.equal(
     isMinecraftSaveAcknowledgement('[12:00:01] [Server thread/INFO]: Saved the game'),
     true,
@@ -387,6 +410,53 @@ test('resident configuration rejects canonical identity collisions and process-b
         {
           ...fixture.options,
           accountingScopeId: 'matched-1',
+          residents: [
+            {
+              entityId: 'Scout',
+              model: 'fixture/model-a',
+              bodyProfile: 'minecraft-human-semantic-v1',
+              actionProfile: 'minecraft-human-semantic-v1',
+              safetyProfile: 'vanilla-player-v1',
+              providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 2 },
+            },
+            {
+              entityId: 'Builder',
+              model: 'fixture/model-b',
+              bodyProfile: 'minecraft-resident-v1',
+              actionProfile: 'resident-v1',
+              safetyProfile: 'resident-safe-v1',
+              providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 2 },
+            },
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'experiment_release_body_contract_mismatch',
+  );
+  assert.equal(inspections, 0);
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'matched-1',
+          residents: fixture.options.residents.map((resident) => ({
+            ...resident,
+            paused: true,
+            providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 2 },
+          })),
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'provider_release_paused_resident',
+  );
+  assert.equal(inspections, 0);
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'matched-1',
           maxTotalModelCalls: 9,
           residents: fixture.options.residents.map((resident) => ({
             ...resident,
@@ -511,8 +581,14 @@ test('resident configuration rejects canonical identity collisions and process-b
   assert.equal(inspections, 0);
 });
 
-test('managed cognition keeps the provider key in the runner and drains before Minecraft stops', async (t) => {
+test('managed cognition and fixture failure cleanup drain every owned resource before evidence removal', async (t) => {
   const fixture = makeFixture(t);
+  let exercisedDiagnosticDirectory: string | null = null;
+  t.after(() => {
+    if (exercisedDiagnosticDirectory) {
+      fs.rmSync(exercisedDiagnosticDirectory, { recursive: true, force: true });
+    }
+  });
   const captureFile = path.join(fixture.root, 'controller-environment.json');
   const controllerEntry = path.join(fixture.root, 'fixture-controller.js');
   fs.writeFileSync(
@@ -522,7 +598,12 @@ test('managed cognition keeps the provider key in the runner and drains before M
       const os = require('node:os');
       const path = require('node:path');
       const crypto = require('node:crypto');
+      const { experimentReleaseGateFromEnvironment } = require(path.resolve('dist/src/runtime/experiment-release.js'));
       const entityId = process.argv[2];
+      const arg = (name) => {
+        const index = process.argv.indexOf(name);
+        return index < 0 ? null : process.argv[index + 1];
+      };
       const lease = path.join(process.env.BEHOLD_ENTITY_DIR, entityId, 'runtime.lock');
       fs.mkdirSync(path.dirname(lease), { recursive: true });
       fs.writeFileSync(lease, JSON.stringify({
@@ -543,9 +624,35 @@ test('managed cognition keeps the provider key in the runner and drains before M
         bodyProfile: process.env.BEHOLD_BODY_PROFILE,
         actionProfile: process.env.BEHOLD_ACTION_PROFILE,
         safetyProfile: process.env.BEHOLD_SAFETY_PROFILE
-        ,fixtureProofPhase: process.env.BEHOLD_FIXTURE_PROOF_PHASE
+        ,fixtureProofPhase: process.env.BEHOLD_FIXTURE_PROOF_PHASE,
+        quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
+        releasePlan: process.env.BEHOLD_EXPERIMENT_RELEASE_PLAN
       }));
-      console.log('[bot] Local world loaded.');
+      const journalFile = path.join(process.env.BEHOLD_RUN_DIR, 'fixture-controller.jsonl');
+      fs.mkdirSync(path.dirname(journalFile), { recursive: true });
+      fs.writeFileSync(journalFile, JSON.stringify({ type: 'setup_local_world_ready' }) + '\\n');
+      const gate = experimentReleaseGateFromEnvironment({
+        entityId,
+        bodyUsername: process.env.MINECRAFT_USERNAME,
+        model: arg('--model'),
+        urgentModel: arg('--urgentModel'),
+        mind: process.env.BEHOLD_MIND,
+        profiles: {
+          policy: process.env.BEHOLD_POLICY_PROFILE,
+          body: process.env.BEHOLD_BODY_PROFILE,
+          actions: process.env.BEHOLD_ACTION_PROFILE,
+          safety: process.env.BEHOLD_SAFETY_PROFILE,
+        },
+        quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
+      });
+      gate.arm({ journalFile, setupObservation: { fixture: true } });
+      console.error('[bot] Experiment release armed: ' + gate.prepared.plan.releaseId + ' ' + entityId);
+      gate.waitAndClaim().then((reference) => {
+        fs.appendFileSync(journalFile, JSON.stringify({ type: 'experiment_release_observed', reference }) + '\\n');
+      }).catch((error) => {
+        console.error(error);
+        process.exit(1);
+      });
       process.stdin.resume();
       process.stdin.on('end', () => {
         if (fs.existsSync(lease)) fs.unlinkSync(lease);
@@ -610,6 +717,8 @@ test('managed cognition keeps the provider key in the runner and drains before M
           console.log('[Server thread/INFO]: Done (0.1s)! For help, type "help"');
           const rl = readline.createInterface({ input: process.stdin });
           rl.on('line', (line) => {
+            if (line === 'tick freeze') console.log('[Server thread/INFO]: The game is frozen');
+            if (line === 'tick unfreeze') console.log('[Server thread/INFO]: The game is running normally');
             if (line === 'save-all flush') console.log('[Server thread/INFO]: Saved the game');
             if (line === 'stop') process.exit(0);
           });
@@ -624,29 +733,31 @@ test('managed cognition keeps the provider key in the runner and drains before M
     });
     return child;
   };
-  const run = await startManagedWorld(
-    {
-      ...fixture.options,
-      controllerEntry,
-      maxConcurrentModelCalls: 1,
-      accountingScopeId,
-      residents: fixture.options.residents.map((resident) => ({
-        ...resident,
-        urgentModel: 'fixture/urgent-model',
-        policyProfile: 'neutral-benchmark-v1' as const,
-        maxTurnSteps: 1,
-        resumeAfterBudget: false,
-        providerQuotas: { residentDecisionAttempts: 3, auxiliaryContextAttempts: 2 },
-        environment: { BEHOLD_FIXTURE_PROOF_PHASE: 'act' },
-      })),
-    },
-    {
-      spawnServer,
-      verifyArtifacts: async () => ARTIFACTS_OK,
-      inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
-      stdout: () => {},
-      stderr: () => {},
-    },
+  const run = fixture.trackRun(
+    await startManagedWorld(
+      {
+        ...fixture.options,
+        controllerEntry,
+        maxConcurrentModelCalls: 1,
+        accountingScopeId,
+        residents: fixture.options.residents.map((resident) => ({
+          ...resident,
+          urgentModel: 'fixture/urgent-model',
+          policyProfile: 'neutral-benchmark-v1' as const,
+          maxTurnSteps: 1,
+          resumeAfterBudget: false,
+          providerQuotas: { residentDecisionAttempts: 3, auxiliaryContextAttempts: 2 },
+          environment: { BEHOLD_FIXTURE_PROOF_PHASE: 'act' },
+        })),
+      },
+      {
+        spawnServer,
+        verifyArtifacts: async () => ARTIFACTS_OK,
+        inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+        stdout: () => {},
+        stderr: () => {},
+      },
+    ),
   );
   assert.ok(run.cognition);
   assert.equal(run.cognition.concurrencyLimit, 1);
@@ -667,6 +778,8 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(captured.actionProfile, 'minecraft-human-semantic-v1');
   assert.equal(captured.safetyProfile, 'vanilla-player-v1');
   assert.equal(captured.fixtureProofPhase, 'act');
+  assert.equal(captured.quotaAccountId, accountId);
+  assert.equal(captured.releasePlan, run.experimentRelease?.planFile);
   assert.notEqual(captured.keySha256, createHash('sha256').update(providerSecret).digest('hex'));
   assert.ok(captured.keyLength >= 32);
   assert.match(captured.endpoint, /^http:\/\/127\.0\.0\.1:\d+\/v1\/chat\/completions$/);
@@ -675,8 +788,44 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(captured.titlePresent, false);
   assert.equal(captured.ambientCloudCredentialPresent, false);
   assert.equal(captured.dotenvDisabled, true);
+  assert.ok(run.experimentRelease);
+  assert.equal(fs.existsSync(run.experimentRelease.releaseFile), true);
 
-  await run.stop('cognition_fixture_complete');
+  let deliberateAssertion: Error | null = null;
+  try {
+    assert.equal('synthetic assertion failure', 'unreachable expected value');
+  } catch (error: any) {
+    deliberateAssertion = error;
+  }
+  assert.ok(deliberateAssertion instanceof assert.AssertionError);
+  const cleanup = await fixture.cleanupManagedRuns();
+  assert.equal(cleanup.intervened, true);
+  assert.deepEqual(cleanup.cleanupErrors, []);
+  assert.ok(cleanup.before.some((entry) => entry.livePids.length === 2));
+  assert.ok(cleanup.before.some((entry) => entry.control.state === 'held'));
+  assert.ok(cleanup.listenersBefore.some((line) => /TCP .*\(LISTEN\)$/.test(line)));
+  assert.ok(cleanup.after.every((entry) => entry.livePids.length === 0));
+  assert.ok(cleanup.after.every((entry) => entry.control.state === 'clear'));
+  assert.deepEqual(cleanup.openRootDescriptorsAfter, []);
+  assert.ok(
+    cleanup.listenersBefore.every((listener) => !cleanup.listenersAfter.includes(listener)),
+  );
+  assert.ok(cleanup.diagnosticDirectory);
+  exercisedDiagnosticDirectory = cleanup.diagnosticDirectory;
+  assert.equal(fs.existsSync(path.join(cleanup.diagnosticDirectory!, 'cleanup.json')), true);
+  assert.equal(
+    verifyWorldLifecycleJournal(
+      path.join(cleanup.diagnosticDirectory!, 'lifecycle-0.jsonl'),
+    ).events.at(-1)?.type,
+    'control_released',
+  );
+  assert.equal(
+    verifyCognitionBrokerJournal(
+      path.join(cleanup.diagnosticDirectory!, 'cognition-0.jsonl'),
+    ).events.at(-1)?.type,
+    'drained',
+  );
+  assert.strictEqual(await fixture.cleanupManagedRuns(), cleanup, 'cleanup is idempotent');
   await run.finished;
   const verified = verifyCognitionBrokerJournal(run.cognition.journalFile);
   assert.equal(verified.peakActive, 0);
@@ -685,6 +834,25 @@ test('managed cognition keeps the provider key in the runner and drains before M
   const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile).events;
   const configured: any = lifecycle.find((event) => event.type === 'run_configured');
   const brokerReady: any = lifecycle.find((event) => event.type === 'cognition_broker_ready');
+  const frozen = lifecycle.findIndex(
+    (event) =>
+      event.type === 'experiment_setup_operator_action' &&
+      (event.data as any)?.action === 'minecraft_tick_freeze',
+  );
+  const armed = lifecycle.findIndex((event) => event.type === 'experiment_population_armed');
+  const released = lifecycle.findIndex((event) => event.type === 'experiment_released');
+  const observed = lifecycle.findIndex((event) => event.type === 'resident_release_observed');
+  const ready = lifecycle.findIndex((event) => event.type === 'run_ready');
+  assert.ok(
+    frozen >= 0 && armed > frozen && released > armed && observed > released && ready > observed,
+  );
+  assert.equal((lifecycle[armed].data as any).cognition.accepted, 0);
+  assert.equal((lifecycle[armed].data as any).cognition.admitted, 0);
+  assert.equal((lifecycle[observed].data as any).observedOrder, 1);
+  assert.equal(
+    (lifecycle[released].data as any).postReleaseObservationOrdering,
+    'resident_claim_ordinals_are_sequential',
+  );
   assert.equal(configured?.data?.population?.maxTotalModelCalls, null);
   assert.equal(configured?.data?.population?.residents?.[0]?.urgentModel, 'fixture/urgent-model');
   assert.equal(configured?.data?.population?.residents?.[0]?.policyProfile, 'neutral-benchmark-v1');
@@ -904,14 +1072,16 @@ test('managed world runner owns conjunctive readiness, distinct leases, drain, s
     }) as ChildProcessWithoutNullStreams;
   };
 
-  const run = await startManagedWorld(options, {
-    spawnServer,
-    spawnController,
-    verifyArtifacts: async () => ARTIFACTS_OK,
-    inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
-    stdout: () => {},
-    stderr: () => {},
-  });
+  const run = fixture.trackRun(
+    await startManagedWorld(options, {
+      spawnServer,
+      spawnController,
+      verifyArtifacts: async () => ARTIFACTS_OK,
+      inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+      stdout: () => {},
+      stderr: () => {},
+    }),
+  );
   assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'held');
   assert.equal(run.runId, 'fixture-1');
   assert.equal(fs.existsSync(fixture.lease), true);
@@ -1346,22 +1516,24 @@ test('one resident exiting makes the shared epoch unhealthy and drains every rem
       { stdio: ['pipe', 'pipe', 'pipe'] },
     ) as ChildProcessWithoutNullStreams;
   };
-  const run = await startManagedWorld(
-    {
-      ...fixture.options,
-      residents: [
-        { entityId: 'Scout', model: 'fixture/model' },
-        { entityId: 'Builder', model: 'fixture/model' },
-      ],
-    },
-    {
-      spawnServer,
-      spawnController,
-      verifyArtifacts: async () => ARTIFACTS_OK,
-      inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
-      stdout: () => {},
-      stderr: () => {},
-    },
+  const run = fixture.trackRun(
+    await startManagedWorld(
+      {
+        ...fixture.options,
+        residents: [
+          { entityId: 'Scout', model: 'fixture/model' },
+          { entityId: 'Builder', model: 'fixture/model' },
+        ],
+      },
+      {
+        spawnServer,
+        spawnController,
+        verifyArtifacts: async () => ARTIFACTS_OK,
+        inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+        stdout: () => {},
+        stderr: () => {},
+      },
+    ),
   );
 
   await assert.rejects(
@@ -1443,23 +1615,25 @@ test('world ownership is never released while any resident lease remains', async
       { stdio: ['pipe', 'pipe', 'pipe'] },
     ) as ChildProcessWithoutNullStreams;
   };
-  const run = await startManagedWorld(
-    {
-      ...fixture.options,
-      residents: [
-        { entityId: 'Scout', model: 'fixture/model' },
-        { entityId: 'Builder', model: 'fixture/model' },
-      ],
-      shutdownTimeoutMs: 200,
-    },
-    {
-      spawnServer,
-      spawnController,
-      verifyArtifacts: async () => ARTIFACTS_OK,
-      inspectRuntime: async () => runtimeEvidence(serverAlive && server?.pid ? server.pid : null),
-      stdout: () => {},
-      stderr: () => {},
-    },
+  const run = fixture.trackRun(
+    await startManagedWorld(
+      {
+        ...fixture.options,
+        residents: [
+          { entityId: 'Scout', model: 'fixture/model' },
+          { entityId: 'Builder', model: 'fixture/model' },
+        ],
+        shutdownTimeoutMs: 200,
+      },
+      {
+        spawnServer,
+        spawnController,
+        verifyArtifacts: async () => ARTIFACTS_OK,
+        inspectRuntime: async () => runtimeEvidence(serverAlive && server?.pid ? server.pid : null),
+        stdout: () => {},
+        stderr: () => {},
+      },
+    ),
   );
   const retainedLease = path.join(fixture.options.entityRoot, 'Builder', 'runtime.lock');
 
@@ -1522,14 +1696,16 @@ test('abnormal child exits can clear OS resources but never release successful c
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ChildProcessWithoutNullStreams;
   };
-  const run = await startManagedWorld(fixture.options, {
-    spawnServer,
-    spawnController,
-    verifyArtifacts: async () => ARTIFACTS_OK,
-    inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
-    stdout: () => {},
-    stderr: () => {},
-  });
+  const run = fixture.trackRun(
+    await startManagedWorld(fixture.options, {
+      spawnServer,
+      spawnController,
+      verifyArtifacts: async () => ARTIFACTS_OK,
+      inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+      stdout: () => {},
+      stderr: () => {},
+    }),
+  );
 
   await assert.rejects(
     () => run.stop('abnormal_fixture'),
@@ -1551,7 +1727,28 @@ test('abnormal child exits can clear OS resources but never release successful c
 
 function makeFixture(t: test.TestContext) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-world-runner-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const ownedRuns: Array<Awaited<ReturnType<typeof startManagedWorld>>> = [];
+  let cleanupStarted = false;
+  let cleanupPromise: Promise<ManagedFixtureCleanupEvidence> | null = null;
+  const cleanupManagedRuns = () => {
+    if (cleanupPromise) return cleanupPromise;
+    cleanupStarted = true;
+    cleanupPromise = cleanupOwnedManagedRuns(root, ownedRuns);
+    return cleanupPromise;
+  };
+  // This is deliberately the first hook. It owns every successfully returned
+  // managed run and closes those resources before the fixture tree disappears,
+  // including when a later assertion throws.
+  t.after(async () => {
+    try {
+      const cleanup = await cleanupManagedRuns();
+      if (cleanup.diagnosticDirectory) {
+        t.diagnostic(`managed fixture cleanup evidence: ${cleanup.diagnosticDirectory}`);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
   const source = path.join(root, 'source');
   const baseline = path.join(root, 'baseline');
   const runtime = path.join(root, 'server', 'world');
@@ -1580,6 +1777,15 @@ function makeFixture(t: test.TestContext) {
     root,
     controlRoot,
     lease,
+    trackRun<T extends Awaited<ReturnType<typeof startManagedWorld>>>(run: T) {
+      if (cleanupStarted) throw new Error('cannot register a managed run after fixture cleanup');
+      // Keep the original promise observable to the test while also preventing
+      // an assertion path from creating an unhandled rejection before cleanup.
+      void run.finished.catch(() => {});
+      ownedRuns.push(run);
+      return run;
+    },
+    cleanupManagedRuns,
     options: {
       worldId: 'fixture',
       world,
@@ -1604,6 +1810,193 @@ function makeFixture(t: test.TestContext) {
       shutdownTimeoutMs: 3000,
     },
   };
+}
+
+type ManagedFixtureCleanupEvidence = Readonly<{
+  intervened: boolean;
+  diagnosticDirectory: string | null;
+  before: readonly ManagedFixtureRunEvidence[];
+  after: readonly ManagedFixtureRunEvidence[];
+  cleanupErrors: readonly string[];
+  openRootDescriptorsAfter: readonly string[];
+  listenersBefore: readonly string[];
+  listenersAfter: readonly string[];
+}>;
+
+type ManagedFixtureRunEvidence = Readonly<{
+  runId: string;
+  control: ReturnType<typeof inspectWorldControl>;
+  serverPid: number;
+  residentPids: readonly number[];
+  livePids: readonly number[];
+  lifecycleFile: string;
+  cognitionJournal: string | null;
+}>;
+
+async function cleanupOwnedManagedRuns(
+  root: string,
+  runs: readonly Awaited<ReturnType<typeof startManagedWorld>>[],
+): Promise<ManagedFixtureCleanupEvidence> {
+  const before = runs.map(managedFixtureRunEvidence);
+  const listenersBefore = currentProcessListeners();
+  const intervened = before.some(
+    (entry) =>
+      entry.livePids.length > 0 ||
+      (entry.control.state === 'held' &&
+        ['starting', 'running', 'stopping'].includes(entry.control.record.state)),
+  );
+  const cleanupErrors: string[] = [];
+  for (const run of [...runs].reverse()) {
+    const inspection = inspectWorldControl(path.join(root, 'control'), 'fixture');
+    if (inspection.state === 'held' && ['starting', 'running'].includes(inspection.record.state)) {
+      try {
+        await fixtureTimeout(run.stop('test_fixture_unconditional_cleanup'), 10_000);
+      } catch (error: any) {
+        cleanupErrors.push(`stop ${run.runId}: ${error?.message || String(error)}`);
+      }
+    }
+    for (const pid of [run.serverPid, ...run.residents.map((resident) => resident.pid)]) {
+      if (!testPidAlive(pid)) continue;
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch (error: any) {
+        if (error?.code !== 'ESRCH') cleanupErrors.push(`SIGTERM ${pid}: ${error.message}`);
+      }
+    }
+    await waitForTestPidsToExit(
+      [run.serverPid, ...run.residents.map((resident) => resident.pid)],
+      2_000,
+    );
+    for (const pid of [run.serverPid, ...run.residents.map((resident) => resident.pid)]) {
+      if (!testPidAlive(pid)) continue;
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch (error: any) {
+        if (error?.code !== 'ESRCH') cleanupErrors.push(`SIGKILL ${pid}: ${error.message}`);
+      }
+    }
+    await waitForTestPidsToExit(
+      [run.serverPid, ...run.residents.map((resident) => resident.pid)],
+      2_000,
+    );
+  }
+  const after = runs.map(managedFixtureRunEvidence);
+  const listenersAfter = currentProcessListeners();
+  const openRootDescriptorsAfter = currentProcessOpenFiles().filter((line) => line.includes(root));
+  let diagnosticDirectory: string | null = null;
+  if (intervened || cleanupErrors.length > 0 || openRootDescriptorsAfter.length > 0) {
+    diagnosticDirectory = fs.mkdtempSync(
+      path.join(os.tmpdir(), `behold-world-runner-diagnostic-${path.basename(root)}-`),
+    );
+    for (const [index, run] of runs.entries()) {
+      copyDiagnosticFile(
+        run.control.journalFile,
+        path.join(diagnosticDirectory, `lifecycle-${index}.jsonl`),
+      );
+      if (run.cognition?.journalFile) {
+        copyDiagnosticFile(
+          run.cognition.journalFile,
+          path.join(diagnosticDirectory, `cognition-${index}.jsonl`),
+        );
+      }
+    }
+    fs.writeFileSync(
+      path.join(diagnosticDirectory, 'cleanup.json'),
+      `${JSON.stringify(
+        {
+          protocol: 'behold.managed-fixture-cleanup.v1',
+          root,
+          intervened,
+          before,
+          after,
+          cleanupErrors,
+          openRootDescriptorsAfter,
+          listenersBefore,
+          listenersAfter,
+        },
+        null,
+        2,
+      )}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    );
+  }
+  return Object.freeze({
+    intervened,
+    diagnosticDirectory,
+    before,
+    after,
+    cleanupErrors: Object.freeze(cleanupErrors),
+    openRootDescriptorsAfter: Object.freeze(openRootDescriptorsAfter),
+    listenersBefore: Object.freeze(listenersBefore),
+    listenersAfter: Object.freeze(listenersAfter),
+  });
+}
+
+function managedFixtureRunEvidence(
+  run: Awaited<ReturnType<typeof startManagedWorld>>,
+): ManagedFixtureRunEvidence {
+  const pids = [run.serverPid, ...run.residents.map((resident) => resident.pid)];
+  return Object.freeze({
+    runId: run.runId,
+    control: inspectWorldControl(path.dirname(path.dirname(run.control.file)), 'fixture'),
+    serverPid: run.serverPid,
+    residentPids: Object.freeze(run.residents.map((resident) => resident.pid)),
+    livePids: Object.freeze(pids.filter(testPidAlive)),
+    lifecycleFile: run.control.journalFile,
+    cognitionJournal: run.cognition?.journalFile ?? null,
+  });
+}
+
+function currentProcessOpenFiles() {
+  const result = spawnSync('lsof', ['-nP', '-p', String(process.pid)], { encoding: 'utf8' });
+  return result.status === 0 ? String(result.stdout).split(/\r?\n/) : [];
+}
+
+function currentProcessListeners() {
+  return currentProcessOpenFiles().filter((line) => /TCP .*\(LISTEN\)$/.test(line));
+}
+
+function testPidAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: any) {
+    return error?.code === 'EPERM';
+  }
+}
+
+async function waitForTestPidsToExit(pids: readonly number[], timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  while (pids.some(testPidAlive) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+function fixtureTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`fixture cleanup timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function copyDiagnosticFile(source: string, destination: string) {
+  try {
+    fs.copyFileSync(source, destination);
+  } catch (error: any) {
+    fs.writeFileSync(destination, `unavailable: ${error?.message || String(error)}\n`, 'utf8');
+  }
 }
 
 function makeManagedResetFixture(t: test.TestContext) {

@@ -614,3 +614,33 @@ test('an untasked life receives a bounded pulse when the world has otherwise bee
   assert.deepEqual(pulse?.data, { elapsedMs: 10_000 });
   experience.destroy();
 });
+
+test('experiment release discards setup perception and re-baselines current body state', () => {
+  const bot = fakeBot();
+  let items: any[] = [];
+  bot.inventory = { items: () => items };
+  const experience = new InhabitantExperience(bot);
+  experience.markLocalWorldReady(4000);
+  bot.emit('chat', 'importdf', 'setup-only message');
+  items = [{ name: 'apple', count: 1 }];
+  experience.observe();
+  assert.ok(experience.observe().events.some((event) => event.type === 'chat_received'));
+  assert.ok(experience.observe().events.some((event) => event.type === 'inventory_changed'));
+
+  experience.resetForExperimentRelease();
+  const released = experience.observe();
+  assert.equal(
+    released.events.some((event) => event.type === 'chat_received'),
+    false,
+  );
+  assert.equal(
+    released.events.some((event) => event.type === 'local_world_ready'),
+    false,
+  );
+  assert.equal(
+    released.events.some((event) => event.type === 'inventory_changed'),
+    false,
+  );
+  assert.deepEqual(released.self.inventory, [{ name: 'apple', count: 1 }]);
+  experience.destroy();
+});

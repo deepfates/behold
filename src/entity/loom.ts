@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IntentSource } from '../loop/arbiter';
 import type { ResidentAttention } from '../mind/interface';
+import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import { projectResidentVisibleValue } from '../mind/resident-visibility';
 import { sanitizeName } from '../observability/journal';
 import {
@@ -30,6 +31,8 @@ export type EntityTurn = {
     actions: string;
     safety: string;
   };
+  /** Present on turns admitted through a matched-population release barrier. */
+  experimentRelease?: ExperimentReleaseReference;
   attention?: ResidentAttention;
   startedAt: number;
   completedAt: number;

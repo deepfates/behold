@@ -1,4 +1,5 @@
 import type { ModelCallEvidence, ModelCallFailureEvidence } from './evidence';
+import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 
 export type ResidentMindAction = {
   name: string;
@@ -50,6 +51,8 @@ export type ResidentMindRequest = {
   actionProfile?: string;
   /** Versioned world/body risk policy. Optional only for reading legacy captures. */
   safetyProfile?: string;
+  /** Operator-side release identity; adapters retain it for attribution, not world perception. */
+  experimentRelease?: ExperimentReleaseReference;
   observation: unknown;
   /** Bounded lived context. Adapters may project it into their own prompt form. */
   conversation: readonly unknown[];

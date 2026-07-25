@@ -93,6 +93,75 @@ test('only bodily urgent events can reclaim a model-owned body action', () => {
   assert.equal(isBodilyUrgencyEvent({ type: 'chat_received', salience: 'urgent' }), false);
 });
 
+test('release-gated policy admits no mind call before release and attributes every later turn', async () => {
+  const release = {
+    protocol: 'behold.experiment-release-reference.v1' as const,
+    releaseId: 'a'.repeat(64),
+    releaseDigest: 'b'.repeat(64),
+    lifecycleSequence: 9,
+    lifecycleDigest: 'c'.repeat(64),
+    residentObservedOrder: 1,
+    residentObservedAt: '2026-07-25T12:00:03.000Z',
+  };
+  let calls = 0;
+  const errors: any[] = [];
+  const requests: ResidentMindRequest[] = [];
+  const mind: ResidentMind = {
+    id: 'release-gated-mind',
+    decide: async (request) => {
+      calls += 1;
+      requests.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I begin from the released world.',
+        action: null,
+        call: modelCallEvidence('release-gated-mind'),
+      };
+    },
+  };
+  const environment = {
+    entityId: 'Scout',
+    actions: [] as any[],
+    attempt: () => assert.fail('a waiting decision cannot attempt an action'),
+    observe: (sinceSequence = 0) => experience(1, null, sinceSequence),
+  };
+  const blocked = startLLMPolicy(environment, {
+    apiKey: 'unused',
+    model: 'test/model',
+    mind,
+    policyProfile: 'neutral-benchmark-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    experimentRelease: () => null,
+    acceptEngineEvent: () => true,
+    onModelError: (error) => errors.push(error),
+  });
+  await blocked.tick();
+  assert.equal(calls, 0);
+  assert.match(errors[0].error, /cannot begin before experiment release/);
+  await blocked.stop();
+
+  const modelTurns: any[] = [];
+  const entityTurns: EntityTurn[] = [];
+  const active = startLLMPolicy(environment, {
+    apiKey: 'unused',
+    model: 'test/model',
+    mind,
+    policyProfile: 'neutral-benchmark-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    experimentRelease: () => release,
+    acceptEngineEvent: () => true,
+    onModelTurn: (turn) => modelTurns.push(turn),
+    onEntityTurn: (turn) => entityTurns.push(turn),
+  });
+  await active.tick();
+  assert.equal(calls, 1);
+  assert.deepEqual(requests[0].experimentRelease, release);
+  assert.deepEqual(modelTurns[0].experimentRelease, release);
+  assert.deepEqual(entityTurns[0].experimentRelease, release);
+  await active.stop();
+});
+
 test('new harm reclaims stale deliberative work but not its already urgent bounded response', () => {
   const harm = { type: 'self_hurt', salience: 'urgent' as const };
   assert.equal(bodilyUrgencyReclaimsModelAction(harm, null), true);

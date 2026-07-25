@@ -155,6 +155,33 @@ test('mind request artifacts reject drift, ignored fields, and non-JSON world st
   );
 });
 
+test('mind request artifacts retain the authenticated release reference exactly', () => {
+  const experimentRelease = {
+    protocol: 'behold.experiment-release-reference.v1' as const,
+    releaseId: 'a'.repeat(64),
+    releaseDigest: 'b'.repeat(64),
+    lifecycleSequence: 8,
+    lifecycleDigest: 'c'.repeat(64),
+    residentObservedOrder: 2,
+    residentObservedAt: '2026-07-25T12:00:03.000Z',
+  };
+  const artifact = createResidentMindRequestArtifact({ ...request(), experimentRelease });
+  assert.deepEqual(artifact.request.experimentRelease, experimentRelease);
+  assert.deepEqual(
+    parseResidentMindRequestArtifact(JSON.parse(JSON.stringify(artifact))).request
+      .experimentRelease,
+    experimentRelease,
+  );
+  assert.throws(
+    () =>
+      createResidentMindRequestArtifact({
+        ...request(),
+        experimentRelease: { ...experimentRelease, releaseDigest: 'not-a-digest' },
+      }),
+    /must be a SHA-256 digest/,
+  );
+});
+
 test('comparison rejects an adapter that attributes its call to another request', async () => {
   const artifact = createResidentMindRequestArtifact(request());
   const honest = scriptedMind('honest', artifact.requestSha256);

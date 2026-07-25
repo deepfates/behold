@@ -29,10 +29,52 @@ npm run swarm -- \
   --maxModelConcurrency 2
 ```
 
-The runner rejects missing resident quotas, unequal limits, a missing or
-malformed scope, and any attempt to combine this mode with `--maxModelCalls`.
+The runner rejects missing resident quotas, unequal limits, unequal body,
+action, or safety profiles, a missing or malformed scope, and any attempt to
+combine this mode with `--maxModelCalls`.
 The older aggregate call limit is purpose-blind: allowing both would let an
 auxiliary fold consume a population ceiling intended for resident decisions.
+
+## All-ready release
+
+Quota-controlled populations automatically use
+`behold.experiment-release-plan.v1`; this is not the legacy `--paused` mode.
+Every configured controller receives its normal policy and a runner-owned
+broker credential, connects its Minecraft body, synchronizes local chunks, and
+then writes a durable arm record. Minecraft ticks are frozen before the first
+controller is launched. The runner will not write the release record until:
+
+- every exact life/body in the plan owns its expected controller lease and arm;
+- model, mind, policy, observation, action, safety, experiment-scope, and quota
+  account identities still match the plan;
+- the broker has accepted and admitted zero requests and every quota ledger is
+  byte-for-byte unchanged from setup;
+- Minecraft acknowledges `save-all flush` while frozen and Behold records the
+  resulting `behold-tree-v2` world digest.
+
+Paused residents are rejected because pause removes the policy and credential
+that the gate is meant to arm. The runner unfreezes Minecraft, appends exactly
+one `experiment_released` lifecycle event, and exclusively creates one release
+record referring to that event. Controllers then claim release observation in
+actual ordinal order. This is an all-ready barrier, not a claim of simultaneous
+execution: `resident_release_observed` records first, second, and later
+observation of the shared epoch.
+
+Before release, body events and operator commands use `setup_` journal types;
+setup-time perception is discarded and re-baselined before policy start. An
+interactive controller command is rejected before release. Programmatic setup
+hooks are logged explicitly. No setup event enters Lync because no resident
+turn can be admitted. Each later mind-request artifact, model-turn record, and
+Lync entity turn carries the authenticated release reference outside the
+Minecraft observation projection.
+
+Release directories and their plan, arm, release, and claim records are
+exclusive, private, fsynced files under the managed run. Reopening an exact
+record is idempotent; a conflicting plan, arm, release, population, account, or
+profile fails closed. A crash with only some arms or with a lifecycle release
+event but no release file cannot start resident cognition. A recovered world
+owner creates a new epoch and release directory; durable quota accounts do not
+refill.
 
 The scope is deliberately not derived from the world-owner epoch. Each
 resident account is the SHA-256 of scope, world, and continuing life ID. Its

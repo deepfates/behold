@@ -53,6 +53,14 @@ attempt quotas survive owner epochs and recovery. See
 [Experiment accounting v1](EXPERIMENT_ACCOUNTING.md) for exact counter meanings
 and the evidence boundary.
 
+Quota-controlled mode also enables the all-ready experiment release barrier.
+Every resident must use the same body, action, and safety profile, and none may
+be `paused`: the bodies connect and synchronize with their normal policies and
+broker credentials while Minecraft ticks are frozen, then all begin only after
+one durable shared release. Policy profiles, models, and mind adapters may
+differ as explicit experimental treatments. Actual post-release observation
+order is recorded and is not described as simultaneous.
+
 ## Preflight and start
 
 Check that the Place and ownership fences are clear, then start the same
@@ -75,9 +83,11 @@ whole. `--maxModelCalls` remains available only for legacy purpose-blind runs;
 the runner rejects it when durable `providerQuotas` are active.
 
 An `OPENROUTER_API_KEY` is required when at least one configured resident is
-active. A set whose every entry has `"paused": true` can connect its bodies
-without provider credentials. The key remains in the runner-owned cognition
-broker and is never copied into this file or a resident process.
+active, and always in quota-controlled release mode. A legacy set whose every
+entry has `"paused": true` can connect its bodies without provider credentials.
+The upstream key remains in the runner-owned cognition broker and is never
+copied into this file or a resident process; an armed resident receives only
+its scoped loopback broker credential.
 
 ## Stop and inspect
 

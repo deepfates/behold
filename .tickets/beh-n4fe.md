@@ -54,3 +54,32 @@ and auxiliary work remain explicitly separate evidence layers; only provider
 attempt authorization is hard-capped in this version. Full `npm run check`
 passed 478/478. No provider-backed scientific campaign was run, the all-ready
 release barrier remains next, and beh-n4fe remains open.
+
+**2026-07-25T21:35:00Z**
+
+Added a durable all-ready release barrier for quota-controlled matched runs.
+The runner now freezes real Minecraft time before connecting any resident,
+flushes and hashes the frozen world, arms every exact normal policy/body/broker
+account without using `--paused`, proves the broker admitted zero pre-release
+requests and quota ledgers did not change, then writes one lifecycle release
+event and one exclusive release record. Each controller claims its actual
+post-release observation ordinal, discards setup perception, and carries the
+authenticated release reference in every mind request, model-turn record, and
+Lync turn; the implementation does not call sequential execution simultaneous.
+Profiles, population, scope, world basis/state, and accounts fail closed on
+drift; body/action/safety surfaces and per-purpose limits must be equal.
+
+The checkpoint also exposed and fixed a test-fixture ownership defect: failed
+assertions could remove a temp root before stopping a successfully started
+managed run, leaving fake controllers, servers, cognition listeners, and open
+descriptors alive. The earliest fixture after-hook now owns shutdown before
+removal and preserves lifecycle/cognition diagnostics externally when it must
+intervene. A synthetic failure cleanup passed ten consecutive race runs and
+proved no child, listener, or root descriptor survived; the full check passed
+484/484 with no Behold test processes left. A disposable vanilla Minecraft
+1.21.4 server, without provider calls, confirmed the exact live command
+sequence and corrected the freeze acknowledgement to `The game is frozen`;
+save/unfreeze/stop all acknowledged cleanly. This is release-mechanics
+evidence, not a provider-backed matched-model experiment, human co-presence,
+persistent resident consequence, or Textile aftermath. beh-n4fe remains open;
+per-attempt wire capture is next.
