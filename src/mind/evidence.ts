@@ -1,6 +1,24 @@
 import type { CognitionAdmissionEvidence } from './cognition';
 import type { RequestByteAttribution } from './request-attribution';
 
+export type ModelCallTerminal =
+  | 'success'
+  | 'provider_error'
+  | 'transport_error'
+  | 'timeout'
+  | 'cancelled'
+  | 'malformed_output'
+  | 'adapter_rejected'
+  | 'admission_rejected';
+
+export type ModelAdapterIntervention = Readonly<{
+  protocol: 'behold.model-adapter-intervention.v1';
+  kind: 'output_correction_attempt';
+  physicalAttemptOrdinal: number;
+  brokerRequestId: string;
+  admissionOrdinal: number;
+}>;
+
 export type MindProgramIdentity = {
   protocol: 'behold.mind-program-identity.v1';
   name: string;
@@ -22,6 +40,8 @@ export type ModelCallEvidence = {
   latencyMs: number;
   /** Aggregate compute admission(s), including adapter retries, when centrally scheduled. */
   admissions?: readonly CognitionAdmissionEvidence[];
+  /** Named adapter-created attempts. Exact bytes live in raw transport capture. */
+  interventions?: readonly ModelAdapterIntervention[];
   adapter?: {
     name: string;
     version?: string;
@@ -49,6 +69,7 @@ export type ModelCallEvidence = {
     body?: unknown;
   };
   response: {
+    terminal?: 'success';
     id: string | null;
     model: string | null;
     provider: string | null;
@@ -61,6 +82,7 @@ export type ModelCallEvidence = {
 
 export type ModelCallFailureEvidence = Omit<ModelCallEvidence, 'response'> & {
   response: {
+    terminal?: Exclude<ModelCallTerminal, 'success'>;
     status: number | null;
     bodyPreview: string | null;
     /** Opt-in adapter/provider attempt evidence retained for diagnosis. */

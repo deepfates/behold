@@ -90,6 +90,43 @@ test('cancelling a multi-batch fold preserves the last completed cache without s
   assert.doesNotMatch(view.view().fold!.summary, /automatic fold summary unavailable/);
 });
 
+test('a fold fallback identifies its failed generation and exact deterministic source', async () => {
+  const turns = Array.from({ length: 4 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  const interventions: any[] = [];
+  const view = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    recentTurns: 2,
+    foldBatchTurns: 2,
+    foldTriggerTurns: 1,
+    summarize: async () => {
+      throw new Error('fixture fold provider unavailable');
+    },
+    onContextIntervention: (intervention) => interventions.push(intervention),
+  });
+
+  assert.equal(await view.prepare(), true);
+  const fold = view.view().fold as any;
+  assert.equal(fold.generation.kind, 'fallback');
+  assert.equal(fold.generation.source, 'deterministic-source-anchors-v1');
+  assert.equal(fold.generation.failure.name, 'Error');
+  assert.equal(fold.generation.failure.message, 'fixture fold provider unavailable');
+  assert.match(fold.generation.sourceSha256, /^[a-f0-9]{64}$/);
+  assert.match(fold.generation.summarySha256, /^[a-f0-9]{64}$/);
+  assert.deepEqual(interventions, [
+    {
+      protocol: 'behold.context-intervention.v1',
+      kind: 'loom_fold_fallback',
+      entityId: 'Scout',
+      model: 'test/model',
+      at: fold.generatedAt,
+      projectionProfile: null,
+      source: fold.source,
+      generation: fold.generation,
+    },
+  ]);
+});
+
 test('a read-only loom view never fabricates or writes a fold needed for replay', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-read-only-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -288,7 +325,7 @@ test('fold requests omit direct and nested non-resident evidence', async () => {
   await view.prepare();
   assert.match(requestText, /not_resident_observable/);
   assert.doesNotMatch(requestText, /direct-private|nested-private/);
-  assert.equal(view.view().fold?.protocol, 'behold.loom-fold.v2');
+  assert.equal(view.view().fold?.protocol, 'behold.loom-fold.v3');
 });
 
 test('fold batches reuse causal observation deltas and expose bounded event loss', async () => {

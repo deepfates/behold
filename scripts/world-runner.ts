@@ -40,6 +40,7 @@ import {
   verifyCognitionBrokerJournal,
   type CognitionBroker,
 } from '../src/mind/cognition-broker';
+import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 import {
   COGNITION_TRANSPORT_PROTOCOL,
   cognitionAccountId,
@@ -516,6 +517,7 @@ export type ManagedWorldRun = Readonly<{
     concurrencyLimit: number;
     maxTotalModelCalls: number | null;
     journalFile: string;
+    transportCaptureDirectory: string;
     accountingSnapshot(): ReturnType<CognitionBroker['snapshot']>['accounting'];
     admissionLimitReached: CognitionBroker['admissionLimitReached'];
     admissionLimitSettled: CognitionBroker['admissionLimitSettled'];
@@ -1326,6 +1328,7 @@ export async function startManagedWorld(
           }),
       );
       const journalFile = path.join(runRoot, managedRunId, '_cognition', 'broker.jsonl');
+      const transportCaptureDirectory = path.join(runRoot, managedRunId, '_cognition', 'transport');
       const broker = await startCognitionBroker({
         upstreamEndpoint: chatCompletionEndpoint(process.env.OPENROUTER_BASE_URL),
         upstreamApiKey,
@@ -1333,6 +1336,7 @@ export async function startManagedWorld(
         maxConcurrent: maxConcurrentModelCalls,
         ...(maxTotalModelCalls == null ? {} : { maxAccepted: maxTotalModelCalls }),
         journalFile,
+        transportCaptureDirectory,
       });
       cognition = Object.freeze({
         broker,
@@ -1407,6 +1411,7 @@ export async function startManagedWorld(
               protocol: COGNITION_TRANSPORT_PROTOCOL,
               brokerId: cognition.broker.brokerId,
               journalFile: cognition.broker.journalFile,
+              transportCaptureDirectory: cognition.broker.transportCaptureDirectory,
               credentialOwner: 'world_runner',
               transport: 'loopback_chat_completions',
             }
@@ -1435,6 +1440,7 @@ export async function startManagedWorld(
         concurrencyLimit: cognition.concurrencyLimit,
         maxTotalModelCalls: cognition.maxTotalModelCalls,
         journalFile: cognition.broker.journalFile,
+        transportCaptureDirectory: cognition.broker.transportCaptureDirectory,
         accounting: cognition.broker.snapshot().accounting,
       });
     }
@@ -1919,6 +1925,7 @@ export async function startManagedWorld(
             concurrencyLimit: runningCognition.concurrencyLimit,
             maxTotalModelCalls: runningCognition.maxTotalModelCalls,
             journalFile: runningCognition.broker.journalFile!,
+            transportCaptureDirectory: runningCognition.broker.transportCaptureDirectory!,
             accountingSnapshot: () => runningCognition.broker.snapshot().accounting,
             admissionLimitReached: runningCognition.broker.admissionLimitReached,
             admissionLimitSettled: runningCognition.broker.admissionLimitSettled,
@@ -2367,6 +2374,13 @@ async function drainManagedCognition(
   }
   if (!cognition.broker.journalFile) throw new Error('cognition broker has no evidence journal');
   const verified = verifyCognitionBrokerJournal(cognition.broker.journalFile);
+  if (!cognition.broker.transportCaptureDirectory) {
+    throw new Error('cognition broker has no raw transport capture directory');
+  }
+  const transportCapture = verifyCognitionTransportCapture(
+    cognition.broker.transportCaptureDirectory,
+    verified.events,
+  );
   if (
     verified.brokerId !== cognition.broker.brokerId ||
     verified.peakActive > cognition.concurrencyLimit ||
@@ -2417,6 +2431,17 @@ async function drainManagedCognition(
       admitted: verified.admitted,
       terminal: verified.terminal,
       measuredPeakActive: verified.peakActive,
+      transportCapture: {
+        directory: transportCapture.directory,
+        attempts: transportCapture.attempts,
+        responses: transportCapture.responses,
+        successfulResponses: transportCapture.successfulResponses,
+        providerFailures: transportCapture.providerFailures,
+        transportErrors: transportCapture.transportErrors,
+        cancellations: transportCapture.cancellations,
+        correctionAttempts: transportCapture.correctionAttempts,
+        usage: transportCapture.usage,
+      },
       quotaAccounts: quotaVerification,
     },
   });

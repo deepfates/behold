@@ -68,11 +68,15 @@ export type AxResidentMindOptions = {
  * executes it through the resident lifecycle.
  */
 export function createAxResidentMind(options: AxResidentMindOptions): ResidentMind {
+  if (Number(options.maxRetries ?? 0) > 0 && !options.cognitionTransport) {
+    throw new Error('Ax output-correction retries require the accounted cognition transport');
+  }
   const now = options.now || Date.now;
   const apiURL = options.apiURL || DEFAULT_OPENROUTER_URL;
   const baseFetch = options.fetch || globalThis.fetch;
   const allowedModels = new Set([options.model, ...(options.allowedModels ?? [])]);
   let activeProviderResponses: unknown[] | null = null;
+  let activeProviderStatuses: Array<{ status: number; ok: boolean }> | null = null;
   let activeAdmissions: CognitionAdmissionEvidence[] | null = null;
   let activeTransportRequest: {
     requestId: string;
@@ -103,6 +107,9 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
       }
     }
     const response = await baseFetch(input, { ...init, headers });
+    if (activeProviderStatuses) {
+      activeProviderStatuses.push({ status: response.status, ok: response.ok });
+    }
     const admission = parseCognitionAdmission(response.headers);
     if (admission && activeAdmissions) activeAdmissions.push(admission);
     if (activeProviderResponses) {
@@ -193,8 +200,10 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
       const traceOffset = program.getTraces().length;
       const chatOffset = program.getChatLog().length;
       const providerResponses: any[] = [];
+      const providerStatuses: Array<{ status: number; ok: boolean }> = [];
       const admissions: CognitionAdmissionEvidence[] = [];
       activeProviderResponses = providerResponses;
+      activeProviderStatuses = providerStatuses;
       activeAdmissions = admissions;
       activeTransportRequest = { requestId, request };
       activeActionConstraint = {
@@ -206,7 +215,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
         const output: any = await program.forward(llmFor(request.model), input as any, {
           abortSignal: signal,
           stream: false,
-          maxRetries: Math.max(0, options.maxRetries ?? 1),
+          maxRetries: Math.max(0, options.maxRetries ?? 0),
           modelConfig: { temperature: 0.2 },
           excludeContentFromTrace: !options.recordModelIO,
         });
@@ -223,6 +232,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           completedAt,
           latencyMs: Math.max(0, completedAt - startedAt),
           ...(admissions.length ? { admissions: cloneJson(admissions) } : {}),
+          ...adapterInterventions(admissions),
           adapter: { name: 'ax', version: AX_VERSION },
           program: programIdentity,
           request: {
@@ -240,6 +250,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
             ...(options.recordModelIO ? { body: cloneJson(input) } : {}),
           },
           response: {
+            terminal: 'success' as const,
             id: stringOrNull(providerResponse?.id),
             model: stringOrNull(providerResponse?.model) || request.model,
             provider: stringOrNull(providerResponse?.provider) || 'Ax/OpenAI-compatible',
@@ -257,6 +268,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
                     traces,
                     chatLog,
                     providerResponses,
+                    providerStatuses,
                   }),
                 }
               : {}),
@@ -273,6 +285,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
           completedAt,
           latencyMs: Math.max(0, completedAt - startedAt),
           ...(admissions.length ? { admissions: cloneJson(admissions) } : {}),
+          ...adapterInterventions(admissions),
           adapter: { name: 'ax', version: AX_VERSION },
           program: programIdentity,
           request: {
@@ -290,6 +303,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
             ...(options.recordModelIO ? { body: cloneJson(input) } : {}),
           },
           response: {
+            terminal: axFailureTerminal(error, signal, providerStatuses, providerResponses),
             status: statusOrNull(error),
             bodyPreview: errorPreview(error),
             ...(options.recordModelIO
@@ -298,6 +312,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
                     traces: program.getTraces().slice(traceOffset),
                     chatLog: program.getChatLog().slice(chatOffset),
                     providerResponses,
+                    providerStatuses,
                   }),
                 }
               : {}),
@@ -309,6 +324,7 @@ export function createAxResidentMind(options: AxResidentMindOptions): ResidentMi
         );
       } finally {
         activeProviderResponses = null;
+        activeProviderStatuses = null;
         activeAdmissions = null;
         activeTransportRequest = null;
         activeActionConstraint = null;
@@ -476,4 +492,30 @@ function aggregateProviderUsage(responses: any[]) {
     cost: sum('cost'),
     attempts: usages.length,
   };
+}
+
+function adapterInterventions(admissions: readonly CognitionAdmissionEvidence[]) {
+  const interventions = admissions.slice(1).map((admission, index) => ({
+    protocol: 'behold.model-adapter-intervention.v1' as const,
+    kind: 'output_correction_attempt' as const,
+    physicalAttemptOrdinal: index + 2,
+    brokerRequestId: admission.brokerRequestId,
+    admissionOrdinal: admission.admissionOrdinal,
+  }));
+  return interventions.length ? { interventions } : {};
+}
+
+function axFailureTerminal(
+  error: any,
+  signal: AbortSignal,
+  providerStatuses: readonly { status: number; ok: boolean }[],
+  providerResponses: readonly unknown[],
+) {
+  if (signal.aborted || error?.name === 'AbortError') return 'cancelled' as const;
+  if (statusOrNull(error) != null) return 'provider_error' as const;
+  if (providerStatuses.some((attempt) => !attempt.ok)) return 'provider_error' as const;
+  if (providerStatuses.length > 0 || providerResponses.length > 0) {
+    return 'adapter_rejected' as const;
+  }
+  return 'transport_error' as const;
 }

@@ -71,7 +71,7 @@ npm run world -- status --world sf-csdr
 npm run swarm -- \
   --world sf-csdr \
   --residents .behold-runtime/residents.local.json \
-  --accountingScope matched-run-2026-07-25 \
+  --accountingScope living-pilot-2026-07-25 \
   --maxModelConcurrency 2
 ```
 
@@ -102,4 +102,7 @@ npm run world -- status --world sf-csdr
 The lifecycle journal's `run_configured` event records each normalized
 resident's model, mind, profiles, timing, body, and paused state. This makes the
 heterogeneous population inspectable without treating the operator file as
-runtime evidence by itself.
+runtime evidence by itself. Equal quotas are resource controls, not a claim
+that heterogeneous providers or models form a fair comparison. On drain, the
+runner verifies the private `_cognition/transport` evidence for exact coverage
+of every admitted physical attempt before reporting terminal and usage totals.

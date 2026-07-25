@@ -19,6 +19,7 @@ import {
   type CognitionPurpose,
 } from '../src/mind/cognition';
 import { verifyQuotaLedger } from '../src/observability/quota-ledger';
+import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 
 const UPSTREAM_KEY = 'upstream-secret-fixture';
 
@@ -881,6 +882,163 @@ test('the cognition journal durably closes every admitted request and detects ed
   const contents = fs.readFileSync(edited, 'utf8');
   fs.writeFileSync(edited, contents.replace('journal-proof', 'journal-spoof'));
   assert.throws(() => verifyCognitionBrokerJournal(edited), /invalid cognition broker chain/);
+});
+
+test('raw transport capture retains every success, provider failure, and explicit retry without secrets', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-capture-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalFile = path.join(root, 'cognition.jsonl');
+  const transportCaptureDirectory = path.join(root, 'transport');
+  const responseBodies = [
+    {
+      id: 'response-success',
+      model: 'fixture/model',
+      provider: 'fixture-provider-a',
+      choices: [
+        {
+          finish_reason: 'stop',
+          native_finish_reason: 'completed',
+          message: { role: 'assistant', content: 'first' },
+        },
+      ],
+      usage: { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14, cost: 0 },
+    },
+    {
+      error: { code: 'route_unavailable', message: 'fixture provider unavailable' },
+      provider: 'fixture-provider-b',
+    },
+  ];
+  let upstreamAttempt = 0;
+  let cancellationStarted!: () => void;
+  const cancellationWasStarted = new Promise<void>((resolve) => {
+    cancellationStarted = resolve;
+  });
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [
+      client('a', {
+        scopeId: 'capture-experiment',
+        worldId: 'capture-world',
+        accountId: 'a'.repeat(64),
+        ledgerFile: path.join(root, 'quota.jsonl'),
+        limits: { resident_decision: 10, loom_fold: 2 },
+      }),
+    ],
+    maxConcurrent: 1,
+    journalFile,
+    transportCaptureDirectory,
+    fetch: async (_input, init) => {
+      upstreamAttempt += 1;
+      if (upstreamAttempt === 1) return jsonResponse(responseBodies[0]);
+      if (upstreamAttempt === 2) {
+        return new Response(JSON.stringify(responseBodies[1]), {
+          status: 503,
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        });
+      }
+      if (upstreamAttempt === 3) {
+        throw Object.assign(new Error(`network refused Bearer ${UPSTREAM_KEY} and ${token('a')}`), {
+          code: 'fixture_network_refused',
+        });
+      }
+      cancellationStarted();
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => reject(init.signal?.reason ?? new Error('fixture cancellation')),
+          { once: true },
+        );
+      });
+    },
+  });
+
+  const firstBody = requestBody('fixture/model', 'first exact request');
+  const first = await brokerRequest(broker, 'a', firstBody, 'deliberative', 'opportunity-1');
+  assert.equal(first.status, 200);
+  await first.text();
+
+  const failedBody = requestBody('fixture/model', 'explicit failed attempt');
+  const failed = await brokerRequest(broker, 'a', failedBody, 'deliberative', 'opportunity-2');
+  assert.equal(failed.status, 503);
+  await failed.text();
+
+  const retryBody = requestBody('fixture/model', 'explicit retry attempt');
+  const retry = await brokerRequest(broker, 'a', retryBody, 'deliberative', 'opportunity-2');
+  assert.equal(retry.status, 502);
+  assert.equal(((await retry.json()) as any).error.code, 'fixture_network_refused');
+
+  const cancellation = new AbortController();
+  const cancelled = brokerRequest(
+    broker,
+    'a',
+    requestBody('fixture/model', 'cancelled physical attempt'),
+    'deliberative',
+    'opportunity-3',
+    cancellation.signal,
+  );
+  await cancellationWasStarted;
+  cancellation.abort(new Error('fixture client cancellation'));
+  await assert.rejects(cancelled, /fixture client cancellation|abort/i);
+  await waitFor(() => broker.snapshot().active === 0);
+
+  await broker.close();
+  const journal = verifyCognitionBrokerJournal(journalFile);
+  const verified = verifyCognitionTransportCapture(transportCaptureDirectory, journal.events);
+  assert.equal(verified.attempts, 4);
+  assert.equal(verified.responses, 2);
+  assert.equal(verified.successfulResponses, 1);
+  assert.equal(verified.providerFailures, 1);
+  assert.equal(verified.transportErrors, 1);
+  assert.equal(verified.cancellations, 1);
+  assert.equal(verified.correctionAttempts, 1);
+  assert.deepEqual(
+    verified.records.map((record) => record.terminal),
+    ['success', 'provider_error', 'network_error', 'cancelled'],
+  );
+  assert.deepEqual(
+    verified.starts.map((record) => record.clientRequestId),
+    ['opportunity-1', 'opportunity-2', 'opportunity-2', 'opportunity-3'],
+  );
+  assert.deepEqual(
+    verified.starts.map((record) => record.logicalRequestAttempt),
+    [1, 1, 2, 1],
+  );
+  assert.equal(new Set(verified.records.map((record) => record.brokerRequestId)).size, 4);
+  assert.equal(
+    verifyQuotaLedger(path.join(root, 'quota.jsonl')).snapshot.used.resident_decision,
+    4,
+  );
+  assert.deepEqual(verified.usage.total_tokens, { value: 14, reports: 1 });
+  assert.deepEqual(verified.usage.cost, { value: 0, reports: 1 });
+  assert.equal(verified.starts[0].route.endpoint, 'https://upstream.invalid/v1/chat/completions');
+  assert.equal(fs.readFileSync(verified.starts[0].request.file, 'utf8'), firstBody);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(verified.records[0].response!.content.file, 'utf8')),
+    responseBodies[0],
+  );
+  assert.equal(verified.records[0].response?.provider, 'fixture-provider-a');
+  assert.equal(verified.records[0].response?.model, 'fixture/model');
+  assert.equal(verified.records[2].error?.code, 'fixture_network_refused');
+  assert.doesNotMatch(verified.records[2].error!.message, /upstream-secret|local-a-/);
+
+  const capturedText = fs
+    .readdirSync(transportCaptureDirectory, { recursive: true })
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => path.join(transportCaptureDirectory, entry))
+    .filter((entry) => fs.statSync(entry).isFile())
+    .map((entry) => fs.readFileSync(entry, 'utf8'))
+    .join('\n');
+  assert.doesNotMatch(capturedText, /upstream-secret-fixture/);
+  assert.doesNotMatch(capturedText, /local-a-x{8}/);
+  assert.doesNotMatch(capturedText, /authorization/i);
+
+  fs.appendFileSync(verified.records[0].response!.content.file, 'tampered');
+  assert.throws(
+    () => verifyCognitionTransportCapture(transportCaptureDirectory, journal.events),
+    /content hash or length is invalid/,
+  );
 });
 
 function client(

@@ -12,6 +12,69 @@ import { cognitionResidentKey } from '../src/mind/cognition';
 import { ResidentMindCallError } from '../src/mind/evidence';
 import { AX_RESIDENT_PROGRAM_ID, AX_RESIDENT_SIGNATURE } from '../src/mind/ax-program-artifact';
 
+test('Ax does not silently correct a malformed resident response by default', async () => {
+  const requests: any[] = [];
+  const mind = createAxResidentMind({
+    apiKey: 'test-key',
+    model: 'test/model',
+    apiURL: 'https://models.example.test/v1',
+    fetch: async (_url: any, init: any) => {
+      requests.push(JSON.parse(String(init?.body || '{}')));
+      const actionName = requests.length === 1 ? 'unavailable_action' : 'craft_item';
+      return new Response(
+        JSON.stringify({
+          id: `ax-default-retry-${requests.length}`,
+          object: 'chat.completion',
+          created: requests.length,
+          model: 'test/model',
+          choices: [
+            {
+              index: 0,
+              finish_reason: 'stop',
+              message: {
+                role: 'assistant',
+                content: [
+                  'Disposition: act',
+                  `Action Name: ${actionName}`,
+                  'Action Input: {"item":"oak_planks"}',
+                ].join('\n'),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+  });
+
+  await assert.rejects(
+    mind.decide(
+      {
+        protocol: 'behold.mind-request.v1',
+        entityId: 'Scout',
+        model: 'test/model',
+        observation: { inventory: [{ name: 'oak_log', count: 1 }] },
+        conversation: [
+          { role: 'system', content: 'Choose only an admitted action.' },
+          { role: 'user', content: 'Current world experience: one oak log.' },
+        ],
+        actions: [
+          {
+            name: 'craft_item',
+            description: 'Craft one recipe',
+            inputSchema: { type: 'object', properties: { item: { type: 'string' } } },
+          },
+        ],
+        requiredAction: null,
+      } as any,
+      { signal: new AbortController().signal },
+    ),
+    ResidentMindCallError,
+  );
+  assert.equal(requests.length, 1, 'the default policy must spend one physical attempt only');
+});
+
 test('Ax proposes a typed decision without receiving executable world functions', async () => {
   const requests: any[] = [];
   const localBearer = `ax-local-${'x'.repeat(48)}`;
@@ -141,6 +204,15 @@ test('Ax proposes a typed decision without receiving executable world functions'
     assert.equal((decision.call.response.usage as any).provider.total_tokens, 240);
     assert.equal((decision.call.response.usage as any).provider.attempts, 2);
     assert.equal(decision.call.admissions?.length, 2);
+    assert.deepEqual(decision.call.interventions, [
+      {
+        protocol: 'behold.model-adapter-intervention.v1',
+        kind: 'output_correction_attempt',
+        physicalAttemptOrdinal: 2,
+        brokerRequestId: decision.call.admissions?.[1].brokerRequestId,
+        admissionOrdinal: decision.call.admissions?.[1].admissionOrdinal,
+      },
+    ]);
     assert.ok(
       decision.call.admissions?.every(
         (admission) => admission.priority === 'urgent' && admission.urgentTriggerSequence === 42,
@@ -374,6 +446,7 @@ test('a failed Ax call retains the exact candidate program identity', async () =
       assert.deepEqual(error.call.program, axResidentProgramIdentity(artifact));
       assert.ok((error.call.response.raw as any).providerResponses.length >= 1);
       assert.equal((error.call.response.raw as any).providerResponses[0].error, 'unauthorized');
+      assert.equal(error.call.response.terminal, 'provider_error');
       assert.equal(providerAttempts, 1, 'the cognition owner, not Ax HTTP, owns call retries');
       return true;
     },
@@ -412,6 +485,7 @@ test('an aborted Ax call retains the exact candidate program identity', async ()
     (error: any) => {
       assert.ok(error instanceof ResidentMindCallError);
       assert.deepEqual(error.call.program, axResidentProgramIdentity(artifact));
+      assert.equal(error.call.response.terminal, 'cancelled');
       return true;
     },
   );

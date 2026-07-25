@@ -12,6 +12,7 @@ import {
   createLoomContextView,
   foldMessage,
   projectTurnForFolding,
+  type LoomContextIntervention,
   type LoomFoldRequest,
   type LoomFoldSummarizer,
 } from '../entity/folding';
@@ -32,6 +33,7 @@ import {
   ResidentMindCallError,
   type ModelCallEvidence,
   type ModelCallFailureEvidence,
+  type ModelCallTerminal,
 } from '../mind/evidence';
 import {
   minecraftActionMayReplay,
@@ -119,6 +121,19 @@ export type Options = {
     call: ModelCallFailureEvidence | ModelCallEvidence | null;
   }) => void;
   onModelInterrupted?: (interruption: ResidentAttentionInterruption & { model: string }) => void;
+  onDecisionOpportunity?: (event: {
+    protocol: 'behold.resident-decision-opportunity.v1';
+    opportunityId: string;
+    phase: 'scheduled' | 'terminal';
+    at: number;
+    entityId: string;
+    model: string;
+    mind: string;
+    observationSequence: number;
+    requestSha256: string;
+    terminal?: ModelCallTerminal | 'controller_error';
+    call?: ModelCallEvidence | ModelCallFailureEvidence | null;
+  }) => void;
   onAuxiliaryModelCall?: (turn: {
     at: number;
     model: string;
@@ -132,6 +147,8 @@ export type Options = {
     error: string;
     call: ModelCallFailureEvidence;
   }) => void;
+  /** Operator-side evidence for a context substitution; never enters model context. */
+  onContextIntervention?: (intervention: LoomContextIntervention) => void;
   onEntityTurn?: (turn: EntityTurn) => unknown | Promise<unknown>;
 };
 
@@ -378,6 +395,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     foldTriggerTurns: opts.foldTriggerTurns ?? 6,
     now,
     projectionProfile: bodyProfile,
+    onContextIntervention: opts.onContextIntervention,
     projectTurn: (turn, previousTurn) =>
       projectTurnForFolding(turn, previousTurn, {
         projectObservation: projectHistoricalObservation,
@@ -666,17 +684,52 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         // the adapter promise actually settles.
         try {
           const requestSha256 = residentMindRequestSha256(request);
-          const proposed = await mind.decide(request, { signal });
-          if (signal.aborted) {
-            throw signal.reason ?? abortError('urgent decision expired before admission');
-          }
-          return validateMindDecision(
-            proposed,
-            availableTools,
-            requiredTool,
-            decisionModel,
+          const opportunity = {
+            protocol: 'behold.resident-decision-opportunity.v1' as const,
+            opportunityId: rid('decision-opportunity'),
+            entityId,
+            model: decisionModel,
+            mind: mind.id,
+            observationSequence: Number(currentObservation?.sequence) || lastSequence,
             requestSha256,
-          );
+          };
+          opts.onDecisionOpportunity?.({
+            ...opportunity,
+            phase: 'scheduled',
+            at: now(),
+          });
+          let validated: ModelDecision;
+          try {
+            const proposed = await mind.decide(request, { signal });
+            if (signal.aborted) {
+              throw signal.reason ?? abortError('urgent decision expired before admission');
+            }
+            validated = validateMindDecision(
+              proposed,
+              availableTools,
+              requiredTool,
+              decisionModel,
+              requestSha256,
+            );
+          } catch (error: any) {
+            const call = modelCallFromError(error);
+            opts.onDecisionOpportunity?.({
+              ...opportunity,
+              phase: 'terminal',
+              at: now(),
+              terminal: decisionOpportunityTerminal(error, signal),
+              call,
+            });
+            throw error;
+          }
+          opts.onDecisionOpportunity?.({
+            ...opportunity,
+            phase: 'terminal',
+            at: now(),
+            terminal: 'success',
+            call: validated.call,
+          });
+          return validated;
         } finally {
           if (deadline) clearTimeout(deadline);
         }
@@ -2149,7 +2202,11 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
       completedAt,
       latencyMs: Math.max(0, completedAt - startedAt),
       request: requestEvidence,
-      response: { status: null, bodyPreview: null },
+      response: {
+        terminal: signal.aborted ? 'cancelled' : 'transport_error',
+        status: null,
+        bodyPreview: null,
+      },
     };
     if (!signal.aborted) {
       opts.onAuxiliaryModelError?.({
@@ -2175,7 +2232,11 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
       latencyMs: Math.max(0, completedAt - startedAt),
       ...admissionEvidence(response),
       request: requestEvidence,
-      response: { status: response.status, bodyPreview: text.slice(0, 200) || null },
+      response: {
+        terminal: 'provider_error',
+        status: response.status,
+        bodyPreview: text.slice(0, 200) || null,
+      },
     };
     opts.onAuxiliaryModelError?.({
       at: completedAt,
@@ -2186,8 +2247,72 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     });
     throw new ModelCallError(`loom fold ${response.status}: ${text.slice(0, 200)}`, call);
   }
-  const data: any = await response.json();
+  let text = '';
+  let data: any;
+  const responseValue: any = response;
+  try {
+    if (response instanceof Response) {
+      text = await response.text();
+      data = JSON.parse(text);
+    } else {
+      data = await responseValue.json();
+      text = JSON.stringify(data);
+    }
+  } catch {
+    const completedAt = opts.now ? opts.now() : Date.now();
+    const call: ModelCallFailureEvidence = {
+      protocol: 'behold.model-call.v1',
+      adapter: { name: 'direct-openrouter' },
+      requestId,
+      endpoint: safeEndpoint(endpoint),
+      startedAt,
+      completedAt,
+      latencyMs: Math.max(0, completedAt - startedAt),
+      ...admissionEvidence(response),
+      request: requestEvidence,
+      response: {
+        terminal: 'malformed_output',
+        status: response.status,
+        bodyPreview: text.slice(0, 200) || null,
+      },
+    };
+    opts.onAuxiliaryModelError?.({
+      at: completedAt,
+      model: opts.model,
+      purpose: 'loom_fold',
+      error: 'loom fold returned malformed JSON',
+      call,
+    });
+    throw new ModelCallError('loom fold returned malformed JSON', call);
+  }
   const completedAt = opts.now ? opts.now() : Date.now();
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) {
+    const call: ModelCallFailureEvidence = {
+      protocol: 'behold.model-call.v1',
+      adapter: { name: 'direct-openrouter' },
+      requestId,
+      endpoint: safeEndpoint(endpoint),
+      startedAt,
+      completedAt,
+      latencyMs: Math.max(0, completedAt - startedAt),
+      ...admissionEvidence(response),
+      request: requestEvidence,
+      response: {
+        terminal: 'malformed_output',
+        status: response.status,
+        bodyPreview: text.slice(0, 200) || null,
+      },
+    };
+    opts.onAuxiliaryModelError?.({
+      at: completedAt,
+      model: opts.model,
+      purpose: 'loom_fold',
+      error: 'loom fold returned no summary text',
+      call,
+    });
+    throw new ModelCallError('loom fold returned no summary text', call);
+  }
   const call: ModelCallEvidence = {
     protocol: 'behold.model-call.v1',
     adapter: { name: 'direct-openrouter' },
@@ -2199,6 +2324,7 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     ...admissionEvidence(response),
     request: requestEvidence,
     response: {
+      terminal: 'success',
       id: stringOrNull(data?.id),
       model: stringOrNull(data?.model),
       provider: stringOrNull(data?.provider),
@@ -2214,10 +2340,6 @@ async function summarizeLoom(request: LoomFoldRequest, opts: Options, signal: Ab
     purpose: 'loom_fold',
     call,
   });
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) {
-    throw new Error('loom fold returned no summary text');
-  }
   return content.trim();
 }
 
@@ -2454,6 +2576,29 @@ function stableJson(value: any): string {
 
 function rid(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function modelCallFromError(error: unknown) {
+  return error instanceof ModelCallError ||
+    error instanceof MindDecisionError ||
+    error instanceof ResidentMindCallError
+    ? error.call
+    : null;
+}
+
+function decisionOpportunityTerminal(
+  error: any,
+  signal: AbortSignal,
+): ModelCallTerminal | 'controller_error' {
+  if (signal.aborted || error?.name === 'AbortError') return 'cancelled';
+  if (error instanceof ResidentMindCallError) {
+    return error.call.response.terminal ?? 'transport_error';
+  }
+  if (error instanceof MindDecisionError) return 'adapter_rejected';
+  if (error instanceof ModelCallError) {
+    return error.call.response.terminal ?? 'transport_error';
+  }
+  return 'controller_error';
 }
 
 function fmtArgs(value: any) {

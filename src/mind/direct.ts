@@ -86,6 +86,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
         });
       } catch (error: any) {
         const completedAt = now();
+        const terminal = signal.aborted ? 'cancelled' : 'transport_error';
         throw new ResidentMindCallError(
           `direct resident decision network error: ${error?.message || String(error)}`,
           {
@@ -97,13 +98,14 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
             completedAt,
             latencyMs: Math.max(0, completedAt - startedAt),
             request: callRequest,
-            response: { status: null, bodyPreview: null },
+            response: { terminal, status: null, bodyPreview: null },
           },
         );
       }
       if (!response.ok) {
         const text = await response.text();
         const completedAt = now();
+        const terminal = brokerAdmissionRejected(text) ? 'admission_rejected' : 'provider_error';
         throw new ResidentMindCallError(`direct resident decision ${response.status}`, {
           protocol: 'behold.model-call.v1',
           adapter: { name: 'direct-openrouter' },
@@ -114,11 +116,44 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
           latencyMs: Math.max(0, completedAt - startedAt),
           ...admissionEvidence(response),
           request: callRequest,
-          response: { status: response.status, bodyPreview: text.slice(0, 200) || null },
+          response: {
+            terminal,
+            status: response.status,
+            bodyPreview: text.slice(0, 200) || null,
+          },
         });
       }
 
-      const data: any = await response.json();
+      let text = '';
+      let data: any;
+      const responseValue: any = response;
+      try {
+        if (response instanceof Response) {
+          text = await response.text();
+          data = JSON.parse(text);
+        } else {
+          data = await responseValue.json();
+          text = JSON.stringify(data);
+        }
+      } catch {
+        const completedAt = now();
+        throw new ResidentMindCallError('direct resident decision returned malformed JSON', {
+          protocol: 'behold.model-call.v1',
+          adapter: { name: 'direct-openrouter' },
+          requestId,
+          endpoint: safeEndpoint(endpoint),
+          startedAt,
+          completedAt,
+          latencyMs: Math.max(0, completedAt - startedAt),
+          ...admissionEvidence(response),
+          request: callRequest,
+          response: {
+            terminal: 'malformed_output',
+            status: response.status,
+            bodyPreview: text.slice(0, 200) || null,
+          },
+        });
+      }
       const completedAt = now();
       const call: ModelCallEvidence = {
         protocol: 'behold.model-call.v1',
@@ -131,6 +166,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
         ...admissionEvidence(response),
         request: callRequest,
         response: {
+          terminal: 'success',
           id: stringOrNull(data?.id),
           model: stringOrNull(data?.model),
           provider: stringOrNull(data?.provider),
@@ -140,7 +176,21 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
           ...(options.recordModelIO ? { raw: cloneJson(data) } : {}),
         },
       };
-      return responseDecision(data, request, call);
+      try {
+        return responseDecision(data, request, call);
+      } catch (error: any) {
+        throw new ResidentMindCallError(
+          `direct resident decision returned malformed output: ${error?.message || String(error)}`,
+          {
+            ...call,
+            response: {
+              terminal: 'malformed_output',
+              status: response.status,
+              bodyPreview: text.slice(0, 200) || null,
+            },
+          },
+        );
+      }
     },
   };
 }
@@ -150,9 +200,27 @@ function responseDecision(
   request: ResidentMindRequest,
   call: ModelCallEvidence,
 ): ResidentMindDecision {
-  const assistant = data?.choices?.[0]?.message || { role: 'assistant', content: '' };
+  if (!Array.isArray(data?.choices) || data.choices.length < 1) {
+    throw new Error('provider response contained no assistant choice');
+  }
+  const assistant = data.choices[0]?.message;
+  if (!assistant || typeof assistant !== 'object' || Array.isArray(assistant)) {
+    throw new Error('provider response contained no assistant message');
+  }
+  if (assistant.content != null && typeof assistant.content !== 'string') {
+    throw new Error('assistant content was not text or null');
+  }
+  if (assistant.tool_calls != null && !Array.isArray(assistant.tool_calls)) {
+    throw new Error('assistant tool_calls was not an array');
+  }
+  if (assistant.tool_calls?.length > 1) {
+    throw new Error('resident decision contained multiple tool calls');
+  }
   const utterance = typeof assistant?.content === 'string' ? assistant.content : null;
   const toolCall = assistant?.tool_calls?.[0];
+  if (toolCall && !toolCall?.function?.name) {
+    throw new Error('assistant tool call contained no function name');
+  }
   if (toolCall?.function?.name) {
     const singleToolAssistant = { ...assistant, tool_calls: [toolCall] };
     const name = String(toolCall.function.name);
@@ -202,7 +270,16 @@ function parseToolArguments(value: unknown) {
   try {
     return JSON.parse(String(value));
   } catch {
-    return {};
+    throw new Error('tool arguments were not valid JSON');
+  }
+}
+
+function brokerAdmissionRejected(text: string) {
+  try {
+    const code = String(JSON.parse(text)?.error?.code || '');
+    return /admission|quota|queue/.test(code);
+  } catch {
+    return false;
   }
 }
 

@@ -83,3 +83,36 @@ save/unfreeze/stop all acknowledged cleanly. This is release-mechanics
 evidence, not a provider-backed matched-model experiment, human co-presence,
 persistent resident consequence, or Textile aftermath. beh-n4fe remains open;
 per-attempt wire capture is next.
+
+**2026-07-25T22:12:00Z**
+
+Completed the raw transport/intervention control checkpoint without a provider
+call. Every admitted physical provider attempt now has immutable exact request
+and response blobs, content hashes, requested and returned route/model/provider
+identity, timing, reported token/cost fields, a distinct success/provider
+error/network error/timeout/cancellation terminal, and an authenticated broker
+journal reference. Repeated logical request IDs receive one-based physical
+attempt ordinals; explicit Ax output correction is off by default and, when
+enabled through the accounted cognition transport, every correction receives a
+separate quota charge, wire record, and named adapter-intervention reference.
+Known credentials are absent from captures and redacted from failure evidence.
+
+The old behavior was first demonstrated failing the new contract: Ax silently
+made a second assertion-correction request, and a failed loom summarizer wrote a
+fallback indistinguishably from model output. Loom fold v3 now records model vs
+fallback generation, exact projected-source and resulting-summary hashes, and a
+durable context-intervention event before fallback use. Resident decision
+opportunities now record scheduled and terminal phases, so malformed output,
+adapter rejection, provider/transport failure, admission rejection, and
+cancellation cannot become `model_turn`. Setup hooks, console actions, and
+non-population Minecraft players use separate operator/external-player records;
+server evidence labels the latter as native-human-or-unmanaged rather than
+pretending to infer client type.
+
+`npm run check` passed 488/488 and left no Behold-owned process or listener.
+This proves deterministic evidence mechanics only. The complete
+body/quota/release/capture stack has not yet been exercised in one provider-free
+multi-controller managed run, no current free-route/privacy conditions have
+been validated, and no living-world pilot or readable Textile aftermath has
+been produced. Equal quotas remain resource controls, not a fair heterogeneous
+model comparison. beh-n4fe remains open.

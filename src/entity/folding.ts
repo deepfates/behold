@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { projectResidentVisibleValue, residentTurnMayReplay } from '../mind/resident-visibility';
@@ -7,7 +8,7 @@ import { projectHistoricalModelObservation } from '../mind/observation-context';
 const FOLD_EVENT_BATCH = 24;
 
 export type LoomFoldRecord = {
-  protocol: 'behold.loom-fold.v2';
+  protocol: 'behold.loom-fold.v3';
   entityId: string;
   source: {
     fromSequence: number;
@@ -20,7 +21,33 @@ export type LoomFoldRecord = {
   model: string;
   /** Projection identity prevents a cache from crossing embodied input contracts. */
   projectionProfile?: string;
+  generation:
+    | {
+        kind: 'model';
+        source: 'configured_summarizer';
+        sourceSha256: string;
+        summarySha256: string;
+      }
+    | {
+        kind: 'fallback';
+        source: 'deterministic-source-anchors-v1';
+        reason: 'summarizer_error' | 'empty_summary';
+        sourceSha256: string;
+        summarySha256: string;
+        failure: { name: string; message: string };
+      };
 };
+
+export type LoomContextIntervention = Readonly<{
+  protocol: 'behold.context-intervention.v1';
+  kind: 'loom_fold_fallback';
+  entityId: string;
+  model: string;
+  at: number;
+  projectionProfile: string | null;
+  source: LoomFoldRecord['source'];
+  generation: Extract<LoomFoldRecord['generation'], { kind: 'fallback' }>;
+}>;
 
 export type LoomFoldRequest = {
   entityId: string;
@@ -64,6 +91,8 @@ type LoomContextOptions = {
   summaryMaxChars?: number;
   now?: () => number;
   projectionProfile?: string;
+  /** Durable operator evidence written before a fallback context can be used. */
+  onContextIntervention?: (intervention: LoomContextIntervention) => void;
   projectTurn?: (
     turn: EntityTurn,
     previousTurn?: EntityTurn,
@@ -139,43 +168,71 @@ export function createLoomContextView(
       const end = Math.min(target, cursor + foldBatchTurns);
       const batch = turns.slice(cursor, end);
       if (!batch.length) break;
+      const request: LoomFoldRequest = {
+        entityId: options.entityId,
+        previousSummary: summary,
+        turns: batch.map((turn, index) =>
+          (options.projectTurn ?? projectTurnForFolding)(turn, batch[index - 1]),
+        ),
+        fromSequence: batch[0].sequence,
+        toSequence: batch.at(-1)!.sequence,
+      };
+      const sourceSha256 = sha256(stableJson(request));
       let nextSummary: string;
+      let generation: LoomFoldRecord['generation'];
       try {
-        nextSummary = boundedText(
-          await options.summarize(
-            {
-              entityId: options.entityId,
-              previousSummary: summary,
-              turns: batch.map((turn, index) =>
-                (options.projectTurn ?? projectTurnForFolding)(turn, batch[index - 1]),
-              ),
-              fromSequence: batch[0].sequence,
-              toSequence: batch.at(-1)!.sequence,
-            },
-            signal,
-          ),
-          summaryMaxChars,
-        );
+        nextSummary = boundedText(await options.summarize(request, signal), summaryMaxChars);
+        if (nextSummary) {
+          generation = {
+            kind: 'model',
+            source: 'configured_summarizer',
+            sourceSha256,
+            summarySha256: sha256(nextSummary),
+          };
+        } else {
+          nextSummary = fallbackSummary(summary, batch, summaryMaxChars);
+          generation = fallbackGeneration(
+            'empty_summary',
+            new Error('configured loom summarizer returned no summary text'),
+            sourceSha256,
+            nextSummary,
+          );
+        }
       } catch (error) {
         if (signal?.aborted) throw signal.reason ?? error;
         nextSummary = fallbackSummary(summary, batch, summaryMaxChars);
+        generation = fallbackGeneration('summarizer_error', error, sourceSha256, nextSummary);
       }
       throwIfAborted(signal);
-      if (!nextSummary) nextSummary = fallbackSummary(summary, batch, summaryMaxChars);
 
       const tip = batch.at(-1)!;
+      const generatedAt = now();
+      const source = {
+        fromSequence: 1,
+        toSequence: tip.sequence,
+        tipId: tip.id,
+        turnCount: tip.sequence,
+      };
+      if (generation.kind === 'fallback') {
+        options.onContextIntervention?.({
+          protocol: 'behold.context-intervention.v1',
+          kind: 'loom_fold_fallback',
+          entityId: options.entityId,
+          model: options.model,
+          at: generatedAt,
+          projectionProfile: options.projectionProfile ?? null,
+          source,
+          generation,
+        });
+      }
       fold = {
-        protocol: 'behold.loom-fold.v2',
+        protocol: 'behold.loom-fold.v3',
         entityId: options.entityId,
-        source: {
-          fromSequence: 1,
-          toSequence: tip.sequence,
-          tipId: tip.id,
-          turnCount: tip.sequence,
-        },
+        source,
         summary: nextSummary,
-        generatedAt: now(),
+        generatedAt,
         model: options.model,
+        generation,
         ...(options.projectionProfile ? { projectionProfile: options.projectionProfile } : {}),
       };
       summary = nextSummary;
@@ -315,13 +372,15 @@ function loadValidFold(
   if (!cacheFile || !fs.existsSync(cacheFile)) return null;
   try {
     const candidate = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as LoomFoldRecord;
-    if (candidate?.protocol !== 'behold.loom-fold.v2') return null;
+    if (candidate?.protocol !== 'behold.loom-fold.v3') return null;
     if (candidate.entityId !== entityId) return null;
     if (projectionProfile && candidate.projectionProfile !== projectionProfile) return null;
     const index = Number(candidate.source?.toSequence) - 1;
     if (index < 0 || index >= turns.length) return null;
     if (turns[index]?.id !== candidate.source.tipId) return null;
     if (!candidate.summary?.trim()) return null;
+    if (candidate.generation?.summarySha256 !== sha256(candidate.summary)) return null;
+    if (!/^[a-f0-9]{64}$/.test(candidate.generation?.sourceSha256 ?? '')) return null;
     return candidate;
   } catch {
     return null;
@@ -348,6 +407,41 @@ function fallbackSummary(previous: string | null, batch: EntityTurn[], limit: nu
       .join('\n'),
     limit,
   );
+}
+
+function fallbackGeneration(
+  reason: 'summarizer_error' | 'empty_summary',
+  error: unknown,
+  sourceSha256: string,
+  summary: string,
+): Extract<LoomFoldRecord['generation'], { kind: 'fallback' }> {
+  const value = error as any;
+  return {
+    kind: 'fallback',
+    source: 'deterministic-source-anchors-v1',
+    reason,
+    sourceSha256,
+    summarySha256: sha256(summary),
+    failure: {
+      name: boundedText(value?.name || 'Error', 100),
+      message: boundedText(value?.message || String(error), 500),
+    },
+  };
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function stableJson(value: any): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function boundedText(value: unknown, limit: number) {

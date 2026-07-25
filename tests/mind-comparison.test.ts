@@ -4,6 +4,7 @@ import { compareResidentMinds } from '../src/evaluation/mind-comparison';
 import { runResidentMindTrials } from '../src/evaluation/mind-trials';
 import { createAxResidentMind } from '../src/mind/ax';
 import { createDirectResidentMind } from '../src/mind/direct';
+import { ResidentMindCallError } from '../src/mind/evidence';
 import type { ResidentMind } from '../src/mind/interface';
 import {
   createResidentMindRequestArtifact,
@@ -117,6 +118,30 @@ test('one immutable mind request can drive matched direct and Ax proposals', asy
     comparison.arms[0].call?.request.bodySha256,
     comparison.arms[1].call?.request.bodySha256,
     'adapter wire projections differ even though the framework input is identical',
+  );
+});
+
+test('a successful HTTP response with malformed JSON is not normalized into a direct decision', async () => {
+  const mind = createDirectResidentMind({
+    apiKey: 'test-key',
+    model: 'test/model',
+    endpoint: 'https://models.example.test/v1/chat/completions',
+    fetch: async () =>
+      new Response('not provider json', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  });
+
+  await assert.rejects(
+    mind.decide(request() as any, { signal: new AbortController().signal }),
+    (error: any) => {
+      assert.ok(error instanceof ResidentMindCallError);
+      assert.equal(error.call.response.terminal, 'malformed_output');
+      assert.equal(error.call.response.status, 200);
+      assert.equal(error.call.response.bodyPreview, 'not provider json');
+      return true;
+    },
   );
 });
 

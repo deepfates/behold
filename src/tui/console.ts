@@ -134,6 +134,11 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   });
   let experimentRelease: ExperimentReleaseReference | null = null;
   let experimentActive = releaseGate == null;
+  const managedBodyUsernames = new Set(
+    (releaseGate?.prepared.plan.residents ?? []).map((resident) =>
+      resident.bodyUsername.toLowerCase(),
+    ),
+  );
   const entityLoom = await openEntityLoom(name, undefined, cfg.circle.id);
   const projects = createProjectMemory(name, entityLoom.turns());
   const places = createPlaceMemory(name, entityLoom.turns());
@@ -252,8 +257,36 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   };
 
   const cache: any = { chatTail: [], nearby: [], cursor: null, last: null };
+  const recordExternalPlayerIntervention = (
+    kind: 'joined' | 'left' | 'chat',
+    usernameValue: unknown,
+    detail: Record<string, unknown> = {},
+  ) => {
+    const username = String(usernameValue || '').trim();
+    if (!username || username.toLowerCase() === bodyUsername.toLowerCase()) return;
+    if (managedBodyUsernames.has(username.toLowerCase())) return;
+    appendJournal(
+      experimentActive ? 'external_player_intervention' : 'setup_external_player_intervention',
+      {
+        protocol: 'behold.external-player-intervention.v1',
+        kind,
+        at: Date.now(),
+        username,
+        classification:
+          releaseGate == null
+            ? 'native_human_or_unmanaged_player_population_unknown'
+            : 'native_human_or_unmanaged_player',
+        ...detail,
+      },
+    );
+  };
+  bot.on('playerJoined', (player: any) =>
+    recordExternalPlayerIntervention('joined', player?.username),
+  );
+  bot.on('playerLeft', (player: any) => recordExternalPlayerIntervention('left', player?.username));
   bot.on('chat', (user: string, text: string) => {
     if (user === (bot as any).username) return;
+    recordExternalPlayerIntervention('chat', user, { text });
     cache.chatTail.push({ user, text });
     cache.chatTail = cache.chatTail.slice(-3);
     appendJournal(experimentActive ? 'chat_received' : 'setup_chat_received', { user, text });
@@ -430,6 +463,13 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       .then(async () => {
         if (shutdownStarted) return;
         if (opts.beforeResidentReady) {
+          if (releaseGate)
+            appendJournal('setup_operator_intervention', {
+              protocol: 'behold.operator-intervention.v1',
+              kind: 'programmatic_setup_hook',
+              phase: 'started',
+              at: Date.now(),
+            });
           if (releaseGate) appendJournal('setup_operator_hook_started');
           await opts.beforeResidentReady({
             bot,
@@ -437,6 +477,13 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           });
           if (releaseGate) {
             appendJournal('setup_operator_hook_completed', experience.observe());
+            appendJournal('setup_operator_intervention', {
+              protocol: 'behold.operator-intervention.v1',
+              kind: 'programmatic_setup_hook',
+              phase: 'completed',
+              at: Date.now(),
+              resultingObservation: experience.observe(),
+            });
           }
         }
         if (shutdownStarted) return;
@@ -565,8 +612,11 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         },
         onModelError: (failure) => appendJournal('model_call_failed', failure),
         onModelInterrupted: (interruption) => appendJournal('model_call_interrupted', interruption),
+        onDecisionOpportunity: (event) => appendJournal('resident_decision_opportunity', event),
         onAuxiliaryModelCall: (turn) => appendJournal('model_auxiliary_call', turn),
         onAuxiliaryModelError: (failure) => appendJournal('model_auxiliary_call_failed', failure),
+        onContextIntervention: (intervention) =>
+          appendJournal('context_intervention', intervention),
         onEntityTurn: async (turn) => {
           projects.validate(turn);
           places.validate(turn);
@@ -608,10 +658,13 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       return;
     }
     if (!experimentActive) {
-      appendJournal('setup_operator_action_rejected', {
+      appendJournal('setup_operator_intervention', {
+        protocol: 'behold.operator-intervention.v1',
+        kind: 'console_action',
+        phase: 'rejected',
+        at: Date.now(),
         reason: 'experiment_not_released',
-        tool: (p as any).tool,
-        input: (p as any).args,
+        action: { tool: (p as any).tool, input: (p as any).args },
       });
       cache.last = 'experiment setup is armed; action rejected until release';
       show();
@@ -638,6 +691,13 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         }
       }
     }
+    appendJournal('operator_intervention', {
+      protocol: 'behold.operator-intervention.v1',
+      kind: 'console_action',
+      phase: 'proposed',
+      at: Date.now(),
+      action: { tool: intent.tool, input: structuredClone(intent.input ?? {}) },
+    });
     try {
       const shown = (() => {
         try {

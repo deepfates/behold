@@ -17,6 +17,12 @@ import {
   type CognitionPriority,
   type CognitionPurpose,
 } from './cognition';
+import {
+  createCognitionTransportCapture,
+  type CognitionTransportCaptureHandle,
+  type CognitionTransportCaptureReference,
+  type CognitionTransportCaptureStore,
+} from './transport-capture';
 
 export const COGNITION_BROKER_EVENT_PROTOCOL = 'behold.cognition-broker-event.v1' as const;
 export const COGNITION_ADMISSION_LIMIT_PROTOCOL = 'behold.cognition-admission-limit.v1' as const;
@@ -96,6 +102,7 @@ export type CognitionBrokerSnapshot = Readonly<{
   healthy: boolean;
   accounting: Readonly<{ accounts: readonly QuotaLedgerSnapshot[] }> | null;
   journal: Readonly<{ file: string; tipDigest: string | null }> | null;
+  transportCaptureDirectory: string | null;
 }>;
 
 export type CognitionBroker = Readonly<{
@@ -103,6 +110,7 @@ export type CognitionBroker = Readonly<{
   brokerId: string;
   endpoint: string;
   journalFile: string | null;
+  transportCaptureDirectory: string | null;
   failed: Promise<Error>;
   admissionLimitReached: Promise<CognitionAdmissionLimitEvidence>;
   admissionLimitSettled: Promise<CognitionAdmissionLimitSettlementEvidence>;
@@ -142,6 +150,8 @@ export type CognitionBrokerOptions = Readonly<{
   fetch?: typeof fetch;
   now?: () => number;
   journalFile?: string;
+  /** Private raw provider-attempt evidence. No authentication headers are retained. */
+  transportCaptureDirectory?: string;
   onEvent?: (event: CognitionBrokerEvent) => void;
 }>;
 
@@ -157,6 +167,7 @@ type Job = {
   state: 'queued' | 'active' | 'cancelling' | 'completed' | 'cancelled';
   brokerRequestId: string;
   clientRequestId: string;
+  logicalRequestAttempt: number | null;
   client: Client;
   model: string;
   priority: CognitionPriority;
@@ -171,6 +182,8 @@ type Job = {
   upstreamAbort: AbortController | null;
   admission: CognitionAdmissionEvidence | null;
   quotaCharge: QuotaCharge | null;
+  transportCaptureHandle: CognitionTransportCaptureHandle | null;
+  transportCaptureReference: CognitionTransportCaptureReference | null;
 };
 
 const PRIORITIES: readonly CognitionPriority[] = ['urgent', 'deliberative', 'auxiliary'];
@@ -226,6 +239,9 @@ export async function startCognitionBroker(
   const callFetch = options.fetch ?? globalThis.fetch;
   const brokerId = `cognition-${randomUUID()}`;
   const journalFile = options.journalFile ? path.resolve(options.journalFile) : null;
+  const transportCaptureDirectory = options.transportCaptureDirectory
+    ? path.resolve(options.transportCaptureDirectory)
+    : null;
   let journalDescriptor: number | null = null;
   let journalTipDigest: string | null = null;
   let journalFailure: Error | null = null;
@@ -267,9 +283,23 @@ export async function startCognitionBroker(
       throw error;
     }
   }
+  let transportCapture: CognitionTransportCaptureStore | null = null;
+  if (transportCaptureDirectory) {
+    try {
+      transportCapture = createCognitionTransportCapture({
+        directory: transportCaptureDirectory,
+        secretValues: [upstreamApiKey, ...clients.map((client) => client.bearer)],
+      });
+    } catch (error) {
+      if (journalDescriptor != null) fs.closeSync(journalDescriptor);
+      closeAccountingLedgers(accountingLedgers);
+      throw error;
+    }
+  }
   const queues = new Map<CognitionPriority, Job[]>(PRIORITIES.map((priority) => [priority, []]));
   const activeJobs = new Set<Job>();
   const activeResidents = new Set<string>();
+  const logicalRequestAttempts = new Map<string, number>();
   let sequence = 0;
   let active = 0;
   let urgentBurst = 0;
@@ -425,6 +455,7 @@ export async function startCognitionBroker(
       state: 'queued',
       brokerRequestId: `broker-${randomUUID()}`,
       clientRequestId,
+      logicalRequestAttempt: null,
       client,
       model,
       priority,
@@ -439,6 +470,8 @@ export async function startCognitionBroker(
       upstreamAbort: null,
       admission: null,
       quotaCharge: null,
+      transportCaptureHandle: null,
+      transportCaptureReference: null,
     };
     metrics.accepted += 1;
     queues.get(priority)!.push(job);
@@ -569,6 +602,9 @@ export async function startCognitionBroker(
       }
       const admittedAt = now();
       const activeBeforeAdmission = active;
+      const logicalAttemptKey = `${job.client.residentKey}\0${job.clientRequestId}`;
+      job.logicalRequestAttempt = (logicalRequestAttempts.get(logicalAttemptKey) ?? 0) + 1;
+      logicalRequestAttempts.set(logicalAttemptKey, job.logicalRequestAttempt);
       const admission: CognitionAdmissionEvidence = Object.freeze({
         protocol: COGNITION_ADMISSION_PROTOCOL,
         brokerId,
@@ -600,6 +636,7 @@ export async function startCognitionBroker(
       try {
         emit('admitted', job, {
           ...admission,
+          logicalRequestAttempt: job.logicalRequestAttempt,
           quota: job.quotaCharge
             ? {
                 scopeId: job.client.accounting!.scopeId,
@@ -690,6 +727,42 @@ export async function startCognitionBroker(
   }
 
   async function execute(job: Job) {
+    const upstreamStartedAt = now();
+    if (transportCapture) {
+      const quota = job.quotaCharge
+        ? {
+            accountId: job.client.accounting!.accountId,
+            purposeOrdinal: job.quotaCharge.ordinal,
+            purposeLimit: job.quotaCharge.limit,
+            purposeRemaining: job.quotaCharge.remaining,
+            ledgerFile: accountingLedgers.get(job.client.residentKey)!.file,
+            ledgerTipDigest: job.quotaCharge.event.digest,
+          }
+        : null;
+      try {
+        job.transportCaptureHandle = transportCapture.start({
+          brokerId,
+          brokerRequestId: job.brokerRequestId,
+          clientRequestId: job.clientRequestId,
+          logicalRequestAttempt: job.logicalRequestAttempt!,
+          residentKey: job.client.residentKey,
+          admissionOrdinal: job.admission!.admissionOrdinal,
+          priority: job.priority,
+          purpose: job.purpose,
+          urgentTriggerSequence: job.urgentTriggerSequence,
+          requestedModel: job.model,
+          upstreamEndpoint: upstream,
+          requestBody: job.body,
+          queuedAt: job.queuedAt,
+          admittedAt: job.admission!.admittedAt,
+          upstreamStartedAt,
+          queueMs: job.admission!.queueMs,
+          quota,
+        });
+      } catch (error) {
+        throw recordFatalFailure(error);
+      }
+    }
     const admissionHeaders = cognitionAdmissionHeaders(job.admission!);
     const timeout = setTimeout(() => {
       job.upstreamAbort?.abort(codedError('upstream_timeout', 'model upstream timed out'));
@@ -707,11 +780,26 @@ export async function startCognitionBroker(
         signal: job.upstreamAbort!.signal,
       });
       const responseBody = await readResponseBody(upstreamResponse, maxResponseBytes);
+      const contentType = upstreamResponse.headers.get('content-type') || 'application/json';
       if (job.state === 'cancelling' || job.state === 'cancelled' || job.response.destroyed) {
-        recordInflightCancellation(job, 'client_disconnected_after_upstream');
+        recordInflightCancellation(job, 'client_disconnected_after_upstream', {
+          status: upstreamResponse.status,
+          ok: upstreamResponse.ok,
+          body: responseBody,
+          contentType,
+        });
         return;
       }
-      const contentType = upstreamResponse.headers.get('content-type') || 'application/json';
+      const transportCapture = finishTransportCapture(job, {
+        terminal: upstreamResponse.ok ? 'success' : 'provider_error',
+        completedAt: now(),
+        response: {
+          status: upstreamResponse.status,
+          ok: upstreamResponse.ok,
+          body: responseBody,
+          contentType,
+        },
+      });
       settleProviderCharge(job, {
         outcome: 'upstream_response',
         status: upstreamResponse.status,
@@ -719,6 +807,7 @@ export async function startCognitionBroker(
         responseBytes: responseBody.byteLength,
         responseSha256: sha256(responseBody),
         usage: providerUsage(responseBody),
+        transportCapture,
       });
       job.state = 'completed';
       if (upstreamResponse.ok) metrics.completed += 1;
@@ -729,6 +818,7 @@ export async function startCognitionBroker(
         responseBytes: responseBody.byteLength,
         queueMs: job.admission!.queueMs,
         activeBeforeRelease: active,
+        transportCapture,
       });
       job.response.writeHead(upstreamResponse.status, {
         'content-type': contentType,
@@ -760,6 +850,11 @@ export async function startCognitionBroker(
         ok: false,
         error: error?.code || error?.message || String(error),
         usage: null,
+        transportCapture: finishTransportCapture(job, {
+          terminal: 'network_error',
+          completedAt: now(),
+          error,
+        }),
       });
       metrics.failed += 1;
       job.state = 'completed';
@@ -769,6 +864,7 @@ export async function startCognitionBroker(
         error: error?.code || error?.message || String(error),
         queueMs: job.admission!.queueMs,
         activeBeforeRelease: active,
+        transportCapture: job.transportCaptureReference,
       });
       if (!job.response.destroyed) {
         writeError(
@@ -784,15 +880,31 @@ export async function startCognitionBroker(
     }
   }
 
-  function recordInflightCancellation(job: Job, reason: string) {
+  function recordInflightCancellation(
+    job: Job,
+    reason: string,
+    response?: Readonly<{
+      status: number;
+      ok: boolean;
+      body: Buffer;
+      contentType: string;
+    }>,
+  ) {
     if (job.state === 'cancelled') return;
     job.state = 'cancelled';
+    const transportCapture = finishTransportCapture(
+      job,
+      response
+        ? { terminal: 'cancelled', completedAt: now(), response, error: new Error(reason) }
+        : { terminal: 'cancelled', completedAt: now(), error: new Error(reason) },
+    );
     settleProviderCharge(job, {
       outcome: 'cancelled',
       status: null,
       ok: false,
       reason,
       usage: null,
+      transportCapture,
     });
     metrics.cancelled += 1;
     if (!journalFailure) {
@@ -801,6 +913,7 @@ export async function startCognitionBroker(
         admitted: true,
         queueMs: job.admission?.queueMs ?? 0,
         activeBeforeRelease: active,
+        transportCapture,
       });
     }
   }
@@ -808,12 +921,18 @@ export async function startCognitionBroker(
   function recordTimeout(job: Job) {
     if (job.state === 'completed' || job.state === 'cancelled') return;
     job.state = 'completed';
+    const transportCapture = finishTransportCapture(job, {
+      terminal: 'timeout',
+      completedAt: now(),
+      error: codedError('upstream_timeout', 'model upstream timed out'),
+    });
     settleProviderCharge(job, {
       outcome: 'upstream_timeout',
       status: null,
       ok: false,
       error: 'upstream_timeout',
       usage: null,
+      transportCapture,
     });
     metrics.failed += 1;
     if (!journalFailure) {
@@ -823,6 +942,7 @@ export async function startCognitionBroker(
         error: 'upstream_timeout',
         queueMs: job.admission?.queueMs ?? 0,
         activeBeforeRelease: active,
+        transportCapture,
       });
     }
     if (!job.response.destroyed) {
@@ -872,6 +992,25 @@ export async function startCognitionBroker(
     }
   }
 
+  function finishTransportCapture(
+    job: Job,
+    outcome: Parameters<CognitionTransportCaptureStore['finish']>[1],
+  ) {
+    if (job.transportCaptureReference) return job.transportCaptureReference;
+    if (!transportCapture) return null;
+    if (!job.transportCaptureHandle) {
+      throw recordFatalFailure(
+        codedError('transport_capture_missing_start', 'provider attempt capture has no start'),
+      );
+    }
+    try {
+      job.transportCaptureReference = transportCapture.finish(job.transportCaptureHandle, outcome);
+      return job.transportCaptureReference;
+    } catch (error) {
+      throw recordFatalFailure(error);
+    }
+  }
+
   function snapshot(): CognitionBrokerSnapshot {
     return Object.freeze({
       protocol: 'behold.cognition-broker-snapshot.v1',
@@ -895,6 +1034,7 @@ export async function startCognitionBroker(
             }
           : null,
       journal: journalFile ? { file: journalFile, tipDigest: journalTipDigest } : null,
+      transportCaptureDirectory,
     });
   }
 
@@ -923,6 +1063,13 @@ export async function startCognitionBroker(
       concurrencyLimit: maxConcurrent,
       acceptedLimit: maxAccepted,
       maxCallMs,
+      transportCapture: transportCapture
+        ? {
+            protocol: 'behold.cognition-transport-attempt.v1',
+            directory: transportCapture.directory,
+            authenticationHeadersRetained: false,
+          }
+        : null,
       accounting:
         accountingLedgers.size > 0
           ? [...accountingLedgers.values()]
@@ -1023,6 +1170,7 @@ export async function startCognitionBroker(
     brokerId,
     endpoint,
     journalFile,
+    transportCaptureDirectory,
     failed,
     admissionLimitReached,
     admissionLimitSettled,

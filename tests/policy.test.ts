@@ -3202,6 +3202,7 @@ test('a failed model call is visible once with request provenance and no credent
   }) as typeof fetch;
 
   const failures: any[] = [];
+  const opportunities: any[] = [];
   const policy = startLLMPolicy(
     {
       entityId: 'Scout',
@@ -3216,6 +3217,7 @@ test('a failed model call is visible once with request provenance and no credent
       now: () => now,
       acceptEngineEvent: () => true,
       onModelError: (failure) => failures.push(failure),
+      onDecisionOpportunity: (event) => opportunities.push(event),
     },
   );
 
@@ -3225,10 +3227,20 @@ test('a failed model call is visible once with request provenance and no credent
     assert.equal(failures.length, 1);
     assert.equal(failures[0].call.response.status, 429);
     assert.equal(failures[0].call.response.bodyPreview, 'rate limited');
+    assert.equal(failures[0].call.response.terminal, 'provider_error');
     assert.equal(failures[0].call.endpoint, 'https://models.example.test/v1/chat/completions');
     assert.equal(failures[0].call.latencyMs, 41);
     assert.equal(failures[0].call.request.body, undefined);
     assert.equal(JSON.stringify(failures[0]).includes('super-secret-test-key'), false);
+    assert.deepEqual(
+      opportunities.map((event) => [event.phase, event.terminal ?? null]),
+      [
+        ['scheduled', null],
+        ['terminal', 'provider_error'],
+      ],
+    );
+    assert.equal(opportunities[0].opportunityId, opportunities[1].opportunityId);
+    assert.match(opportunities[0].requestSha256, /^[a-f0-9]{64}$/);
   } finally {
     policy.stop();
     globalThis.fetch = originalFetch;

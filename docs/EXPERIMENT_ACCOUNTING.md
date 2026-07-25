@@ -1,9 +1,15 @@
 # Experiment accounting v1
 
-Behold's first matched-population accounting layer is an operator-side causal
+Behold's first quota-controlled population accounting layer is an operator-side causal
 record. It does not alter a resident's prompt, observations, actions, Lync, or
 Minecraft body. Its hard limits apply to provider-attempt authorizations, not
 to estimated tokens, inferred decisions, or Minecraft actions.
+
+Equal limits prevent one resident or auxiliary context process from consuming
+another resident's allocation. They do not make heterogeneous models a fair or
+matched comparison: provider, route, availability, tokenization, context,
+latency, schema reliability, and failure behavior remain part of the observed
+deployment ecology.
 
 ## Quota-controlled populations
 
@@ -25,7 +31,7 @@ Start it with an explicit stable experiment identity:
 npm run swarm -- \
   --world sf-csdr \
   --residents .behold-runtime/residents.local.json \
-  --accountingScope matched-run-2026-07-25 \
+  --accountingScope living-pilot-2026-07-25 \
   --maxModelConcurrency 2
 ```
 
@@ -89,16 +95,19 @@ before the upstream request can begin.
 
 These evidence layers remain distinct:
 
-| Quantity                        | Authoritative event                         | Hard-capped in v1?                    | Meaning                                                                                                                                    |
-| ------------------------------- | ------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Provider attempt authorization  | quota ledger `charged`                      | yes, per resident and purpose         | Durable permission granted immediately before one broker admission. A crash after authorization remains conservatively consumed.           |
-| Auxiliary context work          | provider ledger purpose `loom_fold`         | yes                                   | Loom/Ax context-fold provider work; it cannot consume any resident's `resident_decision` quota.                                            |
-| Resident-decision provider work | provider ledger purpose `resident_decision` | yes                                   | A model request made for a resident decision. Provider/network retries are new attempts and consume only this resident's purpose quota.    |
-| Provider outcome                | quota ledger `settled`                      | n/a                                   | Response, failure, timeout, or cancellation for one charged authorization. Unsettled charges remain visible after a crash.                 |
-| Provider tokens and cost        | provider response usage in `settled`        | measured, not hard-capped             | Only metrics actually reported by the provider are totaled. Per-metric report counts distinguish an unreported value from a reported zero. |
-| Broker admission                | cognition journal `admitted`                | bounded by the matching authorization | A request admitted to the one-at-a-time-per-resident/concurrency scheduler.                                                                |
-| Admitted resident decision      | resident journal `model_turn`               | no separate durable cap yet           | A response accepted by the resident controller as a decision. This is not inferred from provider success.                                  |
-| Physical Minecraft attempt      | resident journal `action_started`           | no separate durable cap yet           | An embodied action dispatched to the serialized action kernel. Outcomes remain separate authenticated action/Lync evidence.                |
+| Quantity                        | Authoritative event                                            | Hard-capped in v1?                    | Meaning                                                                                                                                                        |
+| ------------------------------- | -------------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider attempt authorization  | quota ledger `charged`                                         | yes, per resident and purpose         | Durable permission granted immediately before one broker admission. A crash after authorization remains conservatively consumed.                               |
+| Auxiliary context work          | provider ledger purpose `loom_fold`                            | yes                                   | Loom/Ax context-fold provider work; it cannot consume any resident's `resident_decision` quota.                                                                |
+| Resident-decision provider work | provider ledger purpose `resident_decision`                    | yes                                   | A model request made for a resident decision. Provider/network retries are new attempts and consume only this resident's purpose quota.                        |
+| Provider outcome                | quota ledger `settled`                                         | n/a                                   | Response, failure, timeout, or cancellation for one charged authorization. Unsettled charges remain visible after a crash.                                     |
+| Provider tokens and cost        | provider response usage in `settled`                           | measured, not hard-capped             | Only metrics actually reported by the provider are totaled. Per-metric report counts distinguish an unreported value from a reported zero.                     |
+| Broker admission                | cognition journal `admitted`                                   | bounded by the matching authorization | A request admitted to the one-at-a-time-per-resident/concurrency scheduler.                                                                                    |
+| Scheduled decision opportunity  | resident journal `resident_decision_opportunity` / `scheduled` | no                                    | A controller asked one resident mind for one logical decision. It exists before transport and is not inferred from a response.                                 |
+| Provider-attempt terminal       | raw transport attempt plus broker terminal                     | n/a                                   | `success`, `provider_error`, `network_error`, `timeout`, and `cancelled` remain distinct. A repeated logical request has a one-based physical-attempt ordinal. |
+| Logical response terminal       | resident journal `resident_decision_opportunity` / `terminal`  | n/a                                   | Valid response, malformed output, adapter rejection, admission rejection, transport/provider failure, or cancellation; only `success` can become `model_turn`. |
+| Admitted resident decision      | resident journal `model_turn`                                  | no separate durable cap yet           | A response accepted by the resident controller as a decision. This is not inferred from provider success.                                                      |
+| Physical Minecraft attempt      | resident journal `action_started`                              | no separate durable cap yet           | An embodied action dispatched to the serialized action kernel. Outcomes remain separate authenticated action/Lync evidence.                                    |
 
 The last two rows are intentionally not relabeled as provider attempts. A
 successful provider response can fail decision parsing, a decision can yield,
@@ -108,16 +117,39 @@ action identities rather than collapse them into one number.
 
 ## Evidence and visibility boundary
 
-The quota ledger and cognition journal are raw operator evidence. They contain
-resident account identities, request hashes, model names, response usage, and
-local evidence paths. They are not appended to mind requests, body
-observations, model-facing replay, or Lync prose. Lifecycle events expose the
-scope, equal limits, ledger identity, and verified shutdown snapshot to an
-operator. A future Textile presentation may project selected totals, but it
-must not become the causal source and must not copy unrelated raw/private world
-fields into a resident's model context.
+The quota ledger, cognition journal, resident run journal, and
+`_cognition/transport` directory are raw operator evidence. Every admitted
+physical provider attempt has an immutable start record, exact content-addressed
+request and response bytes, a terminal record, and a broker-journal reference.
+The records retain requested and returned model/provider identity, route without
+authentication, timing, HTTP outcome, reported tokens/cost, and content hashes.
+Authentication headers are never retained; known credential values in content
+fail capture closed, and error strings are redacted. Verification rejects a
+missing, extra, edited, or unreferenced record/blob.
 
-This deterministic gate proves mechanics: purpose isolation, equality
-enforcement, durable exhaustion, idempotent replay, and usage accounting. It
-does not prove that two models receive semantically equal information, use
-their budgets similarly, or behave scientifically comparably in a live world.
+These raw records are not appended to mind requests, body observations,
+model-facing replay, Lync prose, or a Textile presentation. Lifecycle events
+expose the private evidence path and verified totals to an operator. A human
+projection may cite selected content hashes later, but it must not become the
+causal source or copy raw/private world fields into resident context.
+
+Ax assertion-driven output correction is disabled by default. An explicitly
+configured correction requires the accounted cognition transport; every extra
+HTTP request receives its own quota charge, broker admission, raw wire capture,
+and `behold.model-adapter-intervention.v1` reference to that physical attempt.
+There is no route/model substitution or silent catch-up opportunity.
+
+Loom cache protocol v3 distinguishes a model-generated fold from the
+`deterministic-source-anchors-v1` fallback. A summarizer error or empty summary
+records its failure, exact projected-source hash, resulting-summary hash, and a
+`behold.context-intervention.v1` run-journal event before the fallback can be
+used. Console actions, setup hooks, and non-population Minecraft players are
+likewise separate operator/external-player intervention records. Server-side
+evidence honestly labels an unknown external client as
+`native_human_or_unmanaged_player`; it does not claim to infer the client type.
+
+This deterministic gate proves mechanics: purpose isolation, configured-limit
+equality, durable exhaustion, idempotent replay, exact transport retention, and
+reported-usage accounting. It does not prove that two models receive
+semantically equal information, use their budgets similarly, or behave
+scientifically comparably in a live world.
