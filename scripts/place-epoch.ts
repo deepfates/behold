@@ -11,12 +11,19 @@ import {
   worldLabDefinitionDigest,
   type WorldLabDefinition,
 } from './world-lab';
+import {
+  assertPlaceReleaseUnchanged,
+  snapshotPlaceRelease,
+  verifyPrivacySafePlaceRelease,
+  type ExpectedPrivacySafePlaceRelease,
+  type PrivacySafePlaceReleaseVerification,
+} from './place-release-v3';
 
 export const PLACE_EPOCH_PROTOCOL = 'behold.place-epoch-admission.v1' as const;
 
 type JsonRecord = Record<string, any>;
 
-export type PlaceEpochAdmissionOptions = Readonly<{
+type PlaceEpochAdmissionBase = Readonly<{
   releaseRoot: string;
   profileId: string;
   destinationRoot: string;
@@ -25,6 +32,17 @@ export type PlaceEpochAdmissionOptions = Readonly<{
   port: number;
   progress?: (event: PlaceEpochProgressEvent) => void;
 }>;
+
+export type PlaceEpochAdmissionOptions = PlaceEpochAdmissionBase &
+  (
+    | Readonly<{ releaseContract: 'legacy-v2-integrity-only' }>
+    | Readonly<{
+        releaseContract: 'privacy-safe-v3';
+        preservationFile: string;
+        placeCompilerRoot: string;
+        expectedRelease: ExpectedPrivacySafePlaceRelease;
+      }>
+  );
 
 export type PlaceEpochProgressEvent = Readonly<{
   protocol: 'behold.place-epoch-progress.v1';
@@ -46,6 +64,8 @@ export type PlaceEpochDescriptor = Readonly<{
     evidenceArchiveSha256: string;
     declaredWorldTreeSha256: string;
     verifiedWorldTreeSha256: string;
+    releaseIdentity: PlaceReleaseIdentity;
+    releaseIdentitySha256: string;
   }>;
   profile: Readonly<{ id: string; sha256: string; definition: JsonRecord }>;
   behold: Readonly<{
@@ -53,6 +73,7 @@ export type PlaceEpochDescriptor = Readonly<{
     baselineTree: ReturnType<typeof digestTree>;
     serverJarSha256: string;
     worldDefinitionSha256: string;
+    epochIdentitySha256: string;
   }>;
   paths: Readonly<{
     source: string;
@@ -62,6 +83,41 @@ export type PlaceEpochDescriptor = Readonly<{
     serverDirectory: string;
     worldDefinition: string;
   }>;
+}>;
+
+export type PlaceReleaseIdentity = Readonly<{
+  contract: 'legacy-v2-integrity-only' | 'privacy-safe-v3';
+  schemaVersion: 2 | 3;
+  privacyEligibility: 'legacy-ineligible' | 'privacy-safe';
+  artifactPreservationTreeSha256: string | null;
+  releaseManifestSha256: string;
+  releaseChecksumsSha256: string;
+  compilerRevision: string | null;
+  canonicalVerifier: Readonly<{
+    revision: string;
+    status: 'verified';
+    releaseEligible: true;
+    disclosureCount: 0;
+  }> | null;
+  portability: Readonly<{
+    status: 'privacy-safe';
+    policy: 'logical-coordinates-v1';
+    evidenceManifestSha256: string;
+  }> | null;
+  source: Readonly<{
+    recipePath: string | null;
+    recipeSha256: string;
+    toolLockPath: string | null;
+    toolLockSha256: string | null;
+    inputSha256: string;
+    worldTreeSha256: string;
+    generatorBinarySha256: string | null;
+  }>;
+  archives: readonly Readonly<{
+    role: string;
+    sha256: string;
+    sizeBytes: number;
+  }>[];
 }>;
 
 export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpochDescriptor {
@@ -78,12 +134,22 @@ export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpo
     throw new Error('Pinned Minecraft server JAR digest mismatch');
   }
 
-  progress('release-verification', 'started', { releaseRoot });
-  const verified = verifyPlaceRelease(releaseRoot);
+  progress('release-verification', 'started', { contract: options.releaseContract });
+  const verified =
+    options.releaseContract === 'privacy-safe-v3'
+      ? verifyPrivacySafePlaceRelease({
+          releaseRoot,
+          preservationFile: options.preservationFile,
+          placeCompilerRoot: options.placeCompilerRoot,
+          expected: options.expectedRelease,
+        })
+      : verifyLegacyPlaceRelease(releaseRoot);
   progress('release-verification', 'completed', {
     placeId: verified.manifest.placeId,
     runId: verified.manifest.runId,
     releaseManifestSha256: verified.releaseManifestSha256,
+    privacyEligibility:
+      options.releaseContract === 'privacy-safe-v3' ? 'privacy-safe' : 'legacy-ineligible',
   });
   const manifest = verified.manifest;
   if (!manifest.runtimeProfiles.includes(options.profileId)) {
@@ -108,6 +174,14 @@ export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpo
     const worldDirectory = findSingleWorldDirectory(extractedWorld);
     const generation = readJson(path.join(extractedEvidence, 'generation-manifest.json'));
     assertGenerationMatchesRelease(generation, manifest);
+    if (
+      options.releaseContract === 'privacy-safe-v3' &&
+      (generation.generator?.minecraftServerSha256 !==
+        options.expectedServerJarSha256.toLowerCase() ||
+        typeof generation.generator?.minecraftVersion !== 'string')
+    ) {
+      throw new Error('Pinned server JAR or Minecraft version disagrees with the Place V3 release');
+    }
     const profile = generation.place.runtimeProfiles?.[options.profileId];
     if (!isRecord(profile))
       throw new Error(`Generation evidence lacks profile ${options.profileId}`);
@@ -136,12 +210,14 @@ export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpo
     const sourceTree = digestTree(source);
     const baselineTree = digestTree(baseline);
     const profileSha256 = sha256Text(stableJson(profile));
-    const topologySha256 = sha256Text(
+    const releaseIdentity = placeReleaseIdentity(options.releaseContract, verified);
+    const releaseIdentitySha256 = sha256Text(stableJson(releaseIdentity));
+    const epochIdentitySha256 = sha256Text(
       stableJson({
         protocol: PLACE_EPOCH_PROTOCOL,
         placeId: manifest.placeId,
         runId: manifest.runId,
-        releaseManifestSha256: verified.releaseManifestSha256,
+        releaseIdentitySha256,
         worldArchiveSha256: worldArchive.sha256,
         placeWorldTreeSha256: verifiedWorldTreeSha256,
         profileId: options.profileId,
@@ -150,7 +226,11 @@ export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpo
         baselineTreeSha256: baselineTree.digest,
       }),
     );
-    const worldId = safeWorldId(`${manifest.placeId}-${topologySha256.slice(0, 16)}`);
+    const worldId = safeWorldId(
+      options.releaseContract === 'privacy-safe-v3'
+        ? `${manifest.placeId}-${epochIdentitySha256}`
+        : `${manifest.placeId}-${epochIdentitySha256.slice(0, 16)}`,
+    );
     const finalPaths = {
       source: path.join(destinationRoot, 'source'),
       baseline: path.join(destinationRoot, 'baseline'),
@@ -175,6 +255,7 @@ export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpo
       server: { host: '127.0.0.1', port: options.port },
       notes: [
         `Place release ${manifest.runId}; manifest ${verified.releaseManifestSha256}.`,
+        `Place release identity ${releaseIdentitySha256}; epoch ${epochIdentitySha256}.`,
         `Place tree ${verifiedWorldTreeSha256}; Behold baseline ${baselineTree.digest}.`,
         `Runtime profile ${options.profileId} (${profileSha256}).`,
       ],
@@ -192,6 +273,8 @@ export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpo
         evidenceArchiveSha256: evidenceArchive.sha256,
         declaredWorldTreeSha256: manifest.source.worldTreeSha256,
         verifiedWorldTreeSha256,
+        releaseIdentity,
+        releaseIdentitySha256,
       },
       profile: { id: options.profileId, sha256: profileSha256, definition: profile },
       behold: {
@@ -199,6 +282,7 @@ export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpo
         baselineTree,
         serverJarSha256: options.expectedServerJarSha256.toLowerCase(),
         worldDefinitionSha256,
+        epochIdentitySha256,
       },
       paths: finalPaths,
     };
@@ -207,6 +291,12 @@ export function admitPlaceRelease(options: PlaceEpochAdmissionOptions): PlaceEpo
       worlds: { [worldId]: world },
     });
     writeJson(path.join(stage, 'place-epoch.json'), descriptor);
+    if (options.releaseContract === 'privacy-safe-v3') {
+      assertPlaceReleaseUnchanged(
+        (verified as PrivacySafePlaceReleaseVerification).sourceSnapshot,
+        snapshotPlaceRelease(releaseRoot),
+      );
+    }
     fs.renameSync(stage, destinationRoot);
     progress('admission', 'completed', { worldId, destinationRoot });
     return descriptor;
@@ -255,8 +345,60 @@ export function verifyAdmittedPlaceEpoch(rootPath: string): PlaceEpochDescriptor
     ['baseline tree', descriptor.behold?.baselineTree?.digest],
     ['server JAR', descriptor.behold?.serverJarSha256],
     ['world definition', descriptor.behold?.worldDefinitionSha256],
+    ['release identity', descriptor.place?.releaseIdentitySha256],
+    ['epoch identity', descriptor.behold?.epochIdentitySha256],
   ] as const) {
     assertSha256(value, `${label} digest`);
+  }
+  const releaseIdentity = descriptor.place.releaseIdentity;
+  if (
+    !isRecord(releaseIdentity) ||
+    !['legacy-v2-integrity-only', 'privacy-safe-v3'].includes(releaseIdentity.contract) ||
+    sha256Text(stableJson(releaseIdentity)) !== descriptor.place.releaseIdentitySha256 ||
+    releaseIdentity.releaseManifestSha256 !== descriptor.place.releaseManifestSha256 ||
+    releaseIdentity.releaseChecksumsSha256 !== descriptor.place.releaseChecksumsSha256 ||
+    releaseIdentity.source?.worldTreeSha256 !== descriptor.place.declaredWorldTreeSha256 ||
+    !Array.isArray(releaseIdentity.archives) ||
+    releaseIdentity.archives.find((archive) => archive.role === 'immutable-world')?.sha256 !==
+      descriptor.place.worldArchiveSha256 ||
+    releaseIdentity.archives.find((archive) => archive.role === 'generation-evidence')?.sha256 !==
+      descriptor.place.evidenceArchiveSha256
+  ) {
+    throw new Error('Place release identity binding is malformed or inconsistent');
+  }
+  if (releaseIdentity.contract === 'privacy-safe-v3') {
+    for (const [label, value] of [
+      ['artifact preservation tree', releaseIdentity.artifactPreservationTreeSha256],
+      ['portability evidence', releaseIdentity.portability?.evidenceManifestSha256],
+      ['recipe', releaseIdentity.source?.recipeSha256],
+      ['tool lock', releaseIdentity.source?.toolLockSha256],
+      ['input', releaseIdentity.source?.inputSha256],
+      ['generator', releaseIdentity.source?.generatorBinarySha256],
+    ] as const) {
+      assertSha256(value, `${label} digest`);
+    }
+    assertGitRevision(releaseIdentity.canonicalVerifier?.revision, 'canonical verifier revision');
+    if (
+      releaseIdentity.schemaVersion !== 3 ||
+      releaseIdentity.privacyEligibility !== 'privacy-safe' ||
+      releaseIdentity.portability?.status !== 'privacy-safe' ||
+      releaseIdentity.portability?.policy !== 'logical-coordinates-v1' ||
+      releaseIdentity.compilerRevision == null ||
+      releaseIdentity.canonicalVerifier?.revision !== releaseIdentity.compilerRevision ||
+      releaseIdentity.canonicalVerifier?.status !== 'verified' ||
+      releaseIdentity.canonicalVerifier?.releaseEligible !== true ||
+      releaseIdentity.canonicalVerifier?.disclosureCount !== 0
+    ) {
+      throw new Error('Place V3 epoch is not privacy eligible');
+    }
+  } else if (
+    releaseIdentity.schemaVersion !== 2 ||
+    releaseIdentity.privacyEligibility !== 'legacy-ineligible' ||
+    releaseIdentity.artifactPreservationTreeSha256 !== null ||
+    releaseIdentity.canonicalVerifier !== null ||
+    releaseIdentity.portability !== null
+  ) {
+    throw new Error('Legacy Place epoch is not explicitly integrity-only');
   }
   if (
     descriptor.place.declaredWorldTreeSha256 !== descriptor.place.verifiedWorldTreeSha256 ||
@@ -314,10 +456,85 @@ export function verifyAdmittedPlaceEpoch(rootPath: string): PlaceEpochDescriptor
   if (!serverProperties.includes(`server-port=${world.server.port}\n`)) {
     throw new Error('Server profile port does not match world definition');
   }
+  const expectedEpochIdentity = sha256Text(
+    stableJson({
+      protocol: PLACE_EPOCH_PROTOCOL,
+      placeId: descriptor.place.id,
+      runId: descriptor.place.runId,
+      releaseIdentitySha256: descriptor.place.releaseIdentitySha256,
+      worldArchiveSha256: descriptor.place.worldArchiveSha256,
+      placeWorldTreeSha256: descriptor.place.verifiedWorldTreeSha256,
+      profileId: descriptor.profile.id,
+      profileSha256: descriptor.profile.sha256,
+      serverJarSha256: descriptor.behold.serverJarSha256,
+      baselineTreeSha256: descriptor.behold.baselineTree.digest,
+    }),
+  );
+  const expectedWorldId =
+    releaseIdentity.contract === 'privacy-safe-v3'
+      ? `${descriptor.place.id}-${expectedEpochIdentity}`
+      : `${descriptor.place.id}-${expectedEpochIdentity.slice(0, 16)}`;
+  if (
+    descriptor.behold.epochIdentitySha256 !== expectedEpochIdentity ||
+    descriptor.worldId !== expectedWorldId
+  ) {
+    throw new Error('Place epoch identity does not bind the admitted release and derived world');
+  }
   return descriptor;
 }
 
-function verifyPlaceRelease(root: string) {
+function placeReleaseIdentity(
+  contract: PlaceReleaseIdentity['contract'],
+  verified: PrivacySafePlaceReleaseVerification | ReturnType<typeof verifyLegacyPlaceRelease>,
+): PlaceReleaseIdentity {
+  const manifest = verified.manifest;
+  const privacySafe = contract === 'privacy-safe-v3';
+  const v3 = privacySafe ? (verified as PrivacySafePlaceReleaseVerification) : null;
+  return {
+    contract,
+    schemaVersion: privacySafe ? 3 : 2,
+    privacyEligibility: privacySafe ? 'privacy-safe' : 'legacy-ineligible',
+    artifactPreservationTreeSha256: v3?.artifactPreservationTreeSha256 ?? null,
+    releaseManifestSha256: verified.releaseManifestSha256,
+    releaseChecksumsSha256: verified.releaseChecksumsSha256,
+    compilerRevision: v3?.compilerRevision ?? null,
+    canonicalVerifier: v3
+      ? {
+          revision: v3.compilerRevision,
+          status: v3.verifier.result,
+          releaseEligible: v3.verifier.releaseEligible,
+          disclosureCount: v3.verifier.disclosureCount,
+        }
+      : null,
+    portability: privacySafe
+      ? {
+          status: 'privacy-safe',
+          policy: 'logical-coordinates-v1',
+          evidenceManifestSha256: manifest.portability.evidenceManifestSha256,
+        }
+      : null,
+    source: {
+      recipePath: privacySafe ? manifest.source.recipePath : null,
+      recipeSha256: manifest.source.recipeSha256,
+      toolLockPath: privacySafe ? manifest.source.toolLockPath : null,
+      toolLockSha256: privacySafe ? manifest.source.toolLockSha256 : null,
+      inputSha256: manifest.source.osmSha256,
+      worldTreeSha256: manifest.source.worldTreeSha256,
+      generatorBinarySha256: privacySafe ? manifest.source.generator.binarySha256 : null,
+    },
+    archives: Object.freeze(
+      manifest.archives
+        .map((archive: JsonRecord) => ({
+          role: archive.role,
+          sha256: archive.sha256,
+          sizeBytes: archive.sizeBytes,
+        }))
+        .sort((left: JsonRecord, right: JsonRecord) => left.role.localeCompare(right.role, 'en')),
+    ),
+  };
+}
+
+function verifyLegacyPlaceRelease(root: string) {
   const manifestPath = path.join(root, 'release-manifest.json');
   const sumsPath = path.join(root, 'SHA256SUMS');
   const manifest = readJson(manifestPath);
@@ -602,6 +819,12 @@ function assertSha256(value: unknown, label: string): asserts value is string {
   }
 }
 
+function assertGitRevision(value: unknown, label: string): asserts value is string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{40}$/.test(value)) {
+    throw new Error(`Invalid ${label}`);
+  }
+}
+
 function assertSafePort(port: number) {
   if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
     throw new Error(`Invalid loopback port: ${port}`);
@@ -611,7 +834,8 @@ function assertSafePort(port: number) {
 function usage() {
   return [
     'Usage:',
-    '  place-epoch admit --release <release-dir> --profile <id> --destination <dir> --server-jar <jar> --server-sha256 <digest> [--port <port>]',
+    '  place-epoch admit --release <release-dir> --profile <id> --destination <dir> --server-jar <jar> --server-sha256 <digest> --preservation <file> --preservation-sha256 <digest> --place-compiler-root <dir> --place-id <id> --run-id <id> --artifact-preservation-tree-sha256 <digest> --release-manifest-sha256 <digest> --release-checksums-sha256 <digest> --world-tree-sha256 <digest> --archive-sha256 <filename=digest>... [--port <port>]',
+    '  place-epoch admit --legacy-v2-integrity-only --release <release-dir> --profile <id> --destination <dir> --server-jar <jar> --server-sha256 <digest> [--port <port>]',
     '  place-epoch verify --root <admitted-dir>',
   ].join('\n');
 }
@@ -628,6 +852,17 @@ async function main(argv = process.argv.slice(2)) {
       'server-sha256': { type: 'string' },
       port: { type: 'string', default: '25585' },
       root: { type: 'string' },
+      preservation: { type: 'string' },
+      'preservation-sha256': { type: 'string' },
+      'place-compiler-root': { type: 'string' },
+      'place-id': { type: 'string' },
+      'run-id': { type: 'string' },
+      'artifact-preservation-tree-sha256': { type: 'string' },
+      'release-manifest-sha256': { type: 'string' },
+      'release-checksums-sha256': { type: 'string' },
+      'world-tree-sha256': { type: 'string' },
+      'archive-sha256': { type: 'string', multiple: true },
+      'legacy-v2-integrity-only': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
   });
@@ -651,7 +886,7 @@ async function main(argv = process.argv.slice(2)) {
   ] as const) {
     if (!parsed.values[name]) throw new Error(`--${name} is required`);
   }
-  const descriptor = admitPlaceRelease({
+  const base = {
     releaseRoot: String(parsed.values.release),
     profileId: String(parsed.values.profile),
     destinationRoot: String(parsed.values.destination),
@@ -659,8 +894,64 @@ async function main(argv = process.argv.slice(2)) {
     expectedServerJarSha256: String(parsed.values['server-sha256']),
     port: Number(parsed.values.port),
     progress: (event) => process.stderr.write(`${JSON.stringify(event)}\n`),
-  });
+  };
+  const descriptor = parsed.values['legacy-v2-integrity-only']
+    ? admitPlaceRelease({ ...base, releaseContract: 'legacy-v2-integrity-only' })
+    : admitPlaceRelease({
+        ...base,
+        releaseContract: 'privacy-safe-v3',
+        preservationFile: requiredCliValue(parsed.values.preservation, 'preservation'),
+        placeCompilerRoot: requiredCliValue(
+          parsed.values['place-compiler-root'],
+          'place-compiler-root',
+        ),
+        expectedRelease: {
+          placeId: requiredCliValue(parsed.values['place-id'], 'place-id'),
+          runId: requiredCliValue(parsed.values['run-id'], 'run-id'),
+          artifactPreservationTreeSha256: requiredCliValue(
+            parsed.values['artifact-preservation-tree-sha256'],
+            'artifact-preservation-tree-sha256',
+          ),
+          releaseManifestSha256: requiredCliValue(
+            parsed.values['release-manifest-sha256'],
+            'release-manifest-sha256',
+          ),
+          releaseChecksumsSha256: requiredCliValue(
+            parsed.values['release-checksums-sha256'],
+            'release-checksums-sha256',
+          ),
+          worldTreeSha256: requiredCliValue(
+            parsed.values['world-tree-sha256'],
+            'world-tree-sha256',
+          ),
+          archives: parseArchivePins(parsed.values['archive-sha256']),
+          preservationSha256: requiredCliValue(
+            parsed.values['preservation-sha256'],
+            'preservation-sha256',
+          ),
+        },
+      });
   process.stdout.write(`${JSON.stringify({ status: 'admitted', descriptor }, null, 2)}\n`);
+}
+
+function requiredCliValue(value: unknown, name: string) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`--${name} is required`);
+  return value;
+}
+
+function parseArchivePins(values: readonly string[] | undefined) {
+  const archives: Record<string, string> = {};
+  for (const value of values ?? []) {
+    const separator = value.indexOf('=');
+    const name = separator < 0 ? '' : value.slice(0, separator);
+    const digest = separator < 0 ? '' : value.slice(separator + 1);
+    if (path.basename(name) !== name || !/^[a-f0-9]{64}$/.test(digest) || archives[name]) {
+      throw new Error(`Invalid --archive-sha256 value: ${value}`);
+    }
+    archives[name] = digest;
+  }
+  if (Object.keys(archives).length < 3) throw new Error('--archive-sha256 requires every archive');
+  return archives;
 }
 
 if (require.main === module) {

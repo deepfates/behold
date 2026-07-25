@@ -43,8 +43,8 @@ Owned-world proof
 Place Compiler boundary
 
 - Behold owns world epochs, resident identity, bodies, cognition, lifecycle, and consequence proofs. It does not own geographic compilation.
-- A Place Compiler release crosses into Behold only as an independently verifiable artifact: `release-manifest.json`, `SHA256SUMS`, and immutable-world, generation-evidence, and reproduction-kit archives. Behold verifies that closure, recomputes the portable world-tree digest, applies a named runtime profile to a separate baseline, and then assigns its own world and epoch identities.
-- Place Compiler source, recipes, benchmarks, and presentation machinery remain outside this controller product. `scripts/place-epoch.ts` is the narrow admission adapter; it imports no compiler internals.
+- A Place Compiler release crosses into Behold only as an independently verifiable artifact: `release-manifest.json`, `SHA256SUMS`, and immutable-world, generation-evidence, reproduction-kit, and input archives. For privacy-safe schema-V3 admission, Behold invokes the exact canonical Place verifier at an explicitly pinned revision, records that result and the release identities, recomputes the portable world-tree digest, applies a named runtime profile to a separate baseline, and then assigns its own content-bound world and epoch identities. The aggregate digest used to preserve a mounted artifact is preservation evidence, not a parallel release protocol.
+- Place Compiler source, recipes, benchmarks, and presentation machinery remain outside this controller product. `scripts/place-epoch.ts` is the narrow admission adapter; schema V2 remains an explicit legacy integrity-only path and is ineligible for privacy-safe runs.
 
 Configure a managed world
 
