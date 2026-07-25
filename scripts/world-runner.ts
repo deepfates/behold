@@ -173,6 +173,190 @@ export type ManagedResidentSpec = Readonly<{
   paused?: boolean;
 }>;
 
+export const MANAGED_RESIDENT_SET_PROTOCOL = 'behold.managed-resident-set.v1' as const;
+
+const MANAGED_RESIDENT_SET_FIELDS = new Set([
+  'entityId',
+  'bodyUsername',
+  'model',
+  'urgentModel',
+  'mind',
+  'policyProfile',
+  'actionProfile',
+  'safetyProfile',
+  'tickMs',
+  'maxTurnSteps',
+  'resumeAfterBudget',
+  'task',
+  'target',
+  'allowTools',
+  'paused',
+]);
+
+const RESIDENT_LEVEL_CLI_FIELDS = [
+  'controller',
+  'body',
+  'model',
+  'urgentModel',
+  'mind',
+  'paused',
+  'policyProfile',
+  'actionProfile',
+  'safetyProfile',
+  'tickMs',
+  'task',
+  'target',
+] as const;
+
+/** A resident-set file is an alternative to positional resident flags. */
+export function assertResidentConfigExclusive(values: Readonly<Record<string, unknown>>) {
+  if (!optionalText(values.residents)) return;
+  const conflicts = RESIDENT_LEVEL_CLI_FIELDS.filter((field) => {
+    const value = values[field];
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== undefined && value !== null && value !== false && value !== '';
+  });
+  if (conflicts.length > 0) {
+    throw new WorldRunnerError(
+      `--residents cannot be combined with resident-level flags: ${conflicts
+        .map((field) => `--${field}`)
+        .join(', ')}`,
+      'resident_config_cli_conflict',
+      { conflicts },
+    );
+  }
+}
+
+/**
+ * Load one explicit, versioned operator document and map it directly onto the
+ * already-supported programmatic resident seam. Unknown keys fail closed so a
+ * typo cannot silently turn a heterogeneous population into a defaulted one.
+ */
+export function loadManagedResidentSet(fileValue: string): readonly ManagedResidentSpec[] {
+  const file = path.resolve(fileValue);
+  let document: unknown;
+  try {
+    const stats = fs.lstatSync(file);
+    if (!stats.isFile() || stats.isSymbolicLink()) {
+      throw new Error('not a plain file');
+    }
+    document = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error: any) {
+    throw new WorldRunnerError(
+      `Resident config could not be read as a plain JSON file: ${error?.message || String(error)}`,
+      'resident_config_invalid',
+      { file },
+    );
+  }
+  if (!isPlainRecord(document)) {
+    throw residentConfigInvalid(file, 'resident config root must be an object');
+  }
+  const topLevelUnknown = Object.keys(document).filter(
+    (key) => key !== 'protocol' && key !== 'residents',
+  );
+  if (topLevelUnknown.length > 0) {
+    throw residentConfigInvalid(file, `unknown top-level field ${topLevelUnknown.join(', ')}`);
+  }
+  if (document.protocol !== MANAGED_RESIDENT_SET_PROTOCOL) {
+    throw residentConfigInvalid(file, `wrong protocol; expected ${MANAGED_RESIDENT_SET_PROTOCOL}`);
+  }
+  if (!Array.isArray(document.residents) || document.residents.length === 0) {
+    throw residentConfigInvalid(file, 'missing nonempty residents array');
+  }
+
+  const residents = document.residents.map((candidate, index) => {
+    if (!isPlainRecord(candidate)) {
+      throw residentConfigInvalid(file, `resident ${index} must be an object`);
+    }
+    const unknown = Object.keys(candidate).filter((key) => !MANAGED_RESIDENT_SET_FIELDS.has(key));
+    if (unknown.length > 0) {
+      throw residentConfigInvalid(file, `unknown resident ${index} field ${unknown.join(', ')}`);
+    }
+    const entityId = requiredResidentText(candidate.entityId, 'entityId', index, file);
+    const model = requiredResidentText(candidate.model, 'model', index, file);
+    const result: Record<string, unknown> = { entityId, model };
+    for (const field of ['bodyUsername', 'urgentModel', 'task', 'target'] as const) {
+      if (candidate[field] !== undefined) {
+        result[field] = requiredResidentText(candidate[field], field, index, file);
+      }
+    }
+    if (candidate.mind !== undefined) {
+      if (candidate.mind !== 'direct' && candidate.mind !== 'ax') {
+        throw residentConfigInvalid(file, `wrong mind for resident ${index}`);
+      }
+      result.mind = candidate.mind;
+    }
+    for (const [field, normalize] of [
+      ['policyProfile', residentPolicyProfile],
+      ['actionProfile', minecraftActionProfile],
+      ['safetyProfile', minecraftSafetyProfile],
+    ] as const) {
+      if (candidate[field] === undefined) continue;
+      try {
+        result[field] = normalize(candidate[field]);
+      } catch (error: any) {
+        throw residentConfigInvalid(
+          file,
+          `wrong ${field} for resident ${index}: ${error?.message || String(error)}`,
+        );
+      }
+    }
+    for (const [field, min, max] of [
+      ['tickMs', 500, Number.MAX_SAFE_INTEGER],
+      ['maxTurnSteps', 1, 32],
+    ] as const) {
+      if (candidate[field] === undefined) continue;
+      if (
+        typeof candidate[field] !== 'number' ||
+        !Number.isSafeInteger(candidate[field]) ||
+        candidate[field] < min ||
+        candidate[field] > max
+      ) {
+        throw residentConfigInvalid(file, `wrong ${field} type or range for resident ${index}`);
+      }
+      result[field] = candidate[field];
+    }
+    for (const field of ['resumeAfterBudget', 'paused'] as const) {
+      if (candidate[field] === undefined) continue;
+      if (typeof candidate[field] !== 'boolean') {
+        throw residentConfigInvalid(file, `wrong ${field} type for resident ${index}`);
+      }
+      result[field] = candidate[field];
+    }
+    if (candidate.allowTools !== undefined) {
+      if (
+        !Array.isArray(candidate.allowTools) ||
+        candidate.allowTools.some((tool) => typeof tool !== 'string' || tool.trim() === '')
+      ) {
+        throw residentConfigInvalid(file, `wrong allowTools type for resident ${index}`);
+      }
+      result.allowTools = Object.freeze(candidate.allowTools.map((tool) => tool.trim()));
+    }
+    if (result.target && !result.task) {
+      throw residentConfigInvalid(file, `resident ${index} target requires task`);
+    }
+    return Object.freeze(result as ManagedResidentSpec);
+  });
+  return Object.freeze(residents);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requiredResidentText(value: unknown, field: string, index: number, file: string) {
+  const text = optionalText(value);
+  if (!text) throw residentConfigInvalid(file, `missing ${field} for resident ${index}`);
+  return text;
+}
+
+function residentConfigInvalid(file: string, reason: string) {
+  return new WorldRunnerError(`Resident config ${reason}`, 'resident_config_invalid', {
+    file,
+    reason,
+  });
+}
+
 export type ManagedWorldRunOptions = Readonly<{
   worldId: string;
   world: WorldLabDefinition;
@@ -2201,6 +2385,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     options: {
       config: { type: 'string' },
       world: { type: 'string' },
+      residents: { type: 'string' },
       model: { type: 'string' },
       urgentModel: { type: 'string' },
       policyProfile: { type: 'string' },
@@ -2261,7 +2446,16 @@ export async function runCli(argv = process.argv.slice(2)) {
   if (command !== 'start')
     throw new WorldRunnerError(`Unknown command: ${command}`, 'unknown_command');
 
-  if (!process.env.OPENROUTER_API_KEY && !parsed.values.paused) {
+  assertResidentConfigExclusive(parsed.values);
+  const configuredResidents = parsed.values.residents
+    ? loadManagedResidentSet(String(parsed.values.residents))
+    : null;
+  if (
+    !process.env.OPENROUTER_API_KEY &&
+    (configuredResidents
+      ? configuredResidents.some((resident) => resident.paused !== true)
+      : !parsed.values.paused)
+  ) {
     throw new WorldRunnerError(
       'OPENROUTER_API_KEY is required for a managed LLM run',
       'controller_credentials_missing',
@@ -2281,44 +2475,63 @@ export async function runCli(argv = process.argv.slice(2)) {
   );
   const serverDirectory = path.dirname(world.runtime.worldPath);
   const serverJar = path.resolve(String(toolLock.tools.minecraftServer.path));
-  const controllerEntityIds = parsed.values.controller?.length
-    ? parsed.values.controller.map(String)
-    : ['ScoutLife'];
-  const controllerBodyUsernames = parsed.values.body?.map(String) ?? [];
-  if (
-    controllerBodyUsernames.length > 0 &&
-    controllerBodyUsernames.length !== controllerEntityIds.length
-  ) {
-    throw new WorldRunnerError(
-      'Repeat --body exactly once per --controller, in the same order',
-      'controller_body_count_mismatch',
-      {
-        controllers: controllerEntityIds.length,
-        bodies: controllerBodyUsernames.length,
-      },
+  let residents: readonly ManagedResidentSpec[];
+  if (configuredResidents) {
+    residents = configuredResidents;
+  } else {
+    const controllerEntityIds = parsed.values.controller?.length
+      ? parsed.values.controller.map(String)
+      : ['ScoutLife'];
+    const controllerBodyUsernames = parsed.values.body?.map(String) ?? [];
+    if (
+      controllerBodyUsernames.length > 0 &&
+      controllerBodyUsernames.length !== controllerEntityIds.length
+    ) {
+      throw new WorldRunnerError(
+        'Repeat --body exactly once per --controller, in the same order',
+        'controller_body_count_mismatch',
+        {
+          controllers: controllerEntityIds.length,
+          bodies: controllerBodyUsernames.length,
+        },
+      );
+    }
+    const controllerProfile = managedControllerProfile(parsed.values.task, parsed.values.target);
+    const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL);
+    const urgentModel = optionalText(parsed.values.urgentModel || process.env.LLM_URGENT_MODEL);
+    const mind = String(parsed.values.mind || process.env.BEHOLD_MIND || 'direct') as
+      'direct' | 'ax';
+    const policyProfile = residentPolicyProfile(
+      parsed.values.policyProfile || process.env.BEHOLD_POLICY_PROFILE,
     );
+    const actionProfile = minecraftActionProfile(
+      parsed.values.actionProfile ||
+        process.env.BEHOLD_ACTION_PROFILE ||
+        (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+    );
+    const safetyProfile = minecraftSafetyProfile(
+      parsed.values.safetyProfile ||
+        process.env.BEHOLD_SAFETY_PROFILE ||
+        (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+    );
+    const tickMs = Number(parsed.values.tickMs || process.env.AGENT_TICK_MS || 4000);
+    residents = controllerEntityIds.map((entityId, index) => ({
+      entityId,
+      ...(controllerBodyUsernames[index] ? { bodyUsername: controllerBodyUsernames[index] } : {}),
+      model,
+      ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
+      mind,
+      policyProfile,
+      actionProfile,
+      safetyProfile,
+      tickMs,
+      paused: parsed.values.paused,
+      ...controllerProfile,
+    }));
   }
-  const controllerProfile = managedControllerProfile(parsed.values.task, parsed.values.target);
-  const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL);
-  const urgentModel = optionalText(parsed.values.urgentModel || process.env.LLM_URGENT_MODEL);
-  const mind = String(parsed.values.mind || process.env.BEHOLD_MIND || 'direct') as 'direct' | 'ax';
-  const policyProfile = residentPolicyProfile(
-    parsed.values.policyProfile || process.env.BEHOLD_POLICY_PROFILE,
-  );
-  const actionProfile = minecraftActionProfile(
-    parsed.values.actionProfile ||
-      process.env.BEHOLD_ACTION_PROFILE ||
-      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
-  );
-  const safetyProfile = minecraftSafetyProfile(
-    parsed.values.safetyProfile ||
-      process.env.BEHOLD_SAFETY_PROFILE ||
-      (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
-  );
-  const tickMs = Number(parsed.values.tickMs || process.env.AGENT_TICK_MS || 4000);
   const maxResidents = Number(parsed.values.maxResidents || 16);
   const maxConcurrentModelCalls = Number(
-    parsed.values.maxModelConcurrency || Math.min(2, controllerEntityIds.length),
+    parsed.values.maxModelConcurrency || Math.min(2, residents.length),
   );
   const maxTotalModelCalls = managedTotalModelCallLimit(parsed.values.maxModelCalls);
   const durationMs = managedSessionDurationMs(parsed.values.duration);
@@ -2333,19 +2546,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     controllerEntry: path.resolve('dist/src/cli/behold.js'),
     entityRoot: path.resolve('.behold-entities'),
     runRoot: path.resolve('.behold-runs'),
-    residents: controllerEntityIds.map((entityId, index) => ({
-      entityId,
-      ...(controllerBodyUsernames[index] ? { bodyUsername: controllerBodyUsernames[index] } : {}),
-      model,
-      ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
-      mind,
-      policyProfile,
-      actionProfile,
-      safetyProfile,
-      tickMs,
-      paused: parsed.values.paused,
-      ...controllerProfile,
-    })),
+    residents,
     maxResidents,
     maxConcurrentModelCalls,
     ...(maxTotalModelCalls == null ? {} : { maxTotalModelCalls }),
@@ -2411,10 +2612,11 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Repeat --body in the same order only when a life ID differs from its Minecraft username.',
+    '--residents accepts a behold.managed-resident-set.v1 JSON document and cannot be mixed with resident-level flags.',
     'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 defaults to the minecraft-player-v1 action surface and vanilla-player-v1 risk policy.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',

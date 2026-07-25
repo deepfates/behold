@@ -10,6 +10,8 @@ import {
   isControllerReadyLine,
   isMinecraftReadyLine,
   isMinecraftSaveAcknowledgement,
+  assertResidentConfigExclusive,
+  loadManagedResidentSet,
   managedControllerProfile,
   managedSessionDurationMs,
   managedTotalModelCallLimit,
@@ -117,6 +119,117 @@ test('managed model-call admission is an optional exact population-wide boundary
   assert.throws(
     () => managedTotalModelCallLimit('100000001'),
     (error: any) => error?.code === 'model_call_limit_invalid',
+  );
+});
+
+test('a versioned resident set carries heterogeneous operator configuration without positional pairing', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-set-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'residents.json');
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      protocol: 'behold.managed-resident-set.v1',
+      residents: [
+        {
+          entityId: 'ScoutLife',
+          bodyUsername: 'ScoutBody',
+          model: 'provider/scout',
+          urgentModel: 'provider/scout-urgent',
+          mind: 'direct',
+          tickMs: 1200,
+          paused: false,
+        },
+        {
+          entityId: 'BuilderLife',
+          bodyUsername: 'BuilderBody',
+          model: 'provider/builder',
+          mind: 'ax',
+          policyProfile: 'neutral-benchmark-v1',
+          actionProfile: 'minecraft-player-v1',
+          safetyProfile: 'vanilla-player-v1',
+          tickMs: 5000,
+          maxTurnSteps: 2,
+          resumeAfterBudget: true,
+          task: 'build shelter',
+          allowTools: ['look', 'place_block'],
+          paused: true,
+        },
+      ],
+    }),
+  );
+
+  assert.deepEqual(loadManagedResidentSet(file), [
+    {
+      entityId: 'ScoutLife',
+      bodyUsername: 'ScoutBody',
+      model: 'provider/scout',
+      urgentModel: 'provider/scout-urgent',
+      mind: 'direct',
+      tickMs: 1200,
+      paused: false,
+    },
+    {
+      entityId: 'BuilderLife',
+      bodyUsername: 'BuilderBody',
+      model: 'provider/builder',
+      mind: 'ax',
+      policyProfile: 'neutral-benchmark-v1',
+      actionProfile: 'minecraft-player-v1',
+      safetyProfile: 'vanilla-player-v1',
+      tickMs: 5000,
+      maxTurnSteps: 2,
+      resumeAfterBudget: true,
+      task: 'build shelter',
+      allowTools: ['look', 'place_block'],
+      paused: true,
+    },
+  ]);
+});
+
+test('resident-set input fails closed on schema drift and mixed resident CLI flags', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-set-invalid-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'residents.json');
+
+  for (const [name, document] of [
+    ['wrong protocol', { protocol: 'behold.managed-resident-set.v2', residents: [] }],
+    [
+      'unknown field',
+      {
+        protocol: 'behold.managed-resident-set.v1',
+        residents: [{ entityId: 'Scout', model: 'provider/model', modle: 'typo' }],
+      },
+    ],
+    [
+      'missing model',
+      { protocol: 'behold.managed-resident-set.v1', residents: [{ entityId: 'Scout' }] },
+    ],
+    [
+      'wrong tick type',
+      {
+        protocol: 'behold.managed-resident-set.v1',
+        residents: [{ entityId: 'Scout', model: 'provider/model', tickMs: '1000' }],
+      },
+    ],
+  ] as const) {
+    fs.writeFileSync(file, JSON.stringify(document));
+    assert.throws(
+      () => loadManagedResidentSet(file),
+      (error: any) =>
+        error?.code === 'resident_config_invalid' &&
+        String(error.message).toLowerCase().includes(name.split(' ')[0]),
+    );
+  }
+
+  assert.doesNotThrow(() => assertResidentConfigExclusive({ residents: file }));
+  assert.throws(
+    () => assertResidentConfigExclusive({ residents: file, model: 'provider/global' }),
+    (error: any) => error?.code === 'resident_config_cli_conflict',
+  );
+  assert.throws(
+    () => assertResidentConfigExclusive({ residents: file, controller: ['Scout'] }),
+    (error: any) => error?.code === 'resident_config_cli_conflict',
   );
 });
 
