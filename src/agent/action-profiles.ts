@@ -1,6 +1,10 @@
 import type { InhabitantActionSpec } from '../entity/interface';
 
-export const MINECRAFT_ACTION_PROFILES = ['resident-v1', 'minecraft-player-v1'] as const;
+export const MINECRAFT_ACTION_PROFILES = [
+  'resident-v1',
+  'minecraft-player-v1',
+  'minecraft-human-semantic-v1',
+] as const;
 export type MinecraftActionProfile = (typeof MINECRAFT_ACTION_PROFILES)[number];
 
 export const MINECRAFT_SAFETY_PROFILES = ['resident-safe-v1', 'vanilla-player-v1'] as const;
@@ -38,6 +42,37 @@ const PLAYER_ACTION_DESCRIPTIONS = new Map<string, string>([
   ['consume', 'Consume one owned inventory item.'],
 ]);
 
+// The human-semantic profile is a separate frozen allowlist. Every action is
+// cursor-bound or a bounded, key-like input; none selects a route or target.
+const HUMAN_SEMANTIC_ACTION_DESCRIPTIONS = new Map<string, string>([
+  ['chat', 'Send one public Minecraft chat message.'],
+  ['whisper', 'Send one private Minecraft chat message to a player visible in the player list UI.'],
+  ['look_direction', 'Turn the view by one named egocentric increment.'],
+  ['move_controls', 'Hold bounded Minecraft movement controls, then release them.'],
+  ['stop', 'Release all current bodily controls.'],
+  ['attack_focused_entity', 'Swing once at the entity currently under the crosshair.'],
+  [
+    'dig_focused_block',
+    'Dig the reachable block currently under the crosshair without approaching it.',
+  ],
+  [
+    'place_held_against_focus',
+    'Place the held block against the block face currently under the crosshair without repositioning.',
+  ],
+  ['use_focused_block', 'Use the block currently under the crosshair once.'],
+  [
+    'inspect_focused_container',
+    'Open the container currently under the crosshair and inspect its UI.',
+  ],
+  ['deposit_in_focused_container', 'Move named owned items into the focused openable container.'],
+  ['withdraw_from_focused_container', 'Move named visible container items into inventory.'],
+  ['equip_item', 'Hold or wear one item named in the inventory UI.'],
+  ['drop_item', 'Drop an item named in the inventory UI.'],
+  ['consume', 'Use one item named in the inventory UI as food or drink.'],
+  ['sleep_in_focused_bed', 'Use the bed currently under the crosshair.'],
+  ['wake_up', 'Leave the bed while this body is sleeping.'],
+]);
+
 const ACTION_CLASS = new Map<string, MinecraftActionClass>([
   ['manage_project', 'resident-memory-utility'],
   ['cross_place_door', 'resident-memory-utility'],
@@ -61,16 +96,31 @@ export function minecraftActionsForProfile(
   profile: MinecraftActionProfile,
 ): InhabitantActionSpec[] {
   if (profile === 'resident-v1') return [...specs];
+  const descriptions =
+    profile === 'minecraft-human-semantic-v1'
+      ? HUMAN_SEMANTIC_ACTION_DESCRIPTIONS
+      : PLAYER_ACTION_DESCRIPTIONS;
   return specs.flatMap((spec) => {
-    const description = PLAYER_ACTION_DESCRIPTIONS.get(spec.function.name);
+    const description = descriptions.get(spec.function.name);
     return description ? [{ ...spec, function: { ...spec.function, description } }] : [];
   });
+}
+
+export function minecraftActionMayReplay(name: string, profile: MinecraftActionProfile) {
+  if (profile === 'resident-v1') return true;
+  const descriptions =
+    profile === 'minecraft-human-semantic-v1'
+      ? HUMAN_SEMANTIC_ACTION_DESCRIPTIONS
+      : PLAYER_ACTION_DESCRIPTIONS;
+  return descriptions.has(name) || name === 'wait_for_event';
 }
 
 export function minecraftActionClass(name: string): MinecraftActionClass {
   return (
     ACTION_CLASS.get(name) ??
-    (PLAYER_ACTION_DESCRIPTIONS.has(name) ? 'player-intention' : 'unclassified')
+    (PLAYER_ACTION_DESCRIPTIONS.has(name) || HUMAN_SEMANTIC_ACTION_DESCRIPTIONS.has(name)
+      ? 'player-intention'
+      : 'unclassified')
   );
 }
 

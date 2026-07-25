@@ -322,6 +322,7 @@ function mindInput(request: ResidentMindRequest) {
     policyGuidance: policyGuidance(request),
     profiles: {
       policy: request.policyProfile ?? 'legacy-unspecified',
+      body: request.bodyProfile ?? 'legacy-unspecified',
       actions: request.actionProfile ?? 'legacy-unspecified',
       safety: request.safetyProfile ?? 'legacy-unspecified',
     },

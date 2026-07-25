@@ -149,6 +149,8 @@ export type SceneObject = {
   position?: { x: number; y: number; z: number };
   distance?: number;
   reachable?: boolean;
+  /** Ordinary semantic description of the crosshair block face. */
+  face?: 'bottom' | 'top' | 'north' | 'south' | 'west' | 'east' | null;
 };
 
 export type SceneEntity = {
@@ -866,10 +868,16 @@ function focusObject(bot: Bot): SceneObject | null {
         },
         distance: target.distance,
         reachable: target.distance <= 6,
+        face: blockFaceName(block.face),
       };
     }
   } catch {}
   return null;
+}
+
+function blockFaceName(face: unknown): SceneObject['face'] {
+  const name = ['bottom', 'top', 'north', 'south', 'west', 'east'][Number(face)];
+  return (name as SceneObject['face'] | undefined) ?? null;
 }
 
 function sceneEntity(

@@ -2966,6 +2966,8 @@ test('a neutral request uses the real interpreter catalog without coached or hid
       model: 'test/model',
       mind,
       policyProfile: 'neutral-benchmark-v1',
+      bodyProfile: 'minecraft-resident-v1',
+      actionProfile: 'minecraft-player-v1',
       acceptEngineEvent: () => true,
     },
   );
@@ -2995,6 +2997,7 @@ test('a neutral request uses the real interpreter catalog without coached or hid
       /\bprefer\b|do not|does not replace|use move_to|approach and look before/i,
     );
     assert.equal(requests[0].actionProfile, 'minecraft-player-v1');
+    assert.equal(requests[0].bodyProfile, 'minecraft-resident-v1');
     assert.equal(requests[0].safetyProfile, 'vanilla-player-v1');
   } finally {
     await policy.stop();
@@ -3040,6 +3043,7 @@ test('neutral policy does not force bookkeeping or coach a bodily choice', async
       model: 'test/model',
       mind,
       policyProfile: 'neutral-benchmark-v1',
+      bodyProfile: 'minecraft-resident-v1',
       actionProfile: 'resident-v1',
       safetyProfile: 'vanilla-player-v1',
       acceptEngineEvent: () => true,
@@ -3098,6 +3102,8 @@ test('neutral policy admits a repeated failed player choice instead of repairing
       history,
       maxTurnSteps: 1,
       policyProfile: 'neutral-benchmark-v1',
+      bodyProfile: 'minecraft-resident-v1',
+      actionProfile: 'minecraft-player-v1',
       acceptEngineEvent: () => true,
     },
   );

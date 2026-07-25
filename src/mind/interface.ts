@@ -44,6 +44,8 @@ export type ResidentMindRequest = {
   model: string;
   /** Versioned controller behavior. Optional only for reading legacy captures. */
   policyProfile?: string;
+  /** Versioned embodied observation contract. Optional only for reading legacy captures. */
+  bodyProfile?: string;
   /** Versioned action catalog selection. Optional only for reading legacy captures. */
   actionProfile?: string;
   /** Versioned world/body risk policy. Optional only for reading legacy captures. */

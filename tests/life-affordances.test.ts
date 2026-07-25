@@ -115,6 +115,141 @@ test('the inhabitant action space excludes raw controls, duplicate probes, and p
   assert.ok(allActions.includes('status'));
 });
 
+test('the human-semantic action surface contains cursor and bounded-control actions, not macros', () => {
+  const interpreter = buildInterpreter(baseBot());
+  const names = minecraftActionsForProfile(
+    interpreter.list('inhabitant').map((spec) => ({
+      type: 'function' as const,
+      function: {
+        name: spec.name,
+        description: spec.description,
+        parameters: spec.parameters,
+      },
+    })),
+    'minecraft-human-semantic-v1',
+  ).map((action) => action.function.name);
+
+  for (const name of [
+    'move_controls',
+    'attack_focused_entity',
+    'dig_focused_block',
+    'place_held_against_focus',
+    'use_focused_block',
+    'inspect_focused_container',
+    'deposit_in_focused_container',
+    'withdraw_from_focused_container',
+    'sleep_in_focused_bed',
+  ]) {
+    assert.ok(names.includes(name), `${name} is part of the human-semantic body`);
+  }
+  for (const name of [
+    'move_to',
+    'move_direction',
+    'approach_entity',
+    'attack_entity',
+    'collect_nearby_item',
+    'dig_block',
+    'place_against',
+    'craft_item',
+    'manage_project',
+  ]) {
+    assert.equal(names.includes(name), false, `${name} is not part of the human-semantic body`);
+  }
+});
+
+test('bounded human controls never invoke pathfinding and always release on success and abort', async () => {
+  const bot = baseBot();
+  let pathfinderCalls = 0;
+  bot.pathfinder = {
+    setGoal: () => {
+      pathfinderCalls += 1;
+    },
+    goto: () => {
+      pathfinderCalls += 1;
+    },
+    stop: () => {
+      pathfinderCalls += 1;
+    },
+  };
+  const active = new Set<string>();
+  let clears = 0;
+  bot.setControlState = (name: string, enabled: boolean) => {
+    if (enabled) active.add(name);
+    else active.delete(name);
+  };
+  bot.clearControlStates = () => {
+    clears += 1;
+    active.clear();
+  };
+  const interpreter = buildInterpreter(bot);
+
+  const completed = await interpreter.run('move_controls', {
+    direction: 'forward',
+    sprint: true,
+    durationMs: 100,
+  });
+  assert.equal(completed.ok, true);
+  assert.equal(pathfinderCalls, 0);
+  assert.equal(active.size, 0);
+
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(new Error('operator stop')), 5);
+  const interrupted = await interpreter.run(
+    'move_controls',
+    { direction: 'left', jump: true, durationMs: 1000 },
+    { signal: controller.signal },
+  );
+  assert.equal(interrupted.ok, false);
+  assert.equal(active.size, 0);
+  assert.equal(pathfinderCalls, 0);
+  assert.ok(clears >= 4, 'controls are cleared before and after both bounded intervals');
+});
+
+test('a focused human action fails closed when the crosshair target changed after admission', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  let digs = 0;
+  const current = {
+    name: 'stone',
+    type: 1,
+    stateId: 1,
+    position: new Vec3(2, 64, 0),
+    face: 5,
+    intersect: new Vec3(2, 64.5, 0.5),
+  };
+  bot.world = { raycast: () => current };
+  bot.dig = async () => {
+    digs += 1;
+  };
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:1:64:0',
+        kind: 'block',
+        name: 'dirt',
+        source: 'cursor',
+        position: { x: 1, y: 64, z: 0 },
+        distance: 2,
+        reachable: true,
+        face: 'east',
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot).run(
+    'dig_focused_block',
+    {},
+    { observation: admitted },
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'focused_block_changed_before_action');
+  assert.equal(digs, 0);
+});
+
 test('look_direction exposes bounded relative player orientation without raw angles', async () => {
   const bot = baseBot();
   bot.entity.yaw = 0;

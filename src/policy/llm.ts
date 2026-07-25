@@ -6,15 +6,11 @@ import type { EngineEvent } from '../loop/engine';
 import { historyMessages, type EntityTurn } from '../entity/loom';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
-import {
-  projectCurrentModelObservation,
-  projectHistoricalModelObservation,
-  projectRecentActionContinuity,
-  type RecentActionContinuity,
-} from './context';
+import { projectRecentActionContinuity, type RecentActionContinuity } from './context';
 import {
   createLoomContextView,
   foldMessage,
+  projectTurnForFolding,
   type LoomFoldRequest,
   type LoomFoldSummarizer,
 } from '../entity/folding';
@@ -37,12 +33,22 @@ import {
   type ModelCallFailureEvidence,
 } from '../mind/evidence';
 import {
+  minecraftActionMayReplay,
   minecraftActionProfile,
+  minecraftActionsForProfile,
   minecraftSafetyProfile,
   type MinecraftActionProfile,
   type MinecraftSafetyProfile,
 } from '../agent/action-profiles';
 import { isNeutralPolicy, residentPolicyProfile, type ResidentPolicyProfile } from './profile';
+import {
+  minecraftBodyProfile,
+  projectHumanSemanticValue,
+  projectMinecraftCurrentObservation,
+  projectMinecraftHistoricalObservation,
+  usesHumanSemanticBody,
+  type MinecraftBodyProfile,
+} from '../mind/minecraft-body';
 
 export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
@@ -79,6 +85,8 @@ export type Options = {
   mind?: ResidentMind;
   /** Versioned controller behavior; neutral mode does not coach or repair model choices. */
   policyProfile?: ResidentPolicyProfile;
+  /** Versioned observation/body contract selected outside the generic policy loop. */
+  bodyProfile?: MinecraftBodyProfile;
   /** Versioned action surface identity selected outside the generic policy loop. */
   actionProfile?: MinecraftActionProfile;
   /** Versioned world/body risk policy selected by the world adapter. */
@@ -91,6 +99,7 @@ export type Options = {
     model: string;
     mind: string;
     policyProfile: ResidentPolicyProfile;
+    bodyProfile: MinecraftBodyProfile;
     actionProfile: MinecraftActionProfile;
     safetyProfile: MinecraftSafetyProfile;
     observation: any;
@@ -288,19 +297,50 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const tickMs = Math.max(500, Number(opts.tickMs ?? 3000));
   const maxTurnSteps = Math.max(1, Math.min(32, Number(opts.maxTurnSteps ?? 8)));
   const policyProfile = residentPolicyProfile(opts.policyProfile);
+  const bodyProfile = minecraftBodyProfile(
+    opts.bodyProfile ??
+      (policyProfile === 'neutral-benchmark-v1'
+        ? 'minecraft-human-semantic-v1'
+        : 'minecraft-resident-v1'),
+  );
   const actionProfile = minecraftActionProfile(
     opts.actionProfile ??
-      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-human-semantic-v1' : 'resident-v1'),
   );
   const safetyProfile = minecraftSafetyProfile(
     opts.safetyProfile ??
       (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
   );
+  if (usesHumanSemanticBody(bodyProfile) !== (actionProfile === 'minecraft-human-semantic-v1')) {
+    throw new Error(
+      `body profile ${bodyProfile} must be paired with its matching action profile; received ${actionProfile}`,
+    );
+  }
+  const projectCurrentObservation = (frame: any, eventBatchLimit?: number) =>
+    projectMinecraftCurrentObservation(frame, bodyProfile, eventBatchLimit);
+  const projectHistoricalObservation = (
+    frame: any,
+    previousFrame: any,
+    previousSource: 'previous_turn_next_observation' | 'same_turn_observation',
+    eventBatchLimit?: number,
+  ) =>
+    projectMinecraftHistoricalObservation(
+      frame,
+      previousFrame,
+      previousSource,
+      bodyProfile,
+      eventBatchLimit,
+    );
+  const mayReplayTurn = (turn: EntityTurn) =>
+    residentTurnMayReplay(turn) &&
+    minecraftActionMayReplay(turn.action.name, actionProfile) &&
+    (!usesHumanSemanticBody(bodyProfile) || turn.profiles?.body === bodyProfile);
   const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(opts.urgentDecisionTimeoutMs);
   const allow = Array.isArray(opts.allowTools) ? new Set(opts.allowTools) : null;
+  const profiledTools = minecraftActionsForProfile(environment.actions, actionProfile);
   const executableTools = allow
-    ? environment.actions.filter((spec) => allow.has(spec.function.name))
-    : [...environment.actions];
+    ? profiledTools.filter((spec) => allow.has(spec.function.name))
+    : profiledTools;
   const waitToolSpec = isNeutralPolicy(policyProfile) ? NEUTRAL_WAIT_TOOL_SPEC : WAIT_TOOL_SPEC;
   const modelTools = executableTools.some((spec) => spec.function.name === WAIT_TOOL)
     ? executableTools
@@ -332,6 +372,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     foldBatchTurns: opts.foldBatchTurns ?? 24,
     foldTriggerTurns: opts.foldTriggerTurns ?? 6,
     now,
+    projectionProfile: bodyProfile,
+    projectTurn: (turn, previousTurn) =>
+      projectTurnForFolding(turn, previousTurn, {
+        projectObservation: projectHistoricalObservation,
+        ...(usesHumanSemanticBody(bodyProfile) ? { projectValue: projectHumanSemanticValue } : {}),
+        mayReplayAction: mayReplayTurn,
+      }),
     summarize: opts.summarizeLoom
       ? (request, signal) =>
           signal
@@ -429,10 +476,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     let frame: any = null;
     if (!contextPrepared) {
       frame = observe();
-      const initialView = projectCurrentModelObservation(frame);
+      const initialView = projectCurrentObservation(frame);
       const initialAttention = attentionForObservation(initialView);
       const initialBodyUrgency =
-        hasBodilyUrgency(initialAttention) || isCriticalBodyCondition(initialView?.self?.condition);
+        hasBodilyUrgency(initialAttention) || isCriticalBodyCondition(frame?.self?.condition);
       if (opts.foldReadOnly && loomContext.state().needsFold) {
         preparingContext = true;
         try {
@@ -509,8 +556,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       turnSteps += 1;
       const startedAt = now();
       const modelObservation =
-        currentModelObservation ?? projectCurrentModelObservation(currentObservation);
-      const currentAttention = attentionForCurrentLife(modelObservation);
+        currentModelObservation ?? projectCurrentObservation(currentObservation);
+      const currentAttention = attentionForCurrentLife(modelObservation, currentObservation);
       const attention = hasBodilyUrgency(currentAttention)
         ? { ...currentAttention, decisionBudgetMs: urgentDecisionTimeoutMs }
         : currentAttention;
@@ -556,6 +603,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           entityId,
           model: decisionModel,
           policyProfile,
+          bodyProfile,
           actionProfile,
           safetyProfile,
           observation: cloneJson(modelObservation),
@@ -564,16 +612,29 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               messages,
               attention,
               availableTools,
-              projectRecentActionContinuity(
-                loomContext.view().turns,
-                attention.context === 'bounded_loom'
-                  ? DELIBERATIVE_CONTINUITY_TURNS
-                  : URGENT_CONTINUITY_TURNS,
-                attention.context === 'bounded_loom'
-                  ? DELIBERATIVE_CONTINUITY_BYTES
-                  : URGENT_CONTINUITY_BYTES,
-                residentTurnMayReplay,
-              ),
+              usesHumanSemanticBody(bodyProfile)
+                ? projectHumanSemanticValue(
+                    projectRecentActionContinuity(
+                      loomContext.view().turns,
+                      attention.context === 'bounded_loom'
+                        ? DELIBERATIVE_CONTINUITY_TURNS
+                        : URGENT_CONTINUITY_TURNS,
+                      attention.context === 'bounded_loom'
+                        ? DELIBERATIVE_CONTINUITY_BYTES
+                        : URGENT_CONTINUITY_BYTES,
+                      mayReplayTurn,
+                    ),
+                  )
+                : projectRecentActionContinuity(
+                    loomContext.view().turns,
+                    attention.context === 'bounded_loom'
+                      ? DELIBERATIVE_CONTINUITY_TURNS
+                      : URGENT_CONTINUITY_TURNS,
+                    attention.context === 'bounded_loom'
+                      ? DELIBERATIVE_CONTINUITY_BYTES
+                      : URGENT_CONTINUITY_BYTES,
+                    mayReplayTurn,
+                  ),
               policyProfile,
             ),
           ),
@@ -637,6 +698,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         model: decisionModel,
         mind: mind.id,
         policyProfile,
+        bodyProfile,
         actionProfile,
         safetyProfile,
         observation: modelObservation,
@@ -950,9 +1012,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     ) {
       return;
     }
-    const frame = projectCurrentModelObservation(observe());
+    const rawFrame = observe();
+    const frame = projectCurrentObservation(rawFrame);
     const attention = attentionForObservation(frame);
-    if (hasBodilyUrgency(attention) || isCriticalBodyCondition(frame?.self?.condition)) {
+    if (hasBodilyUrgency(attention) || isCriticalBodyCondition(rawFrame?.self?.condition)) {
       log('[policy] deferred own-loom maintenance while bodily pressure remains unresolved');
       return;
     }
@@ -1003,20 +1066,20 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
   }
 
-  function attentionForCurrentLife(frame: any): ResidentAttention {
+  function attentionForCurrentLife(frame: any, rawFrame: any): ResidentAttention {
     const fresh = attentionForObservation(frame);
     if (hasBodilyUrgency(fresh)) {
       continuingBodilyAttention = fresh;
       return fresh;
     }
-    if (continuingBodilyAttention && isCriticalBodyCondition(frame?.self?.condition)) {
+    if (continuingBodilyAttention && isCriticalBodyCondition(rawFrame?.self?.condition)) {
       return {
         ...continuingBodilyAttention,
         continuingCondition: 'critical_body_condition',
       };
     }
     continuingBodilyAttention = null;
-    if (isCriticalBodyCondition(frame?.self?.condition)) {
+    if (isCriticalBodyCondition(rawFrame?.self?.condition)) {
       return {
         mode: 'deliberative',
         context: 'current_body_and_continuity',
@@ -1134,7 +1197,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   function appendWorldUpdate(frame: any, label: string) {
     if (hasNewProjectProgressEvidence(frame, lastSequence)) consecutiveProjectActions = 0;
     currentObservation = frame;
-    const projected = projectCurrentModelObservation(frame);
+    const projected = projectCurrentObservation(frame);
     currentModelObservation = projected;
     const deliveredSequence = projected?.eventWindow?.deliveredNewestSequence;
     if (Number.isFinite(Number(deliveredSequence))) {
@@ -1164,6 +1227,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       sequence,
       parentId: parentTurnId,
       model: draft.model,
+      profiles: {
+        policy: policyProfile,
+        body: bodyProfile,
+        actions: actionProfile,
+        safety: safetyProfile,
+      },
       attention: draft.attention,
       startedAt: draft.startedAt,
       completedAt,
@@ -1212,7 +1281,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       ...historyMessages(
         view.turns,
         (observation, context) =>
-          projectHistoricalModelObservation(
+          projectHistoricalObservation(
             observation,
             context.phase === 'nextObservation'
               ? context.turn.observation
@@ -1221,7 +1290,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               ? 'same_turn_observation'
               : 'previous_turn_next_observation',
           ),
-        residentTurnMayReplay,
+        mayReplayTurn,
+        usesHumanSemanticBody(bodyProfile) ? projectHumanSemanticValue : undefined,
       ),
     );
   }

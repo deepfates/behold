@@ -434,6 +434,7 @@ test('managed cognition keeps the provider key in the runner and drains before M
         ambientCloudCredentialPresent: process.env.AWS_SECRET_ACCESS_KEY != null,
         dotenvDisabled: process.env.BEHOLD_LOAD_DOTENV === '0',
         policyProfile: process.env.BEHOLD_POLICY_PROFILE,
+        bodyProfile: process.env.BEHOLD_BODY_PROFILE,
         actionProfile: process.env.BEHOLD_ACTION_PROFILE,
         safetyProfile: process.env.BEHOLD_SAFETY_PROFILE
         ,fixtureProofPhase: process.env.BEHOLD_FIXTURE_PROOF_PHASE
@@ -520,13 +521,15 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(run.cognition.concurrencyLimit, 1);
   assert.equal(run.cognition.maxTotalModelCalls, 4);
   assert.equal(run.residents[0].policyProfile, 'neutral-benchmark-v1');
-  assert.equal(run.residents[0].actionProfile, 'minecraft-player-v1');
+  assert.equal(run.residents[0].bodyProfile, 'minecraft-human-semantic-v1');
+  assert.equal(run.residents[0].actionProfile, 'minecraft-human-semantic-v1');
   assert.equal(run.residents[0].safetyProfile, 'vanilla-player-v1');
   assert.equal(run.residents[0].maxTurnSteps, 1);
   assert.equal(run.residents[0].resumeAfterBudget, false);
   const captured = JSON.parse(fs.readFileSync(captureFile, 'utf8'));
   assert.equal(captured.policyProfile, 'neutral-benchmark-v1');
-  assert.equal(captured.actionProfile, 'minecraft-player-v1');
+  assert.equal(captured.bodyProfile, 'minecraft-human-semantic-v1');
+  assert.equal(captured.actionProfile, 'minecraft-human-semantic-v1');
   assert.equal(captured.safetyProfile, 'vanilla-player-v1');
   assert.equal(captured.fixtureProofPhase, 'act');
   assert.notEqual(captured.keySha256, createHash('sha256').update(providerSecret).digest('hex'));
@@ -550,7 +553,14 @@ test('managed cognition keeps the provider key in the runner and drains before M
   assert.equal(configured?.data?.population?.maxTotalModelCalls, 4);
   assert.equal(configured?.data?.population?.residents?.[0]?.urgentModel, 'fixture/urgent-model');
   assert.equal(configured?.data?.population?.residents?.[0]?.policyProfile, 'neutral-benchmark-v1');
-  assert.equal(configured?.data?.population?.residents?.[0]?.actionProfile, 'minecraft-player-v1');
+  assert.equal(
+    configured?.data?.population?.residents?.[0]?.bodyProfile,
+    'minecraft-human-semantic-v1',
+  );
+  assert.equal(
+    configured?.data?.population?.residents?.[0]?.actionProfile,
+    'minecraft-human-semantic-v1',
+  );
   assert.equal(configured?.data?.population?.residents?.[0]?.safetyProfile, 'vanilla-player-v1');
   assert.equal(configured?.data?.population?.residents?.[0]?.maxTurnSteps, 1);
   assert.equal(configured?.data?.population?.residents?.[0]?.resumeAfterBudget, false);

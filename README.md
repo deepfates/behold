@@ -168,7 +168,8 @@ Environment Variables
 - `LLM_URGENT_MODEL` — optional separately authorized model for newly urgent bodily attention
 - `BEHOLD_MIND` — bounded decision adapter: `direct` (default) or `ax`
 - `BEHOLD_POLICY_PROFILE` — `resident-v1` (default) or strategy-neutral `neutral-benchmark-v1`
-- `BEHOLD_ACTION_PROFILE` — `resident-v1` or `minecraft-player-v1`; the latter removes Behold memory utilities and disclosed composite body skills
+- `BEHOLD_BODY_PROFILE` — `minecraft-resident-v1` or the human-comparable semantic contract `minecraft-human-semantic-v1`
+- `BEHOLD_ACTION_PROFILE` — `resident-v1`, legacy `minecraft-player-v1`, or the cursor/key-like `minecraft-human-semantic-v1` surface
 - `BEHOLD_SAFETY_PROFILE` — `resident-safe-v1` or `vanilla-player-v1`; the latter exposes risky actions that ordinary Minecraft permits
 - `BEHOLD_RECORD_MODEL_IO=1` — opt in to storing full provider request/response bodies for exact replay; the default records hashes and byte attribution without copying private lived context
 
@@ -176,7 +177,8 @@ LLM Autopilot (optional)
 
 - Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `google/gemini-3.5-flash`).
 - The console starts a resident policy that proposes one admitted action at a time using the same command registry you use as a human. `BEHOLD_MIND=ax` uses Ax structured generation; Behold still validates and executes every proposal.
-- For a neutral evaluation, set `BEHOLD_POLICY_PROFILE=neutral-benchmark-v1`. Unless explicitly overridden, that selects `minecraft-player-v1` actions and `vanilla-player-v1` risk. Every managed run journals all three profile identities.
+- For a new neutral evaluation, set `BEHOLD_POLICY_PROFILE=neutral-benchmark-v1`. Unless explicitly overridden, that selects the matching `minecraft-human-semantic-v1` body and action contracts plus `vanilla-player-v1` risk. Every managed run journals all four profile identities. The older `minecraft-player-v1` action benchmark must now be selected explicitly with `minecraft-resident-v1`.
+- The exact v1 human-comparable contract, exclusions, unchanged causal kernel, and conformance plan live in [Human-comparable semantic Minecraft body](docs/HUMAN_SEMANTIC_BODY.md).
 
 Trajectory counterfactuals
 

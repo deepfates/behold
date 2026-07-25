@@ -24,6 +24,12 @@ export type EntityTurn = {
   sequence: number;
   parentId: string | null;
   model: string;
+  profiles?: {
+    policy: string;
+    body: string;
+    actions: string;
+    safety: string;
+  };
   attention?: ResidentAttention;
   startedAt: number;
   completedAt: number;
@@ -1027,6 +1033,7 @@ export function historyMessages(
     },
   ) => any = (observation) => observation,
   mayReplayAction: (turn: EntityTurn) => boolean = () => true,
+  projectValue: (value: any) => any = projectResidentVisibleValue,
 ) {
   const messages: any[] = [];
   for (let index = 0; index < turns.length; index += 1) {
@@ -1073,8 +1080,8 @@ export function historyMessages(
             previousTurn,
             phase: 'observation',
           }),
-          action: projectResidentVisibleValue(turn.action),
-          outcome: projectResidentVisibleValue(turn.outcome),
+          action: projectValue(turn.action),
+          outcome: projectValue(turn.outcome),
           nextObservation: projectObservation(turn.nextObservation, {
             index,
             turn,
@@ -1097,7 +1104,7 @@ export function historyMessages(
       )}`,
     });
     messages.push(replayAssistantMessage(turn.utterance.assistant));
-    const content = JSON.stringify(projectResidentVisibleValue(turn.outcome));
+    const content = JSON.stringify(projectValue(turn.outcome));
     if (turn.action.toolCallId) {
       messages.push({
         role: 'tool',

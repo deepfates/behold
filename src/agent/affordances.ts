@@ -1,9 +1,11 @@
 import type { InhabitantActionSpec } from '../entity/interface';
 import { digPositionIssueForBody } from './body-geometry';
 import { usesResidentSafety, type MinecraftSafetyProfile } from './action-profiles';
+import { usesHumanSemanticBody, type MinecraftBodyProfile } from '../mind/minecraft-body';
 
 export type MinecraftAffordanceOptions = Readonly<{
   safetyProfile?: MinecraftSafetyProfile;
+  bodyProfile?: MinecraftBodyProfile;
 }>;
 
 /**
@@ -39,6 +41,22 @@ export function minecraftInhabitantActionsFor(
   const visibleBlocks = visibleBlockTargets(frame);
   const focus = currentReachableBlockFocus(frame);
   const focusName = String(focus?.name || '').toLowerCase();
+
+  if (options.bodyProfile && usesHumanSemanticBody(options.bodyProfile)) {
+    return specs.map((spec) => {
+      const name = spec.function.name;
+      if (name === 'whisper' && Array.isArray(roster) && roster.length > 0) {
+        return withExactStringEnum(spec, 'username', roster.map(String));
+      }
+      if (
+        inventoryNames.length > 0 &&
+        ['drop_item', 'equip_item', 'consume', 'deposit_in_focused_container'].includes(name)
+      ) {
+        return withExactStringEnum(spec, 'name', inventoryNames);
+      }
+      return spec;
+    });
+  }
 
   return specs.flatMap((spec) => {
     const name = spec.function.name;

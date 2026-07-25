@@ -18,6 +18,8 @@ export type LoomFoldRecord = {
   summary: string;
   generatedAt: number;
   model: string;
+  /** Projection identity prevents a cache from crossing embodied input contracts. */
+  projectionProfile?: string;
 };
 
 export type LoomFoldRequest = {
@@ -61,6 +63,11 @@ type LoomContextOptions = {
   foldTriggerTurns?: number;
   summaryMaxChars?: number;
   now?: () => number;
+  projectionProfile?: string;
+  projectTurn?: (
+    turn: EntityTurn,
+    previousTurn?: EntityTurn,
+  ) => ReturnType<typeof projectTurnForFolding>;
 };
 
 /**
@@ -85,7 +92,7 @@ export function createLoomContextView(
   const now = options.now ?? Date.now;
   validateTrajectory(initialTurns, options.entityId);
   const turns = [...initialTurns];
-  let fold = loadValidFold(options.cacheFile, turns, options.entityId);
+  let fold = loadValidFold(options.cacheFile, turns, options.entityId, options.projectionProfile);
   let preparing: Promise<boolean> | null = null;
 
   function foldTarget() {
@@ -139,7 +146,9 @@ export function createLoomContextView(
             {
               entityId: options.entityId,
               previousSummary: summary,
-              turns: batch.map((turn, index) => projectTurnForFolding(turn, batch[index - 1])),
+              turns: batch.map((turn, index) =>
+                (options.projectTurn ?? projectTurnForFolding)(turn, batch[index - 1]),
+              ),
               fromSequence: batch[0].sequence,
               toSequence: batch.at(-1)!.sequence,
             },
@@ -167,6 +176,7 @@ export function createLoomContextView(
         summary: nextSummary,
         generatedAt: now(),
         model: options.model,
+        ...(options.projectionProfile ? { projectionProfile: options.projectionProfile } : {}),
       };
       summary = nextSummary;
       cursor = end;
@@ -226,22 +236,37 @@ export function foldMessage(record: LoomFoldRecord) {
   };
 }
 
-export function projectTurnForFolding(turn: EntityTurn, previousTurn?: EntityTurn) {
-  const residentVisible = residentTurnMayReplay(turn);
+export function projectTurnForFolding(
+  turn: EntityTurn,
+  previousTurn?: EntityTurn,
+  options: {
+    projectObservation?: (
+      frame: any,
+      previousFrame: any,
+      previousSource: 'previous_turn_next_observation' | 'same_turn_observation',
+      eventBatchLimit: number,
+    ) => any;
+    projectValue?: (value: any) => any;
+    mayReplayAction?: (turn: EntityTurn) => boolean;
+  } = {},
+) {
+  const projectObservation = options.projectObservation ?? projectHistoricalModelObservation;
+  const projectValue = options.projectValue ?? projectResidentVisibleValue;
+  const residentVisible = (options.mayReplayAction ?? residentTurnMayReplay)(turn);
   return {
     anchor: `t${turn.sequence}`,
     id: turn.id,
     parentId: turn.parentId,
     startedAt: turn.startedAt,
     completedAt: turn.completedAt,
-    observation: projectHistoricalModelObservation(
+    observation: projectObservation(
       turn.observation,
       previousTurn?.nextObservation,
       'previous_turn_next_observation',
       FOLD_EVENT_BATCH,
     ),
     action: residentVisible
-      ? compactValue(projectResidentVisibleValue(turn.action))
+      ? compactValue(projectValue(turn.action))
       : {
           name: turn.action.name,
           source: turn.action.source,
@@ -249,14 +274,14 @@ export function projectTurnForFolding(turn: EntityTurn, previousTurn?: EntityTur
           reason: 'not_resident_observable',
         },
     outcome: residentVisible
-      ? compactValue(projectResidentVisibleValue(turn.outcome))
+      ? compactValue(projectValue(turn.outcome))
       : {
           ok: turn.outcome.ok,
           eventType: turn.outcome.eventType,
           resultOmitted: true,
           reason: 'not_resident_observable',
         },
-    nextObservation: projectHistoricalModelObservation(
+    nextObservation: projectObservation(
       turn.nextObservation,
       turn.observation,
       'same_turn_observation',
@@ -285,12 +310,14 @@ function loadValidFold(
   cacheFile: string | null | undefined,
   turns: EntityTurn[],
   entityId: string,
+  projectionProfile?: string,
 ) {
   if (!cacheFile || !fs.existsSync(cacheFile)) return null;
   try {
     const candidate = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as LoomFoldRecord;
     if (candidate?.protocol !== 'behold.loom-fold.v2') return null;
     if (candidate.entityId !== entityId) return null;
+    if (projectionProfile && candidate.projectionProfile !== projectionProfile) return null;
     const index = Number(candidate.source?.toSequence) - 1;
     if (index < 0 || index >= turns.length) return null;
     if (turns[index]?.id !== candidate.source.tipId) return null;

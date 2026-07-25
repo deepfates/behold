@@ -144,6 +144,35 @@ test('an empty respawned body is not offered inventory, crafting, placement, or 
   assert.deepEqual(names, ['look_direction', 'face_visible_target']);
 });
 
+test('human-semantic affordances stay fixed instead of revealing hidden focus classifications', () => {
+  const actions = [
+    schemaTool('dig_focused_block', {}),
+    schemaTool('use_focused_block', {}),
+    schemaTool('inspect_focused_container', {}),
+    schemaTool('sleep_in_focused_bed', {}),
+    schemaTool('consume', { name: { type: 'string' } }),
+  ];
+  const frame = {
+    protocol: 'behold.inhabitant.v2',
+    self: {
+      inventory: [{ name: 'cobblestone', count: 2, uses: ['place'] }],
+      condition: { food: 20 },
+    },
+    scene: { focus: null, social: { playersOnline: [] } },
+  };
+
+  const offered = minecraftInhabitantActionsFor(actions, frame, {
+    bodyProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+  });
+
+  assert.deepEqual(
+    offered.map((action) => action.function.name),
+    actions.map((action) => action.function.name),
+  );
+  assert.deepEqual(offered[4].function.parameters.properties.name.enum, ['cobblestone']);
+});
+
 test('current inventory uses and cursor focus produce exact native action inputs', () => {
   const actions = [
     schemaTool('drop_item', { name: { type: 'string' } }),

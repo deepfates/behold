@@ -19,6 +19,7 @@ import { createAxResidentMind, parseAxResidentProgramArtifact } from '../src/min
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { profileDirectResidentRequest } from '../src/mind/request-profile';
 import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
+import { minecraftBodyProfile, type MinecraftBodyProfile } from '../src/mind/minecraft-body';
 import { startLLMPolicy } from '../src/policy/llm';
 import { residentPolicyProfile, type ResidentPolicyProfile } from '../src/policy/profile';
 
@@ -35,6 +36,7 @@ type Args = {
   axProgram?: string;
   requestOut?: string;
   policyProfile?: ResidentPolicyProfile;
+  bodyProfile?: MinecraftBodyProfile;
   actionProfile?: MinecraftActionProfile;
   safetyProfile?: MinecraftSafetyProfile;
 };
@@ -71,11 +73,21 @@ async function main() {
     residentPolicyProfile(
       baselineRecord.data.policyProfile ?? runStarted?.data?.controller?.policyProfile,
     );
+  const bodyProfile = minecraftBodyProfile(
+    args.bodyProfile ??
+      baselineRecord.data.bodyProfile ??
+      runStarted?.data?.controller?.bodyProfile ??
+      'minecraft-resident-v1',
+  );
   const actionProfile = minecraftActionProfile(
     args.actionProfile ??
       baselineRecord.data.actionProfile ??
       runStarted?.data?.controller?.actionProfile ??
-      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+      (bodyProfile === 'minecraft-human-semantic-v1'
+        ? 'minecraft-human-semantic-v1'
+        : policyProfile === 'neutral-benchmark-v1'
+          ? 'minecraft-player-v1'
+          : 'resident-v1'),
   );
   const safetyProfile = minecraftSafetyProfile(
     args.safetyProfile ??
@@ -132,6 +144,7 @@ async function main() {
           history,
           actions,
           policyProfile,
+          bodyProfile,
           actionProfile,
           safetyProfile,
           allowTools,
@@ -149,7 +162,7 @@ async function main() {
             },
             status: 'unavailable',
             baseline: { adapter: baselineAdapter, bodySha256: baselineBodySha256 },
-            profiles: { policyProfile, actionProfile, safetyProfile },
+            profiles: { policyProfile, bodyProfile, actionProfile, safetyProfile },
             allowTools,
             error: String(error?.message || error),
             note: 'No provider call or world mutation occurred. An unavailable reconstruction is not an exact replay.',
@@ -221,6 +234,7 @@ async function main() {
         history,
         actions,
         policyProfile,
+        bodyProfile,
         actionProfile,
         safetyProfile,
         allowTools,
@@ -264,7 +278,8 @@ async function main() {
         entityId,
         observe: (sinceSequence) => replayObservationAtCursor(observation, sinceSequence),
         actions,
-        actionsFor: (frame) => minecraftInhabitantActionsFor(actions, frame, { safetyProfile }),
+        actionsFor: (frame) =>
+          minecraftInhabitantActionsFor(actions, frame, { bodyProfile, safetyProfile }),
         // This proof ends at proposal admission. It cannot mutate Minecraft.
         attempt: (intent) => {
           attempted.push(intent);
@@ -277,6 +292,7 @@ async function main() {
         ...(candidateMind ? { mind: candidateMind } : {}),
         history,
         policyProfile,
+        bodyProfile,
         actionProfile,
         safetyProfile,
         allowTools,
@@ -325,7 +341,7 @@ async function main() {
         observationSha256: sha256(stableJson(observation)),
         capturedObservationSha256: sha256(stableJson(capturedObservation)),
         observationMigrations: replay.migrations,
-        profiles: { policyProfile, actionProfile, safetyProfile },
+        profiles: { policyProfile, bodyProfile, actionProfile, safetyProfile },
       },
       safety: {
         worldMutationEnabled: false,
@@ -360,6 +376,7 @@ async function main() {
             actionSet: baseline.call.request.toolsSha256 === candidateCall.request.toolsSha256,
             profiles:
               policyProfile === candidate?.policyProfile &&
+              bodyProfile === candidate?.bodyProfile &&
               actionProfile === candidate?.actionProfile &&
               safetyProfile === candidate?.safetyProfile,
             contextProjection: {
@@ -395,6 +412,7 @@ function parseArgs(argv: string[]): Args {
   let axProgram: string | undefined;
   let requestOut: string | undefined;
   let policyProfile: ResidentPolicyProfile | undefined;
+  let bodyProfile: MinecraftBodyProfile | undefined;
   let actionProfile: MinecraftActionProfile | undefined;
   let safetyProfile: MinecraftSafetyProfile | undefined;
   for (let index = 0; index < argv.length; index += 1) {
@@ -407,6 +425,8 @@ function parseArgs(argv: string[]): Args {
       policyProfile = residentPolicyProfile(String(argv[++index] || ''));
     } else if (argv[index] === '--action-profile') {
       actionProfile = minecraftActionProfile(String(argv[++index] || ''));
+    } else if (argv[index] === '--body-profile') {
+      bodyProfile = minecraftBodyProfile(String(argv[++index] || ''));
     } else if (argv[index] === '--safety-profile') {
       safetyProfile = minecraftSafetyProfile(String(argv[++index] || ''));
     } else if (argv[index] === '--model-turn') {
@@ -433,7 +453,7 @@ function parseArgs(argv: string[]): Args {
   }
   if (!journal) {
     throw new Error(
-      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--policy-profile profile] [--action-profile profile] [--safety-profile profile] [--ax-program artifact.json] [--request-out request.json] [--timeoutMs <ms>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
+      'Usage: mind-differential --journal <run.jsonl> [--model-turn <journal-sequence>] [--model <candidate-slug>] [--policy-profile profile] [--body-profile profile] [--action-profile profile] [--safety-profile profile] [--ax-program artifact.json] [--request-out request.json] [--timeoutMs <ms>] [--profile-only | --candidate ax|direct | --attention-pair] [--out result.json]',
     );
   }
   if (axProgram && (candidate !== 'ax' || attentionPair || profileOnly)) {
@@ -454,6 +474,7 @@ function parseArgs(argv: string[]): Args {
     ...(axProgram ? { axProgram } : {}),
     ...(requestOut ? { requestOut } : {}),
     ...(policyProfile ? { policyProfile } : {}),
+    ...(bodyProfile ? { bodyProfile } : {}),
     ...(actionProfile ? { actionProfile } : {}),
     ...(safetyProfile ? { safetyProfile } : {}),
   };
@@ -467,6 +488,7 @@ async function runAttentionPair(options: {
   history: any[];
   actions: any[];
   policyProfile: ResidentPolicyProfile;
+  bodyProfile: MinecraftBodyProfile;
   actionProfile: MinecraftActionProfile;
   safetyProfile: MinecraftSafetyProfile;
   allowTools: string[] | null;
@@ -506,6 +528,7 @@ async function runAttentionPair(options: {
     model: measuredDeliberative.model === measuredUrgent.model,
     profiles:
       measuredDeliberative.policyProfile === measuredUrgent.policyProfile &&
+      measuredDeliberative.bodyProfile === measuredUrgent.bodyProfile &&
       measuredDeliberative.actionProfile === measuredUrgent.actionProfile &&
       measuredDeliberative.safetyProfile === measuredUrgent.safetyProfile,
     observation:
@@ -577,6 +600,7 @@ async function captureMindRequest(options: {
   history: any[];
   actions: any[];
   policyProfile: ResidentPolicyProfile;
+  bodyProfile: MinecraftBodyProfile;
   actionProfile: MinecraftActionProfile;
   safetyProfile: MinecraftSafetyProfile;
   allowTools: string[] | null;
@@ -604,6 +628,7 @@ async function captureMindRequest(options: {
       actions: options.actions,
       actionsFor: (frame) =>
         minecraftInhabitantActionsFor(options.actions, frame, {
+          bodyProfile: options.bodyProfile,
           safetyProfile: options.safetyProfile,
         }),
       attempt: () => {
@@ -616,6 +641,7 @@ async function captureMindRequest(options: {
       mind,
       history: options.history,
       policyProfile: options.policyProfile,
+      bodyProfile: options.bodyProfile,
       actionProfile: options.actionProfile,
       safetyProfile: options.safetyProfile,
       allowTools: options.allowTools,

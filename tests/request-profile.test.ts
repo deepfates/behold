@@ -12,6 +12,7 @@ test('resident request profile is an exact UTF-8 byte partition with no executio
     entityId: 'IrisLife',
     model: 'fixture/model',
     policyProfile: 'neutral-benchmark-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
     actionProfile: 'minecraft-player-v1',
     safetyProfile: 'vanilla-player-v1',
     observation: { sequence: 7, scene: { focus: 'café' } },
@@ -47,6 +48,7 @@ test('resident request profile is an exact UTF-8 byte partition with no executio
   assert.equal(profile.request.actionCount, 1);
   assert.deepEqual(profile.request.profiles, {
     policy: 'neutral-benchmark-v1',
+    body: 'minecraft-human-semantic-v1',
     actions: 'minecraft-player-v1',
     safety: 'vanilla-player-v1',
   });

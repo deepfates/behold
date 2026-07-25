@@ -33,8 +33,8 @@ Keep credentials out of this file. A convenient ignored location is
 ```
 
 `entityId` and `model` are required for every entry. Optional fields are
-`bodyUsername`, `urgentModel`, `mind`, `policyProfile`, `actionProfile`,
-`safetyProfile`, `tickMs`, `maxTurnSteps`, `resumeAfterBudget`, `task`,
+`bodyUsername`, `urgentModel`, `mind`, `policyProfile`, `bodyProfile`,
+`actionProfile`, `safetyProfile`, `tickMs`, `maxTurnSteps`, `resumeAfterBudget`, `task`,
 `target`, `allowTools`, and `paused`. Unknown fields and wrong types are errors;
 the runner never silently substitutes a global value for a misspelled field.
 

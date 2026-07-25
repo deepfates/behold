@@ -40,10 +40,14 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 - A versioned neutral evaluation configuration now crosses the CLI, managed
   runner, run journal, mind request, affordance projection, and interpreter:
   `neutral-benchmark-v1` emits only protocol guidance, does not force project
-  work or repair repetition/speech choices, defaults to the
-  `minecraft-player-v1` action surface, and exposes vanilla-permitted player
-  risk through `vanilla-player-v1`. The continuing `resident-v1` behavior
-  remains a separately testable product profile
+  work or repair repetition/speech choices, defaults to the matched
+  `minecraft-human-semantic-v1` observation/action contract, and exposes
+  vanilla-permitted player risk through `vanilla-player-v1`. The semantic body
+  withholds coordinates, stable world/entity identifiers, loaded geometry,
+  planning hints, project/place state, and navigation/pursuit macros while the
+  adapter privately retains raw targets for causal fencing. The continuing
+  `resident-v1` behavior and older `minecraft-player-v1` benchmark remain
+  separately named profiles
 - Tool-calling LLM policy through OpenRouter
 - Ax mind programs are now immutable, strict instruction/demo artifacts with a
   canonical signature digest and a content identity on both successful and

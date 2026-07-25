@@ -24,6 +24,7 @@ export function profileDirectResidentRequest(
       mindRequestSha256: residentMindRequestSha256(request),
       profiles: {
         policy: request.policyProfile ?? 'legacy-unspecified',
+        body: request.bodyProfile ?? 'legacy-unspecified',
         actions: request.actionProfile ?? 'legacy-unspecified',
         safety: request.safetyProfile ?? 'legacy-unspecified',
       },
@@ -63,6 +64,7 @@ export function profileDirectResidentRequest(
       attentionBytes: jsonBytes(request.attention ?? null),
       profilesBytes: jsonBytes({
         policy: request.policyProfile ?? null,
+        body: request.bodyProfile ?? null,
         actions: request.actionProfile ?? null,
         safety: request.safetyProfile ?? null,
       }),

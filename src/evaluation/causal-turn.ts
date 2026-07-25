@@ -32,6 +32,8 @@ export type TurnAssessmentInput = Readonly<{
     managedRunId: string;
     entityId: string;
     policyProfile: string;
+    /** Optional only while reassessing captures made before body profiles existed. */
+    bodyProfile?: string;
     actionProfile: string;
     safetyProfile: string;
   }>;
@@ -172,9 +174,12 @@ export function assessDecisionTurn(input: TurnAssessmentInput) {
       stableJson(input.runStarted.data?.controller?.allowTools ?? null) ===
         stableJson(configuredResident?.allowTools ?? null) &&
       input.runStarted.data?.controller?.policyProfile === expected.policyProfile &&
+      (expected.bodyProfile == null ||
+        input.runStarted.data?.controller?.bodyProfile === expected.bodyProfile) &&
       input.runStarted.data?.controller?.actionProfile === expected.actionProfile &&
       input.runStarted.data?.controller?.safetyProfile === expected.safetyProfile &&
       configuredResident?.policyProfile === expected.policyProfile &&
+      (expected.bodyProfile == null || configuredResident?.bodyProfile === expected.bodyProfile) &&
       configuredResident?.actionProfile === expected.actionProfile &&
       configuredResident?.safetyProfile === expected.safetyProfile,
     exactMindRequest:
@@ -186,6 +191,7 @@ export function assessDecisionTurn(input: TurnAssessmentInput) {
       request?.entityId === expected.entityId &&
       request?.model === input.modelTurn.data?.model &&
       request?.policyProfile === expected.policyProfile &&
+      (expected.bodyProfile == null || request?.bodyProfile === expected.bodyProfile) &&
       request?.actionProfile === expected.actionProfile &&
       request?.safetyProfile === expected.safetyProfile &&
       stableJson(request?.observation) === stableJson(input.modelTurn.data?.observation),

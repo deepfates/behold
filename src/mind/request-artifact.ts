@@ -14,6 +14,7 @@ const REQUEST_FIELDS = new Set([
   'entityId',
   'model',
   'policyProfile',
+  'bodyProfile',
   'actionProfile',
   'safetyProfile',
   'observation',
@@ -80,6 +81,9 @@ export function parseResidentMindRequest(value: unknown): Readonly<ResidentMindR
     ...(request.policyProfile == null
       ? {}
       : { policyProfile: nonEmpty(request.policyProfile, 'resident policy profile') }),
+    ...(request.bodyProfile == null
+      ? {}
+      : { bodyProfile: nonEmpty(request.bodyProfile, 'resident body profile') }),
     ...(request.actionProfile == null
       ? {}
       : { actionProfile: nonEmpty(request.actionProfile, 'resident action profile') }),

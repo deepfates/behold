@@ -12,6 +12,7 @@ async function main() {
       urgentModel: { type: 'string' },
       urgentDecisionTimeoutMs: { type: 'string' },
       policyProfile: { type: 'string' },
+      bodyProfile: { type: 'string' },
       actionProfile: { type: 'string' },
       safetyProfile: { type: 'string' },
       tickMs: { type: 'string' },
@@ -52,6 +53,7 @@ async function main() {
       ? Number(args.values.urgentDecisionTimeoutMs)
       : undefined,
     policyProfile: args.values.policyProfile as any,
+    bodyProfile: args.values.bodyProfile as any,
     actionProfile: args.values.actionProfile as any,
     safetyProfile: args.values.safetyProfile as any,
     tickMs: args.values.tickMs ? Number(args.values.tickMs) : undefined,
@@ -68,7 +70,7 @@ async function main() {
 
 function usage() {
   const lines = [
-    'Usage: behold <LifeId> [--body <MinecraftUsername>] [--model <slug>] [--urgentModel <slug>] [--urgentDecisionTimeoutMs <ms>] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxTurnSteps <1-32>] [--resumeAfterBudget true|false] [--paused] [--task come-see-do-report] [--target <player>] [--allowTools a,b,c] [--server host] [--port n] [--world <circle-id>]',
+    'Usage: behold <LifeId> [--body <MinecraftUsername>] [--model <slug>] [--urgentModel <slug>] [--urgentDecisionTimeoutMs <ms>] [--policyProfile resident-v1|neutral-benchmark-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxTurnSteps <1-32>] [--resumeAfterBudget true|false] [--paused] [--task come-see-do-report] [--target <player>] [--allowTools a,b,c] [--server host] [--port n] [--world <circle-id>]',
     '',
     'Starts a bot + console UI. If OPENROUTER_API_KEY is set, enables LLM autopilot using the command registry.',
   ];

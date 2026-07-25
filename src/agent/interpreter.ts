@@ -2491,6 +2491,206 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     audience: 'operator',
   });
 
+  add({
+    name: 'move_controls',
+    description:
+      'Hold one ordinary movement direction plus optional jump, sprint, or sneak for a bounded time, then release every control. This never invokes pathfinding or selects a destination.',
+    parameters: {
+      type: 'object',
+      properties: {
+        direction: { type: 'string', enum: ['forward', 'back', 'left', 'right'] },
+        jump: { type: 'boolean' },
+        sprint: { type: 'boolean' },
+        sneak: { type: 'boolean' },
+        durationMs: { type: 'number', minimum: 100, maximum: 2000 },
+      },
+      required: ['direction', 'durationMs'],
+    },
+    run: async (
+      { direction, jump = false, sprint = false, sneak = false, durationMs },
+      execution,
+    ) => {
+      if (typeof (bot as any).setControlState !== 'function') {
+        return { ok: false, error: 'bounded_body_control_unavailable' };
+      }
+      const movement = String(direction || '');
+      if (!['forward', 'back', 'left', 'right'].includes(movement)) {
+        return { ok: false, error: 'unknown_movement_direction' };
+      }
+      const heldForMs = clamp(Number(durationMs), 100, 2000);
+      const before = integerFeetPosition((bot as any).entity?.position);
+      (bot as any).clearControlStates?.();
+      try {
+        (bot as any).setControlState(movement, true);
+        if (jump) (bot as any).setControlState('jump', true);
+        if (sprint) (bot as any).setControlState('sprint', true);
+        if (sneak) (bot as any).setControlState('sneak', true);
+        await waitForFightTick(heldForMs, execution?.signal);
+        if (execution?.signal?.aborted) return cancelledAction('bounded-body-controls');
+        return {
+          ok: true,
+          direction: movement,
+          heldForMs,
+          controls: { jump: !!jump, sprint: !!sprint, sneak: !!sneak },
+          bodyMoved: !sameNullablePosition(
+            before,
+            integerFeetPosition((bot as any).entity?.position),
+          ),
+          confirmation: 'mineflayer:bounded_control_interval',
+        };
+      } finally {
+        (bot as any).clearControlStates?.();
+      }
+    },
+    category: 'move',
+  });
+
+  add({
+    name: 'attack_focused_entity',
+    description:
+      'Swing once at the entity currently under the crosshair. This does not pursue, repeat, or claim that the swing dealt damage.',
+    parameters: { type: 'object', properties: {} },
+    run: async (_args, execution) => {
+      const focused = focusedEntityAtAdmission(bot, execution?.observation, sceneEntityReference);
+      if (!focused.ok) return focused;
+      if (typeof (bot as any).attack !== 'function') {
+        return { ok: false, error: 'attack_input_unavailable' };
+      }
+      (bot as any).attack(focused.entity, true);
+      return {
+        ok: true,
+        status: 'attack_input_dispatched',
+        target: focused.privateTarget,
+        confirmation: 'mineflayer:single_attack_input',
+      };
+    },
+    category: 'combat',
+  });
+
+  add({
+    name: 'dig_focused_block',
+    description:
+      'Dig the reachable block currently under the crosshair without approaching or selecting another target.',
+    parameters: { type: 'object', properties: {} },
+    run: async (_args, execution) => {
+      const focused = focusedBlockAtAdmission(bot, execution?.observation, 4.5);
+      if (!focused.ok) return focused;
+      if (
+        typeof (bot as any).canSeeBlock === 'function' &&
+        !(bot as any).canSeeBlock(focused.block)
+      ) {
+        return { ok: false, error: 'focused_block_not_currently_visible' };
+      }
+      return runExistingCommand('dig_block', focused.position, execution);
+    },
+    category: 'world',
+    effects: { blockMutation: 'dig' },
+  });
+
+  add({
+    name: 'place_held_against_focus',
+    description:
+      'Place the currently held block against the exact block face under the crosshair without selecting support or repositioning.',
+    parameters: { type: 'object', properties: {} },
+    run: async (_args, execution) => {
+      const focused = focusedBlockAtAdmission(bot, execution?.observation, 5);
+      if (!focused.ok) return focused;
+      const face = blockFaceName(focused.block.face);
+      if (!face) return { ok: false, error: 'focused_block_face_unavailable' };
+      return runExistingCommand('place_against', { on: focused.position, face }, execution);
+    },
+    category: 'world',
+    effects: { blockMutation: 'place' },
+  });
+
+  add({
+    name: 'use_focused_block',
+    description:
+      'Use the block currently under the crosshair once. Verified toggles report their observed state change; other blocks report only that the input was dispatched.',
+    parameters: { type: 'object', properties: {} },
+    run: async (_args, execution) => {
+      const focused = focusedBlockAtAdmission(bot, execution?.observation, 5);
+      if (!focused.ok) return focused;
+      if (toggleProperty(focused.block)) {
+        return runExistingCommand(
+          'toggle_block',
+          { ...focused.position, maxDistance: 5 },
+          execution,
+        );
+      }
+      if (typeof (bot as any).activateBlock !== 'function') {
+        return { ok: false, error: 'block_use_input_unavailable' };
+      }
+      await (bot as any).activateBlock(focused.block);
+      return {
+        ok: true,
+        status: 'use_input_dispatched',
+        target: focused.privateTarget,
+        confirmation: 'mineflayer:single_activate_block_input',
+      };
+    },
+    category: 'world',
+    effects: { blockMutation: 'state' },
+  });
+
+  for (const focusedContainer of [
+    ['inspect_focused_container', 'inspect_container'],
+    ['deposit_in_focused_container', 'deposit_in_container'],
+    ['withdraw_from_focused_container', 'withdraw_from_container'],
+  ] as const) {
+    const [name, delegate] = focusedContainer;
+    add({
+      name,
+      description: `${delegate === 'inspect_container' ? 'Inspect' : delegate === 'deposit_in_container' ? 'Deposit into' : 'Withdraw from'} the container currently under the crosshair.`,
+      parameters:
+        delegate === 'inspect_container'
+          ? { type: 'object', properties: {} }
+          : {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                count: { type: 'number', minimum: 1, maximum: 64 },
+              },
+              required: ['name'],
+            },
+      run: async (args, execution) => {
+        const focused = focusedBlockAtAdmission(bot, execution?.observation, 5);
+        if (!focused.ok) return focused;
+        if (!isStorageBlock(focused.block)) {
+          return { ok: false, error: 'focused_block_is_not_container' };
+        }
+        return runExistingCommand(
+          delegate,
+          { ...args, ...focused.position, maxDistance: 5 },
+          execution,
+        );
+      },
+      category: 'inventory',
+    });
+  }
+
+  add({
+    name: 'sleep_in_focused_bed',
+    description: 'Use the bed currently under the crosshair without searching for another bed.',
+    parameters: { type: 'object', properties: {} },
+    run: async (_args, execution) => {
+      const focused = focusedBlockAtAdmission(bot, execution?.observation, 5);
+      if (!focused.ok) return focused;
+      if (!(bot as any).isABed?.(focused.block)) {
+        return { ok: false, error: 'focused_block_is_not_bed' };
+      }
+      return runExistingCommand('sleep_in_bed', { ...focused.position, maxDistance: 5 }, execution);
+    },
+    category: 'self-care',
+    effects: { blockMutation: 'state' },
+  });
+
+  async function runExistingCommand(name: string, args: any, execution?: CommandExecution) {
+    const command = specs.find((candidate) => candidate.name === name);
+    if (!command) return { ok: false, error: 'body_delegate_unavailable', delegate: name };
+    return command.run(args, execution);
+  }
+
   function summarizeBlock(b: any) {
     return {
       name: b?.name,
@@ -2595,6 +2795,102 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     },
     specs,
   };
+}
+
+function focusedBlockAtAdmission(bot: Bot, observation: any, maxDistance: number) {
+  const focus = observation?.scene?.focus;
+  const admittedPosition = integerBlockPosition(focus?.position);
+  if (
+    observation?.protocol !== 'behold.inhabitant.v2' ||
+    focus?.kind !== 'block' ||
+    focus?.source !== 'cursor' ||
+    focus?.reachable !== true ||
+    !admittedPosition ||
+    Number(focus?.distance) > maxDistance
+  ) {
+    return { ok: false as const, error: 'admitted_reachable_block_focus_unavailable' };
+  }
+  const block = blockAtViewCursor(bot, maxDistance);
+  const currentPosition = integerBlockPosition(block?.position);
+  const currentFace = blockFaceName(block?.face);
+  if (
+    !block ||
+    !currentPosition ||
+    !samePosition(currentPosition, admittedPosition) ||
+    normalizeRegistryName(String(block.name || '')) !==
+      normalizeRegistryName(String(focus.name || '')) ||
+    (focus.face != null && currentFace !== focus.face)
+  ) {
+    return {
+      ok: false as const,
+      error: 'focused_block_changed_before_action',
+      admitted: {
+        id: focus.id,
+        name: focus.name,
+        position: admittedPosition,
+        face: focus.face ?? null,
+      },
+      current: block ? { name: block.name, position: currentPosition, face: currentFace } : null,
+    };
+  }
+  return {
+    ok: true as const,
+    block,
+    position: admittedPosition,
+    privateTarget: {
+      id: focus.id,
+      name: focus.name,
+      position: admittedPosition,
+      face: currentFace,
+    },
+  };
+}
+
+function focusedEntityAtAdmission(
+  bot: Bot,
+  observation: any,
+  referenceFor: (entity: any) => string,
+) {
+  const focus = observation?.scene?.focus;
+  if (
+    observation?.protocol !== 'behold.inhabitant.v2' ||
+    focus?.kind !== 'entity' ||
+    focus?.source !== 'cursor' ||
+    focus?.reachable !== true
+  ) {
+    return { ok: false as const, error: 'admitted_reachable_entity_focus_unavailable' };
+  }
+  const entity = entityAtViewCursor(bot, 3.5);
+  const reference = entity ? referenceFor(entity) : null;
+  if (
+    !entity ||
+    reference !== focus.id ||
+    normalizeRegistryName(String(entity.username || entity.name || entity.type || '')) !==
+      normalizeRegistryName(String(focus.name || ''))
+  ) {
+    return {
+      ok: false as const,
+      error: 'focused_entity_changed_before_action',
+      admitted: { id: focus.id, name: focus.name },
+      current: entity
+        ? { id: reference, name: entity.username || entity.name || entity.type || null }
+        : null,
+    };
+  }
+  return {
+    ok: true as const,
+    entity,
+    privateTarget: { id: focus.id, name: focus.name },
+  };
+}
+
+function blockFaceName(face: unknown) {
+  return ['bottom', 'top', 'north', 'south', 'west', 'east'][Number(face)] ?? null;
+}
+
+function sameNullablePosition(left: BlockPosition | null, right: BlockPosition | null) {
+  if (!left || !right) return left === right;
+  return samePosition(left, right);
 }
 
 type ContainerResolution =

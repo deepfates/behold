@@ -48,6 +48,11 @@ import {
   type MinecraftSafetyProfile,
 } from '../src/agent/action-profiles';
 import { residentPolicyProfile, type ResidentPolicyProfile } from '../src/policy/profile';
+import {
+  minecraftBodyProfile,
+  usesHumanSemanticBody,
+  type MinecraftBodyProfile,
+} from '../src/mind/minecraft-body';
 
 export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'chat',
@@ -157,6 +162,7 @@ export type ManagedResidentSpec = Readonly<{
   urgentModel?: string;
   mind?: 'direct' | 'ax';
   policyProfile?: ResidentPolicyProfile;
+  bodyProfile?: MinecraftBodyProfile;
   actionProfile?: MinecraftActionProfile;
   safetyProfile?: MinecraftSafetyProfile;
   tickMs?: number;
@@ -182,6 +188,7 @@ const MANAGED_RESIDENT_SET_FIELDS = new Set([
   'urgentModel',
   'mind',
   'policyProfile',
+  'bodyProfile',
   'actionProfile',
   'safetyProfile',
   'tickMs',
@@ -201,6 +208,7 @@ const RESIDENT_LEVEL_CLI_FIELDS = [
   'mind',
   'paused',
   'policyProfile',
+  'bodyProfile',
   'actionProfile',
   'safetyProfile',
   'tickMs',
@@ -288,6 +296,7 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
     }
     for (const [field, normalize] of [
       ['policyProfile', residentPolicyProfile],
+      ['bodyProfile', minecraftBodyProfile],
       ['actionProfile', minecraftActionProfile],
       ['safetyProfile', minecraftSafetyProfile],
     ] as const) {
@@ -437,6 +446,7 @@ export type ManagedWorldRun = Readonly<{
     urgentModel: string | null;
     mind: 'direct' | 'ax';
     policyProfile: ResidentPolicyProfile;
+    bodyProfile: MinecraftBodyProfile;
     actionProfile: MinecraftActionProfile;
     safetyProfile: MinecraftSafetyProfile;
     tickMs: number;
@@ -509,6 +519,7 @@ type NormalizedManagedResident = Readonly<{
   urgentModel?: string;
   mind: 'direct' | 'ax';
   policyProfile: ResidentPolicyProfile;
+  bodyProfile: MinecraftBodyProfile;
   actionProfile: MinecraftActionProfile;
   safetyProfile: MinecraftSafetyProfile;
   tickMs: number;
@@ -650,14 +661,31 @@ function normalizeManagedResidents(
         );
       }
       let policyProfile: ResidentPolicyProfile;
+      let bodyProfile: MinecraftBodyProfile;
       let actionProfile: MinecraftActionProfile;
       let safetyProfile: MinecraftSafetyProfile;
       try {
         policyProfile = residentPolicyProfile(candidate.policyProfile);
+        bodyProfile = minecraftBodyProfile(
+          candidate.bodyProfile ??
+            (policyProfile === 'neutral-benchmark-v1'
+              ? 'minecraft-human-semantic-v1'
+              : 'minecraft-resident-v1'),
+        );
         actionProfile = minecraftActionProfile(
           candidate.actionProfile ??
-            (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+            (policyProfile === 'neutral-benchmark-v1'
+              ? 'minecraft-human-semantic-v1'
+              : 'resident-v1'),
         );
+        if (
+          usesHumanSemanticBody(bodyProfile) !==
+          (actionProfile === 'minecraft-human-semantic-v1')
+        ) {
+          throw new Error(
+            `body profile ${bodyProfile} must be paired with its matching action profile; received ${actionProfile}`,
+          );
+        }
         safetyProfile = minecraftSafetyProfile(
           candidate.safetyProfile ??
             (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
@@ -670,6 +698,7 @@ function normalizeManagedResidents(
             index,
             entityId,
             policyProfile: candidate.policyProfile,
+            bodyProfile: candidate.bodyProfile,
             actionProfile: candidate.actionProfile,
             safetyProfile: candidate.safetyProfile,
           },
@@ -730,6 +759,7 @@ function normalizeManagedResidents(
         ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
         mind,
         policyProfile,
+        bodyProfile,
         actionProfile,
         safetyProfile,
         tickMs,
@@ -778,6 +808,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         urgentModel: entry.resident.urgentModel ?? null,
         mind: entry.resident.mind,
         policyProfile: entry.resident.policyProfile,
+        bodyProfile: entry.resident.bodyProfile,
         actionProfile: entry.resident.actionProfile,
         safetyProfile: entry.resident.safetyProfile,
         tickMs: entry.resident.tickMs,
@@ -996,6 +1027,7 @@ export async function startManagedWorld(
           urgentModel: resident.urgentModel ?? null,
           mind: resident.mind,
           policyProfile: resident.policyProfile,
+          bodyProfile: resident.bodyProfile,
           actionProfile: resident.actionProfile,
           safetyProfile: resident.safetyProfile,
           tickMs: resident.tickMs,
@@ -1744,6 +1776,8 @@ function spawnDefaultController(
     resident.model,
     '--policyProfile',
     resident.policyProfile,
+    '--bodyProfile',
+    resident.bodyProfile,
     '--actionProfile',
     resident.actionProfile,
     '--safetyProfile',
@@ -1822,6 +1856,7 @@ function managedControllerEnvironment(
   env.MINECRAFT_USERNAME = resident.bodyUsername;
   env.BEHOLD_MIND = resident.mind;
   env.BEHOLD_POLICY_PROFILE = resident.policyProfile;
+  env.BEHOLD_BODY_PROFILE = resident.bodyProfile;
   env.BEHOLD_ACTION_PROFILE = resident.actionProfile;
   env.BEHOLD_SAFETY_PROFILE = resident.safetyProfile;
   return Object.freeze(env);
@@ -1842,6 +1877,7 @@ const RESERVED_RESIDENT_ENVIRONMENT = new Set([
   'MINECRAFT_USERNAME',
   'BEHOLD_MIND',
   'BEHOLD_POLICY_PROFILE',
+  'BEHOLD_BODY_PROFILE',
   'BEHOLD_ACTION_PROFILE',
   'BEHOLD_SAFETY_PROFILE',
 ]);
@@ -2420,6 +2456,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       model: { type: 'string' },
       urgentModel: { type: 'string' },
       policyProfile: { type: 'string' },
+      bodyProfile: { type: 'string' },
       actionProfile: { type: 'string' },
       safetyProfile: { type: 'string' },
       controller: { type: 'string', multiple: true },
@@ -2533,10 +2570,17 @@ export async function runCli(argv = process.argv.slice(2)) {
     const policyProfile = residentPolicyProfile(
       parsed.values.policyProfile || process.env.BEHOLD_POLICY_PROFILE,
     );
+    const bodyProfile = minecraftBodyProfile(
+      parsed.values.bodyProfile ||
+        process.env.BEHOLD_BODY_PROFILE ||
+        (policyProfile === 'neutral-benchmark-v1'
+          ? 'minecraft-human-semantic-v1'
+          : 'minecraft-resident-v1'),
+    );
     const actionProfile = minecraftActionProfile(
       parsed.values.actionProfile ||
         process.env.BEHOLD_ACTION_PROFILE ||
-        (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-player-v1' : 'resident-v1'),
+        (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-human-semantic-v1' : 'resident-v1'),
     );
     const safetyProfile = minecraftSafetyProfile(
       parsed.values.safetyProfile ||
@@ -2551,6 +2595,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
       mind,
       policyProfile,
+      bodyProfile,
       actionProfile,
       safetyProfile,
       tickMs,
@@ -2641,12 +2686,12 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--actionProfile resident-v1|minecraft-player-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Repeat --body in the same order only when a life ID differs from its Minecraft username.',
     '--residents accepts a behold.managed-resident-set.v1 JSON document and cannot be mixed with resident-level flags.',
-    'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 defaults to the minecraft-player-v1 action surface and vanilla-player-v1 risk policy.',
+    'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 defaults to the matching minecraft-human-semantic-v1 body/action surface and vanilla-player-v1 risk policy.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',
     'With --urgentModel, only newly urgent bodily/world evidence uses that model; ordinary and social decisions retain --model.',

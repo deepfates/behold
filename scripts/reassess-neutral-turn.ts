@@ -124,6 +124,9 @@ export async function reassessNeutralTurn(resultPath: string) {
       managedRunId: requiredString(configuredData?.runId, 'managed run id'),
       entityId: requiredString(lifeTurn.entityId, 'entity id'),
       policyProfile: requiredString(resident.policyProfile, 'policy profile'),
+      ...(resident.bodyProfile == null
+        ? {}
+        : { bodyProfile: requiredString(resident.bodyProfile, 'body profile') }),
       actionProfile: requiredString(resident.actionProfile, 'action profile'),
       safetyProfile: requiredString(resident.safetyProfile, 'safety profile'),
     };

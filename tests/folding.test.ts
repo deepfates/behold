@@ -170,6 +170,42 @@ test('a validated fold cache is disposable acceleration, not another source of t
   assert.equal(rebuilt.state().foldedThrough, 8);
 });
 
+test('a fold cache cannot cross an embodied observation profile', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-profile-'));
+  const cacheFile = path.join(root, 'fold.json');
+  const turns = Array.from({ length: 6 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  const resident = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    cacheFile,
+    recentTurns: 2,
+    foldBatchTurns: 4,
+    projectionProfile: 'minecraft-resident-v1',
+    summarize: async () => 'resident projection summary',
+  });
+  await resident.prepare();
+  assert.equal(resident.state().foldedThrough, 4);
+
+  let humanCalls = 0;
+  const human = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    cacheFile,
+    recentTurns: 2,
+    foldBatchTurns: 4,
+    projectionProfile: 'minecraft-human-semantic-v1',
+    summarize: async () => {
+      humanCalls += 1;
+      return 'human projection summary';
+    },
+  });
+
+  assert.equal(human.state().foldedThrough, 0);
+  await human.prepare();
+  assert.equal(humanCalls, 1);
+  assert.equal(human.view().fold?.projectionProfile, 'minecraft-human-semantic-v1');
+});
+
 test('fold evidence carries only new events while retaining action consequences', () => {
   const turn = entityTurn(3, 'Scout');
   turn.action.name = 'place_block';

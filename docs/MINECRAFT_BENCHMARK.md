@@ -244,7 +244,20 @@ semantics-only descriptions. `vanilla-player-v1` exposes risky legal Minecraft
 choices such as mining supporting blocks, approaching items over dangerous
 ground, or changing remembered protected space; `resident-safe-v1` may withhold
 them as an explicit product preference. Every managed run records the selected
-policy, action, and safety profiles.
+policy, body, action, and safety profiles.
+
+New serious comparisons use the separately versioned
+`minecraft-human-semantic-v1` body and matching action profile. Its observation
+is an egocentric semantic rendering of ordinary first-person perception,
+inventory/chat/HUD/Tab UI, and current crosshair focus. It removes absolute
+coordinates and angles, native/stable target ids, loaded geometry, reachability
+and support/hazard conclusions, registry-derived uses, controller tasks,
+projects, places, and action state. Its fixed motor surface is bounded view and
+control input plus current-crosshair interaction; it has no pathfinding,
+pursuit, auto-collection, support selection, recipe discovery, or remembered
+route macro. Raw `behold.inhabitant.v2` frames remain private to admission,
+stale-target checks, consequence verification, and the causal journal. See
+[Human-comparable semantic Minecraft body](HUMAN_SEMANTIC_BODY.md).
 
 ## Ax should optimize the mind, not the world
 
