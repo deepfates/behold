@@ -145,6 +145,92 @@ test('a successful HTTP response with malformed JSON is not normalized into a di
   );
 });
 
+test('a direct resident request emits its exact admitted OpenRouter route and output cap', async () => {
+  const bodies: any[] = [];
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v1',
+    order: ['Fixture Primary', 'Fixture Secondary'],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+  } as const;
+  const mind = createDirectResidentMind({
+    apiKey: 'test-key',
+    model: 'test/model',
+    routePolicy,
+    recordModelIO: true,
+    endpoint: 'https://models.example.test/v1/chat/completions',
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          id: 'route-bound-generation',
+          model: 'test/model',
+          provider: 'Fixture Primary',
+          choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: null } }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+  } as any);
+
+  const decision = await mind.decide(request() as any, {
+    signal: new AbortController().signal,
+  });
+  assert.deepEqual(bodies, [
+    {
+      model: 'test/model',
+      messages: request().conversation,
+      tools: bodies[0].tools,
+      parallel_tool_calls: false,
+      temperature: 0.2,
+      max_tokens: 512,
+      provider: { order: ['Fixture Primary', 'Fixture Secondary'], allow_fallbacks: false },
+    },
+  ]);
+  assert.equal(decision.call.response.model, 'test/model');
+  assert.equal(decision.call.response.provider, 'Fixture Primary');
+});
+
+test('a direct resident rejects returned provider or model identity drift', async () => {
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v1',
+    order: ['Fixture Primary'],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+  } as const;
+  for (const response of [
+    { model: 'test/model', provider: 'Unadmitted Provider' },
+    { model: 'test/other-model', provider: 'Fixture Primary' },
+    { model: 'test/model', provider: null },
+  ]) {
+    const mind = createDirectResidentMind({
+      apiKey: 'test-key',
+      model: 'test/model',
+      routePolicy,
+      endpoint: 'https://models.example.test/v1/chat/completions',
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            id: 'drifted-generation',
+            ...response,
+            choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: null } }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    } as any);
+
+    await assert.rejects(
+      mind.decide(request() as any, { signal: new AbortController().signal }),
+      (error: any) => {
+        assert.ok(error instanceof ResidentMindCallError);
+        assert.equal(error.call.response.terminal, 'route_identity_mismatch');
+        assert.equal(error.call.response.status, 200);
+        return true;
+      },
+    );
+  }
+});
+
 test('mind request artifacts reject drift, ignored fields, and non-JSON world state', () => {
   const artifact = createResidentMindRequestArtifact(request());
   const roundTrip = parseResidentMindRequestArtifact(JSON.parse(JSON.stringify(artifact)));

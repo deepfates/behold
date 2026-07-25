@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { openRouterRoutePolicy, type OpenRouterRoutePolicy } from '../mind/openrouter-route';
 
 export const EXPERIMENT_RELEASE_PLAN_PROTOCOL = 'behold.experiment-release-plan.v1' as const;
 export const EXPERIMENT_RELEASE_ARM_PROTOCOL = 'behold.experiment-release-arm.v1' as const;
@@ -15,6 +16,7 @@ export type ExperimentReleaseResident = Readonly<{
   model: string;
   urgentModel: string | null;
   mind: 'direct' | 'ax';
+  providerRoute?: OpenRouterRoutePolicy;
   profiles: Readonly<{
     policy: string;
     body: string;
@@ -553,9 +555,23 @@ function parseExperimentReleasePlan(value: unknown): ExperimentReleasePlan {
 }
 
 function parseResident(value: unknown): ExperimentReleaseResident {
+  const hasProviderRoute =
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.prototype.hasOwnProperty.call(value, 'providerRoute');
   const record = exactRecord(
     value,
-    ['entityId', 'bodyUsername', 'model', 'urgentModel', 'mind', 'profiles', 'quotaAccount'],
+    [
+      'entityId',
+      'bodyUsername',
+      'model',
+      'urgentModel',
+      'mind',
+      ...(hasProviderRoute ? ['providerRoute'] : []),
+      'profiles',
+      'quotaAccount',
+    ],
     'release resident',
   );
   const profiles = exactRecord(
@@ -588,6 +604,7 @@ function parseResident(value: unknown): ExperimentReleaseResident {
         ? null
         : boundedText(record.urgentModel, 'release urgent model', 300),
     mind: record.mind,
+    ...(hasProviderRoute ? { providerRoute: openRouterRoutePolicy(record.providerRoute) } : {}),
     profiles: {
       policy: boundedId(profiles.policy, 'release policy profile'),
       body: boundedId(profiles.body, 'release body profile'),
@@ -799,6 +816,7 @@ function sameResidentConfiguration(
     actual.model === expected.model &&
     actual.urgentModel === expected.urgentModel &&
     actual.mind === expected.mind &&
+    stableJson(actual.providerRoute ?? null) === stableJson(expected.providerRoute ?? null) &&
     stableJson(actual.profiles) === stableJson(expected.profiles) &&
     (expected.quotaAccountId == null || actual.quotaAccount.accountId === expected.quotaAccountId)
   );

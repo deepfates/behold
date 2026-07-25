@@ -1,4 +1,5 @@
 import type { ResidentMindRequest } from './interface';
+import { openRouterWirePolicy, type OpenRouterRoutePolicy } from './openrouter-route';
 
 export function directOpenRouterTools(actions: ResidentMindRequest['actions']) {
   return actions.map((action) => ({
@@ -11,7 +12,10 @@ export function directOpenRouterTools(actions: ResidentMindRequest['actions']) {
   }));
 }
 
-export function directOpenRouterRequestBody(request: ResidentMindRequest) {
+export function directOpenRouterRequestBody(
+  request: ResidentMindRequest,
+  routePolicy?: OpenRouterRoutePolicy | null,
+) {
   return {
     model: request.model,
     messages: request.conversation,
@@ -21,5 +25,6 @@ export function directOpenRouterRequestBody(request: ResidentMindRequest) {
       : {}),
     parallel_tool_calls: false,
     ...(request.model.includes('gpt-5') ? {} : { temperature: 0.2 }),
+    ...(routePolicy ? openRouterWirePolicy(routePolicy) : {}),
   };
 }

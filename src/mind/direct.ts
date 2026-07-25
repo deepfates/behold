@@ -3,6 +3,11 @@ import { cognitionClientHeaders, parseCognitionAdmission } from './cognition';
 import { directOpenRouterRequestBody } from './direct-wire';
 import { ResidentMindCallError, type ModelCallEvidence } from './evidence';
 import type { ResidentMind, ResidentMindDecision, ResidentMindRequest } from './interface';
+import {
+  inspectOpenRouterResponseIdentity,
+  openRouterRoutePolicy,
+  type OpenRouterRoutePolicy,
+} from './openrouter-route';
 import { residentMindRequestSha256 } from './request-artifact';
 import { attributeProviderRequestBody } from './request-attribution';
 
@@ -16,6 +21,7 @@ export type DirectResidentMindOptions = Readonly<{
   endpoint?: string;
   cognitionTransport?: boolean;
   recordModelIO?: boolean;
+  routePolicy?: OpenRouterRoutePolicy;
   now?: () => number;
   fetch?: typeof fetch;
 }>;
@@ -26,6 +32,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
   const requestFetch = options.fetch ?? fetch;
   const allowedModels = new Set([options.model, ...(options.allowedModels ?? [])]);
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
+  const routePolicy = options.routePolicy ? openRouterRoutePolicy(options.routePolicy) : null;
 
   return {
     id: 'direct-openrouter',
@@ -35,7 +42,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
       }
       const startedAt = now();
       const requestId = `direct-${randomUUID()}`;
-      const body = directOpenRouterRequestBody(request) as Record<string, any>;
+      const body = directOpenRouterRequestBody(request, routePolicy) as Record<string, any>;
       const requestBody = JSON.stringify(body);
       const mindRequestSha256 = residentMindRequestSha256(request);
       const callRequest = {
@@ -51,6 +58,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
         messagesSha256: sha256(stableJson(body.messages)),
         toolsSha256: sha256(stableJson(body.tools)),
         kind: 'provider_request' as const,
+        ...(routePolicy ? { routePolicy } : {}),
         ...(options.recordModelIO ? { body: JSON.parse(requestBody) } : {}),
       };
       const priority = request.attention?.mode === 'urgent' ? 'urgent' : 'deliberative';
@@ -105,7 +113,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
       if (!response.ok) {
         const text = await response.text();
         const completedAt = now();
-        const terminal = brokerAdmissionRejected(text) ? 'admission_rejected' : 'provider_error';
+        const terminal = brokerFailureTerminal(text);
         throw new ResidentMindCallError(`direct resident decision ${response.status}`, {
           protocol: 'behold.model-call.v1',
           adapter: { name: 'direct-openrouter' },
@@ -155,6 +163,31 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
         });
       }
       const completedAt = now();
+      const routeIdentity = routePolicy
+        ? inspectOpenRouterResponseIdentity(data, request.model, routePolicy)
+        : null;
+      if (routeIdentity && !routeIdentity.ok) {
+        throw new ResidentMindCallError(
+          'direct resident decision returned unadmitted route identity',
+          {
+            protocol: 'behold.model-call.v1',
+            adapter: { name: 'direct-openrouter' },
+            requestId,
+            endpoint: safeEndpoint(endpoint),
+            startedAt,
+            completedAt,
+            latencyMs: Math.max(0, completedAt - startedAt),
+            ...admissionEvidence(response),
+            request: callRequest,
+            response: {
+              terminal: 'route_identity_mismatch',
+              status: response.status,
+              bodyPreview: text.slice(0, 200) || null,
+              routeIdentity,
+            },
+          },
+        );
+      }
       const call: ModelCallEvidence = {
         protocol: 'behold.model-call.v1',
         adapter: { name: 'direct-openrouter' },
@@ -274,13 +307,17 @@ function parseToolArguments(value: unknown) {
   }
 }
 
-function brokerAdmissionRejected(text: string) {
+function brokerFailureTerminal(text: string) {
   try {
     const code = String(JSON.parse(text)?.error?.code || '');
-    return /admission|quota|queue/.test(code);
+    if (code === 'route_identity_mismatch') return 'route_identity_mismatch' as const;
+    if (/admission|quota|queue|request_route_policy/.test(code)) {
+      return 'admission_rejected' as const;
+    }
   } catch {
-    return false;
+    // Fall through to an ordinary provider error.
   }
+  return 'provider_error' as const;
 }
 
 function stringOrNull(value: unknown) {

@@ -52,6 +52,7 @@ import {
   usesHumanSemanticBody,
   type MinecraftBodyProfile,
 } from '../mind/minecraft-body';
+import type { OpenRouterRoutePolicy } from '../mind/openrouter-route';
 
 export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
@@ -84,6 +85,8 @@ export type Options = {
   recordModelIO?: boolean;
   /** Requests use the runner-owned, authenticated aggregate cognition transport. */
   cognitionTransport?: boolean;
+  /** Exact direct OpenRouter route/output contract selected outside the policy. */
+  routePolicy?: OpenRouterRoutePolicy;
   /** Alternate bounded decision implementation. Behold still owns the resident loop. */
   mind?: ResidentMind;
   /** Versioned controller behavior; neutral mode does not coach or repair model choices. */
@@ -378,6 +381,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       ...(opts.urgentModel ? { allowedModels: [opts.urgentModel] } : {}),
       ...(opts.endpoint ? { endpoint: opts.endpoint } : {}),
       ...(opts.cognitionTransport ? { cognitionTransport: true } : {}),
+      ...(opts.routePolicy ? { routePolicy: opts.routePolicy } : {}),
       ...(opts.recordModelIO ? { recordModelIO: true } : {}),
       ...(opts.now ? { now: opts.now } : {}),
     });

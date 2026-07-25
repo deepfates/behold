@@ -199,6 +199,12 @@ test('a versioned resident set carries heterogeneous operator configuration with
           urgentModel: 'provider/scout-urgent',
           mind: 'direct',
           tickMs: 1200,
+          providerRoute: {
+            protocol: 'behold.openrouter-route-policy.v1',
+            order: ['Provider Scout'],
+            allowFallbacks: false,
+            maxOutputTokens: 512,
+          },
           providerQuotas: {
             residentDecisionAttempts: 20,
             auxiliaryContextAttempts: 4,
@@ -236,6 +242,12 @@ test('a versioned resident set carries heterogeneous operator configuration with
       urgentModel: 'provider/scout-urgent',
       mind: 'direct',
       tickMs: 1200,
+      providerRoute: {
+        protocol: 'behold.openrouter-route-policy.v1',
+        order: ['Provider Scout'],
+        allowFallbacks: false,
+        maxOutputTokens: 512,
+      },
       providerQuotas: {
         residentDecisionAttempts: 20,
         auxiliaryContextAttempts: 4,
@@ -302,6 +314,25 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
         ],
       },
     ],
+    [
+      'wrong provider route',
+      {
+        protocol: 'behold.managed-resident-set.v1',
+        residents: [
+          {
+            entityId: 'Scout',
+            model: 'provider/model',
+            mind: 'direct',
+            providerRoute: {
+              protocol: 'behold.openrouter-route-policy.v1',
+              order: ['Provider Scout'],
+              allowFallbacks: true,
+              maxOutputTokens: 512,
+            },
+          },
+        ],
+      },
+    ],
   ] as const) {
     fs.writeFileSync(file, JSON.stringify(document));
     assert.throws(
@@ -321,6 +352,60 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
     () => assertResidentConfigExclusive({ residents: file, controller: ['Scout'] }),
     (error: any) => error?.code === 'resident_config_cli_conflict',
   );
+});
+
+test('managed route control covers every active resident with one output cap before world inspection', async (t) => {
+  const fixture = makeFixture(t);
+  let inspections = 0;
+  const dependencies = {
+    inspectRuntime: async () => {
+      inspections += 1;
+      return runtimeEvidence(null);
+    },
+    verifyArtifacts: async () => ARTIFACTS_OK,
+  };
+  const route = (provider: string, maxOutputTokens: number) =>
+    ({
+      protocol: 'behold.openrouter-route-policy.v1',
+      order: [provider],
+      allowFallbacks: false,
+      maxOutputTokens,
+    }) as const;
+  const residents = [
+    {
+      entityId: 'Scout',
+      bodyUsername: 'ScoutBody',
+      model: 'fixture/scout',
+      mind: 'direct' as const,
+      providerRoute: route('Fixture Scout', 512),
+    },
+    {
+      entityId: 'Builder',
+      bodyUsername: 'BuilderBody',
+      model: 'fixture/builder',
+      mind: 'direct' as const,
+    },
+  ];
+
+  await assert.rejects(
+    () => startManagedWorld({ ...fixture.options, residents }, dependencies),
+    (error: any) => error?.code === 'resident_provider_route_population_incomplete',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          residents: [
+            residents[0],
+            { ...residents[1], providerRoute: route('Fixture Builder', 1024) },
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_provider_route_output_cap_mismatch',
+  );
+  assert.equal(inspections, 0);
 });
 
 test('operator data roots admit only the configured top-level symlink boundary', async (t) => {
@@ -619,6 +704,12 @@ test('resident configuration rejects canonical identity collisions and process-b
 
 test('managed cognition and fixture failure cleanup drain every owned resource before evidence removal', async (t) => {
   const fixture = makeFixture(t);
+  const providerRoute = {
+    protocol: 'behold.openrouter-route-policy.v1',
+    order: ['Fixture Primary'],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+  } as const;
   let exercisedDiagnosticDirectory: string | null = null;
   t.after(() => {
     if (exercisedDiagnosticDirectory) {
@@ -662,6 +753,9 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
         safetyProfile: process.env.BEHOLD_SAFETY_PROFILE
         ,fixtureProofPhase: process.env.BEHOLD_FIXTURE_PROOF_PHASE,
         quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
+        providerRoute: process.env.BEHOLD_OPENROUTER_ROUTE_POLICY == null
+          ? null
+          : JSON.parse(process.env.BEHOLD_OPENROUTER_ROUTE_POLICY),
         releasePlan: process.env.BEHOLD_EXPERIMENT_RELEASE_PLAN
       }));
       const journalFile = path.join(process.env.BEHOLD_RUN_DIR, 'fixture-controller.jsonl');
@@ -673,6 +767,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
         model: arg('--model'),
         urgentModel: arg('--urgentModel'),
         mind: process.env.BEHOLD_MIND,
+        providerRoute: JSON.parse(process.env.BEHOLD_OPENROUTER_ROUTE_POLICY),
         profiles: {
           policy: process.env.BEHOLD_POLICY_PROFILE,
           body: process.env.BEHOLD_BODY_PROFILE,
@@ -783,6 +878,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
           maxTurnSteps: 1,
           resumeAfterBudget: false,
           providerQuotas: { residentDecisionAttempts: 3, auxiliaryContextAttempts: 2 },
+          providerRoute,
           environment: { BEHOLD_FIXTURE_PROOF_PHASE: 'act' },
         })),
       },
@@ -808,6 +904,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.equal(run.residents[0].safetyProfile, 'vanilla-player-v1');
   assert.equal(run.residents[0].maxTurnSteps, 1);
   assert.equal(run.residents[0].resumeAfterBudget, false);
+  assert.deepEqual(run.residents[0].providerRoute, providerRoute);
   const captured = JSON.parse(fs.readFileSync(captureFile, 'utf8'));
   assert.equal(captured.policyProfile, 'neutral-benchmark-v1');
   assert.equal(captured.bodyProfile, 'minecraft-human-semantic-v1');
@@ -815,6 +912,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.equal(captured.safetyProfile, 'vanilla-player-v1');
   assert.equal(captured.fixtureProofPhase, 'act');
   assert.equal(captured.quotaAccountId, accountId);
+  assert.deepEqual(captured.providerRoute, providerRoute);
   assert.equal(captured.releasePlan, run.experimentRelease?.planFile);
   assert.notEqual(captured.keySha256, createHash('sha256').update(providerSecret).digest('hex'));
   assert.ok(captured.keyLength >= 32);
@@ -903,6 +1001,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.equal(configured?.data?.population?.residents?.[0]?.safetyProfile, 'vanilla-player-v1');
   assert.equal(configured?.data?.population?.residents?.[0]?.maxTurnSteps, 1);
   assert.equal(configured?.data?.population?.residents?.[0]?.resumeAfterBudget, false);
+  assert.deepEqual(configured?.data?.population?.residents?.[0]?.providerRoute, providerRoute);
   assert.equal(
     configured?.data?.population?.residents?.[0]?.providerAccounting?.limits?.resident_decision,
     3,
@@ -912,6 +1011,10 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.equal(brokerReady?.data?.maxTotalModelCalls, null);
   assert.equal(brokerReady?.data?.accounting?.accounts?.[0]?.remaining?.resident_decision, 2);
   assert.equal(configured.data.population.residents[0].providerAccounting.ledgerFile, quotaFile);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(run.experimentRelease!.planFile, 'utf8')).residents[0].providerRoute,
+    providerRoute,
+  );
   const quota = verifyQuotaLedger(quotaFile).snapshot;
   assert.equal(quota.scopeId, accountingScopeId);
   assert.deepEqual(quota.used, { loom_fold: 0, resident_decision: 1 });

@@ -61,7 +61,13 @@ export type CognitionTransportAttempt = Readonly<{
   brokerRequestId: string;
   admissionOrdinal: number;
   start: Readonly<{ file: string; sha256: string; digest: string }>;
-  terminal: 'success' | 'provider_error' | 'network_error' | 'timeout' | 'cancelled';
+  terminal:
+    | 'success'
+    | 'provider_error'
+    | 'route_identity_mismatch'
+    | 'network_error'
+    | 'timeout'
+    | 'cancelled';
   response: Readonly<{
     status: number;
     ok: boolean;
@@ -226,7 +232,10 @@ export function createCognitionTransportCapture(input: {
   ) => {
     const response = outcome.response ? captureResponse(blobs, outcome.response, secrets) : null;
     const error = outcome.error == null ? null : captureError(outcome.error, secrets);
-    if ((outcome.terminal === 'success' || outcome.terminal === 'provider_error') && !response) {
+    if (
+      ['success', 'provider_error', 'route_identity_mismatch'].includes(outcome.terminal) &&
+      !response
+    ) {
       throw codedError('transport_capture_invalid', 'response terminal requires response bytes');
     }
     if (outcome.terminal === 'success' && response?.ok !== true) {
@@ -236,6 +245,12 @@ export function createCognitionTransportCapture(input: {
       throw codedError(
         'transport_capture_invalid',
         'provider-error terminal requires a non-ok response',
+      );
+    }
+    if (outcome.terminal === 'route_identity_mismatch' && response?.ok !== true) {
+      throw codedError(
+        'transport_capture_invalid',
+        'route-identity terminal requires the original ok response',
       );
     }
     if (!['success', 'provider_error'].includes(outcome.terminal) && !error) {
@@ -402,6 +417,8 @@ export function verifyCognitionTransportCapture(
     responses: records.filter((record) => record.response != null).length,
     successfulResponses: records.filter((record) => record.terminal === 'success').length,
     providerFailures: records.filter((record) => record.terminal === 'provider_error').length,
+    identityFailures: records.filter((record) => record.terminal === 'route_identity_mismatch')
+      .length,
     transportErrors: records.filter(
       (record) => record.response == null && record.terminal !== 'cancelled',
     ).length,
@@ -509,7 +526,8 @@ function parseStart(value: any): CognitionTransportAttemptStart {
 function parseAttempt(value: any): CognitionTransportAttempt {
   assertProtocolDigest(value, COGNITION_TRANSPORT_ATTEMPT_PROTOCOL, 'attempt');
   if (
-    (['success', 'provider_error'].includes(value.terminal) && value.response == null) ||
+    (['success', 'provider_error', 'route_identity_mismatch'].includes(value.terminal) &&
+      value.response == null) ||
     (!['success', 'provider_error'].includes(value.terminal) && value.error == null)
   ) {
     throw new Error('transport attempt terminal and response disagree');

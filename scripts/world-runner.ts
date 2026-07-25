@@ -42,6 +42,11 @@ import {
 } from '../src/mind/cognition-broker';
 import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 import {
+  openRouterRoutePolicy,
+  serializeOpenRouterRoutePolicy,
+  type OpenRouterRoutePolicy,
+} from '../src/mind/openrouter-route';
+import {
   COGNITION_TRANSPORT_PROTOCOL,
   cognitionAccountId,
   cognitionResidentKey,
@@ -193,6 +198,8 @@ export type ManagedResidentSpec = Readonly<{
     residentDecisionAttempts: number;
     auxiliaryContextAttempts: number;
   }>;
+  /** Exact direct-provider route and output contract; absent only for legacy/uncontrolled runs. */
+  providerRoute?: OpenRouterRoutePolicy;
   /** Explicit, non-authoritative variables for a specialized controller entrypoint. */
   environment?: Readonly<Record<string, string>>;
   /** Connect the body and preserve the life without starting cognition. */
@@ -218,6 +225,7 @@ const MANAGED_RESIDENT_SET_FIELDS = new Set([
   'target',
   'allowTools',
   'providerQuotas',
+  'providerRoute',
   'paused',
 ]);
 
@@ -372,6 +380,19 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
         );
       }
     }
+    if (candidate.providerRoute !== undefined) {
+      try {
+        result.providerRoute = openRouterRoutePolicy(candidate.providerRoute);
+      } catch (error: any) {
+        throw residentConfigInvalid(
+          file,
+          `wrong providerRoute for resident ${index}: ${error?.message || String(error)}`,
+        );
+      }
+      if ((result.mind ?? 'direct') !== 'direct') {
+        throw residentConfigInvalid(file, `resident ${index} providerRoute requires direct mind`);
+      }
+    }
     if (result.target && !result.task) {
       throw residentConfigInvalid(file, `resident ${index} target requires task`);
     }
@@ -509,6 +530,7 @@ export type ManagedWorldRun = Readonly<{
     maxTurnSteps: number | null;
     resumeAfterBudget: boolean | null;
     providerQuotas: ManagedResidentSpec['providerQuotas'] | null;
+    providerRoute: OpenRouterRoutePolicy | null;
     paused: boolean;
     pid: number;
     leasePath: string;
@@ -599,6 +621,7 @@ type NormalizedManagedResident = Readonly<{
     residentDecisionAttempts: number;
     auxiliaryContextAttempts: number;
   }>;
+  providerRoute?: OpenRouterRoutePolicy;
   environment: Readonly<Record<string, string>>;
   paused: boolean;
   leasePath: string;
@@ -621,6 +644,7 @@ type ManagedCognition = Readonly<{
       residentKey: string;
       model: string;
       models?: readonly string[];
+      routePolicy?: OpenRouterRoutePolicy;
       accounting?: {
         scopeId: string;
         worldId: string;
@@ -687,7 +711,7 @@ function normalizeManagedResidents(
   const identities = new Map<string, string>();
   const bodyUsernames = new Map<string, string>();
   const leasePaths = new Map<string, string>();
-  return Object.freeze(
+  const residents = Object.freeze(
     options.residents.map((candidate, index) => {
       const entityId = optionalText(candidate?.entityId);
       const model = optionalText(candidate?.model);
@@ -831,6 +855,26 @@ function normalizeManagedResidents(
           { index, entityId, providerQuotas: candidate.providerQuotas },
         );
       }
+      let providerRoute: OpenRouterRoutePolicy | undefined;
+      try {
+        providerRoute =
+          candidate.providerRoute == null
+            ? undefined
+            : openRouterRoutePolicy(candidate.providerRoute);
+      } catch (error: any) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} has invalid provider route: ${error?.message || String(error)}`,
+          'resident_provider_route_invalid',
+          { index, entityId, providerRoute: candidate.providerRoute },
+        );
+      }
+      if (providerRoute && mind !== 'direct') {
+        throw new WorldRunnerError(
+          `Resident ${entityId} provider route requires the direct mind adapter`,
+          'resident_provider_route_mind_invalid',
+          { index, entityId, mind },
+        );
+      }
       if (candidate.target && !candidate.task) {
         throw new WorldRunnerError(
           `Resident ${entityId} has a target without a task`,
@@ -872,12 +916,43 @@ function normalizeManagedResidents(
         ...(candidate.target ? { target: String(candidate.target) } : {}),
         ...(candidate.allowTools ? { allowTools: Object.freeze([...candidate.allowTools]) } : {}),
         ...(providerQuotas ? { providerQuotas } : {}),
+        ...(providerRoute ? { providerRoute } : {}),
         environment,
         paused: candidate.paused === true,
         leasePath,
       });
     }),
   );
+  const activeResidents = residents.filter((resident) => !resident.paused);
+  const routedResidents = activeResidents.filter((resident) => resident.providerRoute != null);
+  if (routedResidents.length > 0 && routedResidents.length !== activeResidents.length) {
+    throw new WorldRunnerError(
+      'Provider route control must cover every active resident or none of them',
+      'resident_provider_route_population_incomplete',
+      {
+        configured: routedResidents.map((resident) => resident.entityId),
+        missing: activeResidents
+          .filter((resident) => resident.providerRoute == null)
+          .map((resident) => resident.entityId),
+      },
+    );
+  }
+  const outputCaps = new Set(
+    routedResidents.map((resident) => resident.providerRoute!.maxOutputTokens),
+  );
+  if (outputCaps.size > 1) {
+    throw new WorldRunnerError(
+      'Route-controlled residents must share one exact provider output cap',
+      'resident_provider_route_output_cap_mismatch',
+      {
+        residents: routedResidents.map((resident) => ({
+          entityId: resident.entityId,
+          maxOutputTokens: resident.providerRoute!.maxOutputTokens,
+        })),
+      },
+    );
+  }
+  return Object.freeze(residents);
 }
 
 type ManagedProviderAccounting = Readonly<{
@@ -1101,6 +1176,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         maxTurnSteps: entry.resident.maxTurnSteps ?? null,
         resumeAfterBudget: entry.resident.resumeAfterBudget ?? null,
         providerQuotas: entry.resident.providerQuotas ?? null,
+        providerRoute: entry.resident.providerRoute ?? null,
         paused: entry.resident.paused,
         pid: entry.child.pid!,
         leasePath: entry.resident.leasePath,
@@ -1316,6 +1392,7 @@ export async function startManagedWorld(
                 residentKey: cognitionResidentKey(managedRunId, resident.entityId),
                 model: resident.model,
                 ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
+                ...(resident.providerRoute ? { routePolicy: resident.providerRoute } : {}),
                 ...(accounting
                   ? {
                       accounting: Object.freeze({
@@ -1376,6 +1453,7 @@ export async function startManagedWorld(
           task: resident.task ?? null,
           target: resident.target ?? null,
           allowTools: resident.allowTools ?? null,
+          providerRoute: resident.providerRoute ?? null,
           providerAccounting: providerAccounting
             ? {
                 accountId: providerAccounting.accounts.get(resident.entityId)!.accountId,
@@ -1548,6 +1626,7 @@ export async function startManagedWorld(
             model: resident.model,
             urgentModel: resident.urgentModel ?? null,
             mind: resident.mind,
+            ...(resident.providerRoute ? { providerRoute: resident.providerRoute } : {}),
             profiles: {
               policy: resident.policyProfile,
               body: resident.bodyProfile,
@@ -1635,6 +1714,7 @@ export async function startManagedWorld(
         model: resident.model,
         urgentModel: resident.urgentModel ?? null,
         mind: resident.mind,
+        providerRoute: resident.providerRoute ?? null,
         tickMs: resident.tickMs,
         maxTurnSteps: resident.maxTurnSteps ?? null,
         resumeAfterBudget: resident.resumeAfterBudget ?? null,
@@ -2572,6 +2652,9 @@ function managedControllerEnvironment(
     env.OPENROUTER_API_KEY = client.bearer;
     env.OPENROUTER_BASE_URL = cognition.broker.endpoint;
     env.BEHOLD_COGNITION_TRANSPORT = COGNITION_TRANSPORT_PROTOCOL;
+    if (resident.providerRoute) {
+      env.BEHOLD_OPENROUTER_ROUTE_POLICY = serializeOpenRouterRoutePolicy(resident.providerRoute);
+    }
     if (client.accounting) env.BEHOLD_COGNITION_ACCOUNT_ID = client.accounting.accountId;
   }
   if (experiment) {
@@ -2600,6 +2683,7 @@ const RESERVED_RESIDENT_ENVIRONMENT = new Set([
   'OPENROUTER_BASE_URL',
   'BEHOLD_COGNITION_TRANSPORT',
   'BEHOLD_COGNITION_ACCOUNT_ID',
+  'BEHOLD_OPENROUTER_ROUTE_POLICY',
   'BEHOLD_EXPERIMENT_RELEASE_PLAN',
   'BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256',
   'VIEWER_ENABLED',

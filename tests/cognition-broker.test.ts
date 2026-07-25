@@ -654,6 +654,171 @@ test('the transport gate admits only an exact configured resident model set', as
   }
 });
 
+test('the transport gate admits only the resident exact OpenRouter route policy', async () => {
+  let upstreamCalls = 0;
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v1',
+    order: ['Fixture Primary', 'Fixture Secondary'],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+  } as const;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [{ ...client('a'), routePolicy } as any],
+    maxConcurrent: 1,
+    fetch: async (_input, init) => {
+      upstreamCalls += 1;
+      const body = JSON.parse(String(init?.body));
+      assert.deepEqual(body.provider, {
+        order: ['Fixture Primary', 'Fixture Secondary'],
+        allow_fallbacks: false,
+      });
+      assert.equal(body.max_tokens, 512);
+      return jsonResponse({
+        id: 'route-bound',
+        model: 'fixture/model',
+        provider: 'Fixture Primary',
+        choices: [{ message: { role: 'assistant', content: null } }],
+      });
+    },
+  });
+
+  try {
+    const invalidBodies = [
+      { model: 'fixture/model', messages: [] },
+      {
+        model: 'fixture/model',
+        messages: [],
+        max_tokens: 512,
+        provider: { order: ['Fixture Secondary', 'Fixture Primary'], allow_fallbacks: false },
+      },
+      {
+        model: 'fixture/model',
+        messages: [],
+        max_tokens: 512,
+        provider: { order: ['Fixture Primary', 'Fixture Secondary'], allow_fallbacks: true },
+      },
+      {
+        model: 'fixture/model',
+        messages: [],
+        max_tokens: 1024,
+        provider: { order: ['Fixture Primary', 'Fixture Secondary'], allow_fallbacks: false },
+      },
+    ];
+    for (const [index, body] of invalidBodies.entries()) {
+      const response = await brokerRequest(
+        broker,
+        'a',
+        JSON.stringify(body),
+        'deliberative',
+        `route-drift-${index}`,
+      );
+      assert.equal(response.status, 400);
+      assert.equal(((await response.json()) as any).error.code, 'request_route_policy_mismatch');
+    }
+    assert.equal(upstreamCalls, 0);
+
+    const auxiliary = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify({
+        model: 'fixture/model',
+        messages: [],
+        max_tokens: 512,
+        provider: {
+          order: ['Fixture Primary', 'Fixture Secondary'],
+          allow_fallbacks: false,
+        },
+      }),
+      'auxiliary',
+      'route-controlled-fold',
+      undefined,
+      'loom_fold',
+    );
+    assert.equal(auxiliary.status, 400);
+    assert.equal(((await auxiliary.json()) as any).error.code, 'request_route_policy_mismatch');
+    assert.equal(upstreamCalls, 0);
+
+    const admitted = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify({
+        model: 'fixture/model',
+        messages: [],
+        max_tokens: 512,
+        provider: {
+          order: ['Fixture Primary', 'Fixture Secondary'],
+          allow_fallbacks: false,
+        },
+      }),
+      'deliberative',
+      'exact-route',
+    );
+    assert.equal(admitted.status, 200);
+    assert.equal(upstreamCalls, 1);
+  } finally {
+    await broker.close();
+  }
+});
+
+test('the transport gate retains and refuses successful upstream route identity drift', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-route-drift-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalFile = path.join(root, 'broker.jsonl');
+  const transportCaptureDirectory = path.join(root, 'transport');
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v1',
+    order: ['Fixture Primary'],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+  } as const;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [{ ...client('a'), routePolicy } as any],
+    maxConcurrent: 1,
+    journalFile,
+    transportCaptureDirectory,
+    fetch: async () =>
+      jsonResponse({
+        id: 'drifted-route',
+        model: 'fixture/other-model',
+        provider: 'Unadmitted Provider',
+        choices: [{ message: { role: 'assistant', content: null } }],
+      }),
+  });
+
+  try {
+    const response = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify({
+        model: 'fixture/model',
+        messages: [],
+        max_tokens: 512,
+        provider: { order: ['Fixture Primary'], allow_fallbacks: false },
+      }),
+      'deliberative',
+      'returned-route-drift',
+    );
+    assert.equal(response.status, 502);
+    assert.equal(((await response.json()) as any).error.code, 'route_identity_mismatch');
+  } finally {
+    await broker.close();
+  }
+
+  const events = verifyCognitionBrokerJournal(journalFile).events;
+  const verified = verifyCognitionTransportCapture(transportCaptureDirectory, events);
+  assert.equal((verified as any).identityFailures, 1);
+  assert.equal(verified.records[0].terminal, 'route_identity_mismatch');
+  assert.equal(verified.records[0].response?.model, 'fixture/other-model');
+  assert.equal(verified.records[0].response?.provider, 'Unadmitted Provider');
+  assert.equal(verified.records[0].error?.code, 'route_identity_mismatch');
+});
+
 test('the transport gate bounds an upstream response while preserving terminal evidence', async () => {
   const events: CognitionBrokerEvent[] = [];
   let cancelled = false;

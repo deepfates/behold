@@ -28,6 +28,7 @@ import {
   type MinecraftBodyProfile,
 } from '../mind/minecraft-body';
 import { isCognitionTransportEnabled } from '../mind/cognition';
+import { openRouterRoutePolicyFromEnvironment } from '../mind/openrouter-route';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
 import { createProjectMemory } from '../entity/projects';
@@ -118,12 +119,19 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   );
   const mindAdapter = residentMindAdapter(process.env.BEHOLD_MIND);
   const cognitionTransport = isCognitionTransportEnabled(process.env.BEHOLD_COGNITION_TRANSPORT);
+  const providerRoute = openRouterRoutePolicyFromEnvironment(
+    process.env.BEHOLD_OPENROUTER_ROUTE_POLICY,
+  );
+  if (providerRoute && mindAdapter !== 'direct') {
+    throw new Error('OpenRouter route policy requires the direct resident mind adapter');
+  }
   const releaseGate = experimentReleaseGateFromEnvironment({
     entityId: name,
     bodyUsername,
     model: cfg.llm.model,
     urgentModel: urgentModel ?? null,
     mind: mindAdapter,
+    ...(providerRoute ? { providerRoute } : {}),
     profiles: {
       policy: policyProfile,
       body: bodyProfile,
@@ -596,6 +604,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
             : undefined,
         recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
         cognitionTransport,
+        ...(providerRoute ? { routePolicy: providerRoute } : {}),
         tickMs: Number(process.env.AGENT_TICK_MS || 3000),
         maxTurnSteps,
         resumeAfterBudget,

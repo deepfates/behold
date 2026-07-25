@@ -1,4 +1,5 @@
 import type { CognitionAdmissionEvidence } from './cognition';
+import type { OpenRouterResponseIdentity, OpenRouterRoutePolicy } from './openrouter-route';
 import type { RequestByteAttribution } from './request-attribution';
 
 export type ModelCallTerminal =
@@ -9,7 +10,8 @@ export type ModelCallTerminal =
   | 'cancelled'
   | 'malformed_output'
   | 'adapter_rejected'
-  | 'admission_rejected';
+  | 'admission_rejected'
+  | 'route_identity_mismatch';
 
 export type ModelAdapterIntervention = Readonly<{
   protocol: 'behold.model-adapter-intervention.v1';
@@ -67,6 +69,8 @@ export type ModelCallEvidence = {
     /** Content-free exact partition of a provider request when available. */
     byteAttribution?: RequestByteAttribution;
     body?: unknown;
+    /** Versioned provider route/output contract bound before serialization. */
+    routePolicy?: OpenRouterRoutePolicy;
   };
   response: {
     terminal?: 'success';
@@ -85,6 +89,7 @@ export type ModelCallFailureEvidence = Omit<ModelCallEvidence, 'response'> & {
     terminal?: Exclude<ModelCallTerminal, 'success'>;
     status: number | null;
     bodyPreview: string | null;
+    routeIdentity?: OpenRouterResponseIdentity;
     /** Opt-in adapter/provider attempt evidence retained for diagnosis. */
     raw?: unknown;
   };

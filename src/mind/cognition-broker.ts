@@ -23,6 +23,12 @@ import {
   type CognitionTransportCaptureReference,
   type CognitionTransportCaptureStore,
 } from './transport-capture';
+import {
+  assertOpenRouterRouteRequest,
+  inspectOpenRouterResponseIdentity,
+  openRouterRoutePolicy,
+  type OpenRouterRoutePolicy,
+} from './openrouter-route';
 
 export const COGNITION_BROKER_EVENT_PROTOCOL = 'behold.cognition-broker-event.v1' as const;
 export const COGNITION_ADMISSION_LIMIT_PROTOCOL = 'behold.cognition-admission-limit.v1' as const;
@@ -128,6 +134,8 @@ export type CognitionBrokerOptions = Readonly<{
     model: string;
     /** Exact additional models this resident transport may request. */
     models?: readonly string[];
+    /** Exact direct-provider routing/output contract admitted before upstream I/O. */
+    routePolicy?: OpenRouterRoutePolicy;
     /** Durable per-purpose provider-attempt quota owned by this resident account. */
     accounting?: Readonly<{
       scopeId: string;
@@ -160,6 +168,7 @@ type Client = Readonly<{
   residentKey: string;
   model: string;
   models: readonly string[];
+  routePolicy: OpenRouterRoutePolicy | null;
   accounting: CognitionBrokerOptions['clients'][number]['accounting'] | null;
 }>;
 
@@ -423,9 +432,26 @@ export async function startCognitionBroker(
     let model: string;
     try {
       body = await readBody(request, maxBodyBytes);
-      model = validateRequestBody(body);
+      const requestValue = validateRequestBody(body);
+      model = requestValue.model;
       if (!client.models.includes(model)) {
         throw codedError('request_model_not_admitted', 'resident requested an unbound model');
+      }
+      if (client.routePolicy) {
+        if (purpose !== 'resident_decision') {
+          throw codedError(
+            'request_route_policy_mismatch',
+            'route-controlled clients admit direct resident decisions only',
+          );
+        }
+        try {
+          assertOpenRouterRouteRequest(requestValue, model, client.routePolicy);
+        } catch (error: any) {
+          throw codedError(
+            'request_route_policy_mismatch',
+            error?.message || 'request route policy differs from the admitted policy',
+          );
+        }
       }
     } catch (error: any) {
       const status = error?.code === 'body_too_large' ? 413 : 400;
@@ -788,6 +814,62 @@ export async function startCognitionBroker(
           body: responseBody,
           contentType,
         });
+        return;
+      }
+      const routeIdentity =
+        upstreamResponse.ok && job.client.routePolicy
+          ? inspectOpenRouterResponseIdentity(
+              parseJsonObject(responseBody),
+              job.model,
+              job.client.routePolicy,
+            )
+          : null;
+      if (routeIdentity && !routeIdentity.ok) {
+        const failure = codedError(
+          'route_identity_mismatch',
+          `upstream route identity did not match the admitted policy: ${routeIdentity.reason}`,
+        );
+        const transportCapture = finishTransportCapture(job, {
+          terminal: 'route_identity_mismatch',
+          completedAt: now(),
+          response: {
+            status: upstreamResponse.status,
+            ok: upstreamResponse.ok,
+            body: responseBody,
+            contentType,
+          },
+          error: failure,
+        });
+        settleProviderCharge(job, {
+          outcome: 'route_identity_mismatch',
+          status: upstreamResponse.status,
+          ok: false,
+          responseBytes: responseBody.byteLength,
+          responseSha256: sha256(responseBody),
+          usage: providerUsage(responseBody),
+          routeIdentity,
+          transportCapture,
+        });
+        job.state = 'completed';
+        metrics.failed += 1;
+        emit('completed', job, {
+          status: 502,
+          ok: false,
+          error: failure.code,
+          upstreamStatus: upstreamResponse.status,
+          responseBytes: responseBody.byteLength,
+          queueMs: job.admission!.queueMs,
+          activeBeforeRelease: active,
+          routeIdentity,
+          transportCapture,
+        });
+        writeError(
+          job.response,
+          502,
+          failure.code,
+          'model upstream returned an unadmitted route identity',
+          admissionHeaders,
+        );
         return;
       }
       const transportCapture = finishTransportCapture(job, {
@@ -1259,6 +1341,12 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
             limits: Object.freeze({ ...value.accounting.limits }),
           })
         : null;
+      let routePolicy: OpenRouterRoutePolicy | null = null;
+      try {
+        routePolicy = value.routePolicy ? openRouterRoutePolicy(value.routePolicy) : null;
+      } catch {
+        throw new Error(`invalid cognition client route policy at index ${index}`);
+      }
       if (
         bearer.length < 32 ||
         bearer.length > 512 ||
@@ -1286,6 +1374,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         residentKey,
         model,
         models: Object.freeze(models),
+        routePolicy,
         accounting,
       });
     }),
@@ -1416,7 +1505,7 @@ function validateRequestBody(body: Buffer) {
       );
     }
   }
-  return value.model;
+  return value as Record<string, any> & { model: string };
 }
 
 function readBody(request: IncomingMessage, limit: number) {
@@ -1488,6 +1577,15 @@ function providerUsage(body: Buffer) {
     if (Number.isFinite(number) && number >= 0) reported[field] = number;
   }
   return Object.keys(reported).length > 0 ? reported : null;
+}
+
+function parseJsonObject(body: Buffer) {
+  try {
+    const value = JSON.parse(body.toString('utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function writeError(
