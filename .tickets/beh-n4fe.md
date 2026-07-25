@@ -17,3 +17,9 @@ Compose the already-working Place Compiler artifact, Behold resident, ordinary M
 ## Acceptance Criteria
 
 From a documented clean operator path, select and verify an existing accepted San Francisco place/epoch; start ordinary Minecraft ecology and at least two independently configured named residents; allow a human to join through the native client while the life is running; observe at least one non-scripted, persistent, independently witnessed world consequence involving resident activity; stop and resume cleanly; and produce a readable Lync/Textile aftermath that preserves resident, world, epoch, and causal identity. State the exact models/minds used and distinguish same-model controls from heterogeneous-model comparison. A rehearsed pause, scripted exchange, packaging receipt, or isolated subsystem test does not satisfy this ticket.
+
+## Notes
+
+**2026-07-25T16:31:29Z**
+
+Principal verification after 10d6ca6: inspected sf-csdr epoch 5 recovery_required with no server, port, session-lock owner, controller process, or entity lease. Ran the repository recovery command, which classified it abandoned_after_save_ack, preserved prepared/completed evidence, released only the abandoned fence, and did not reset the world. Full npm test then passed 463/463 outside the sandbox so loopback socket tests could run. Heterogeneous provider-backed Minecraft execution remains outstanding.
