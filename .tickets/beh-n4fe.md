@@ -153,3 +153,32 @@ This is deterministic integration-mechanics evidence over a fake managed
 server, not a new live Minecraft body proof, real provider/free-route check,
 human co-presence, Textile experience, emergence result, or model comparison.
 Equal quotas remain resource governance. `beh-n4fe` remains open.
+
+**2026-07-25T23:40:34Z**
+
+The real privacy-safe Oxford V3 world boundary is now mechanically proven and
+documented at Behold `2c14471`: two scripted Mineflayer residents joined the
+exact admitted 1.21.4 world through `minecraft-human-semantic-v1`, looked,
+moved, spoke, perceived one another, retained eight authenticated Lync turns,
+and stopped cleanly with no provider call or source-release mutation. That is
+an embodiment/admission checkpoint, not autonomous behavior or acceptance of
+this ticket.
+
+The owner watch/read preflight now selects symmetric read-only resident-attached
+Prismarine Viewer endpoints as the smallest live view and Textile as the
+readable causal-history owner. Native spectators, interactive web/browser
+clients, live map plugins, and replay mods would add players, intervention
+surface, server changes, or substantially greater cost during the scored
+window. A two-event exact Oxford Lync fixture plus non-mutating, profile-aware
+presentation contract has been prepared for `Hac-i4by`; current Textile still
+rejects Behold's real `lync/loom` and `lync/turn` envelopes.
+
+Provider-backed launch remains fail-closed. The direct request serializer does
+not yet express exact provider ordering, `allow_fallbacks: false`, required
+privacy filters, or a common output cap, and the broker does not admit or
+verify those route identities. Current public free-route evidence does not
+establish two private/ZDR endpoints. No owner privacy decision or provider call
+is requested before that narrow transport/configuration seam is implemented
+and provider-free tested. `beh-n4fe` remains open: no non-scripted persistent
+resident consequence, human native entry, stop/resume of the accepted living
+experience, or readable Textile aftermath has passed.
