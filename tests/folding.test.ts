@@ -243,6 +243,41 @@ test('a fold cache cannot cross an embodied observation profile', async () => {
   assert.equal(human.view().fold?.projectionProfile, 'minecraft-human-semantic-v1');
 });
 
+test('a fold cache cannot cross summarizer protocols', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-summarizer-'));
+  const cacheFile = path.join(root, 'fold.json');
+  const turns = Array.from({ length: 6 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  const first = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    cacheFile,
+    recentTurns: 2,
+    foldBatchTurns: 4,
+    summarizerProtocol: 'summarizer-a/v1',
+    summarize: async () => 'summary from a',
+  });
+  await first.prepare();
+  assert.equal(first.view().fold?.summarizerProtocol, 'summarizer-a/v1');
+
+  let calls = 0;
+  const second = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    cacheFile,
+    recentTurns: 2,
+    foldBatchTurns: 4,
+    summarizerProtocol: 'summarizer-b/v1',
+    summarize: async () => {
+      calls += 1;
+      return 'summary from b';
+    },
+  });
+  assert.equal(second.state().foldedThrough, 0);
+  await second.prepare();
+  assert.equal(calls, 1);
+  assert.equal(second.view().fold?.summarizerProtocol, 'summarizer-b/v1');
+});
+
 test('fold evidence carries only new events while retaining action consequences', () => {
   const turn = entityTurn(3, 'Scout');
   turn.action.name = 'place_block';
@@ -266,6 +301,13 @@ test('fold evidence carries only new events while retaining action consequences'
     { sequence: 18, type: 'inventory_changed', isNew: true, data: { item: 'chest' } },
   ];
   turn.outcome.result = { ok: true, changes: [{ verb: 'place', after: 'chest' }] };
+  turn.utterance = {
+    assistant: { role: 'assistant', content: 'private discarded reasoning' },
+    publicCommitment: {
+      intention: 'Place the chest where I can see it.',
+      expectedObservableConsequence: 'A chest should occupy the selected visible block.',
+    },
+  } as any;
 
   const evidence = projectTurnForFolding(turn);
   assert.deepEqual(evidence.observation.events, [
@@ -281,6 +323,11 @@ test('fold evidence carries only new events while retaining action consequences'
   ]);
   assert.equal((evidence.nextObservation as any).eventWindow.suppressedRepeatedEvents, 1);
   assert.deepEqual((evidence.outcome as any).result.changes, [{ verb: 'place', after: 'chest' }]);
+  assert.deepEqual(evidence.publicCommitment, {
+    intention: 'Place the chest where I can see it.',
+    expectedObservableConsequence: 'A chest should occupy the selected visible block.',
+  });
+  assert.doesNotMatch(JSON.stringify(evidence), /private discarded reasoning/);
   assert.equal((evidence.observation as any).scene, undefined);
   assert.deepEqual((evidence.nextObservation as any).self, { identity: 'Scout' });
   assert.equal(

@@ -5,6 +5,7 @@ import type { OpenRouterResponseIdentity, OpenRouterRoutePolicy } from './openro
 import type { RequestByteAttribution } from './request-attribution';
 import type {
   LmStudioLocalPolicy,
+  LmStudioLocalLoomFoldRequestIdentity,
   LmStudioLocalRequestIdentity,
   LmStudioLocalResponseIdentity,
 } from './lmstudio-local';
@@ -90,6 +91,8 @@ export type ModelCallEvidence = {
     lmStudioPolicy?: LmStudioLocalPolicy;
     /** Exact LM Studio strict resident wire identity. */
     lmStudioActionTransport?: LmStudioLocalRequestIdentity;
+    /** Exact LM Studio non-authoritative long-range memory fold identity. */
+    lmStudioLoomFoldTransport?: LmStudioLocalLoomFoldRequestIdentity;
     requestedModelInstance?: string;
   };
   response: {

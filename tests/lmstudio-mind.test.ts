@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ResidentMindCallError } from '../src/mind/evidence';
-import { createLmStudioLocalResidentMind } from '../src/mind/lmstudio';
+import {
+  createLmStudioLocalLoomSummarizer,
+  createLmStudioLocalResidentMind,
+} from '../src/mind/lmstudio';
 import type { ResidentMindRequest } from '../src/mind/interface';
 import { lmStudioResidentInstanceId, type LmStudioLocalPolicy } from '../src/mind/lmstudio-local';
 import {
@@ -213,6 +216,71 @@ test('LM Studio mind leaves canonical action-input validation to the controller 
   );
 });
 
+test('LM Studio loom summarizer makes one auxiliary request and retains exact evidence', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  const calls: any[] = [];
+  const summarizer = createLmStudioLocalLoomSummarizer({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    recordModelIO: true,
+    now: (() => {
+      const times = [2_000, 2_240];
+      return () => times.shift()!;
+    })(),
+    onCall: (event) => calls.push(event),
+    fetch: async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get('x-behold-cognition-priority'), 'auxiliary');
+      assert.equal(headers.get('x-behold-cognition-purpose'), 'loom_fold');
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.model, instance);
+      assert.equal(Object.hasOwn(body, 'tools'), false);
+      return response(
+        instance,
+        { summary: 'At [t1], Aster greeted the world and is awaiting a visible response.' },
+        admissionHeaders('loom_fold', 'auxiliary'),
+      );
+    },
+  });
+  const summary = await summarizer(foldRequest(), new AbortController().signal);
+  assert.equal(summary, 'At [t1], Aster greeted the world and is awaiting a visible response.');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].call.latencyMs, 240);
+  assert.equal(calls[0].call.request.lmStudioLoomFoldTransport.modelInstanceId, instance);
+  assert.match(calls[0].call.request.formatSha256, /^[a-f0-9]{64}$/);
+  assert.equal(calls[0].call.request.toolCount, 0);
+});
+
+test('LM Studio loom summarizer retains malformed output and never corrects or retries', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  let physicalAttempts = 0;
+  const failures: any[] = [];
+  const summarizer = createLmStudioLocalLoomSummarizer({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    recordModelIO: true,
+    onError: (event) => failures.push(event),
+    fetch: async () => {
+      physicalAttempts += 1;
+      return response(instance, { summary: '', repairedSummary: 'forbidden correction' });
+    },
+  });
+  await assert.rejects(summarizer(foldRequest(), new AbortController().signal), (error: any) => {
+    assert.ok(error instanceof ResidentMindCallError);
+    assert.equal(error.call.response.terminal, 'malformed_output');
+    assert.deepEqual((error.call.response.raw as any).choices[0].message.tool_calls, []);
+    return true;
+  });
+  assert.equal(physicalAttempts, 1);
+  assert.equal(failures.length, 1);
+});
+
 function policy(): LmStudioLocalPolicy {
   return {
     protocol: 'behold.lmstudio-local-policy.v1',
@@ -299,6 +367,26 @@ function validOutput() {
   };
 }
 
+function foldRequest() {
+  return {
+    entityId: 'OxfordAster',
+    fromSequence: 1,
+    toSequence: 1,
+    previousSummary: null,
+    turns: [
+      {
+        turn: 1,
+        publicCommitment: {
+          intention: 'Greet anyone nearby.',
+          expectedObservableConsequence: 'A chat event may appear later.',
+        },
+        action: { name: 'chat', input: { text: 'Hello?' } },
+        outcome: { ok: true },
+      },
+    ],
+  } as any;
+}
+
 function response(instance: string, output: unknown, headers: HeadersInit = {}) {
   return new Response(
     JSON.stringify({
@@ -319,7 +407,10 @@ function response(instance: string, output: unknown, headers: HeadersInit = {}) 
   );
 }
 
-function admissionHeaders(): Record<string, string> {
+function admissionHeaders(
+  purpose: 'resident_decision' | 'loom_fold' = 'resident_decision',
+  priority: 'deliberative' | 'auxiliary' = 'deliberative',
+): Record<string, string> {
   return {
     'x-behold-cognition-protocol': 'behold.cognition-admission.v1',
     'x-behold-cognition-broker-id': 'broker-fixture',
@@ -328,8 +419,8 @@ function admissionHeaders(): Record<string, string> {
     'x-behold-cognition-model': policy().modelKey,
     'x-behold-cognition-body-sha256': 'e'.repeat(64),
     'x-behold-cognition-request-id': 'client-request-fixture',
-    'x-behold-cognition-priority': 'deliberative',
-    'x-behold-cognition-purpose': 'resident_decision',
+    'x-behold-cognition-priority': priority,
+    'x-behold-cognition-purpose': purpose,
     'x-behold-cognition-urgent-trigger': 'none',
     'x-behold-cognition-queued-at': '1000',
     'x-behold-cognition-admitted-at': '1001',

@@ -8,6 +8,7 @@ import { startCognitionBroker, verifyCognitionBrokerJournal } from '../src/mind/
 import { cognitionClientHeaders, cognitionResidentKey } from '../src/mind/cognition';
 import {
   createLmStudioLocalJsonActionRequest,
+  createLmStudioLocalLoomFoldRequest,
   lmStudioResidentInstanceId,
   type LmStudioLocalPolicy,
   type LmStudioLocalPreflight,
@@ -108,10 +109,120 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
   assert.equal(capture.starts[0].route.authentication, 'none_loopback');
   assert.equal(capture.starts[0].lmStudioIdentity?.preflightDigest, preflight.digest);
   assert.equal(
-    capture.starts[0].lmStudioIdentity?.request.stablePrefixSha256,
+    capture.starts[0].lmStudioIdentity?.request.transportProtocol,
+    'behold.lmstudio-local-resident-session.v1',
+  );
+  assert.equal(
+    (capture.starts[0].lmStudioIdentity?.request as any).stablePrefixSha256,
     serialized.identity.stablePrefixSha256,
   );
   assert.equal(capture.records[1].terminal, 'lmstudio_identity_mismatch');
+});
+
+test('the cognition gate admits and captures only the exact LM Studio loom-fold wire as auxiliary work', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lmstudio-fold-broker-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalFile = path.join(root, 'broker.jsonl');
+  const ledgerFile = path.join(root, 'quota.jsonl');
+  const transportCaptureDirectory = path.join(root, 'transport');
+  const policy = localPolicy();
+  const preflight = localPreflight(policy);
+  const instanceId = lmStudioResidentInstanceId(policy);
+  const residentKey = cognitionResidentKey('lmstudio-fold-fixture', 'Aster');
+  const fold = createLmStudioLocalLoomFoldRequest(
+    {
+      entityId: 'Aster',
+      fromSequence: 1,
+      toSequence: 1,
+      previousSummary: null,
+      turns: [{ turn: 1, action: { name: 'chat' }, outcome: { ok: true } }],
+    } as any,
+    policy,
+    instanceId,
+  );
+  let upstreamAttempts = 0;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: policy.endpoint,
+    lmStudioPreflight: preflight,
+    clients: [
+      {
+        bearer: token(),
+        residentKey,
+        model: policy.modelKey,
+        lmStudioLocal: policy,
+        accounting: {
+          scopeId: 'lmstudio-fold-fixture',
+          worldId: 'world-fixture',
+          accountId: residentKey,
+          ledgerFile,
+          limits: { resident_decision: 2, loom_fold: 1 },
+        },
+      },
+    ],
+    maxConcurrent: 1,
+    journalFile,
+    transportCaptureDirectory,
+    fetch: async (_url, init) => {
+      upstreamAttempts += 1;
+      assert.deepEqual(JSON.parse(String(init?.body)), fold.body);
+      return jsonResponse({
+        id: 'chatcmpl-fold-1',
+        object: 'chat.completion',
+        model: instanceId,
+        system_fingerprint: instanceId,
+        choices: [
+          {
+            index: 0,
+            finish_reason: 'stop',
+            message: {
+              role: 'assistant',
+              content: JSON.stringify({ summary: 'At [t1], Aster spoke.' }),
+              tool_calls: [],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 50, completion_tokens: 8, total_tokens: 58 },
+      });
+    },
+  });
+
+  try {
+    const crossed = await request(broker.endpoint, JSON.stringify(fold.body), 'fold-as-decision');
+    assert.equal(crossed.status, 400);
+    assert.equal(upstreamAttempts, 0);
+
+    const admitted = await request(
+      broker.endpoint,
+      JSON.stringify(fold.body),
+      'exact-fold',
+      'loom_fold',
+      'auxiliary',
+    );
+    assert.equal(admitted.status, 200);
+    assert.equal(upstreamAttempts, 1);
+  } finally {
+    await broker.close();
+  }
+
+  const events = verifyCognitionBrokerJournal(journalFile).events as any[];
+  const admittedEvent = events.find(
+    (event) => event.type === 'admitted' && event.request?.purpose === 'loom_fold',
+  );
+  assert.ok(admittedEvent);
+  assert.equal(
+    events.some(
+      (event) => event.request?.purpose === 'resident_decision' && event.type === 'admitted',
+    ),
+    false,
+  );
+  const capture = verifyCognitionTransportCapture(transportCaptureDirectory, events);
+  assert.equal(capture.attempts, 1);
+  assert.equal(
+    capture.starts[0].lmStudioIdentity?.request.transportProtocol,
+    'behold.lmstudio-local-loom-fold.v1',
+  );
+  assert.match(fs.readFileSync(ledgerFile, 'utf8'), /"purpose":"loom_fold"/);
+  assert.doesNotMatch(fs.readFileSync(ledgerFile, 'utf8'), /"purpose":"resident_decision"/);
 });
 
 function localPolicy(): LmStudioLocalPolicy {
@@ -200,7 +311,13 @@ function residentRequest(model: string) {
   };
 }
 
-function request(endpoint: string, body: string, requestId: string) {
+function request(
+  endpoint: string,
+  body: string,
+  requestId: string,
+  purpose: 'resident_decision' | 'loom_fold' = 'resident_decision',
+  priority: 'deliberative' | 'auxiliary' = 'deliberative',
+) {
   return fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -208,8 +325,8 @@ function request(endpoint: string, body: string, requestId: string) {
       authorization: `Bearer ${token()}`,
       ...cognitionClientHeaders({
         requestId,
-        priority: 'deliberative',
-        purpose: 'resident_decision',
+        priority,
+        purpose,
         urgentTriggerSequence: null,
       }),
     },

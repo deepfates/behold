@@ -40,6 +40,7 @@ import {
   type OllamaLocalPreflight,
 } from './ollama-local';
 import {
+  assertLmStudioLocalLoomFoldWireRequest,
   assertLmStudioLocalWireRequest,
   exactLmStudioEndpoint,
   inspectLmStudioLocalResponseIdentity,
@@ -547,14 +548,8 @@ export async function startCognitionBroker(
         }
       }
       if (client.lmStudioLocal) {
-        if (purpose !== 'resident_decision') {
-          throw codedError(
-            'request_lmstudio_policy_mismatch',
-            'local LM Studio clients admit direct resident decisions only',
-          );
-        }
         try {
-          assertLmStudioLocalWireRequest(requestValue, client.lmStudioLocal);
+          assertLmStudioRequestForPurpose(requestValue, client.lmStudioLocal, purpose);
         } catch (error: any) {
           throw codedError(
             'request_lmstudio_policy_mismatch',
@@ -904,9 +899,10 @@ export async function startCognitionBroker(
                 lmStudioIdentity: lmStudioAttemptIdentity(
                   job.client.lmStudioLocal,
                   options.lmStudioPreflight!,
-                  assertLmStudioLocalWireRequest(
+                  assertLmStudioRequestForPurpose(
                     parseJsonObject(job.body),
                     job.client.lmStudioLocal,
+                    job.purpose,
                   ),
                 ),
               }
@@ -1566,6 +1562,16 @@ export async function startCognitionBroker(
       server.closeAllConnections();
     });
   }
+}
+
+function assertLmStudioRequestForPurpose(
+  value: unknown,
+  policy: LmStudioLocalPolicy,
+  purpose: CognitionPurpose,
+) {
+  return purpose === 'loom_fold'
+    ? assertLmStudioLocalLoomFoldWireRequest(value, policy)
+    : assertLmStudioLocalWireRequest(value, policy);
 }
 
 function normalizeClients(values: CognitionBrokerOptions['clients']): readonly Client[] {

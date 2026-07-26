@@ -100,6 +100,8 @@ export type Options = {
   /** Hard provider output budget for one disposable loom-fold request. */
   foldMaxOutputTokens?: number;
   summarizeLoom?: LoomFoldSummarizer;
+  /** Exact disposable fold implementation; prevents reusing another summarizer's cache. */
+  foldSummarizerProtocol?: string;
   now?: () => number;
   recordModelIO?: boolean;
   /** Requests use the runner-owned, authenticated aggregate cognition transport. */
@@ -443,6 +445,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     foldTriggerTurns: opts.foldTriggerTurns ?? 6,
     now,
     projectionProfile: bodyProfile,
+    summarizerProtocol: opts.foldSummarizerProtocol,
     onContextIntervention: opts.onContextIntervention,
     projectTurn: (turn, previousTurn) =>
       projectTurnForFolding(turn, previousTurn, {

@@ -35,8 +35,12 @@ import { isCognitionTransportEnabled } from '../mind/cognition';
 import { openRouterRoutePolicyFromEnvironment } from '../mind/openrouter-route';
 import { ollamaLocalPolicyFromEnvironment } from '../mind/ollama-local';
 import { createOllamaLocalResidentMind } from '../mind/ollama';
-import { createLmStudioLocalResidentMind } from '../mind/lmstudio';
 import {
+  createLmStudioLocalLoomSummarizer,
+  createLmStudioLocalResidentMind,
+} from '../mind/lmstudio';
+import {
+  LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL,
   lmStudioLocalPolicyFromEnvironment,
   lmStudioResidentInstanceId,
 } from '../mind/lmstudio-local';
@@ -745,6 +749,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       'Local resident policy is missing its runner-owned broker credential or endpoint',
     );
   }
+  const lmStudioModelInstance = lmStudioLocal
+    ? admittedLmStudioModelInstance(process.env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID, lmStudioLocal)
+    : null;
   const model = cfg.llm.model;
   if (apiKey && !opts.paused) {
     const completeToolSpecs = interp.list('inhabitant').map((s: any) => ({
@@ -813,14 +820,26 @@ export async function runConsole(opts: ConsoleOptions = {}) {
                     bearer: apiKey!,
                     endpoint: cognitionEndpoint!,
                     policy: lmStudioLocal,
-                    modelInstanceId: admittedLmStudioModelInstance(
-                      process.env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID,
-                      lmStudioLocal,
-                    ),
+                    modelInstanceId: lmStudioModelInstance!,
                     cognitionTransport: true,
                     recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
                   })
                 : undefined,
+        ...(lmStudioLocal
+          ? {
+              summarizeLoom: createLmStudioLocalLoomSummarizer({
+                bearer: apiKey!,
+                endpoint: cognitionEndpoint!,
+                policy: lmStudioLocal,
+                modelInstanceId: lmStudioModelInstance!,
+                cognitionTransport: true,
+                recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+                onCall: (turn) => appendJournal('model_auxiliary_call', turn),
+                onError: (failure) => appendJournal('model_auxiliary_call_failed', failure),
+              }),
+              foldSummarizerProtocol: LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL,
+            }
+          : {}),
         recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
         cognitionTransport,
         ...(providerRoute ? { routePolicy: providerRoute } : {}),

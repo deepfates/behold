@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ModelCallEvidence } from './evidence';
+import type { LoomFoldRequest } from '../entity/folding';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
 import {
   assertStrictLocalResidentSessionEnvelope,
@@ -18,6 +19,12 @@ export const LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL =
 export const LMSTUDIO_LOCAL_PREFLIGHT_PROTOCOL = 'behold.lmstudio-local-preflight.v1' as const;
 export const LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL =
   'behold.lmstudio-local-request-identity.v1' as const;
+export const LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL =
+  'behold.lmstudio-local-loom-fold.v1' as const;
+export const LMSTUDIO_LOCAL_LOOM_FOLD_SCHEMA_PROTOCOL =
+  'behold.lmstudio-local-loom-fold-schema.v1' as const;
+export const LMSTUDIO_LOCAL_LOOM_FOLD_REQUEST_IDENTITY_PROTOCOL =
+  'behold.lmstudio-local-loom-fold-request-identity.v1' as const;
 
 export type LmStudioLocalPolicy = Readonly<{
   protocol: typeof LMSTUDIO_LOCAL_POLICY_PROTOCOL;
@@ -92,6 +99,23 @@ export type LmStudioLocalRequestIdentity = Readonly<{
   stablePrefixSha256: string;
 }>;
 
+export type LmStudioLocalLoomFoldRequestIdentity = Readonly<{
+  protocol: typeof LMSTUDIO_LOCAL_LOOM_FOLD_REQUEST_IDENTITY_PROTOCOL;
+  transportProtocol: typeof LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL;
+  schemaProtocol: typeof LMSTUDIO_LOCAL_LOOM_FOLD_SCHEMA_PROTOCOL;
+  schemaSha256: string;
+  modelKey: string;
+  catalogKey: string;
+  indexedModelIdentifier: string;
+  modelInstanceId: string;
+  artifactTreeSha256: string;
+  templateSha256: string;
+  runtime: LmStudioLocalPolicy['runtime'];
+  messagesSha256: string;
+  responseFormatSha256: string;
+  responseSchemaSha256: string;
+}>;
+
 export type LmStudioLocalResponseIdentity = Readonly<{
   ok: boolean;
   requestedModel: string;
@@ -123,6 +147,33 @@ export type LmStudioCommandRunner = (args: readonly string[]) => string;
 const MAX_CONTEXT_TOKENS = 262_144;
 const MAX_OUTPUT_TOKENS = 32_768;
 const MAX_CLI_BYTES = 8 * 1024 * 1024;
+const MAX_LOOM_FOLD_SUMMARY_CHARS = 8_000;
+const MAX_LOOM_FOLD_SOURCE_BYTES = 256 * 1024;
+
+const LMSTUDIO_LOOM_FOLD_SYSTEM_PROMPT = [
+  "You are producing a bounded, non-authoritative view of one entity's append-only loom.",
+  'The source turns remain authoritative. Do not invent events, motives, possessions, agreements, or success.',
+  'Preserve what may change the entity’s next decisions: public commitments, unfinished activity, relationships, body or inventory state, learned constraints, failures, and consequential world changes.',
+  'Distinguish direct observation from what another character said and from the entity’s own inference.',
+  'When later evidence revises an earlier belief, update the view instead of preserving both as equally current.',
+  'Use compact prose and cite supporting turn anchors such as [t42].',
+].join('\n');
+
+const LMSTUDIO_LOOM_FOLD_RESPONSE_SCHEMA = deepFreeze({
+  type: 'object',
+  properties: {
+    summary: { type: 'string', minLength: 1, maxLength: MAX_LOOM_FOLD_SUMMARY_CHARS },
+  },
+  required: ['summary'],
+  additionalProperties: false,
+});
+
+export const LMSTUDIO_LOCAL_LOOM_FOLD_SCHEMA_SHA256 = sha256(
+  stableJson({
+    protocol: LMSTUDIO_LOCAL_LOOM_FOLD_SCHEMA_PROTOCOL,
+    schema: LMSTUDIO_LOOM_FOLD_RESPONSE_SCHEMA,
+  }),
+);
 
 export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
   const record = exactRecord(
@@ -382,6 +433,148 @@ export function assertLmStudioLocalWireRequest(
   });
 }
 
+export function createLmStudioLocalLoomFoldRequest(
+  requestValue: LoomFoldRequest,
+  policyValue: LmStudioLocalPolicy,
+  modelInstanceId: string,
+) {
+  const policy = lmStudioLocalPolicy(policyValue);
+  const instanceId = exactInstanceId(modelInstanceId);
+  const source = loomFoldSource(requestValue);
+  const messages = deepFreeze([
+    { role: 'system' as const, content: LMSTUDIO_LOOM_FOLD_SYSTEM_PROMPT },
+    { role: 'user' as const, content: stableJson(source) },
+  ]);
+  const responseFormat = deepFreeze({
+    type: 'json_schema' as const,
+    json_schema: {
+      name: 'behold_loom_fold_v1',
+      strict: true as const,
+      schema: LMSTUDIO_LOOM_FOLD_RESPONSE_SCHEMA,
+    },
+  });
+  const body = deepFreeze({
+    model: instanceId,
+    messages,
+    response_format: responseFormat,
+    temperature: policy.settings.temperature,
+    max_tokens: policy.settings.maxOutputTokens,
+    stream: false as const,
+  });
+  return deepFreeze({ body, identity: loomFoldRequestIdentity(policy, instanceId, messages) });
+}
+
+/** Verify one raw LM Studio auxiliary fold body before broker admission. */
+export function assertLmStudioLocalLoomFoldWireRequest(
+  value: unknown,
+  policyValue: LmStudioLocalPolicy,
+): LmStudioLocalLoomFoldRequestIdentity {
+  const policy = lmStudioLocalPolicy(policyValue);
+  const instanceId = lmStudioResidentInstanceId(policy);
+  const record = exactRecord(
+    value,
+    ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
+    'LM Studio local loom-fold request',
+  );
+  if (
+    record.model !== instanceId ||
+    record.stream !== false ||
+    record.temperature !== policy.settings.temperature ||
+    record.max_tokens !== policy.settings.maxOutputTokens
+  ) {
+    throw new Error('LM Studio loom-fold model or generation settings differ from admission');
+  }
+  const responseFormat = exactRecord(
+    record.response_format,
+    ['type', 'json_schema'],
+    'LM Studio loom-fold response format',
+  );
+  const jsonSchema = exactRecord(
+    responseFormat.json_schema,
+    ['name', 'strict', 'schema'],
+    'LM Studio loom-fold JSON schema wrapper',
+  );
+  if (
+    responseFormat.type !== 'json_schema' ||
+    jsonSchema.name !== 'behold_loom_fold_v1' ||
+    jsonSchema.strict !== true ||
+    stableJson(jsonSchema.schema) !== stableJson(LMSTUDIO_LOOM_FOLD_RESPONSE_SCHEMA)
+  ) {
+    throw new Error('LM Studio loom-fold response format differs from its versioned schema');
+  }
+  if (!Array.isArray(record.messages) || record.messages.length !== 2) {
+    throw new Error('LM Studio loom-fold request requires exactly two messages');
+  }
+  const system = exactRecord(record.messages[0], ['role', 'content'], 'LM Studio fold system');
+  const user = exactRecord(record.messages[1], ['role', 'content'], 'LM Studio fold source');
+  if (
+    system.role !== 'system' ||
+    system.content !== LMSTUDIO_LOOM_FOLD_SYSTEM_PROMPT ||
+    user.role !== 'user' ||
+    typeof user.content !== 'string'
+  ) {
+    throw new Error('LM Studio loom-fold messages differ from the admitted contract');
+  }
+  let source: unknown;
+  try {
+    source = JSON.parse(user.content);
+  } catch {
+    throw new Error('LM Studio loom-fold source is not valid JSON');
+  }
+  const canonicalSource = parseLoomFoldSource(source);
+  if (user.content !== stableJson(canonicalSource)) {
+    throw new Error('LM Studio loom-fold source is not exact canonical JSON');
+  }
+  return loomFoldRequestIdentity(policy, instanceId, record.messages);
+}
+
+export function parseLmStudioLocalLoomFoldResponse(
+  data: unknown,
+  policyValue: LmStudioLocalPolicy,
+  modelInstanceId: string,
+) {
+  const policy = lmStudioLocalPolicy(policyValue);
+  const instanceId = exactInstanceId(modelInstanceId);
+  const response = plainRecord(data) ? data : null;
+  if (!response || response.model !== instanceId || response.system_fingerprint !== instanceId) {
+    throw new Error('LM Studio loom-fold response identity differs from admission');
+  }
+  if (!Array.isArray(response.choices) || response.choices.length !== 1) {
+    throw new Error('LM Studio loom-fold response must contain exactly one choice');
+  }
+  const choice = plainRecord(response.choices[0]) ? response.choices[0] : null;
+  const message = choice && plainRecord(choice.message) ? choice.message : null;
+  if (!message || message.role !== 'assistant') {
+    throw new Error('LM Studio loom-fold response contained no assistant message');
+  }
+  if (
+    message.tool_calls != null &&
+    (!Array.isArray(message.tool_calls) || message.tool_calls.length > 0)
+  ) {
+    throw new Error('LM Studio loom-fold response used forbidden tool calls');
+  }
+  if (typeof message.content !== 'string') {
+    throw new Error('LM Studio loom-fold response content was not text');
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(message.content);
+  } catch {
+    throw new Error('LM Studio loom-fold response was not valid JSON');
+  }
+  const record = exactRecord(decoded, ['summary'], 'LM Studio loom-fold response');
+  const summary = String(record.summary ?? '');
+  if (
+    typeof record.summary !== 'string' ||
+    summary !== summary.trim() ||
+    summary.length < 1 ||
+    summary.length > MAX_LOOM_FOLD_SUMMARY_CHARS
+  ) {
+    throw new Error('LM Studio loom-fold summary is empty, padded, or too large');
+  }
+  return summary;
+}
+
 export function inspectLmStudioLocalResponseIdentity(
   value: unknown,
   policyValue: LmStudioLocalPolicy,
@@ -407,6 +600,95 @@ export function inspectLmStudioLocalResponseIdentity(
     artifactTreeSha256: policy.artifact.treeSha256,
     reason,
   });
+}
+
+function loomFoldRequestIdentity(
+  policy: LmStudioLocalPolicy,
+  modelInstanceId: string,
+  messages: readonly unknown[],
+): LmStudioLocalLoomFoldRequestIdentity {
+  return deepFreeze({
+    protocol: LMSTUDIO_LOCAL_LOOM_FOLD_REQUEST_IDENTITY_PROTOCOL,
+    transportProtocol: LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL,
+    schemaProtocol: LMSTUDIO_LOCAL_LOOM_FOLD_SCHEMA_PROTOCOL,
+    schemaSha256: LMSTUDIO_LOCAL_LOOM_FOLD_SCHEMA_SHA256,
+    modelKey: policy.modelKey,
+    catalogKey: policy.catalogKey,
+    indexedModelIdentifier: policy.indexedModelIdentifier,
+    modelInstanceId,
+    artifactTreeSha256: policy.artifact.treeSha256,
+    templateSha256: policy.transport.templateSha256,
+    runtime: policy.runtime,
+    messagesSha256: sha256(stableJson(messages)),
+    responseFormatSha256: sha256(
+      stableJson({
+        type: 'json_schema',
+        json_schema: {
+          name: 'behold_loom_fold_v1',
+          strict: true,
+          schema: LMSTUDIO_LOOM_FOLD_RESPONSE_SCHEMA,
+        },
+      }),
+    ),
+    responseSchemaSha256: sha256(stableJson(LMSTUDIO_LOOM_FOLD_RESPONSE_SCHEMA)),
+  });
+}
+
+function loomFoldSource(request: LoomFoldRequest) {
+  return parseLoomFoldSource({
+    entityId: request.entityId,
+    foldedRange: [request.fromSequence, request.toSequence],
+    previousFoldedView: request.previousSummary,
+    newLoomEvidence: request.turns,
+  });
+}
+
+function parseLoomFoldSource(value: unknown) {
+  const source = exactRecord(
+    value,
+    ['entityId', 'foldedRange', 'previousFoldedView', 'newLoomEvidence'],
+    'LM Studio loom-fold source',
+  );
+  const entityId = boundedIdentity(source.entityId, 'LM Studio loom-fold entity');
+  if (
+    !Array.isArray(source.foldedRange) ||
+    source.foldedRange.length !== 2 ||
+    !Number.isSafeInteger(source.foldedRange[0]) ||
+    !Number.isSafeInteger(source.foldedRange[1]) ||
+    source.foldedRange[0] < 1 ||
+    source.foldedRange[1] < source.foldedRange[0]
+  ) {
+    throw new Error('LM Studio loom-fold range is invalid');
+  }
+  if (
+    source.previousFoldedView != null &&
+    (typeof source.previousFoldedView !== 'string' || source.previousFoldedView.length > 40_000)
+  ) {
+    throw new Error('LM Studio previous folded view is invalid');
+  }
+  if (
+    !Array.isArray(source.newLoomEvidence) ||
+    source.newLoomEvidence.length < 1 ||
+    source.newLoomEvidence.length > 64
+  ) {
+    throw new Error('LM Studio loom-fold evidence batch is invalid');
+  }
+  let clonedEvidence: unknown;
+  try {
+    clonedEvidence = JSON.parse(stableJson(source.newLoomEvidence));
+  } catch {
+    throw new Error('LM Studio loom-fold evidence must be exactly JSON serializable');
+  }
+  const result = {
+    entityId,
+    foldedRange: [source.foldedRange[0], source.foldedRange[1]],
+    previousFoldedView: source.previousFoldedView == null ? null : source.previousFoldedView,
+    newLoomEvidence: clonedEvidence,
+  };
+  if (Buffer.byteLength(stableJson(result), 'utf8') > MAX_LOOM_FOLD_SOURCE_BYTES) {
+    throw new Error('LM Studio loom-fold source exceeds the bounded request size');
+  }
+  return deepFreeze(result);
 }
 
 export function parseLmStudioLocalJsonActionDecision(
@@ -787,7 +1069,7 @@ export async function releaseLmStudioResidentSession(input: {
 export function lmStudioAttemptIdentity(
   policyValue: LmStudioLocalPolicy,
   preflight: LmStudioLocalPreflight,
-  request: LmStudioLocalRequestIdentity,
+  request: LmStudioLocalRequestIdentity | LmStudioLocalLoomFoldRequestIdentity,
 ) {
   const policy = lmStudioLocalPolicy(policyValue);
   const { digest, ...base } = preflight;

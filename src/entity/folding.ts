@@ -21,6 +21,8 @@ export type LoomFoldRecord = {
   model: string;
   /** Projection identity prevents a cache from crossing embodied input contracts. */
   projectionProfile?: string;
+  /** Summarizer identity prevents a disposable cache from crossing generation contracts. */
+  summarizerProtocol?: string;
   generation:
     | {
         kind: 'model';
@@ -91,6 +93,7 @@ type LoomContextOptions = {
   summaryMaxChars?: number;
   now?: () => number;
   projectionProfile?: string;
+  summarizerProtocol?: string;
   /** Durable operator evidence written before a fallback context can be used. */
   onContextIntervention?: (intervention: LoomContextIntervention) => void;
   projectTurn?: (
@@ -121,7 +124,13 @@ export function createLoomContextView(
   const now = options.now ?? Date.now;
   validateTrajectory(initialTurns, options.entityId);
   const turns = [...initialTurns];
-  let fold = loadValidFold(options.cacheFile, turns, options.entityId, options.projectionProfile);
+  let fold = loadValidFold(
+    options.cacheFile,
+    turns,
+    options.entityId,
+    options.projectionProfile,
+    options.summarizerProtocol,
+  );
   let preparing: Promise<boolean> | null = null;
 
   function foldTarget() {
@@ -234,6 +243,7 @@ export function createLoomContextView(
         model: options.model,
         generation,
         ...(options.projectionProfile ? { projectionProfile: options.projectionProfile } : {}),
+        ...(options.summarizerProtocol ? { summarizerProtocol: options.summarizerProtocol } : {}),
       };
       summary = nextSummary;
       cursor = end;
@@ -322,6 +332,10 @@ export function projectTurnForFolding(
       'previous_turn_next_observation',
       FOLD_EVENT_BATCH,
     ),
+    publicCommitment:
+      residentVisible && turn.utterance?.publicCommitment
+        ? compactValue(projectValue(turn.utterance.publicCommitment))
+        : null,
     action: residentVisible
       ? compactValue(projectValue(turn.action))
       : {
@@ -368,6 +382,7 @@ function loadValidFold(
   turns: EntityTurn[],
   entityId: string,
   projectionProfile?: string,
+  summarizerProtocol?: string,
 ) {
   if (!cacheFile || !fs.existsSync(cacheFile)) return null;
   try {
@@ -375,6 +390,7 @@ function loadValidFold(
     if (candidate?.protocol !== 'behold.loom-fold.v3') return null;
     if (candidate.entityId !== entityId) return null;
     if (projectionProfile && candidate.projectionProfile !== projectionProfile) return null;
+    if (summarizerProtocol && candidate.summarizerProtocol !== summarizerProtocol) return null;
     const index = Number(candidate.source?.toSequence) - 1;
     if (index < 0 || index >= turns.length) return null;
     if (turns[index]?.id !== candidate.source.tipId) return null;

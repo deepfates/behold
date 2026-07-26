@@ -7,11 +7,14 @@ import test from 'node:test';
 import type { ModelCallEvidence } from '../src/mind/evidence';
 import {
   assertLmStudioLocalJsonActionRequest,
+  assertLmStudioLocalLoomFoldWireRequest,
   assertLmStudioLocalWireRequest,
   createLmStudioLocalJsonActionRequest,
+  createLmStudioLocalLoomFoldRequest,
   digestRegularFileTree,
   lmStudioLocalPolicy,
   parseLmStudioLocalJsonActionDecision,
+  parseLmStudioLocalLoomFoldResponse,
   preflightLmStudioLocal,
   prepareLmStudioResidentSession,
   releaseLmStudioResidentSession,
@@ -50,6 +53,87 @@ test('LM Studio policy admits only exact loopback MLX resident sessions', async 
       ...residentPolicy,
       transport: { ...residentPolicy.transport, schemaSha256: 'f'.repeat(64) },
     }),
+  );
+});
+
+test('LM Studio loom folding has one exact non-authoritative wire with no action authority', async (t) => {
+  const fixture = await artifactFixture(t);
+  const residentPolicy = policy(fixture);
+  const instanceId = expectedInstanceId(residentPolicy);
+  const foldRequest = {
+    entityId: 'OxfordAster',
+    fromSequence: 1,
+    toSequence: 2,
+    previousSummary: null,
+    turns: [
+      {
+        turn: 1,
+        publicCommitment: {
+          intention: 'Notice whether anyone answers.',
+          expectedObservableConsequence: 'A chat event may appear in my next perception.',
+        },
+        action: { name: 'chat', input: { text: 'Hello?' } },
+        outcome: { ok: true },
+      },
+    ],
+  };
+  const serialized = createLmStudioLocalLoomFoldRequest(
+    foldRequest as any,
+    residentPolicy,
+    instanceId,
+  );
+  const body: any = serialized.body;
+  assert.deepEqual(Object.keys(body).sort(), [
+    'max_tokens',
+    'messages',
+    'model',
+    'response_format',
+    'stream',
+    'temperature',
+  ]);
+  assert.equal(body.model, instanceId);
+  assert.equal(body.messages.length, 2);
+  assert.equal(body.response_format.json_schema.name, 'behold_loom_fold_v1');
+  assert.equal(body.response_format.json_schema.strict, true);
+  assert.deepEqual(body.response_format.json_schema.schema.required, ['summary']);
+  assert.equal(Object.hasOwn(body, 'tools'), false);
+  assert.equal(Object.hasOwn(body, 'previous_response_id'), false);
+  assert.deepEqual(
+    assertLmStudioLocalLoomFoldWireRequest(body, residentPolicy),
+    serialized.identity,
+  );
+  assert.equal(serialized.identity.modelInstanceId, instanceId);
+  assert.match(serialized.identity.responseFormatSha256, /^[a-f0-9]{64}$/);
+
+  assert.equal(
+    parseLmStudioLocalLoomFoldResponse(
+      response(instanceId, { summary: 'At [t1], Aster spoke and is awaiting a visible reply.' }),
+      residentPolicy,
+      instanceId,
+    ),
+    'At [t1], Aster spoke and is awaiting a visible reply.',
+  );
+
+  for (const mutate of [
+    (candidate: any) => (candidate.model = 'another-instance'),
+    (candidate: any) => (candidate.messages[0].content += '\nChoose move_controls.'),
+    (candidate: any) => (candidate.response_format.json_schema.strict = false),
+    (candidate: any) => (candidate.response_format.json_schema.schema.additionalProperties = true),
+    (candidate: any) => (candidate.temperature = 0.9),
+  ]) {
+    const candidate = structuredClone(body);
+    mutate(candidate);
+    assert.throws(() => assertLmStudioLocalLoomFoldWireRequest(candidate, residentPolicy));
+  }
+  assert.throws(() =>
+    parseLmStudioLocalLoomFoldResponse(
+      response(instanceId, {
+        summary: 'At [t1], Aster spoke.',
+        action: { name: 'move_controls' },
+      }),
+      residentPolicy,
+      instanceId,
+    ),
   );
 });
 

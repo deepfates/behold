@@ -1,13 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { cognitionClientHeaders, parseCognitionAdmission } from './cognition';
-import { ResidentMindCallError, type ModelCallEvidence } from './evidence';
+import {
+  ResidentMindCallError,
+  type ModelCallEvidence,
+  type ModelCallFailureEvidence,
+} from './evidence';
+import type { LoomFoldSummarizer } from '../entity/folding';
 import type { ResidentMind } from './interface';
 import {
   createLmStudioLocalJsonActionRequest,
+  createLmStudioLocalLoomFoldRequest,
   inspectLmStudioLocalResponseIdentity,
   lmStudioLocalPolicy,
   lmStudioResidentInstanceId,
   parseLmStudioLocalJsonActionDecision,
+  parseLmStudioLocalLoomFoldResponse,
   type LmStudioLocalPolicy,
   type LmStudioLocalRequestIdentity,
 } from './lmstudio-local';
@@ -27,6 +34,30 @@ export type LmStudioLocalResidentMindOptions = Readonly<{
   recordModelIO?: boolean;
   now?: () => number;
   fetch?: typeof fetch;
+}>;
+
+export type LmStudioLocalLoomSummarizerOptions = Readonly<{
+  bearer: string;
+  endpoint: string;
+  policy: LmStudioLocalPolicy;
+  modelInstanceId: string;
+  cognitionTransport: true;
+  recordModelIO?: boolean;
+  now?: () => number;
+  fetch?: typeof fetch;
+  onCall?: (event: {
+    at: number;
+    model: string;
+    purpose: 'loom_fold';
+    call: ModelCallEvidence;
+  }) => void;
+  onError?: (event: {
+    at: number;
+    model: string;
+    purpose: 'loom_fold';
+    error: string;
+    call: ModelCallFailureEvidence;
+  }) => void;
 }>;
 
 type LmStudioCallRequestEvidence = ModelCallEvidence['request'] &
@@ -239,6 +270,188 @@ export function createLmStudioLocalResidentMind(
         );
       }
     },
+  };
+}
+
+/**
+ * One exact auxiliary fold through the resident's already loaded local model.
+ * It has no action schema, tool call, retry, correction, or world authority.
+ */
+export function createLmStudioLocalLoomSummarizer(
+  options: LmStudioLocalLoomSummarizerOptions,
+): LoomFoldSummarizer {
+  const now = options.now ?? Date.now;
+  const requestFetch = options.fetch ?? fetch;
+  const policy = lmStudioLocalPolicy(options.policy);
+  const endpoint = exactCognitionEndpoint(options.endpoint);
+  const modelInstanceId = exactModelInstanceId(options.modelInstanceId);
+  if (modelInstanceId !== lmStudioResidentInstanceId(policy)) {
+    throw new Error('LM Studio loom summarizer instance differs from its admitted model policy');
+  }
+  if (!options.cognitionTransport || String(options.bearer || '').length < 32) {
+    throw new Error('LM Studio loom summarizer requires the authenticated cognition broker');
+  }
+
+  return async (request, signal = new AbortController().signal) => {
+    const startedAt = now();
+    const requestId = `lmstudio-fold-${randomUUID()}`;
+    const serialized = createLmStudioLocalLoomFoldRequest(request, policy, modelInstanceId);
+    const body = serialized.body as Record<string, unknown>;
+    const requestBody = JSON.stringify(body);
+    const callRequest: ModelCallEvidence['request'] = {
+      model: policy.modelKey,
+      messageCount: 2,
+      toolCount: 0,
+      toolChoice: null,
+      bodySha256: sha256(requestBody),
+      bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
+      byteAttribution: attributeProviderRequestBody(body),
+      messagesSha256: serialized.identity.messagesSha256,
+      toolsSha256: sha256(stableJson([])),
+      formatSha256: serialized.identity.responseFormatSha256,
+      kind: 'provider_request',
+      lmStudioPolicy: policy,
+      lmStudioLoomFoldTransport: serialized.identity,
+      requestedModelInstance: modelInstanceId,
+      ...(options.recordModelIO ? { body: cloneJson(body) } : {}),
+    };
+    const failure = (
+      message: string,
+      terminal: ModelCallFailureEvidence['response']['terminal'],
+      status: number | null,
+      bodyPreview: string | null,
+      completedAt: number,
+      additions: Partial<Omit<ModelCallFailureEvidence, 'request' | 'response'>> = {},
+      responseAdditions: Partial<ModelCallFailureEvidence['response']> = {},
+    ) => {
+      const call: ModelCallFailureEvidence = {
+        protocol: 'behold.model-call.v1',
+        adapter: { name: 'lmstudio-local-loom-fold', version: 'v1' },
+        requestId,
+        endpoint,
+        startedAt,
+        completedAt,
+        latencyMs: Math.max(0, completedAt - startedAt),
+        ...additions,
+        request: callRequest,
+        response: { terminal, status, bodyPreview, ...responseAdditions },
+      };
+      if (!signal.aborted) {
+        options.onError?.({
+          at: completedAt,
+          model: policy.modelKey,
+          purpose: 'loom_fold',
+          error: message,
+          call,
+        });
+      }
+      return new ResidentMindCallError(message, call);
+    };
+
+    let response: Response;
+    try {
+      response = await requestFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${options.bearer}`,
+          ...cognitionClientHeaders({
+            requestId,
+            priority: 'auxiliary',
+            purpose: 'loom_fold',
+            urgentTriggerSequence: null,
+          }),
+        },
+        body: requestBody,
+        signal,
+      });
+    } catch (error: any) {
+      const completedAt = now();
+      throw failure(
+        `LM Studio loom-fold transport error: ${error?.message || String(error)}`,
+        signal.aborted ? 'cancelled' : 'transport_error',
+        null,
+        null,
+        completedAt,
+      );
+    }
+    const text = await response.text();
+    const completedAt = now();
+    if (!response.ok) {
+      throw failure(
+        `LM Studio loom-fold request ${response.status}`,
+        brokerFailureTerminal(text) as ModelCallFailureEvidence['response']['terminal'],
+        response.status,
+        text.slice(0, 200) || null,
+        completedAt,
+        admissionEvidence(response),
+      );
+    }
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw failure(
+        'LM Studio loom-fold response was malformed JSON',
+        'malformed_output',
+        response.status,
+        text.slice(0, 200) || null,
+        completedAt,
+        admissionEvidence(response),
+      );
+    }
+    const localIdentity = inspectLmStudioLocalResponseIdentity(data, policy);
+    if (!localIdentity.ok) {
+      throw failure(
+        'LM Studio loom-fold response returned an unadmitted model instance',
+        'lmstudio_identity_mismatch',
+        response.status,
+        text.slice(0, 200) || null,
+        completedAt,
+        admissionEvidence(response),
+        {
+          lmStudioIdentity: localIdentity,
+          ...(options.recordModelIO ? { raw: cloneJson(data) } : {}),
+        },
+      );
+    }
+    let summary: string;
+    try {
+      summary = parseLmStudioLocalLoomFoldResponse(data, policy, modelInstanceId);
+    } catch (error: any) {
+      throw failure(
+        `LM Studio loom-fold response was malformed: ${error?.message || String(error)}`,
+        'malformed_output',
+        response.status,
+        text.slice(0, 200) || null,
+        completedAt,
+        admissionEvidence(response),
+        options.recordModelIO ? { raw: cloneJson(data) } : {},
+      );
+    }
+    const call: ModelCallEvidence = {
+      protocol: 'behold.model-call.v1',
+      adapter: { name: 'lmstudio-local-loom-fold', version: 'v1' },
+      requestId,
+      endpoint,
+      startedAt,
+      completedAt,
+      latencyMs: Math.max(0, completedAt - startedAt),
+      ...admissionEvidence(response),
+      request: callRequest,
+      response: {
+        terminal: 'success',
+        id: stringOrNull(data?.id),
+        model: localIdentity.returnedModel,
+        provider: null,
+        finishReason: stringOrNull(data?.choices?.[0]?.finish_reason),
+        nativeFinishReason: stringOrNull(data?.choices?.[0]?.finish_reason),
+        usage: lmStudioUsage(data),
+        ...(options.recordModelIO ? { raw: cloneJson(data) } : {}),
+      },
+    };
+    options.onCall?.({ at: completedAt, model: policy.modelKey, purpose: 'loom_fold', call });
+    return summary;
   };
 }
 
