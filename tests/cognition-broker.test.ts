@@ -464,6 +464,7 @@ test('resident-purpose provider quotas are durable, isolated, and usage-accounte
     upstreamApiKey: UPSTREAM_KEY,
     clients,
     maxConcurrent: 2,
+    journalFile: path.join(root, 'first-broker.jsonl'),
     fetch: async (_input, init) => {
       const label = JSON.parse(String(init?.body)).messages[0].content;
       upstream.push(label);

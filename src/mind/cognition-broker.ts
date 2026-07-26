@@ -2135,11 +2135,22 @@ export function verifyCognitionBrokerJournal(fileValue: string) {
       active += 1;
       peakActive = Math.max(peakActive, active);
     } else if (event.type === 'completed') {
-      if (!requestId || !admitted.has(requestId) || terminal.has(requestId)) {
+      const completedBeforeAdmission =
+        !admitted.has(requestId) &&
+        (event.data as any)?.admitted === false &&
+        (event.data as any)?.status === 429 &&
+        (event.data as any)?.ok === false &&
+        (event.data as any)?.error === 'resident_purpose_quota_exhausted';
+      if (
+        !requestId ||
+        !accepted.has(requestId) ||
+        (!admitted.has(requestId) && !completedBeforeAdmission) ||
+        terminal.has(requestId)
+      ) {
         throw new Error(`invalid completed request at line ${index + 1}: ${file}`);
       }
       terminal.add(requestId);
-      active -= 1;
+      if (admitted.has(requestId)) active -= 1;
       if (active < 0) {
         throw new Error(`negative cognition concurrency at line ${index + 1}: ${file}`);
       }
