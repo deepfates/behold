@@ -55,6 +55,10 @@ absent from both mind requests, Lync/run histories, and the release plan; only
 the operator lifecycle records the presentation profile. The retained report
 is `.behold-runtime/owned-world-proofs/watchability-2026-07-25b/evidence/resident-viewers-live.json`
 (SHA-256 `741a10185d88c0f5d9198239e7c324aefc7181c9375adf317f9d6a1774805393`).
+A clean post-fix hold/release repeat exited with status 0 immediately after
+managed shutdown, with no surviving process or listener; its report is
+`.behold-runtime/owned-world-proofs/watchability-cleanup-2026-07-25/evidence/resident-viewers-live.json`
+(SHA-256 `13b5eb551274e4b96bb3ec7805b43cefdef2b6f94b86e958f7506ab5fee7cf85`).
 
 Both retained Oxford `.lync` files verify, but current generic Lync transcript
 and tree views expose nested JSON. Textile's current raw importer rejects the
