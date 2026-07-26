@@ -291,6 +291,43 @@ export function verifyPlaceServedWorldBasis(
   return Object.freeze({ descriptor: deepFreeze(descriptor), world: deepFreeze(world) });
 }
 
+export function assertPlaceServedAuthority(
+  descriptor: PlaceServedWorldDescriptor,
+  authority: FrozenPlaceServeAuthority,
+) {
+  const identity = authority.placeIdentity;
+  const actualOrigin = {
+    controlProtocol: 'place-compiler-serve-control/v1',
+    placeCompilerRevision: authority.placeCompilerRevision,
+    placeId: identity.placeId,
+    sourceRunId: identity.sourceRunId,
+    profileId: identity.profileId,
+    minecraftVersion: identity.minecraftVersion,
+    sourceReleaseManifestSha256: identity.sourceReleaseManifestSha256,
+    sourceWorldTreeSha256: identity.sourceWorldTreeSha256,
+    minecraftServerSha256: identity.minecraftServerSha256,
+    runtimeManifestSha256: identity.runtimeManifestSha256,
+  };
+  if (
+    stableJson(actualOrigin) !== stableJson(descriptor.origin) ||
+    identity.placeName !== descriptor.display.placeName ||
+    identity.releasePath !== descriptor.paths.release ||
+    identity.runtimePath !== descriptor.paths.runtimeRoot ||
+    authority.runtimeWorldPath !== descriptor.paths.runtimeWorld
+  ) {
+    throw new Error('Place served authority differs from the persistent Behold world');
+  }
+  const worldFile = readJson(descriptor.paths.worldDefinition);
+  const world = worldFile?.worlds?.[descriptor.worldId];
+  if (
+    world?.server?.host !== identity.endpoint.host ||
+    world?.server?.port !== identity.endpoint.port
+  ) {
+    throw new Error('Place served endpoint differs from the persistent Behold world');
+  }
+  return authority;
+}
+
 export function assertPlaceServedResumeContinuity(descriptorFile: string, headFileValue: string) {
   const established = verifyPlaceServedWorldBasis(descriptorFile);
   const { descriptor } = established;

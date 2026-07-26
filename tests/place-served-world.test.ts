@@ -7,6 +7,7 @@ import path from 'node:path';
 import { digestTree } from '../scripts/world-lab';
 import {
   PLACE_SERVED_WORLD_PROTOCOL,
+  assertPlaceServedAuthority,
   assertPlaceServedResumeContinuity,
   establishPlaceServedWorldBasis,
   recordPlaceServedWorldHead,
@@ -55,6 +56,10 @@ test('a frozen saved Place runtime becomes one immutable Behold adoption basis a
 
   const verified = verifyPlaceServedWorldBasis(established.descriptor.paths.descriptor);
   assert.equal(verified.descriptor.worldId, established.descriptor.worldId);
+  assert.equal(
+    assertPlaceServedAuthority(verified.descriptor, fixture.authority),
+    fixture.authority,
+  );
   const initial = assertPlaceServedResumeContinuity(
     established.descriptor.paths.descriptor,
     fixture.headFile,
@@ -215,6 +220,7 @@ function makeFixture(t: test.TestContext) {
     }),
     placeIdentity: identity,
     placeCompilerRevision: '1'.repeat(40),
+    minecraftServerJar: path.join(root, 'fixture-server.jar'),
     transcriptFile,
     exit,
     async freeze() {

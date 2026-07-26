@@ -6,12 +6,14 @@ import { closeBotViewer, createBot } from '../bot';
 import { buildTools } from '../tools';
 import { runStdioHarness } from '../agent/harness_stdio';
 import { openEntityLoom, type EntityLoom } from '../entity/loom';
+import { liveUsage, runLiveCli } from './live';
 
-type Sub = 'agent' | 'tools' | 'help';
+type Sub = 'agent' | 'tools' | 'live' | 'help';
 
 async function main() {
   const argv = process.argv.slice(2);
   const sub = (argv[0] as Sub) || 'help';
+  if (sub === 'live') return runLiveCli(argv.slice(1));
   const args = parseArgs({
     args: argv.slice(1),
     options: {
@@ -125,11 +127,14 @@ function usage(sub?: string) {
       'Commands:',
       '  agent --stdio            Run JSONL stdio harness',
       '  tools [--json]           Print available tools',
+      '  live RELEASE ...         Run or resume a persistent Place world',
       '  help                     Show this help',
       '',
       'Examples:',
       '  ts-node src/cli/main.ts agent --stdio --maxSteps 50 --allowTools say,move_to',
       '  ts-node src/cli/main.ts tools --json',
+      '',
+      liveUsage(),
     );
   } else if (sub === 'agent') {
     lines.push(

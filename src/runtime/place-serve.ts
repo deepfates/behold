@@ -40,6 +40,7 @@ export type FrozenPlaceServeAuthority = ManagedExternalServerAuthority &
   Readonly<{
     placeIdentity: PlaceServeIdentity;
     placeCompilerRevision: string;
+    minecraftServerJar: string;
     transcriptFile: string;
   }>;
 
@@ -204,6 +205,7 @@ export async function startFrozenPlaceServeAuthority(
       identity: durableIdentity,
       placeIdentity: identity,
       placeCompilerRevision: checkout.revision,
+      minecraftServerJar: serverJar,
       transcriptFile: transcript.file,
       exit: control.exit,
       async freeze() {

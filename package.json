@@ -4,13 +4,18 @@
   "description": "Minecraft bot using Mineflayer with OpenRouter chat replies",
   "private": true,
   "main": "src/index.js",
+  "bin": {
+    "behold": "dist/src/cli/main.js"
+  },
   "license": "UNLICENSED",
   "scripts": {
     "build": "node scripts/patch-prismarine-viewer.js && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "start": "npm run build && node dist/src/index.js",
     "swarm": "npm run world -- start",
     "dev": "ts-node --transpile-only src/index.ts",
-    "behold": "ts-node --transpile-only src/cli/behold.ts",
+    "behold": "ts-node --transpile-only src/cli/main.ts",
+    "resident": "ts-node --transpile-only src/cli/behold.ts",
+    "live": "npm run build && node dist/src/cli/main.js live",
     "agent:stdio": "ts-node --transpile-only src/cli/main.ts agent --stdio",
     "tools": "ts-node --transpile-only src/cli/main.ts tools --json",
     "console": "ts-node --transpile-only src/tui/repl.ts",
