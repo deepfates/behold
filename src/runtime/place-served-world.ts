@@ -380,7 +380,9 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
   }
   const actual = digestTree(descriptor.paths.runtimeWorld);
   if (actual.digest !== expectedDigest) {
-    throw new Error('Stopped Place runtime differs from the last clean Behold history state');
+    throw new Error(
+      `Stopped Place runtime differs from the last clean Behold history state (expected ${expectedDigest}, observed ${actual.digest})`,
+    );
   }
   return Object.freeze({ ...established, head: head ? deepFreeze(head) : null, runtime: actual });
 }
