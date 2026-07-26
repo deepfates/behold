@@ -100,7 +100,7 @@ export function createLmStudioLocalResidentMind(
   if (!options.cognitionTransport || String(options.bearer || '').length < 32) {
     throw new Error('LM Studio resident mind requires the authenticated cognition broker');
   }
-  let prefixReadiness: Promise<LmStudioPrefixReadinessEvidence> | null = null;
+  const prefixReadiness = new Map<string, Promise<LmStudioPrefixReadinessEvidence>>();
 
   return {
     id: 'direct-lmstudio-local-json-action',
@@ -110,18 +110,16 @@ export function createLmStudioLocalResidentMind(
     },
     async decide(request, { signal }) {
       assertResidentModel(request);
-      const readiness = await ensurePrefixReadiness(request, signal);
       const startedAt = now();
       const requestId = `lmstudio-${randomUUID()}`;
       const serialized = createLmStudioLocalJsonActionRequest(request, policy, modelInstanceId);
-      if (
-        readiness.request.actionContractSha256 !== serialized.identity.actionContractSha256 ||
-        readiness.request.stablePrefixSha256 !== serialized.identity.stablePrefixSha256
-      ) {
+      const readinessKey = prefixReadinessKey(serialized.identity);
+      if (request.attention?.mode === 'urgent' && !prefixReadiness.has(readinessKey)) {
         throw new Error(
-          'LM Studio resident action contract drifted after prefix readiness; refusing action inference',
+          'LM Studio urgent resident action contract has no prepared prefix; refusing in-horizon readiness work',
         );
       }
+      const readiness = await ensurePrefixReadiness(request, signal);
       const body = serialized.body as Record<string, unknown>;
       const requestBody = JSON.stringify(body);
       const callRequest: LmStudioCallRequestEvidence = {
@@ -308,11 +306,21 @@ export function createLmStudioLocalResidentMind(
     request: Parameters<ResidentMind['decide']>[0],
     signal: AbortSignal,
   ) {
-    prefixReadiness ??= warmResidentPrefix(request, signal).catch((error) => {
-      prefixReadiness = null;
+    const identity = createLmStudioLocalPrefixReadinessRequest(
+      request,
+      policy,
+      modelInstanceId,
+    ).identity;
+    const key = prefixReadinessKey(identity);
+    const existing = prefixReadiness.get(key);
+    if (existing) return existing;
+    let created: Promise<LmStudioPrefixReadinessEvidence>;
+    created = warmResidentPrefix(request, signal).catch((error) => {
+      if (prefixReadiness.get(key) === created) prefixReadiness.delete(key);
       throw error;
     });
-    return prefixReadiness;
+    prefixReadiness.set(key, created);
+    return created;
   }
 
   async function warmResidentPrefix(
@@ -380,7 +388,6 @@ export function createLmStudioLocalResidentMind(
       // The versioned parser below owns malformed output classification.
     }
     if (!response.ok) {
-      prefixReadiness = null;
       throw new ResidentMindCallError(`LM Studio resident prefix readiness ${response.status}`, {
         protocol: 'behold.model-call.v1',
         adapter: { name: 'lmstudio-local-prefix-readiness', version: 'v1' },
@@ -445,7 +452,6 @@ export function createLmStudioLocalResidentMind(
     try {
       parseLmStudioLocalPrefixReadinessResponse(data, policy, modelInstanceId);
     } catch (error: any) {
-      prefixReadiness = null;
       throw new ResidentMindCallError(
         `LM Studio resident prefix readiness returned malformed output: ${error?.message || String(error)}`,
         {
@@ -470,6 +476,15 @@ export function createLmStudioLocalResidentMind(
       }),
       call,
     });
+  }
+
+  function prefixReadinessKey(
+    identity: Pick<
+      LmStudioLocalPrefixReadinessRequestIdentity,
+      'stablePrefixSha256' | 'actionContractSha256'
+    >,
+  ) {
+    return `${identity.stablePrefixSha256}:${identity.actionContractSha256}`;
   }
 }
 

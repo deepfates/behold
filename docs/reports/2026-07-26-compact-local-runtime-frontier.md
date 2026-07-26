@@ -135,9 +135,12 @@ broker-journal SHA-256:
 LM Studio minds now expose an optional authority-free preparation step. During
 an ordinary managed run, the controller performs it while Minecraft ticks are
 still frozen and before it arms the population release. The readiness response
-is journaled but cannot become an action. The later resident request must have
-the exact same action-contract and stable-prefix hashes or action inference is
-refused without a repair or in-horizon rewarm.
+is journaled but cannot become an action. An urgent resident request must
+already have an exact matching action-contract and stable-prefix readiness
+record or action inference is refused without a repair or in-horizon rewarm. A
+later deliberative contract may establish its own authority-free prefix before
+its action request; readiness records are keyed by exact contract identity
+rather than being incorrectly frozen to the body's first setup affordances.
 
 The broker recognizes `resident_prefix_readiness`, validates its exact
 three-message/no-tool/16-token wire, retains its purpose in transport evidence,

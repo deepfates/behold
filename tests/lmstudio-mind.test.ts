@@ -131,12 +131,52 @@ test('LM Studio mind refuses action inference when its prepared action contract 
   const drifted = {
     ...request(),
     actions: request().actions.filter((action) => action.name === 'wait_for_event'),
+    attention: {
+      mode: 'urgent' as const,
+      context: 'current_body_and_continuity' as const,
+      triggers: [{ sequence: 1, type: 'self_hurt', salience: 'urgent' as const }],
+    },
   };
   await assert.rejects(
     mind.decide(drifted, { signal: new AbortController().signal }),
-    /action contract drifted after prefix readiness/,
+    /has no prepared prefix; refusing in-horizon readiness work/,
   );
   assert.equal(calls, 1);
+});
+
+test('LM Studio mind may prepare a new deliberative contract before its action request', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  let calls = 0;
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    fetch: async (_input, init) => {
+      calls += 1;
+      if (isPrefixReadiness(init)) return response(instance, { ready: true });
+      return response(instance, validOutput());
+    },
+  });
+
+  await mind.prepare!(request(), { signal: new AbortController().signal });
+  const changed = {
+    ...request(),
+    actions: request().actions.map((action) =>
+      action.name === 'move_controls'
+        ? { ...action, description: 'A newly presented ordinary movement description.' }
+        : action,
+    ),
+    attention: { mode: 'deliberative' as const, context: 'bounded_loom' as const, triggers: [] },
+  };
+  const decision = await mind.decide(changed, { signal: new AbortController().signal });
+  assert.equal(decision.action?.name, 'move_controls');
+  assert.equal(calls, 3);
+  assert.equal(
+    (decision.call.request as any).lmStudioPrefixReadiness.request.stablePrefixSha256,
+    (decision.call.request as any).lmStudioActionTransport.stablePrefixSha256,
+  );
 });
 
 test('LM Studio mind rejects instance drift distinctly and never retries', async () => {
