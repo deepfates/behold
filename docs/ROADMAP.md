@@ -62,7 +62,7 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   one persistent named world, starts independently configured local resident
   sessions and symmetric viewers, prints the native-client endpoint, drains and
   saves on time or Ctrl-C, and resumes the exact world and lives. Its v2
-  aftermath preserves the Place-owned Minecraft server log byte-for-byte and
+  episode record preserves the Place-owned Minecraft server log byte-for-byte and
   authenticates each resident's body journals beside the original Lync sources.
   Each episode receives a fresh declared attempt scope without refilling an old
   ledger or balancing unequal resident use. This is composition and history
@@ -73,11 +73,14 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   objects at 5.687 and 3.553 seconds, but that field is not in the admitted
   session and the first request still missed the five-second body horizon. See
   [llama.cpp GPT-OSS runtime frontier](reports/2026-07-26-llamacpp-gptoss-runtime-frontier.md).
-- Same-model LM Studio residents now own entity-bound custom instances rather
-  than sharing one `parallel = 1` cache/session identity. The complete suite
-  exercises that isolation, but it has not been repeated live. Exact GGUF
-  admission now also binds the embedded chat-template bytes, artifact tree,
-  llama.cpp runtime, entity instance, settings, schema, and unload lifecycle.
+- Same-model LM Studio residents now share one exact weight instance, with
+  parallel slots capped by broker concurrency rather than duplicated weights.
+  Resident prompts,
+  broker credentials, accounting, controller processes, and Lync histories
+  remain isolated, and every request carries its complete stateless context.
+  The complete suite exercises that boundary, but it has not been repeated
+  live. Exact GGUF admission also binds the embedded chat-template bytes,
+  artifact tree, llama.cpp runtime, instance settings, schema, and unload lifecycle.
   The last compact MLX candidate timed out after 60.018 seconds; production
   Berduck GGUF was fast but chose the same look-down action at two fresh
   horizons and confused the addressed consequence, so it did not earn a live
@@ -320,12 +323,14 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    social conduct—not call count. Preserve failures without retries, hidden
    reflexes, forced schedules, or catch-up normalization.
 3. Finish the ordinary foreground operator path now established by `behold
-live`: exercise its v2 authoritative ecology aftermath and episode-frozen
-   Textile import and explicit native-human entry treatment in a real episode.
+live`: exercise its v2 authoritative ecology record, episode-frozen Lync
+   histories, Textile viewing interface, and explicit native-human entry
+   treatment in a real episode.
    Do not substitute a dashboard or a bespoke ignored harness for this entry.
 4. Pass the ticket acceptance from that ordinary path: a non-scripted persistent
    resident consequence, independent witness, native co-presence, restart
-   continuity, and understandable Textile/Lync history with exact identities.
+   continuity, and understandable Lync multiversal history with exact identities
+   through Textile or another compatible viewer.
 5. Only after the composed living-world experience is honest, return to broader
    evaluation families, crossing semantics, competence suites, and long soaks.
    Neutral benchmark work remains a separately named research treatment, not the

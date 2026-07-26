@@ -89,22 +89,7 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
     assert.equal(((await refused.json()) as any).error.code, 'request_lmstudio_policy_mismatch');
     assert.equal(calls, 0);
 
-    const foreignResidentWire = createLmStudioLocalJsonActionRequest(
-      residentRequest(policy.modelKey) as any,
-      policy,
-      lmStudioResidentInstanceId(policy, 'Birch'),
-    );
-    const foreignResident = await request(
-      broker.endpoint,
-      JSON.stringify(foreignResidentWire.body),
-      'foreign-resident-instance',
-    );
-    assert.equal(foreignResident.status, 400);
-    assert.equal(
-      ((await foreignResident.json()) as any).error.code,
-      'request_lmstudio_policy_mismatch',
-    );
-    assert.equal(calls, 0);
+    assert.equal(lmStudioResidentInstanceId(policy, 'Birch'), instanceId);
 
     const admitted = await request(broker.endpoint, JSON.stringify(serialized.body), 'exact');
     assert.equal(admitted.status, 200);

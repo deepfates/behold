@@ -150,7 +150,7 @@ export type LmStudioLocalResponseIdentity = Readonly<{
 export type LmStudioAttemptIdentity = ReturnType<typeof lmStudioAttemptIdentity>;
 
 export type LmStudioResidentSession = Readonly<{
-  protocol: 'behold.lmstudio-resident-session.v2';
+  protocol: 'behold.lmstudio-resident-session.v3';
   endpointOrigin: string;
   preflightDigest: string;
   models: readonly Readonly<{
@@ -160,6 +160,7 @@ export type LmStudioResidentSession = Readonly<{
     artifactTreeSha256: string;
     modelInstanceId: string;
     contextTokens: number;
+    parallel: number;
   }>[];
   digest: string;
 }>;
@@ -1113,13 +1114,15 @@ export function verifyLmStudioPreflight(
 
 export async function prepareLmStudioResidentSession(input: {
   policies: readonly LmStudioLocalPolicy[];
-  /** Stable entity identities make same-model resident instances independent. */
+  /** Stable entity identities bind residents without duplicating shared model weights. */
   residentIds?: readonly string[];
   preflight: LmStudioLocalPreflight;
   runLms?: LmStudioCommandRunner;
   fetch?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   stabilizationDelayMs?: number;
+  /** Never reserve more runtime slots than the broker can concurrently admit. */
+  maxParallel?: number;
 }): Promise<LmStudioResidentSession> {
   const policies = uniquePolicies(input.policies);
   verifyLmStudioPreflight(input.preflight, policies);
@@ -1128,9 +1131,14 @@ export async function prepareLmStudioResidentSession(input: {
   const callFetch = input.fetch ?? globalThis.fetch;
   const origin = new URL(policies[0].endpoint).origin;
   const hostArgs = lmsHostArgs(origin);
-  const loadedByThisSession: typeof bindings = [];
+  const maxParallel =
+    input.maxParallel == null
+      ? bindings.length
+      : boundedInteger(input.maxParallel, 'LM Studio maximum parallel slots', 1, bindings.length);
+  const runtimeBindings = sharedRuntimeBindings(bindings, maxParallel);
+  const loadedByThisSession: typeof runtimeBindings = [];
   try {
-    for (const binding of bindings) {
+    for (const binding of runtimeBindings) {
       const policy = binding.policy;
       loadedByThisSession.push(binding);
       boundedCliOutput(
@@ -1144,7 +1152,7 @@ export async function prepareLmStudioResidentSession(input: {
           '--context-length',
           String(policy.settings.contextTokens),
           '--parallel',
-          '1',
+          String(binding.parallel),
           '--identifier',
           binding.modelInstanceId,
           '--yes',
@@ -1165,7 +1173,7 @@ export async function prepareLmStudioResidentSession(input: {
         const inventory = await readLocalJson(callFetch, `${origin}/api/v1/models`, {
           method: 'GET',
         });
-        assertLoadedLmStudioResidentInventory(inventory, bindings);
+        assertLoadedLmStudioResidentInventory(inventory, runtimeBindings);
         stableReads += 1;
       } catch (error) {
         stableReads = 0;
@@ -1177,7 +1185,7 @@ export async function prepareLmStudioResidentSession(input: {
       throw lastError ?? new Error('LM Studio resident instances never became HTTP-stable');
     }
     const base = {
-      protocol: 'behold.lmstudio-resident-session.v2' as const,
+      protocol: 'behold.lmstudio-resident-session.v3' as const,
       endpointOrigin: origin,
       preflightDigest: input.preflight.digest,
       models: Object.freeze(
@@ -1189,6 +1197,9 @@ export async function prepareLmStudioResidentSession(input: {
             artifactTreeSha256: binding.policy.artifact.treeSha256,
             modelInstanceId: binding.modelInstanceId,
             contextTokens: binding.policy.settings.contextTokens,
+            parallel: runtimeBindings.find(
+              (runtimeBinding) => runtimeBinding.modelInstanceId === binding.modelInstanceId,
+            )!.parallel,
           }),
         ),
       ),
@@ -1208,7 +1219,7 @@ export async function prepareLmStudioResidentSession(input: {
 
 function assertLoadedLmStudioResidentInventory(
   inventory: unknown,
-  bindings: readonly LmStudioResidentInstanceBinding[],
+  bindings: readonly LmStudioSharedRuntimeBinding[],
 ) {
   const models = plainRecord(inventory) && Array.isArray(inventory.models) ? inventory.models : [];
   for (const binding of bindings) {
@@ -1224,7 +1235,7 @@ function assertLoadedLmStudioResidentInventory(
     if (
       !config ||
       config.context_length !== policy.settings.contextTokens ||
-      config.parallel !== 1
+      config.parallel !== binding.parallel
     ) {
       throw new Error(`LM Studio did not retain exact resident instance ${policy.modelKey}`);
     }
@@ -1247,18 +1258,27 @@ export async function releaseLmStudioResidentSession(input: {
   const { digest, ...base } = input.session;
   if (
     digest !== sha256(stableJson(base)) ||
-    input.session.protocol !== 'behold.lmstudio-resident-session.v2' ||
+    input.session.protocol !== 'behold.lmstudio-resident-session.v3' ||
     input.session.models.length !== bindings.length ||
-    bindings.some(
-      (binding) =>
-        !input.session.models.some(
-          (model) =>
-            model.residentId === binding.residentId &&
-            model.modelKey === binding.policy.modelKey &&
-            model.modelInstanceId === binding.modelInstanceId &&
-            model.artifactTreeSha256 === binding.policy.artifact.treeSha256,
-        ),
-    )
+    bindings.some((binding) => {
+      const model = input.session.models.find(
+        (candidate) =>
+          candidate.residentId === binding.residentId &&
+          candidate.modelKey === binding.policy.modelKey &&
+          candidate.modelInstanceId === binding.modelInstanceId &&
+          candidate.artifactTreeSha256 === binding.policy.artifact.treeSha256,
+      );
+      const sharedModels = input.session.models.filter(
+        (candidate) => candidate.modelInstanceId === binding.modelInstanceId,
+      );
+      return (
+        !model ||
+        !Number.isSafeInteger(model.parallel) ||
+        model.parallel < 1 ||
+        model.parallel > sharedModels.length ||
+        sharedModels.some((candidate) => candidate.parallel !== model.parallel)
+      );
+    })
   ) {
     throw new Error('LM Studio resident session release identity is invalid');
   }
@@ -1266,19 +1286,18 @@ export async function releaseLmStudioResidentSession(input: {
   const origin = new URL(policies[0].endpoint).origin;
   const hostArgs = lmsHostArgs(origin);
   const failures: string[] = [];
-  for (const binding of [...bindings].reverse()) {
+  const runtimeBindings = sharedRuntimeBindings(bindings);
+  for (const binding of [...runtimeBindings].reverse()) {
     try {
       boundedCliOutput(runLms(['unload', binding.modelInstanceId, ...hostArgs]));
     } catch (error: any) {
-      failures.push(
-        `${binding.policy.modelKey}/${binding.residentId ?? 'unscoped'}: ${error?.message || String(error)}`,
-      );
+      failures.push(`${binding.policy.modelKey}: ${error?.message || String(error)}`);
     }
   }
   const callFetch = input.fetch ?? globalThis.fetch;
   const inventory = await readLocalJson(callFetch, `${origin}/api/v1/models`, { method: 'GET' });
   const models = plainRecord(inventory) && Array.isArray(inventory.models) ? inventory.models : [];
-  const survivors = bindings.filter((binding) =>
+  const survivors = runtimeBindings.filter((binding) =>
     models.some(
       (entry) =>
         plainRecord(entry) &&
@@ -1293,17 +1312,14 @@ export async function releaseLmStudioResidentSession(input: {
     throw new Error(
       `LM Studio resident session unload failed: ${[
         ...failures,
-        ...survivors.map(
-          (binding) =>
-            `${binding.policy.modelKey}/${binding.residentId ?? 'unscoped'}: instance remained loaded`,
-        ),
+        ...survivors.map((binding) => `${binding.policy.modelKey}: instance remained loaded`),
       ].join('; ')}`,
     );
   }
   return deepFreeze({
     protocol: 'behold.lmstudio-resident-session-release.v1' as const,
     sessionDigest: input.session.digest,
-    unloadedInstances: Object.freeze(bindings.map((binding) => binding.modelInstanceId)),
+    unloadedInstances: Object.freeze(runtimeBindings.map((binding) => binding.modelInstanceId)),
   });
 }
 
@@ -1450,16 +1466,14 @@ export function lmStudioResidentInstanceId(
   residentIdentity?: string,
 ) {
   const policy = lmStudioLocalPolicy(policyValue);
-  const residentId =
-    residentIdentity == null
-      ? null
-      : boundedIdentity(residentIdentity, 'LM Studio resident instance owner');
+  if (residentIdentity != null) {
+    boundedIdentity(residentIdentity, 'LM Studio resident instance owner');
+  }
   return `behold-${sha256(
     stableJson({
       modelKey: policy.modelKey,
       artifactTreeSha256: policy.artifact.treeSha256,
       contextTokens: policy.settings.contextTokens,
-      ...(residentId == null ? {} : { residentId }),
     }),
   ).slice(0, 24)}`;
 }
@@ -1468,6 +1482,12 @@ type LmStudioResidentInstanceBinding = Readonly<{
   residentId: string | null;
   policy: LmStudioLocalPolicy;
   modelInstanceId: string;
+}>;
+
+type LmStudioSharedRuntimeBinding = Readonly<{
+  policy: LmStudioLocalPolicy;
+  modelInstanceId: string;
+  parallel: number;
 }>;
 
 function residentInstanceBindings(
@@ -1485,18 +1505,39 @@ function residentInstanceBindings(
     throw new Error('LM Studio resident identities must align one-to-one with policies');
   }
   const seenResidents = new Set<string>();
-  const seenInstances = new Set<string>();
   return policyValues.map((policyValue, index) => {
     const policy = lmStudioLocalPolicy(policyValue);
     const residentId = boundedIdentity(residentIds[index], 'LM Studio resident instance owner');
     const modelInstanceId = lmStudioResidentInstanceId(policy, residentId);
-    if (seenResidents.has(residentId) || seenInstances.has(modelInstanceId)) {
-      throw new Error('LM Studio resident identities and model instances must be unique');
+    if (seenResidents.has(residentId)) {
+      throw new Error('LM Studio resident identities must be unique');
     }
     seenResidents.add(residentId);
-    seenInstances.add(modelInstanceId);
     return { residentId, policy, modelInstanceId };
   });
+}
+
+function sharedRuntimeBindings(
+  bindings: readonly LmStudioResidentInstanceBinding[],
+  maxParallel = Number.MAX_SAFE_INTEGER,
+): LmStudioSharedRuntimeBinding[] {
+  const shared = new Map<string, LmStudioSharedRuntimeBinding>();
+  for (const binding of bindings) {
+    const existing = shared.get(binding.modelInstanceId);
+    if (existing) {
+      shared.set(binding.modelInstanceId, {
+        ...existing,
+        parallel: Math.min(existing.parallel + 1, maxParallel),
+      });
+    } else {
+      shared.set(binding.modelInstanceId, {
+        policy: binding.policy,
+        modelInstanceId: binding.modelInstanceId,
+        parallel: 1,
+      });
+    }
+  }
+  return [...shared.values()];
 }
 
 function exactInstanceId(value: unknown) {

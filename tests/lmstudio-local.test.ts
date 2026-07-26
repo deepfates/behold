@@ -503,7 +503,7 @@ test('LM Studio resident session owns exact custom instances and releases them a
   assert.equal(loaded.size, 0);
 });
 
-test('same-model residents own distinct entity-bound LM Studio instances', async (t) => {
+test('same-model residents share weights while retaining distinct resident bindings', async (t) => {
   const fixture = await artifactFixture(t);
   const residentPolicy = policy(fixture);
   const residentIds = ['OxfordAster', 'OxfordBirch'];
@@ -512,6 +512,7 @@ test('same-model residents own distinct entity-bound LM Studio instances', async
   );
   const commands: string[][] = [];
   const loaded = new Set<string>();
+  const parallelByInstance = new Map<string, number>();
   const runLms = (args: readonly string[]) => {
     commands.push([...args]);
     if (args[0] === '--version') return `CLI commit: ${CLI_COMMIT}\n`;
@@ -519,16 +520,39 @@ test('same-model residents own distinct entity-bound LM Studio instances', async
     if (args[0] === 'ls') return JSON.stringify([indexEntry(residentPolicy)]);
     if (args[0] === 'ps') return '[]';
     if (args[0] === 'load') {
-      loaded.add(String(args[args.indexOf('--identifier') + 1]));
+      const instanceId = String(args[args.indexOf('--identifier') + 1]);
+      loaded.add(instanceId);
+      parallelByInstance.set(instanceId, Number(args[args.indexOf('--parallel') + 1]));
       return 'loaded\n';
     }
     if (args[0] === 'unload') {
       loaded.delete(String(args[1]));
+      parallelByInstance.delete(String(args[1]));
       return 'unloaded\n';
     }
     throw new Error(`unexpected lms command ${args.join(' ')}`);
   };
-  const fetch: typeof globalThis.fetch = async () => inventoryResponse(residentPolicy, [...loaded]);
+  const fetch: typeof globalThis.fetch = async () =>
+    json({
+      models: [
+        {
+          key: residentPolicy.catalogKey,
+          type: 'llm',
+          format: residentPolicy.runtime.format,
+          size_bytes: residentPolicy.artifact.sizeBytes,
+          architecture: 'qwen3',
+          max_context_length: 32768,
+          capabilities: { trained_for_tool_use: true },
+          loaded_instances: [...loaded].map((id) => ({
+            id,
+            config: {
+              context_length: residentPolicy.settings.contextTokens,
+              parallel: parallelByInstance.get(id),
+            },
+          })),
+        },
+      ],
+    });
   const preflight = await preflightLmStudioLocal({
     policies: [residentPolicy, residentPolicy],
     modelsRoot: fixture.modelsRoot,
@@ -544,19 +568,21 @@ test('same-model residents own distinct entity-bound LM Studio instances', async
     fetch,
   });
 
-  assert.equal(session.protocol, 'behold.lmstudio-resident-session.v2');
+  assert.equal(session.protocol, 'behold.lmstudio-resident-session.v3');
   assert.deepEqual(
     session.models.map((model) => ({
       residentId: model.residentId,
       modelInstanceId: model.modelInstanceId,
     })),
-    residentIds.map((residentId, index) => ({
+    residentIds.map((residentId) => ({
       residentId,
-      modelInstanceId: instanceIds[index],
+      modelInstanceId: instanceIds[0],
     })),
   );
-  assert.deepEqual([...loaded].sort(), [...instanceIds].sort());
-  assert.equal(commands.filter((args) => args[0] === 'load').length, 2);
+  assert.equal(new Set(instanceIds).size, 1);
+  assert.deepEqual([...loaded], [instanceIds[0]]);
+  assert.equal(commands.filter((args) => args[0] === 'load').length, 1);
+  assert.equal(parallelByInstance.get(instanceIds[0]), 2);
 
   const release = await releaseLmStudioResidentSession({
     session,
@@ -565,7 +591,29 @@ test('same-model residents own distinct entity-bound LM Studio instances', async
     runLms,
     fetch,
   });
-  assert.deepEqual([...release.unloadedInstances].sort(), [...instanceIds].sort());
+  assert.deepEqual(release.unloadedInstances, [instanceIds[0]]);
+  assert.equal(loaded.size, 0);
+
+  const serializedSession = await prepareLmStudioResidentSession({
+    policies: [residentPolicy, residentPolicy],
+    residentIds,
+    preflight,
+    maxParallel: 1,
+    runLms,
+    fetch,
+  });
+  assert.deepEqual(
+    serializedSession.models.map((model) => model.parallel),
+    [1, 1],
+  );
+  assert.equal(parallelByInstance.get(instanceIds[0]), 1);
+  await releaseLmStudioResidentSession({
+    session: serializedSession,
+    policies: [residentPolicy, residentPolicy],
+    residentIds,
+    runLms,
+    fetch,
+  });
   assert.equal(loaded.size, 0);
 });
 

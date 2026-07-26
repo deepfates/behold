@@ -2328,6 +2328,7 @@ export async function startManagedWorld(
           policies: activeLmStudioPolicies,
           residentIds: activeLmStudioResidentIds,
           preflight: lmStudioPreflight!,
+          maxParallel: maxConcurrentModelCalls,
           ...(dependencies.lmStudioRunLms ? { runLms: dependencies.lmStudioRunLms } : {}),
           ...(dependencies.lmStudioSessionFetch
             ? { fetch: dependencies.lmStudioSessionFetch }

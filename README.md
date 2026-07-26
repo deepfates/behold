@@ -20,7 +20,7 @@ portable Lync that can be inspected with tools such as Textile.
 The pieces are substantial but not yet a successful living-world treatment.
 `behold live` now composes an accepted Place release, persistent named lives,
 independently configured resident sessions, viewer discovery, a native-client
-endpoint, clean stop/resume, and an authenticated aftermath in one foreground
+endpoint, clean stop/resume, and an authenticated episode record in one foreground
 operator entry. It does not launch a human client or run Textile on the
 operator's behalf. More importantly, the installed local-model treatments have
 not yet produced sustained adaptive Minecraft conduct at body-relevant latency.
@@ -41,14 +41,15 @@ Persistent living Place
   the residents are ready, the entry prints the local launcher settings and
   requires both the Place-owned server log and every independent resident
   journal to witness that declared player's join. A declared but unwitnessed
-  treatment preserves its aftermath and exits nonzero.
-- A clean stop records the new persistent world head and an episode aftermath.
-  The aftermath binds the Place control transcript, byte-identical Place-owned
+  treatment preserves its episode record and exits nonzero.
+- A clean stop records the new persistent world head and an authenticated episode
+  record. The record binds the Place control transcript, byte-identical Place-owned
   Minecraft server log, cognition/accounting evidence, per-life body journals,
   episode-local byte-identical Lync snapshots, and closed viewer endpoints. It
-  also emits one `textile-resident-lives.lync` byte union for ordinary Textile
-  import using profile `org.behold.inhabitant.v1`; Behold does not render or
-  rewrite the resident histories.
+  also emits one `textile-resident-lives.lync` byte union as a viewing convenience.
+  The original Lync multiversal logs remain canonical; Textile is an interface
+  for viewing them through profile `org.behold.inhabitant.v1`, and Behold does
+  not render or rewrite those histories.
 - Repeating the exact command and session name resumes the same stopped world,
   bodies, life looms, and resident configuration. Each new episode receives a
   fresh, explicitly bounded provider-attempt scope under the persistent session
