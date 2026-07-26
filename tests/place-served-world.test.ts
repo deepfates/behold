@@ -100,6 +100,46 @@ test('a frozen saved Place runtime becomes one immutable Behold adoption basis a
   );
   assert.equal(resumed.head.runtimeDigest, digestTree(fixture.runtimeWorld).digest);
 
+  fs.writeFileSync(path.join(fixture.runtimeWorld, 'setup-tick.txt'), 'real pre-release change');
+  const failedControl = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: established.descriptor.worldId,
+    runtimePath: fixture.runtimeWorld,
+  });
+  failedControl.append('run_configured', {
+    world: { id: established.descriptor.worldId },
+    serverAuthority: { kind: 'place-release-serve', identity: fixture.authority.identity },
+  });
+  failedControl.append('cognition_broker_ready', {});
+  failedControl.append('run_start_failed', { error: 'fixture release refusal' });
+  failedControl.update('stopping');
+  failedControl.append('cognition_broker_drained', {
+    snapshot: { accepted: 0, admitted: 0 },
+  });
+  const failedTerminal = failedControl.append('failed_start_terminal_world_state', {
+    protocol: 'behold.managed-terminal-world-state.v1',
+    runtime: failedControl.record().runtime,
+    tree: digestTree(fixture.runtimeWorld),
+  });
+  failedControl.update('stopped_verified', { server: null, controllers: [] });
+  failedControl.append('failed_start_cleanup_completed');
+  const failedLifecycleFile = failedControl.journalFile;
+  failedControl.release();
+
+  const failedHead = recordPlaceServedWorldHead({
+    descriptorFile: established.descriptor.paths.descriptor,
+    lifecycleFile: failedLifecycleFile,
+    headFile: fixture.headFile,
+  });
+  assert.equal(failedHead.terminalKind, 'failed_start_cleanup');
+  assert.equal(failedHead.lifecycle.terminalSequence, failedTerminal.sequence);
+  assert.equal(failedHead.runtimeDigest, digestTree(fixture.runtimeWorld).digest);
+  assert.equal(
+    assertPlaceServedResumeContinuity(established.descriptor.paths.descriptor, fixture.headFile)
+      .head.runtimeDigest,
+    failedHead.runtimeDigest,
+  );
+
   fs.writeFileSync(path.join(fixture.runtimeWorld, 'resident-built.txt'), 'out of band mutation');
   assert.throws(
     () =>
@@ -124,6 +164,52 @@ test('served-world verification rejects a changed immutable adoption checkpoint'
   assert.throws(
     () => verifyPlaceServedWorldBasis(established.descriptor.paths.descriptor),
     /content identity no longer matches/,
+  );
+});
+
+test('served-world head refuses to normalize a failure after population release', (t) => {
+  const fixture = makeFixture(t);
+  const established = establishPlaceServedWorldBasis(
+    {
+      sessionRoot: fixture.sessionRoot,
+      authority: fixture.authority,
+      saveEvidence: fixture.saveTerminal,
+    },
+    { assertAuthorityOwnership: () => {} },
+  );
+  const control = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: established.descriptor.worldId,
+    runtimePath: fixture.runtimeWorld,
+  });
+  control.append('run_configured', {
+    world: { id: established.descriptor.worldId },
+    serverAuthority: { kind: 'place-release-serve', identity: fixture.authority.identity },
+  });
+  control.append('cognition_broker_ready', {});
+  control.append('experiment_released', { releaseId: 'fixture-release' });
+  control.append('run_start_failed', { error: 'fixture post-release failure' });
+  control.append('cognition_broker_drained', {
+    snapshot: { accepted: 0, admitted: 0 },
+  });
+  control.append('failed_start_terminal_world_state', {
+    protocol: 'behold.managed-terminal-world-state.v1',
+    runtime: control.record().runtime,
+    tree: digestTree(fixture.runtimeWorld),
+  });
+  control.update('stopped_verified', { server: null, controllers: [] });
+  control.append('failed_start_cleanup_completed');
+  const lifecycleFile = control.journalFile;
+  control.release();
+
+  assert.throws(
+    () =>
+      recordPlaceServedWorldHead({
+        descriptorFile: established.descriptor.paths.descriptor,
+        lifecycleFile,
+        headFile: fixture.headFile,
+      }),
+    /Only a clean stopped Behold lifecycle/,
   );
 });
 

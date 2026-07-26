@@ -191,47 +191,65 @@ export async function runLiveCli(argv: string[]) {
       assertPlaceServedAuthority(established.descriptor, authority);
     }
 
-    run = await startManagedWorld(
-      {
-        worldId: established.descriptor.worldId,
-        world: established.world,
-        controlRoot: paths.control,
-        serverDirectory: authority.placeIdentity.runtimePath,
-        serverJar: authority.minecraftServerJar,
-        expectedServerJarSha256: authority.minecraftServerSha256,
-        java: bundledJava(),
-        controllerEntry: path.join(repositoryRoot, 'dist', 'src', 'cli', 'behold.js'),
-        entityRoot: paths.entities,
-        runRoot: paths.runs,
-        residents,
-        residentViewers: {
-          protocol: RESIDENT_VIEWER_PROTOCOL,
-          basePort: viewerBasePort,
-          viewDistance: viewerDistance,
-        },
-        maxResidents: residents.length,
-        maxConcurrentModelCalls,
-        accountingScopeId: plan.accountingScopeId,
-        ...(residents.some((resident) => resident.ollamaLocal != null)
-          ? {
-              ollamaServerConfigFile:
-                process.env.BEHOLD_OLLAMA_SERVER_CONFIG ??
-                path.join(os.homedir(), '.ollama', 'server.json'),
-            }
-          : {}),
-        ...(residents.some((resident) => resident.lmStudioLocal != null)
-          ? {
-              lmStudioModelsRoot: path.resolve(
-                String(
-                  parsed.values['lmstudio-models-root'] ??
-                    path.join(os.homedir(), '.lmstudio', 'models'),
+    const lifecycleFilesBefore = new Set(liveLifecycleFiles(paths.control, plan.worldId));
+    try {
+      run = await startManagedWorld(
+        {
+          worldId: established.descriptor.worldId,
+          world: established.world,
+          controlRoot: paths.control,
+          serverDirectory: authority.placeIdentity.runtimePath,
+          serverJar: authority.minecraftServerJar,
+          expectedServerJarSha256: authority.minecraftServerSha256,
+          java: bundledJava(),
+          controllerEntry: path.join(repositoryRoot, 'dist', 'src', 'cli', 'behold.js'),
+          entityRoot: paths.entities,
+          runRoot: paths.runs,
+          residents,
+          residentViewers: {
+            protocol: RESIDENT_VIEWER_PROTOCOL,
+            basePort: viewerBasePort,
+            viewDistance: viewerDistance,
+          },
+          maxResidents: residents.length,
+          maxConcurrentModelCalls,
+          accountingScopeId: plan.accountingScopeId,
+          ...(residents.some((resident) => resident.ollamaLocal != null)
+            ? {
+                ollamaServerConfigFile:
+                  process.env.BEHOLD_OLLAMA_SERVER_CONFIG ??
+                  path.join(os.homedir(), '.ollama', 'server.json'),
+              }
+            : {}),
+          ...(residents.some((resident) => resident.lmStudioLocal != null)
+            ? {
+                lmStudioModelsRoot: path.resolve(
+                  String(
+                    parsed.values['lmstudio-models-root'] ??
+                      path.join(os.homedir(), '.lmstudio', 'models'),
+                  ),
                 ),
-              ),
-            }
-          : {}),
-      },
-      { externalServerAuthority: authority },
-    );
+              }
+            : {}),
+        },
+        { externalServerAuthority: authority },
+      );
+    } catch (error) {
+      const addedLifecycleFiles = liveLifecycleFiles(paths.control, plan.worldId).filter(
+        (file) => !lifecycleFilesBefore.has(file),
+      );
+      if (addedLifecycleFiles.length === 1) {
+        const failedHead = recordPlaceServedWorldHead({
+          descriptorFile: paths.descriptor,
+          lifecycleFile: addedLifecycleFiles[0],
+          headFile: paths.head,
+        });
+        process.stderr.write(
+          `[behold live] failed start stopped cleanly; preserved world head ${failedHead.runtimeDigest}\n`,
+        );
+      }
+      throw error;
+    }
     printLiveReady(sessionId, authority, run, durationMs, episodeRoot);
     run.control.append('live_session_duration_armed', {
       durationMs,
@@ -337,6 +355,16 @@ function liveSessionPaths(sessionRoot: string) {
     entities: path.join(sessionRoot, 'entities'),
     runs: path.join(sessionRoot, 'runs'),
   });
+}
+
+function liveLifecycleFiles(controlRoot: string, worldId: string) {
+  const directory = path.join(controlRoot, sanitizeName(worldId));
+  if (!fs.existsSync(directory)) return [];
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^lifecycle-[0-9]+\.jsonl$/.test(entry.name))
+    .map((entry) => path.join(directory, entry.name))
+    .sort();
 }
 
 function writeLivePlan(

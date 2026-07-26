@@ -15,6 +15,8 @@ import { verifyWorldLifecycleJournal } from './world-control';
 export const PLACE_SERVED_WORLD_PROTOCOL = 'behold.place-served-world.v1' as const;
 export const PLACE_SERVED_WORLD_HEAD_PROTOCOL = 'behold.place-served-world-head.v1' as const;
 
+type PlaceServedWorldTerminalKind = 'completed_run' | 'failed_start_cleanup';
+
 export type PlaceServedWorldDescriptor = Readonly<{
   protocol: typeof PLACE_SERVED_WORLD_PROTOCOL;
   worldId: string;
@@ -348,18 +350,25 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
     const terminal = lifecycle.events.find(
       (event) => event.sequence === head.lifecycle.terminalSequence,
     );
-    const stopped = lifecycle.events.find(
-      (event) => event.sequence > head.lifecycle.terminalSequence && event.type === 'run_stopped',
-    );
+    const terminalKind = placeServedWorldTerminalKind(terminal?.type);
+    const completed = terminal
+      ? placeServedWorldTerminalCompletion(
+          lifecycle.events,
+          terminal.sequence,
+          terminalKind,
+          descriptor,
+        )
+      : null;
     if (
       lifecycle.world !== descriptor.worldId ||
       lifecycle.tipDigest !== head.lifecycle.tipDigest ||
       lifecycle.events.at(-1)?.type !== 'control_released' ||
-      terminal?.type !== 'run_terminal_world_state' ||
+      terminalKind == null ||
+      (head.terminalKind != null && head.terminalKind !== terminalKind) ||
       terminal.digest !== head.lifecycle.terminalDigest ||
       (terminal.data as any)?.protocol !== 'behold.managed-terminal-world-state.v1' ||
       (terminal.data as any)?.tree?.digest !== head.runtimeDigest ||
-      !stopped
+      !completed
     ) {
       throw new Error('Place served-world head does not name a clean terminal lifecycle');
     }
@@ -382,17 +391,26 @@ export function recordPlaceServedWorldHead(input: {
   const lifecycle = verifyWorldLifecycleJournal(input.lifecycleFile);
   const terminal = [...lifecycle.events]
     .reverse()
-    .find((event) => event.type === 'run_terminal_world_state');
-  const stopped = terminal
-    ? lifecycle.events.find(
-        (event) => event.sequence > terminal.sequence && event.type === 'run_stopped',
+    .find(
+      (event) =>
+        event.type === 'run_terminal_world_state' ||
+        event.type === 'failed_start_terminal_world_state',
+    );
+  const terminalKind = placeServedWorldTerminalKind(terminal?.type);
+  const completed = terminal
+    ? placeServedWorldTerminalCompletion(
+        lifecycle.events,
+        terminal.sequence,
+        terminalKind,
+        descriptor,
       )
     : null;
   if (
     lifecycle.world !== descriptor.worldId ||
     lifecycle.events.at(-1)?.type !== 'control_released' ||
     !terminal ||
-    !stopped ||
+    terminalKind == null ||
+    !completed ||
     (terminal.data as any)?.protocol !== 'behold.managed-terminal-world-state.v1'
   ) {
     throw new Error('Only a clean stopped Behold lifecycle can advance the served-world head');
@@ -406,6 +424,7 @@ export function recordPlaceServedWorldHead(input: {
     worldId: descriptor.worldId,
     updatedAt: (input.now?.() ?? new Date()).toISOString(),
     runtimeDigest: runtime.digest,
+    terminalKind,
     lifecycle: {
       file: lifecycle.file,
       terminalSequence: terminal.sequence,
@@ -416,6 +435,82 @@ export function recordPlaceServedWorldHead(input: {
   const head = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
   atomicWriteJson(input.headFile, head);
   return head;
+}
+
+function placeServedWorldTerminalKind(type: unknown): PlaceServedWorldTerminalKind | null {
+  if (type === 'run_terminal_world_state') return 'completed_run';
+  if (type === 'failed_start_terminal_world_state') return 'failed_start_cleanup';
+  return null;
+}
+
+function placeServedWorldTerminalCompletion(
+  events: readonly any[],
+  terminalSequence: number,
+  kind: PlaceServedWorldTerminalKind | null,
+  descriptor: PlaceServedWorldDescriptor,
+) {
+  if (kind === 'completed_run') {
+    return events.find(
+      (event) => event.sequence > terminalSequence && event.type === 'run_stopped',
+    );
+  }
+  if (kind === 'failed_start_cleanup') {
+    const configured = events.find((event) => event.type === 'run_configured');
+    const failed = events.find(
+      (event) => event.sequence < terminalSequence && event.type === 'run_start_failed',
+    );
+    const released = events.find((event) => event.type === 'experiment_released');
+    const brokerReady = events.find((event) => event.type === 'cognition_broker_ready');
+    const cognition = [...events]
+      .reverse()
+      .find((event) => event.type === 'cognition_broker_drained');
+    const completed = events.find(
+      (event) =>
+        event.sequence > terminalSequence && event.type === 'failed_start_cleanup_completed',
+    );
+    if (
+      !placeServedRunConfigurationMatches(configured?.data, descriptor) ||
+      !failed ||
+      released ||
+      (brokerReady &&
+        (!cognition ||
+          (cognition.data as any)?.snapshot?.accepted !== 0 ||
+          (cognition.data as any)?.snapshot?.admitted !== 0)) ||
+      (!brokerReady && events.some((event) => event.type === 'controller_started'))
+    ) {
+      return null;
+    }
+    return completed ?? null;
+  }
+  return null;
+}
+
+function placeServedRunConfigurationMatches(data: any, descriptor: PlaceServedWorldDescriptor) {
+  const identity = data?.serverAuthority?.identity;
+  if (
+    data?.world?.id !== descriptor.worldId ||
+    data?.serverAuthority?.kind !== 'place-release-serve' ||
+    !identity
+  ) {
+    return false;
+  }
+  const origin = {
+    controlProtocol: identity.protocol,
+    placeCompilerRevision: identity.placeCompilerRevision,
+    placeId: identity.placeId,
+    sourceRunId: identity.sourceRunId,
+    profileId: identity.profileId,
+    minecraftVersion: identity.minecraftVersion,
+    sourceReleaseManifestSha256: identity.sourceReleaseManifestSha256,
+    sourceWorldTreeSha256: identity.sourceWorldTreeSha256,
+    minecraftServerSha256: identity.minecraftServerSha256,
+    runtimeManifestSha256: identity.runtimeManifestSha256,
+  };
+  return (
+    stableJson(origin) === stableJson(descriptor.origin) &&
+    identity.releasePath === descriptor.paths.release &&
+    identity.runtimePath === descriptor.paths.runtimeRoot
+  );
 }
 
 function assertPlaceControlTerminal(
