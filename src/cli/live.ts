@@ -44,6 +44,7 @@ export async function runLiveCli(argv: string[]) {
       'viewer-base-port': { type: 'string' },
       'viewer-distance': { type: 'string' },
       'place-compiler': { type: 'string' },
+      'server-jar': { type: 'string' },
       'max-model-concurrency': { type: 'string' },
       'lmstudio-models-root': { type: 'string' },
       help: { type: 'boolean', default: false },
@@ -151,6 +152,9 @@ export async function runLiveCli(argv: string[]) {
       acceptEula: true,
       port: admittedPort,
       expectedPlaceCompilerRevision: existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION,
+      ...(parsed.values['server-jar']
+        ? { serverJar: plainFile(String(parsed.values['server-jar']), 'Minecraft server JAR') }
+        : {}),
     });
 
     let established;
@@ -571,6 +575,7 @@ export function liveUsage() {
     '  --viewer-base-port PORT        First resident POV (default 3007)',
     '  --viewer-distance CHUNKS       POV view distance, 2-16 (default 6)',
     '  --place-compiler DIRECTORY     Exact Place Compiler checkout',
+    '  --server-jar FILE              Pinned Minecraft server JAR for Place serve',
     '  --max-model-concurrency N      Concurrent local cognition (default min(2, residents))',
     '  --lmstudio-models-root DIR     Exact local LM Studio artifact root',
     '',
