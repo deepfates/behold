@@ -209,3 +209,29 @@ criteria still require a non-scripted persistent witnessed resident
 consequence, native human entry, stop/resume, and the composed readable
 aftermath. Equal quotas remain resource governance, never fairness or a model
 ranking.
+
+**2026-07-26T00:47:37Z**
+
+The bounded local feasibility probe made exactly one 3B attempt and stopped
+before 70B. Pinned loopback identity, transport capture, 16k/512 settings,
+native timing, and clean `keep_alive: 0s` unload passed. The model named the
+right yield tool but returned a typed wrapper where `reason` required a string,
+so the resident boundary rejected it before any model/entity turn or world
+action. There was no retry, correction, substitution, remote provider call, or
+second model load; the only inference was the exact local loopback attempt.
+
+The no-inference root-cause pass found an owning defect in the synthetic probe:
+its `const` and `additionalProperties` keywords are outside Behold's action
+validator and are silently dropped by Ollama 0.23.2's typed tool API. The same
+Ollama API also drops `minimum`/`maximum` bounds used by four real
+`minecraft-human-semantic-v1` actions before rendering the installed template.
+The wrapper itself came through Ollama's generic JSON tool parser and Behold
+unchanged; a checked-in fixture now proves one transport success followed by
+`adapter_rejected`, with no normalization, second attempt, turn, intent, or
+world mutation.
+
+`beh-n4fe` remains open. Local Ollama is now explicitly no-go for the pilot
+until a model-free exact schema decode/render round trip passes or an
+explicitly versioned alternative contract is ratified. This does not establish
+that the 3B model is incapable, and 70B remains untested. Details:
+`docs/reports/2026-07-25-ollama-tool-argument-root-cause.md`.

@@ -239,3 +239,15 @@ differ radically in capacity and deployment latency even though they share a
 model family, body, prompt projection, and resource-governance quotas. Those
 controls do not create a fair model comparison, and the pilot must make no
 winner claim.
+
+Follow-up on 2026-07-25 local / 2026-07-26 UTC: the first authorized 3B call
+stopped the ordered probe before 70B because the model returned a typed wrapper
+instead of a string tool argument. The retained source pass then found that the
+synthetic probe used schema keywords outside Behold's own action contract and
+that Ollama 0.23.2 drops those keywords, plus the numeric bounds used by four
+real human-semantic actions, before template rendering. The measured 3B
+transport mechanics passed, but exact model-facing action-schema parity did
+not. See
+[`2026-07-25-ollama-tool-argument-root-cause.md`](2026-07-25-ollama-tool-argument-root-cause.md).
+No 70B inference occurred, and local Ollama remains closed for a resident pilot
+until the model-free schema-render round trip is honest.

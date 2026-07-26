@@ -1,0 +1,129 @@
+{
+  "protocol": "behold.test-fixture.ollama-local-typed-wrapper.v1",
+  "source": {
+    "capturedAt": "2026-07-26T00:36:08.863903Z",
+    "ollamaVersion": "0.23.2",
+    "modelTag": "llama3.2:3b",
+    "modelDigest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
+    "requestBodySha256": "2d4ff538670bccb842446bb498cec4c893a7496310627e7b5b96aabdc3dc5765",
+    "transportAttemptDigest": "a5f6eb6a44585ae7a07cc9f75a3ca4cee275bc3282c608fda27a906f815a31da"
+  },
+  "mindRequest": {
+    "protocol": "behold.mind-request.v1",
+    "entityId": "LocalFeasibilityResident",
+    "model": "llama3.2:3b",
+    "policyProfile": "ollama-feasibility-probe-v1",
+    "bodyProfile": "minecraft-human-semantic-v1",
+    "actionProfile": "minecraft-human-semantic-v1",
+    "safetyProfile": "vanilla-player-v1",
+    "observation": {
+      "kind": "synthetic_transport_probe",
+      "visible": "No world is attached. Wait without acting."
+    },
+    "conversation": [
+      {
+        "role": "system",
+        "content": "This is a local transport feasibility probe. Use exactly the one supplied tool. Do not narrate, plan, or choose another action."
+      },
+      {
+        "role": "user",
+        "content": "Call wait_for_event once with reason exactly \"transport feasibility probe\"."
+      }
+    ],
+    "actions": [
+      {
+        "name": "wait_for_event",
+        "description": "Yield without changing a world while waiting for another observation.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "transport feasibility probe"
+            }
+          },
+          "required": ["reason"]
+        }
+      }
+    ],
+    "requiredAction": "wait_for_event",
+    "attention": {
+      "mode": "deliberative",
+      "context": "bounded_loom",
+      "triggers": []
+    }
+  },
+  "requestBody": {
+    "model": "llama3.2:3b",
+    "messages": [
+      {
+        "role": "system",
+        "content": "This is a local transport feasibility probe. Use exactly the one supplied tool. Do not narrate, plan, or choose another action."
+      },
+      {
+        "role": "user",
+        "content": "Call wait_for_event once with reason exactly \"transport feasibility probe\"."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "wait_for_event",
+          "description": "Yield without changing a world while waiting for another observation.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "type": "string",
+                "const": "transport feasibility probe"
+              }
+            },
+            "required": ["reason"]
+          }
+        }
+      }
+    ],
+    "stream": false,
+    "options": {
+      "num_ctx": 16384,
+      "num_predict": 512,
+      "temperature": 0.2
+    },
+    "keep_alive": "0s"
+  },
+  "responseBody": {
+    "model": "llama3.2:3b",
+    "created_at": "2026-07-26T00:36:08.863903Z",
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_86t01w6i",
+          "function": {
+            "index": 0,
+            "name": "wait_for_event",
+            "arguments": {
+              "object": "<nil>",
+              "reason": {
+                "type": "string",
+                "value": "transport feasibility probe"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "done": true,
+    "done_reason": "stop",
+    "total_duration": 1425341167,
+    "load_duration": 1093641417,
+    "prompt_eval_count": 187,
+    "prompt_eval_duration": 108895000,
+    "eval_count": 36,
+    "eval_duration": 212167999
+  }
+}

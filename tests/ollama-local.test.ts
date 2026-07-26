@@ -5,11 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { createOllamaLocalResidentMind } from '../src/mind/ollama';
 import { ResidentMindCallError } from '../src/mind/evidence';
+import { validateResidentActionInput } from '../src/mind/schema';
 import {
   directOllamaRequestBody,
   ollamaLocalPolicy,
   preflightOllamaLocal,
 } from '../src/mind/ollama-local';
+import typedWrapperFixture from './fixtures/ollama-local-typed-wrapper.json';
 
 const DIGEST_3B = 'a'.repeat(64);
 const DIGEST_70B = 'b'.repeat(64);
@@ -220,6 +222,59 @@ test('Ollama mind checks response tag and retains native failures distinctly', a
       assert.equal(error.call.response.localIdentity.reason, 'model_mismatch');
       return true;
     },
+  );
+});
+
+test('Ollama mind preserves the captured typed-wrapper arguments without correction', async () => {
+  const bodies: any[] = [];
+  let calls = 0;
+  const mind = createOllamaLocalResidentMind({
+    bearer: 'resident-broker-bearer-that-is-long-enough',
+    endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
+    policy: {
+      protocol: 'behold.ollama-local-policy.v1',
+      endpoint: 'http://127.0.0.1:11434/api/chat',
+      modelTag: typedWrapperFixture.source.modelTag,
+      modelDigest: typedWrapperFixture.source.modelDigest,
+      settings: {
+        contextTokens: 16_384,
+        maxOutputTokens: 512,
+        temperature: 0.2,
+        keepAlive: '0s',
+      },
+    },
+    cognitionTransport: true,
+    recordModelIO: true,
+    fetch: async (_url, init) => {
+      calls += 1;
+      bodies.push(JSON.parse(String(init?.body)));
+      return json(typedWrapperFixture.responseBody);
+    },
+  });
+
+  const decision = await mind.decide(typedWrapperFixture.mindRequest as any, {
+    signal: new AbortController().signal,
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(bodies, [typedWrapperFixture.requestBody]);
+  assert.equal(decision.disposition, 'wait');
+  assert.deepEqual(
+    decision.action?.input,
+    typedWrapperFixture.responseBody.message.tool_calls[0].function.arguments,
+  );
+  assert.deepEqual(decision.call.response.raw, typedWrapperFixture.responseBody);
+  assert.equal(decision.call.response.terminal, 'success');
+  assert.deepEqual(
+    validateResidentActionInput(
+      { reason: 'transport feasibility probe' },
+      typedWrapperFixture.mindRequest.actions[0].inputSchema,
+    ),
+    {
+      ok: false,
+      errors: ['$: schema uses unsupported keys additionalProperties'],
+    },
+    'the synthetic probe schema was never an admitted Behold resident-action schema',
   );
 });
 

@@ -18,6 +18,8 @@ import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
 import { minecraftActionsForProfile } from '../src/agent/action-profiles';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine } from '../src/loop/engine';
+import { createOllamaLocalResidentMind } from '../src/mind/ollama';
+import typedWrapperFixture from './fixtures/ollama-local-typed-wrapper.json';
 
 function withMinecraftActionSurface<T extends { actions: readonly any[] }>(environment: T) {
   return {
@@ -2132,6 +2134,91 @@ test('the resident boundary rejects schema-invalid input before any world attemp
     assert.match(errors[0].error, /distance: expected integer/);
     assert.match(errors[0].error, /distance: value is above maximum 8/);
     assert.equal(errors[0].call.adapter.name, 'schema-breaking-mind');
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('captured Ollama typed-wrapper arguments cannot be corrected or reach a resident turn', async () => {
+  let transportAttempts = 0;
+  let worldAttempts = 0;
+  const errors: any[] = [];
+  const opportunities: any[] = [];
+  const modelTurns: any[] = [];
+  const entityTurns: EntityTurn[] = [];
+  const mind = createOllamaLocalResidentMind({
+    bearer: 'resident-broker-bearer-that-is-long-enough',
+    endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
+    policy: {
+      protocol: 'behold.ollama-local-policy.v1',
+      endpoint: 'http://127.0.0.1:11434/api/chat',
+      modelTag: typedWrapperFixture.source.modelTag,
+      modelDigest: typedWrapperFixture.source.modelDigest,
+      settings: {
+        contextTokens: 16_384,
+        maxOutputTokens: 512,
+        temperature: 0.2,
+        keepAlive: '0s',
+      },
+    },
+    cognitionTransport: true,
+    recordModelIO: true,
+    fetch: async () => {
+      transportAttempts += 1;
+      return new Response(JSON.stringify(typedWrapperFixture.responseBody), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const policy = startLLMPolicy(
+    {
+      entityId: 'LocalFeasibilityResident',
+      actions: [],
+      attempt: () => {
+        worldAttempts += 1;
+        return true;
+      },
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: typedWrapperFixture.source.modelTag,
+      mind,
+      policyProfile: 'neutral-benchmark-v1',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      acceptEngineEvent: () => true,
+      onDecisionOpportunity: (event) => opportunities.push(event),
+      onModelError: (error) => errors.push(error),
+      onModelTurn: (turn) => modelTurns.push(turn),
+      onEntityTurn: (turn) => entityTurns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(
+      transportAttempts,
+      1,
+      'no correction or retry may create another physical attempt',
+    );
+    assert.equal(worldAttempts, 0);
+    assert.equal(modelTurns.length, 0);
+    assert.equal(entityTurns.length, 0);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /invalid input for wait_for_event/);
+    assert.match(errors[0].error, /\$\.reason: expected string/);
+    assert.deepEqual(errors[0].call.response.raw, typedWrapperFixture.responseBody);
+    assert.deepEqual(
+      opportunities.map((event) => [event.phase, event.terminal ?? null]),
+      [
+        ['scheduled', null],
+        ['terminal', 'adapter_rejected'],
+      ],
+    );
+    assert.equal(opportunities[1].call.response.terminal, 'success');
   } finally {
     await policy.stop();
   }
