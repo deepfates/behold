@@ -91,6 +91,13 @@ it. Replaying the exact same charge evidence is idempotent; conflicting replay,
 configuration drift, and edited chains fail closed. Every append is fsynced
 before the upstream request can begin.
 
+Equal declared limits are checked again at every release. Remaining balances
+are not required to be equal after residents have lived: model latency,
+failures, cancellations, and voluntary waiting can produce different durable
+usage. Restart preserves those independent balances without refill, catch-up,
+or compensation. The separately configured fixed-decision pilot remains the
+exception because its one-shot schedule requires fresh accounts.
+
 ## What the counters mean
 
 These evidence layers remain distinct:

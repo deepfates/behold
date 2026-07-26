@@ -1505,7 +1505,6 @@ function matchedReleaseAccounting(
       { expected: residents.length, actual: accounting?.accounts.length ?? 0 },
     );
   }
-  const balances = new Set<string>();
   for (const resident of residents) {
     const expected = configured.accounts.get(resident.entityId)!;
     const actual = accounting.accounts.find((account) => account.accountId === expected.accountId);
@@ -1538,16 +1537,6 @@ function matchedReleaseAccounting(
         { entityId: resident.entityId, account: actual },
       );
     }
-    balances.add(
-      JSON.stringify({ limits: actual.limits, used: actual.used, remaining: actual.remaining }),
-    );
-  }
-  if (balances.size !== 1) {
-    throw new WorldRunnerError(
-      'Release-gated residents do not have equal remaining per-purpose budgets',
-      'experiment_release_accounting_unmatched',
-      { accounts: accounting.accounts },
-    );
   }
   return accounting;
 }
@@ -2119,7 +2108,8 @@ export async function startManagedWorld(
                 resident_decision: 'resident decision provider attempt',
                 loom_fold: 'auxiliary context provider attempt',
               },
-              equalityEnforced: true,
+              equalDeclaredLimitsEnforced: true,
+              remainingBalanceEqualityEnforced: false,
               tokensAndCost: 'provider_reported_post_settlement',
               releaseGate: 'behold.experiment-release-plan.v1',
             }

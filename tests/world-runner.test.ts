@@ -1904,7 +1904,11 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
     3,
   );
   assert.equal(configured?.data?.population?.providerAccounting?.scopeId, accountingScopeId);
-  assert.equal(configured?.data?.population?.providerAccounting?.equalityEnforced, true);
+  assert.equal(configured?.data?.population?.providerAccounting?.equalDeclaredLimitsEnforced, true);
+  assert.equal(
+    configured?.data?.population?.providerAccounting?.remainingBalanceEqualityEnforced,
+    false,
+  );
   assert.equal(brokerReady?.data?.maxTotalModelCalls, null);
   assert.equal(brokerReady?.data?.accounting?.accounts?.[0]?.remaining?.resident_decision, 2);
   assert.equal(configured.data.population.residents[0].providerAccounting.ledgerFile, quotaFile);
@@ -2236,6 +2240,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
         journal.append('entity_turn', loom.turns().at(-1));
         if (phase === 'initial' && entityId === 'Scout') {
           await oneDecision(mind, 'provider_failure', release, sequence + 1, 'provider_error');
+          await oneDecision(mind, 'provider_failure_extra', release, sequence + 1, 'provider_error');
           const cancellation = new AbortController();
           const pending = oneDecision(
             mind,
@@ -2317,6 +2322,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
     const text = JSON.stringify(body);
     const marker =
       [
+        'provider_failure_extra',
         'provider_failure',
         'malformed_output',
         'cancel_me',
@@ -2325,7 +2331,11 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
         'valid_restart',
       ].find((candidate) => text.includes(`marker:${candidate}`)) ?? 'valid_initial';
     upstreamAttempts.push({ marker, model: String(body.model) });
-    if (marker === 'provider_failure' || marker === 'fold_failure') {
+    if (
+      marker === 'provider_failure' ||
+      marker === 'provider_failure_extra' ||
+      marker === 'fold_failure'
+    ) {
       return new Response(JSON.stringify({ error: { code: marker } }), {
         status: marker === 'provider_failure' ? 503 : 502,
         headers: { 'content-type': 'application/json' },
@@ -2483,7 +2493,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
     firstJournals.Scout.filter(
       (event) => event.type === 'resident_decision_opportunity' && event.data.phase === 'terminal',
     ).map((event) => event.data.terminal),
-    ['success', 'provider_error', 'cancelled'],
+    ['success', 'provider_error', 'provider_error', 'cancelled'],
   );
   assert.deepEqual(
     firstJournals.Builder.filter(
@@ -2517,7 +2527,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
   const firstBuilder = firstAccounts.find(
     (account) => account.accountId === cognitionAccountId(accountingScopeId, 'fixture', 'Builder'),
   )!;
-  assert.deepEqual(firstScout.used, { loom_fold: 1, resident_decision: 3 });
+  assert.deepEqual(firstScout.used, { loom_fold: 1, resident_decision: 4 });
   assert.deepEqual(firstBuilder.used, { loom_fold: 1, resident_decision: 3 });
   await first.stop('provider_free_initial_complete');
   await first.finished;
@@ -2526,9 +2536,9 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
     first.cognition!.transportCaptureDirectory,
     firstBroker.events,
   );
-  assert.equal(firstCapture.attempts, 8);
+  assert.equal(firstCapture.attempts, 9);
   assert.equal(firstCapture.successfulResponses, 4);
-  assert.equal(firstCapture.providerFailures, 3);
+  assert.equal(firstCapture.providerFailures, 4);
   assert.equal(firstCapture.cancellations, 1);
   assert.equal(firstCapture.transportErrors, 0);
   assert.deepEqual(firstCapture.usage.cost, { value: 0, reports: 3 });
@@ -2569,7 +2579,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
   const secondBuilder = secondAccounts.find(
     (account) => account.accountId === cognitionAccountId(accountingScopeId, 'fixture', 'Builder'),
   )!;
-  assert.deepEqual(secondScout.used, { loom_fold: 1, resident_decision: 4 });
+  assert.deepEqual(secondScout.used, { loom_fold: 1, resident_decision: 5 });
   assert.deepEqual(secondBuilder.used, { loom_fold: 1, resident_decision: 4 });
   await second.stop('provider_free_restart_complete');
   await second.finished;
@@ -2599,7 +2609,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
       life.turns[1].experimentRelease?.releaseId,
     );
   }
-  assert.equal(upstreamAttempts.length, 10);
+  assert.equal(upstreamAttempts.length, 11);
   assert.deepEqual(
     new Set(upstreamAttempts.map((attempt) => attempt.model)),
     new Set(['fixture/free-alpha', 'fixture/free-beta']),
