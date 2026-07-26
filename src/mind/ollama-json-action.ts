@@ -124,6 +124,24 @@ export type OllamaLocalJsonActionRequestIdentity = Readonly<{
   stablePrefixSha256?: string;
 }>;
 
+/**
+ * Runtime-independent strict resident-session material. Ollama and other local
+ * engines may wrap these exact messages/schema in their native wire envelope,
+ * but must not reinterpret the action contract or response.
+ */
+export type StrictLocalResidentSessionEnvelope = Readonly<{
+  protocol: 'behold.strict-local-resident-session-envelope.v1';
+  schemaProtocol: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
+  schemaSha256: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256;
+  messageLayoutProtocol: typeof OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
+  workingContinuityProtocol: typeof RESIDENT_WORKING_CONTINUITY_PROTOCOL;
+  messages: readonly unknown[];
+  responseSchema: unknown;
+  actionContractSha256: string;
+  responseSchemaSha256: string;
+  stablePrefixSha256: string;
+}>;
+
 export function ollamaLocalJsonActionTransport(value: unknown): OllamaLocalJsonActionTransport {
   const record = exactRecord(
     value,
@@ -176,13 +194,18 @@ export function createOllamaLocalJsonActionRequest(
   assertHumanSemanticProfiles(request);
   assertTransportTreatment(request, policy);
   const version = transportVersion(policy);
+  const residentSession = usesOllamaResidentSessionTransport(policy)
+    ? createStrictLocalResidentSessionEnvelope(request)
+    : null;
   const contract = actionContract(request, version);
   const contractJson = stableJson(contract);
-  const format = responseFormat(contract.actions, contract.requiredAction, version);
+  const format = residentSession
+    ? residentSession.responseSchema
+    : responseFormat(contract.actions, contract.requiredAction, version);
   const markers = contractMarkers(version);
   const contractContent = `${markers.instruction}${markers.begin}${contractJson}${markers.end}`;
-  const messages = usesOllamaResidentSessionTransport(policy)
-    ? residentSessionMessages(request.conversation, contractContent)
+  const messages = residentSession
+    ? residentSession.messages
     : [
         ...cloneJson(request.conversation),
         {
@@ -204,6 +227,35 @@ export function createOllamaLocalJsonActionRequest(
   });
   const identity = requestIdentity(policy, contractJson, format, messages);
   return deepFreeze({ body, identity });
+}
+
+export function createStrictLocalResidentSessionEnvelope(
+  requestValue: ResidentMindRequest,
+): StrictLocalResidentSessionEnvelope {
+  const request = parseResidentMindRequest(requestValue);
+  assertHumanSemanticProfiles(request);
+  if (request.policyProfile !== 'legible-resident-v1') {
+    throw new Error('Strict local resident session requires policyProfile legible-resident-v1');
+  }
+  const contract = actionContract(request, 2);
+  const contractJson = stableJson(contract);
+  const responseSchema = responseFormat(contract.actions, contract.requiredAction, 2);
+  const markers = contractMarkers(2);
+  const contractContent = `${markers.instruction}${markers.begin}${contractJson}${markers.end}`;
+  const messages = residentSessionMessages(request.conversation, contractContent);
+  assertResidentSessionMessageLayout(messages as unknown[]);
+  return deepFreeze({
+    protocol: 'behold.strict-local-resident-session-envelope.v1' as const,
+    schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+    schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+    messageLayoutProtocol: OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL,
+    workingContinuityProtocol: RESIDENT_WORKING_CONTINUITY_PROTOCOL,
+    messages,
+    responseSchema,
+    actionContractSha256: sha256(contractJson),
+    responseSchemaSha256: sha256(stableJson(responseSchema)),
+    stablePrefixSha256: sha256(stableJson(messages.slice(0, 2))),
+  });
 }
 
 export function assertOllamaLocalJsonActionRequest(
@@ -303,33 +355,58 @@ export function parseOllamaLocalJsonActionDecision(
   if (typeof message.content !== 'string') {
     throw new Error('Ollama local JSON action response content was not text');
   }
+  return parseStrictLocalJsonActionDecisionContent(
+    message.content,
+    message,
+    request,
+    call,
+    version,
+  );
+}
+
+/** Decode one raw constrained-output string without repair or normalization. */
+export function parseStrictLocalJsonActionDecisionContent(
+  content: string,
+  adapterRecord: unknown,
+  requestValue: ResidentMindRequest,
+  call: ModelCallEvidence,
+  version: 1 | 2 = 2,
+): ResidentMindDecision {
+  const request = parseResidentMindRequest(requestValue);
+  assertHumanSemanticProfiles(request);
+  if (version === 2 && request.policyProfile !== 'legible-resident-v1') {
+    throw new Error('Strict local JSON action v2 requires policyProfile legible-resident-v1');
+  }
+  if (typeof content !== 'string') {
+    throw new Error('Strict local JSON action response content was not text');
+  }
   let output: unknown;
   try {
-    output = JSON.parse(message.content);
+    output = JSON.parse(content);
   } catch {
-    throw new Error('Ollama local JSON action response content was not valid JSON');
+    throw new Error('Strict local JSON action response content was not valid JSON');
   }
   const decision = exactRecord(
     output,
     version === 2
       ? ['intention', 'expectedObservableConsequence', 'action', 'arguments']
       : ['action', 'arguments'],
-    'Ollama local JSON action output',
+    'Strict local JSON action output',
   );
   if (typeof decision.action !== 'string' || !decision.action) {
-    throw new Error('Ollama local JSON action output action was not nonempty text');
+    throw new Error('Strict local JSON action output action was not nonempty text');
   }
   if (!plainRecord(decision.arguments)) {
-    throw new Error('Ollama local JSON action output arguments were not an object');
+    throw new Error('Strict local JSON action output arguments were not an object');
   }
   if (!request.actions.some((action) => action.name === decision.action)) {
     throw new Error(
-      `Ollama local JSON action output selected unadmitted action ${decision.action}`,
+      `Strict local JSON action output selected unadmitted action ${decision.action}`,
     );
   }
   if (request.requiredAction && decision.action !== request.requiredAction) {
     throw new Error(
-      `Ollama local JSON action output selected ${decision.action} while ${request.requiredAction} was required`,
+      `Strict local JSON action output selected ${decision.action} while ${request.requiredAction} was required`,
     );
   }
   const publicCommitment =
@@ -351,7 +428,7 @@ export function parseOllamaLocalJsonActionDecision(
       input: cloneJson(decision.arguments),
       callId: null,
     },
-    adapterRecord: cloneJson(message),
+    adapterRecord: cloneJson(adapterRecord),
     call,
   });
 }
