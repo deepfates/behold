@@ -31,6 +31,8 @@ const PLACE_SERVE_REVISION = '103deac629d8f784ea22d956c890de77334d730a' as const
 const LIVE_SESSION_PROTOCOL = 'behold.live-session.v1' as const;
 const LIVE_AFTERMATH_PROTOCOL = 'behold.live-aftermath.v2' as const;
 const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
+const LIVE_LYNC_SNAPSHOT_PROTOCOL = 'behold.live-lync-snapshot.v1' as const;
+const LIVE_TEXTILE_IMPORT_PROTOCOL = 'behold.live-textile-import.v1' as const;
 
 export async function runLiveCli(argv: string[]) {
   const parsed = parseArgs({
@@ -433,18 +435,28 @@ function writeAftermath(input: {
   ecologyLog: ReturnType<typeof preservePlaceServerLog>;
   accountingScopeId: string;
 }) {
+  const episodeRoot = path.dirname(path.resolve(input.file));
   const lives = input.run.residents.map((resident) => {
     const directory = path.join(input.entityRoot, sanitizeName(resident.entityId), 'lync');
+    const sourceFiles = preserveResidentLyncFiles({
+      entityId: resident.entityId,
+      directory,
+      destinationRoot: path.join(episodeRoot, 'resident-lync'),
+    });
     return {
       entityId: resident.entityId,
       bodyUsername: resident.bodyUsername,
       profile: 'org.behold.inhabitant.v1',
       lyncDirectory: directory,
       manifestFile: path.join(directory, 'manifest.json'),
-      sourceFiles: listLyncFiles(directory),
+      sourceFiles,
       runJournalDirectory: resident.journalDirectory,
       runJournalFiles: listFiles(resident.journalDirectory, '.jsonl'),
     };
+  });
+  const textileImport = preserveTextileImport({
+    sourceFiles: lives.flatMap((life) => life.sourceFiles),
+    destination: path.join(episodeRoot, 'textile-resident-lives.lync'),
   });
   const base = {
     protocol: LIVE_AFTERMATH_PROTOCOL,
@@ -486,12 +498,107 @@ function writeAftermath(input: {
     lives,
     textile: {
       presenterProfile: 'org.behold.inhabitant.v1',
-      import: 'original Lync source files; no Behold-side rendering or rewriting',
+      import: 'episode-local byte union of original Lync sources; no Behold-side rendering',
+      artifact: textileImport,
     },
   };
   const record = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
   writeJsonExclusive(input.file, record);
   return Object.freeze({ file: input.file, record });
+}
+
+export function preserveResidentLyncFiles(input: {
+  entityId: string;
+  directory: string;
+  destinationRoot: string;
+}) {
+  const sources = listLyncFiles(input.directory);
+  if (sources.length === 0) {
+    throw new Error(`live aftermath requires a Lync source for ${input.entityId}`);
+  }
+  const residentRoot = path.join(path.resolve(input.destinationRoot), sanitizeName(input.entityId));
+  fs.mkdirSync(residentRoot, { recursive: true, mode: 0o700 });
+  return Object.freeze(
+    sources.map((source) => {
+      const sourceFile = plainFile(source.file, `${input.entityId} Lync source`);
+      const file = path.join(residentRoot, path.basename(sourceFile));
+      fs.copyFileSync(sourceFile, file, fs.constants.COPYFILE_EXCL);
+      fs.chmodSync(file, 0o600);
+      syncFile(file);
+      const preservedSha256 = sha256File(file);
+      if (preservedSha256 !== source.sha256 || fs.statSync(file).size !== source.sizeBytes) {
+        throw new Error(`preserved Lync source differs for ${input.entityId}`);
+      }
+      return Object.freeze({
+        protocol: LIVE_LYNC_SNAPSHOT_PROTOCOL,
+        sourceFile,
+        file,
+        sha256: preservedSha256,
+        sizeBytes: source.sizeBytes,
+        preservation: 'byte_identical_episode_snapshot' as const,
+      });
+    }),
+  );
+}
+
+export function preserveTextileImport(input: {
+  sourceFiles: ReadonlyArray<Readonly<{ file: string; sha256: string; sizeBytes: number }>>;
+  destination: string;
+}) {
+  if (input.sourceFiles.length === 0) {
+    throw new Error('Textile import requires at least one preserved Lync source');
+  }
+  const file = path.resolve(input.destination);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const descriptor = fs.openSync(
+    file,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+    0o600,
+  );
+  try {
+    for (const source of input.sourceFiles) {
+      const sourceFile = plainFile(source.file, 'preserved Textile Lync source');
+      if (
+        sha256File(sourceFile) !== source.sha256 ||
+        fs.statSync(sourceFile).size !== source.sizeBytes
+      ) {
+        throw new Error('preserved Textile Lync source changed before union');
+      }
+      appendFileToDescriptor(sourceFile, descriptor);
+    }
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  const expectedSize = input.sourceFiles.reduce((sum, source) => sum + source.sizeBytes, 0);
+  const sizeBytes = fs.statSync(file).size;
+  if (sizeBytes !== expectedSize) throw new Error('Textile Lync union has the wrong byte count');
+  return deepFreeze({
+    protocol: LIVE_TEXTILE_IMPORT_PROTOCOL,
+    file,
+    sha256: sha256File(file),
+    sizeBytes,
+    sourceCount: input.sourceFiles.length,
+    sourceSha256: input.sourceFiles.map((source) => source.sha256),
+    construction: 'ordered_byte_concatenation',
+  });
+}
+
+function appendFileToDescriptor(sourceFile: string, destination: number) {
+  const source = fs.openSync(sourceFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  try {
+    for (;;) {
+      const bytesRead = fs.readSync(source, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      let offset = 0;
+      while (offset < bytesRead) {
+        offset += fs.writeSync(destination, buffer, offset, bytesRead - offset);
+      }
+    }
+  } finally {
+    fs.closeSync(source);
+  }
 }
 
 function listLyncFiles(directory: string) {
@@ -652,6 +759,15 @@ function readJson(file: string) {
 
 function writeJsonExclusive(file: string, value: unknown) {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+}
+
+function syncFile(file: string) {
+  const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 function sha256File(file: string) {

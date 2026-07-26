@@ -40,9 +40,10 @@ Persistent living Place
 - A clean stop records the new persistent world head and an episode aftermath.
   The aftermath binds the Place control transcript, byte-identical Place-owned
   Minecraft server log, cognition/accounting evidence, per-life body journals,
-  exact Lync sources, and closed viewer endpoints. Textile reads the original
-  Lync sources using profile `org.behold.inhabitant.v1`; Behold does not rewrite
-  them into a second history.
+  episode-local byte-identical Lync snapshots, and closed viewer endpoints. It
+  also emits one `textile-resident-lives.lync` byte union for ordinary Textile
+  import using profile `org.behold.inhabitant.v1`; Behold does not render or
+  rewrite the resident histories.
 - Repeating the exact command and session name resumes the same stopped world,
   bodies, life looms, and resident configuration. Each new episode receives a
   fresh, explicitly bounded provider-attempt scope under the persistent session

@@ -309,8 +309,8 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    social conduct—not call count. Preserve failures without retries, hidden
    reflexes, forced schedules, or catch-up normalization.
 3. Finish the ordinary foreground operator path now established by `behold
-live`: exercise its v2 authoritative ecology aftermath, add an explicit
-   native-human entry treatment, and complete the Textile presentation seam.
+live`: exercise its v2 authoritative ecology aftermath and episode-frozen
+   Textile import, and add an explicit native-human entry treatment.
    Do not substitute a dashboard or a bespoke ignored harness for this entry.
 4. Pass the ticket acceptance from that ordinary path: a non-scripted persistent
    resident consequence, independent witness, native co-presence, restart

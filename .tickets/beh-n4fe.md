@@ -477,3 +477,24 @@ exclusions on hidden reflexes, action steering, and scheduler-parity treatments.
 Earlier SF runs remain historical evidence for heterogeneous configuration and
 lifecycle mechanics; they are not relabeled as acceptance of the Oxford
 endpoint. No implementation or evidence changed in this clarification.
+
+**2026-07-26T14:05:50Z**
+
+The ordinary aftermath had one additional durability defect: it hashed each
+resident's original lifelong `.lync` file but retained that mutable path, so a
+later exact resume could invalidate an earlier episode's Textile input. On
+clean shutdown `behold live` now copies each life byte-for-byte into the
+episode, verifies hash and size, and constructs one ordered
+`textile-resident-lives.lync` byte union for Textile's ordinary Import Archive
+surface. Behold still performs no rendering or causal synthesis; the separate
+Place-owned server log remains the authoritative ecology source.
+
+The focused resume fixture passed after mutating the original source, and
+Textile's actual projector consumed a union made by the production functions
+from the two retained Oxford lives: 83 source events, 81 readable turns, 2
+structural roots, 0 unsupported events, and 0 nonconforming events. No world,
+controller, model, or graphical client was started. The exact evidence is in
+`docs/reports/2026-07-26-live-textile-aftermath.md`. A new ordinary live episode
+has not yet emitted this v2 shape, and useful adaptive conduct, persistent
+resident consequence, independent witness, and native-human co-presence remain
+open; `beh-n4fe` remains open.
