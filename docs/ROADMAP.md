@@ -73,6 +73,14 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   objects at 5.687 and 3.553 seconds, but that field is not in the admitted
   session and the first request still missed the five-second body horizon. See
   [llama.cpp GPT-OSS runtime frontier](reports/2026-07-26-llamacpp-gptoss-runtime-frontier.md).
+- Same-model LM Studio residents now own entity-bound custom instances rather
+  than sharing one `parallel = 1` cache/session identity. The complete suite
+  exercises that isolation, but it has not been repeated live. The last
+  untouched compact MLX candidate passed readiness and then timed out after
+  60.018 seconds; a compact GGUF candidate returned one valid 2.312-second
+  camera choice but remains outside the exact production/template boundary and
+  did not earn a live treatment. See
+  [Resident-instance isolation and installed frontier](reports/2026-07-26-resident-instance-and-installed-frontier.md).
 - A versioned neutral evaluation configuration now crosses the CLI, managed
   runner, run journal, mind request, affordance projection, and interpreter:
   `neutral-benchmark-v1` emits only protocol guidance, does not force project
