@@ -27,7 +27,7 @@ test('live resumes durable lives with a fresh bounded accounting scope per episo
   );
 });
 
-test('live aftermath preserves the one new Place server log byte-for-byte', (t) => {
+test('live episode record preserves the one new Place server log byte-for-byte', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-ecology-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const runtimeRoot = path.join(root, 'runtime');
@@ -51,7 +51,7 @@ test('live aftermath preserves the one new Place server log byte-for-byte', (t) 
   assert.match(preserved.sha256, /^[a-f0-9]{64}$/);
 });
 
-test('live aftermath refuses an ambiguous or missing Place server log', (t) => {
+test('live episode record refuses an ambiguous or missing Place server log', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-ecology-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const runtimeRoot = path.join(root, 'runtime');
@@ -70,7 +70,7 @@ test('live aftermath refuses an ambiguous or missing Place server log', (t) => {
   assert.throws(() => preservePlaceServerLog(input), /exactly one new Place server log; found 2/);
 });
 
-test('live aftermath freezes lifelong Lync bytes and makes one direct Textile import', (t) => {
+test('live episode record freezes lifelong Lync bytes and makes one direct Textile import', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-lync-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const episodeRoot = path.join(root, 'episodes', '000001');

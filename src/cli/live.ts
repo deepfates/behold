@@ -29,7 +29,7 @@ import {
 
 const PLACE_SERVE_REVISION = '103deac629d8f784ea22d956c890de77334d730a' as const;
 const LIVE_SESSION_PROTOCOL = 'behold.live-session.v1' as const;
-const LIVE_AFTERMATH_PROTOCOL = 'behold.live-aftermath.v2' as const;
+const LIVE_EPISODE_RECORD_PROTOCOL = 'behold.live-episode-record.v1' as const;
 const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
 const LIVE_LYNC_SNAPSHOT_PROTOCOL = 'behold.live-lync-snapshot.v1' as const;
 const LIVE_TEXTILE_IMPORT_PROTOCOL = 'behold.live-textile-import.v1' as const;
@@ -305,8 +305,8 @@ export async function runLiveCli(argv: string[]) {
           repositoryRoot,
         })
       : null;
-    const aftermath = writeAftermath({
-      file: path.join(episodeRoot, 'aftermath.json'),
+    const episodeRecord = writeEpisodeRecord({
+      file: path.join(episodeRoot, 'episode-record.json'),
       sessionId,
       episodeId,
       startedAt,
@@ -321,8 +321,8 @@ export async function runLiveCli(argv: string[]) {
       nativeHuman,
     });
     process.stdout.write(`\n[behold live] stopped cleanly\n`);
-    process.stdout.write(`[behold live] aftermath: ${aftermath.file}\n`);
-    for (const life of aftermath.record.lives) {
+    process.stdout.write(`[behold live] episode record: ${episodeRecord.file}\n`);
+    for (const life of episodeRecord.record.lives) {
       process.stdout.write(`[behold live] ${life.entityId} life: ${life.lyncDirectory}\n`);
     }
     if (nativeHuman) {
@@ -335,7 +335,7 @@ export async function runLiveCli(argv: string[]) {
     );
     if (nativeHuman && !nativeHuman.assessment.passed) {
       throw new Error(
-        `native-human treatment did not produce a server join witnessed by every resident; preserved ${aftermath.file}`,
+        `native-human treatment did not produce a server join witnessed by every resident; preserved ${episodeRecord.file}`,
       );
     }
     return 0;
@@ -467,7 +467,7 @@ function readLivePlan(file: string) {
   }>;
 }
 
-function writeAftermath(input: {
+function writeEpisodeRecord(input: {
   file: string;
   sessionId: string;
   episodeId: string;
@@ -506,7 +506,7 @@ function writeAftermath(input: {
     destination: path.join(episodeRoot, 'textile-resident-lives.lync'),
   });
   const base = {
-    protocol: LIVE_AFTERMATH_PROTOCOL,
+    protocol: LIVE_EPISODE_RECORD_PROTOCOL,
     sessionId: input.sessionId,
     episodeId: input.episodeId,
     startedAt: input.startedAt,
@@ -649,7 +649,7 @@ export function preserveResidentLyncFiles(input: {
 }) {
   const sources = listLyncFiles(input.directory);
   if (sources.length === 0) {
-    throw new Error(`live aftermath requires a Lync source for ${input.entityId}`);
+    throw new Error(`live episode record requires a Lync source for ${input.entityId}`);
   }
   const residentRoot = path.join(path.resolve(input.destinationRoot), sanitizeName(input.entityId));
   fs.mkdirSync(residentRoot, { recursive: true, mode: 0o700 });

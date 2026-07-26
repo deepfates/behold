@@ -807,7 +807,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         actionProfile,
         safetyProfile,
         workingContinuity:
-          (ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)) || lmStudioLocal
+          (ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)) ||
+          lmStudioLocal ||
+          (policyProfile === 'legible-resident-v1' &&
+            providerRoute?.protocol === 'behold.openrouter-route-policy.v2')
             ? 'resident-session-v1'
             : 'recent-action-v1',
         ...(releaseGate ? { experimentRelease: () => experimentRelease } : {}),
