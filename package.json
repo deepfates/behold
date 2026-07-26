@@ -35,6 +35,7 @@
     "proof:owned-world-portfolio": "npm run build && node dist/scripts/owned-world-portfolio.js",
     "proof:native-body": "npm run build && node dist/scripts/native-body-conformance.js",
     "proof:human-semantic-body-live": "npm run build && node dist/scripts/human-semantic-body-live.js",
+    "proof:resident-viewers-live": "npm run build && node dist/scripts/resident-viewers-live.js",
     "verify:native-body": "npm run build && node dist/scripts/reassess-native-body-conformance.js",
     "proof:native-attention": "npm run build && node dist/scripts/native-attention-conformance.js",
     "proof:native-doorway": "npm run build && node dist/scripts/native-doorway-conformance.js",

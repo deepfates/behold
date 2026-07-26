@@ -3,21 +3,9 @@ import { pathfinder, Movements } from 'mineflayer-pathfinder';
 import mcDataLoader, { type IndexedData } from 'minecraft-data';
 import type { Config } from './config';
 import { assertEntityConnectionCapability, type EntityConnectionCapability } from './entity/loom';
+import { startResidentViewer, type ResidentViewerHandle } from './observability/resident-viewer';
 
-let mineflayerViewer:
-  | ((
-      bot: any,
-      opts: { viewDistance?: number; firstPerson?: boolean; port?: number; prefix?: string },
-    ) => void)
-  | null = null;
-let viewerLoadError: Error | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  ({ mineflayer: mineflayerViewer } = require('prismarine-viewer'));
-} catch (e: any) {
-  viewerLoadError = e;
-  mineflayerViewer = null;
-}
+const viewerClosers = new WeakMap<Bot, () => Promise<void>>();
 
 export function createBot(
   config: Config,
@@ -46,6 +34,22 @@ export function createBot(
 }
 
 function bindCoreEvents(bot: Bot, config: Config) {
+  let viewer: ResidentViewerHandle | null = null;
+  let viewerStart: Promise<ResidentViewerHandle | null> | null = null;
+  let viewerClose: Promise<void> | null = null;
+
+  const closeViewer = () => {
+    if (viewerClose) return viewerClose;
+    viewerClose = (async () => {
+      const active = viewer ?? (await viewerStart?.catch(() => null)) ?? null;
+      if (!active) return;
+      await active.close();
+      console.error(`[viewer] Closed ${active.endpoint}`);
+    })();
+    return viewerClose;
+  };
+  viewerClosers.set(bot, closeViewer);
+
   bot.once('login', () => {
     console.log(`[bot] Logged in as ${bot.username}`);
   });
@@ -65,8 +69,30 @@ function bindCoreEvents(bot: Bot, config: Config) {
       console.warn('[bot] Could not initialize default movements:', e?.message || e);
     }
 
-    void bot
-      .waitForChunksToLoad()
+    const enabled = config?.viewer?.enabled !== false;
+    viewerStart = enabled
+      ? startResidentViewer(bot, {
+          host: config.viewer.host,
+          port: Number(config.viewer.port || 3007),
+          firstPerson: !!config.viewer.firstPerson,
+          viewDistance: Number(config.viewer.viewDistance || 8),
+        })
+          .then((handle) => {
+            viewer = handle;
+            console.error(
+              `[viewer] Ready ${handle.endpoint} (${handle.firstPerson ? 'first-person' : 'third-person'}, read-only, ${handle.viewDistance}-chunk radius)`,
+            );
+            return handle;
+          })
+          .catch((error: any) => {
+            const failure = error instanceof Error ? error : new Error(String(error));
+            console.warn('[viewer] Failed to start viewer:', failure.message);
+            if (config.viewer.required) throw failure;
+            return null;
+          })
+      : Promise.resolve(null);
+
+    void Promise.all([bot.waitForChunksToLoad(), viewerStart])
       // Keep the lifecycle marker on its own stderr line. The interactive
       // readline prompt shares stdout and can otherwise prefix the exact
       // marker, leaving the managed launcher unable to prove readiness.
@@ -80,38 +106,6 @@ function bindCoreEvents(bot: Bot, config: Config) {
         ),
       );
 
-    try {
-      const enabled = config?.viewer?.enabled !== false;
-      if (enabled && mineflayerViewer) {
-        const port = Number(config?.viewer?.port || 3007);
-        const firstPerson = !!config?.viewer?.firstPerson;
-        const viewDistance = Number(config?.viewer?.viewDistance || 8);
-        mineflayerViewer(bot, { port, firstPerson, viewDistance });
-        console.log(
-          `[viewer] Running at http://localhost:${port} (${firstPerson ? 'first-person' : 'third-person'}, ${viewDistance}-chunk radius)`,
-        );
-
-        // Keyboard-only viewer: no click-to-act bindings (intentional)
-      } else if (enabled && !mineflayerViewer) {
-        if (
-          viewerLoadError &&
-          /Cannot find module 'canvas'/.test(String(viewerLoadError?.message))
-        ) {
-          console.warn('[viewer] prismarine-viewer requires the optional dependency "canvas".');
-          console.warn(
-            '[viewer] Install prerequisites (may require native libs) then run: npm i canvas',
-          );
-          console.warn(
-            '[viewer] macOS example: brew install pkg-config cairo pango libpng jpeg giflib librsvg',
-          );
-        } else {
-          console.warn('[viewer] prismarine-viewer not available. Ensure dependencies installed.');
-        }
-      }
-    } catch (e: any) {
-      console.warn('[viewer] Failed to start viewer:', e?.message || e);
-    }
-
     // Controls server (companion)
     // No web controls overlay (CLI controls only)
   });
@@ -122,6 +116,9 @@ function bindCoreEvents(bot: Bot, config: Config) {
 
   bot.on('end', () => {
     console.warn('[bot] Disconnected from server.');
+    void closeViewer().catch((error: any) =>
+      console.error('[viewer] Failed to close viewer:', error?.message || error),
+    );
   });
 
   bot.on('error', (err: any) => {
@@ -132,6 +129,10 @@ function bindCoreEvents(bot: Bot, config: Config) {
     if (username === bot.username) return;
     console.log(`[chat] <${username}> ${message}`);
   });
+}
+
+export async function closeBotViewer(bot: Bot) {
+  await viewerClosers.get(bot)?.();
 }
 
 export function restrictNavigationToLocomotion(movements: any) {

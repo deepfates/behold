@@ -2,7 +2,7 @@
 import 'dotenv/config';
 import { parseArgs } from 'node:util';
 import { getConfig } from '../config';
-import { createBot } from '../bot';
+import { closeBotViewer, createBot } from '../bot';
 import { buildTools } from '../tools';
 import { runStdioHarness } from '../agent/harness_stdio';
 import { openEntityLoom, type EntityLoom } from '../entity/loom';
@@ -107,6 +107,7 @@ async function stopLeasedBot(bot: ReturnType<typeof createBot>, loom: EntityLoom
       resolve();
     }
   });
+  await closeBotViewer(bot);
   await loom.close();
 }
 

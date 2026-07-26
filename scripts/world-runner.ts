@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -34,6 +35,7 @@ import {
   type WorldOwnerRecord,
 } from '../src/runtime/world-control';
 import { DEFAULT_LLM_MODEL } from '../src/config';
+import { RESIDENT_VIEWER_PROTOCOL } from '../src/observability/resident-viewer';
 import { sanitizeName } from '../src/observability/journal';
 import {
   startCognitionBroker,
@@ -514,6 +516,12 @@ export type ManagedWorldRunOptions = Readonly<{
   entityRoot: string;
   runRoot: string;
   residents: readonly ManagedResidentSpec[];
+  /** Symmetric operator-only first-person viewers; absent means no managed viewer. */
+  residentViewers?: Readonly<{
+    protocol: typeof RESIDENT_VIEWER_PROTOCOL;
+    basePort: number;
+    viewDistance: number;
+  }>;
   maxResidents?: number;
   maxConcurrentModelCalls?: number;
   maxTotalModelCalls?: number;
@@ -569,6 +577,7 @@ export type ManagedWorldRun = Readonly<{
     providerRoute: OpenRouterRoutePolicy | null;
     ollamaLocal: OllamaLocalPolicy | null;
     paused: boolean;
+    viewer: ManagedResidentViewerEndpoint | null;
     pid: number;
     leasePath: string;
     journalDirectory: string;
@@ -668,10 +677,21 @@ type NormalizedManagedResident = Readonly<{
 
 type ManagedResidentProcess = Readonly<{
   resident: NormalizedManagedResident;
+  viewer: ManagedResidentViewerEndpoint | null;
   journalDirectory: string;
   child: ChildProcessWithoutNullStreams;
   exit: Promise<ProcessExit>;
   output: OutputCapture;
+}>;
+
+export type ManagedResidentViewerEndpoint = Readonly<{
+  protocol: typeof RESIDENT_VIEWER_PROTOCOL;
+  endpoint: string;
+  host: '127.0.0.1';
+  port: number;
+  firstPerson: true;
+  readOnly: true;
+  viewDistance: number;
 }>;
 
 type ManagedCognition = Readonly<{
@@ -1308,11 +1328,65 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         providerRoute: entry.resident.providerRoute ?? null,
         ollamaLocal: entry.resident.ollamaLocal ?? null,
         paused: entry.resident.paused,
+        viewer: entry.viewer,
         pid: entry.child.pid!,
         leasePath: entry.resident.leasePath,
         journalDirectory: entry.journalDirectory,
       }),
     ),
+  );
+}
+
+export function managedResidentViewerEndpoints(
+  config: ManagedWorldRunOptions['residentViewers'],
+  residents: readonly Readonly<{ entityId: string }>[],
+): readonly ManagedResidentViewerEndpoint[] {
+  if (config == null) return Object.freeze([]);
+  if (config.protocol !== RESIDENT_VIEWER_PROTOCOL) {
+    throw new WorldRunnerError(
+      `Unsupported managed resident viewer protocol: ${String(config.protocol)}`,
+      'resident_viewer_protocol_invalid',
+    );
+  }
+  if (!Number.isSafeInteger(config.basePort) || config.basePort < 1024) {
+    throw new WorldRunnerError(
+      'Managed resident viewer basePort must be an integer from 1024 through 65535',
+      'resident_viewer_port_invalid',
+      { basePort: config.basePort },
+    );
+  }
+  const lastPort = config.basePort + Math.max(0, residents.length - 1);
+  if (lastPort > 65_535) {
+    throw new WorldRunnerError(
+      'Managed resident viewer ports exceed 65535 for the configured population',
+      'resident_viewer_port_invalid',
+      { basePort: config.basePort, residentCount: residents.length, lastPort },
+    );
+  }
+  if (
+    !Number.isSafeInteger(config.viewDistance) ||
+    config.viewDistance < 2 ||
+    config.viewDistance > 16
+  ) {
+    throw new WorldRunnerError(
+      'Managed resident viewer viewDistance must be an integer from 2 through 16 chunks',
+      'resident_viewer_distance_invalid',
+      { viewDistance: config.viewDistance },
+    );
+  }
+  return Object.freeze(
+    residents.map((_resident, index) => {
+      const port = config.basePort + index;
+      return Object.freeze({
+        protocol: RESIDENT_VIEWER_PROTOCOL,
+        endpoint: `http://127.0.0.1:${port}`,
+        host: '127.0.0.1' as const,
+        port,
+        firstPerson: true as const,
+        readOnly: true as const,
+        viewDistance: config.viewDistance,
+      });
+    }),
   );
 }
 
@@ -1401,6 +1475,7 @@ export async function startManagedWorld(
   dependencies: WorldRunnerDependencies = {},
 ): Promise<ManagedWorldRun> {
   const residents = normalizeManagedResidents(options);
+  const residentViewers = managedResidentViewerEndpoints(options.residentViewers, residents);
   const activeOllamaPolicies = residents
     .filter((resident) => !resident.paused && resident.ollamaLocal != null)
     .map((resident) => resident.ollamaLocal!);
@@ -1640,6 +1715,21 @@ export async function startManagedWorld(
             }
           : null,
         residentStartupDelayMs: options.residentStartupDelayMs ?? 0,
+        presentation: options.residentViewers
+          ? {
+              protocol: RESIDENT_VIEWER_PROTOCOL,
+              authority: 'operator_only',
+              topology: 'one_symmetric_first_person_endpoint_per_resident',
+              readOnly: true,
+              host: '127.0.0.1',
+              viewDistance: options.residentViewers.viewDistance,
+              endpoints: residentViewers.map((viewer, index) => ({
+                entityId: residents[index].entityId,
+                endpoint: viewer.endpoint,
+              })),
+              residentCognitionVisibility: 'none',
+            }
+          : null,
         residentProcessLauncher: dependencies.spawnController
           ? 'injected_dependency'
           : 'default_node_process',
@@ -1833,6 +1923,7 @@ export async function startManagedWorld(
 
     for (const [index, resident] of residents.entries()) {
       const journalDirectory = path.join(runRoot, managedRunId, sanitizeName(resident.entityId));
+      const viewer = residentViewers[index] ?? null;
       const environment = managedControllerEnvironment(
         options,
         resident,
@@ -1841,6 +1932,7 @@ export async function startManagedWorld(
         journalDirectory,
         cognition,
         experiment,
+        viewer,
       );
       const controller =
         dependencies.spawnController?.({
@@ -1860,6 +1952,7 @@ export async function startManagedWorld(
       }
       const processRecord: ManagedResidentProcess = {
         resident,
+        viewer,
         journalDirectory,
         child: controller,
         exit: waitForExit(controller, `controller:${resident.entityId}`),
@@ -1883,6 +1976,7 @@ export async function startManagedWorld(
         paused: resident.paused,
         leasePath: resident.leasePath,
         journalDirectory,
+        viewer,
       });
 
       await raceProcessExits(
@@ -1891,8 +1985,8 @@ export async function startManagedWorld(
             `controller readiness for ${resident.entityId}`,
             startupTimeoutMs,
             sleep,
-            async () =>
-              processRecord.output
+            async () => {
+              const controllerReady = processRecord.output
                 .lines()
                 .some((line) =>
                   experiment
@@ -1902,8 +1996,15 @@ export async function startManagedWorld(
                         resident.entityId,
                       )
                     : isControllerReadyLine(line),
-                ) &&
-              leaseOwnedBy(resident.leasePath, controller.pid!, resident.entityId, managedRunId),
+                );
+              if (
+                !controllerReady ||
+                !leaseOwnedBy(resident.leasePath, controller.pid!, resident.entityId, managedRunId)
+              ) {
+                return false;
+              }
+              return viewer == null || (await residentViewerReady(viewer));
+            },
             signal,
           ),
         [serverExit, ...controllerProcesses.map((entry) => entry.exit)],
@@ -1915,6 +2016,7 @@ export async function startManagedWorld(
         entityId: resident.entityId,
         releaseArmed: experiment != null,
         releaseId: experiment?.prepared.plan.releaseId ?? null,
+        viewer,
       });
       if (index < residents.length - 1 && (options.residentStartupDelayMs ?? 0) > 0) {
         control.append(
@@ -2782,6 +2884,7 @@ function managedControllerEnvironment(
   journalDirectory: string,
   cognition: ManagedCognition | null,
   experiment: ManagedExperimentRelease | null,
+  viewer: ManagedResidentViewerEndpoint | null,
 ) {
   const env: NodeJS.ProcessEnv = {};
   for (const name of [
@@ -2830,7 +2933,13 @@ function managedControllerEnvironment(
     env.BEHOLD_EXPERIMENT_RELEASE_PLAN = experiment.prepared.planFile;
     env.BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256 = experiment.prepared.planSha256;
   }
-  env.VIEWER_ENABLED = '0';
+  env.VIEWER_ENABLED = viewer ? '1' : '0';
+  if (viewer) {
+    env.VIEWER_REQUIRED = '1';
+    env.VIEWER_PORT = String(viewer.port);
+    env.VIEWER_FIRST_PERSON = '1';
+    env.VIEWER_DISTANCE = String(viewer.viewDistance);
+  }
   env.BEHOLD_LOAD_DOTENV = '0';
   env.BEHOLD_RUN_ID = runId;
   env.BEHOLD_WORLD_ID = options.worldId;
@@ -2860,6 +2969,10 @@ const RESERVED_RESIDENT_ENVIRONMENT = new Set([
   'BEHOLD_EXPERIMENT_RELEASE_PLAN',
   'BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256',
   'VIEWER_ENABLED',
+  'VIEWER_REQUIRED',
+  'VIEWER_PORT',
+  'VIEWER_FIRST_PERSON',
+  'VIEWER_DISTANCE',
   'BEHOLD_LOAD_DOTENV',
   'BEHOLD_RUN_ID',
   'BEHOLD_WORLD_ID',
@@ -3174,6 +3287,36 @@ async function waitForCondition(
   throw new WorldRunnerError(`${label} timed out after ${timeoutMs}ms`, 'runner_timeout', {
     label,
     timeoutMs,
+  });
+}
+
+function residentViewerReady(viewer: ManagedResidentViewerEndpoint) {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ready);
+    };
+    const request = httpRequest(
+      {
+        hostname: viewer.host,
+        port: viewer.port,
+        path: '/',
+        method: 'HEAD',
+        timeout: 250,
+      },
+      (response) => {
+        response.resume();
+        finish(response.statusCode === 200);
+      },
+    );
+    request.once('error', () => finish(false));
+    request.once('timeout', () => {
+      request.destroy();
+      finish(false);
+    });
+    request.end();
   });
 }
 
@@ -3612,6 +3755,8 @@ export async function runCli(argv = process.argv.slice(2)) {
       maxModelCalls: { type: 'string' },
       accountingScope: { type: 'string' },
       duration: { type: 'string' },
+      viewerBasePort: { type: 'string' },
+      viewerDistance: { type: 'string' },
       task: { type: 'string' },
       target: { type: 'string' },
       help: { type: 'boolean', default: false },
@@ -3755,6 +3900,20 @@ export async function runCli(argv = process.argv.slice(2)) {
   );
   const maxTotalModelCalls = managedTotalModelCallLimit(parsed.values.maxModelCalls);
   const durationMs = managedSessionDurationMs(parsed.values.duration);
+  if (parsed.values.viewerDistance != null && parsed.values.viewerBasePort == null) {
+    throw new WorldRunnerError(
+      '--viewerDistance requires --viewerBasePort',
+      'resident_viewer_config_incomplete',
+    );
+  }
+  const residentViewers =
+    parsed.values.viewerBasePort == null
+      ? null
+      : {
+          protocol: RESIDENT_VIEWER_PROTOCOL,
+          basePort: Number(parsed.values.viewerBasePort),
+          viewDistance: Number(parsed.values.viewerDistance ?? 6),
+        };
   const run = await startManagedWorld({
     worldId,
     world,
@@ -3767,6 +3926,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     entityRoot,
     runRoot: resolveManagedDataRoot('.behold-runs', 'run root'),
     residents,
+    ...(residentViewers ? { residentViewers } : {}),
     maxResidents,
     maxConcurrentModelCalls,
     ...(maxTotalModelCalls == null ? {} : { maxTotalModelCalls }),
@@ -3842,13 +4002,14 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Repeat --body in the same order only when a life ID differs from its Minecraft username.',
     '--residents accepts a behold.managed-resident-set.v1 JSON document and cannot be mixed with resident-level flags.',
     'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 defaults to the matching minecraft-human-semantic-v1 body/action surface and vanilla-player-v1 risk policy.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
+    'With --viewerBasePort, each resident gets one loopback-only, first-person, read-only Prismarine Viewer endpoint on consecutive ports; --viewerDistance defaults to 6.',
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',
     'With --accountingScope and resident-set providerQuotas, equal per-resident decision and auxiliary provider-attempt quotas persist across epochs.',
     'With --urgentModel, only newly urgent bodily/world evidence uses that model; ordinary and social decisions retain --model.',

@@ -6,7 +6,14 @@ export interface Config {
   circle: { id: string; source: 'explicit' | 'endpoint-fallback' };
   auth: { username: string; password?: string; mode: 'offline' | 'microsoft' };
   agent: { tickMs: number };
-  viewer: { enabled: boolean; port: number; firstPerson: boolean; viewDistance: number };
+  viewer: {
+    enabled: boolean;
+    required: boolean;
+    host: '127.0.0.1';
+    port: number;
+    firstPerson: boolean;
+    viewDistance: number;
+  };
   input: { mode: 'hold' | 'toggle' };
   llm: { apiKey?: string; model: string };
 }
@@ -49,6 +56,8 @@ export function getConfig(): Config {
     },
     viewer: {
       enabled: envBool('VIEWER_ENABLED', true),
+      required: envBool('VIEWER_REQUIRED', false),
+      host: '127.0.0.1',
       port: envInt('VIEWER_PORT', 3007),
       firstPerson: envBool('VIEWER_FIRST_PERSON', true),
       viewDistance: envInt('VIEWER_DISTANCE', 8),

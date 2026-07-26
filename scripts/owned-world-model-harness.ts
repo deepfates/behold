@@ -190,7 +190,14 @@ export async function observeFromFreshMinecraftBody<T extends Record<string, unk
         circle: { id: input.worldId, source: 'explicit' },
         auth: { username: input.witnessId, mode: 'offline' },
         agent: { tickMs: 1000 },
-        viewer: { enabled: false, port: 3007, firstPerson: true, viewDistance: 4 },
+        viewer: {
+          enabled: false,
+          required: false,
+          host: '127.0.0.1',
+          port: 3007,
+          firstPerson: true,
+          viewDistance: 4,
+        },
         input: { mode: 'hold' },
         llm: { model: input.model },
       };

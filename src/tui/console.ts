@@ -1,7 +1,7 @@
 import { config as loadDotenv } from 'dotenv';
 import readline from 'node:readline';
 import { getConfig } from '../config';
-import { createBot } from '../bot';
+import { closeBotViewer, createBot } from '../bot';
 import { buildInterpreter } from '../agent/interpreter';
 import { minecraftInhabitantActionsFor } from '../agent/affordances';
 import {
@@ -787,6 +787,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
             (bot as any).end();
           });
         }
+        await closeBotViewer(bot);
         await entityLoom.close();
         appendJournal('run_stopped', {
           reason,
