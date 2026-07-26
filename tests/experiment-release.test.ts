@@ -25,6 +25,18 @@ function fixture(t: { after(callback: () => void): void }) {
     model: index === 0 ? 'fixture/model-a' : 'fixture/model-b',
     urgentModel: null,
     mind: 'direct' as const,
+    ollamaLocal: {
+      protocol: 'behold.ollama-local-policy.v1' as const,
+      endpoint: 'http://127.0.0.1:11434/api/chat',
+      modelTag: index === 0 ? 'fixture/model-a' : 'fixture/model-b',
+      modelDigest: digest(index === 0 ? '5' : '6'),
+      settings: {
+        contextTokens: 16_384,
+        maxOutputTokens: 512,
+        temperature: 0.2,
+        keepAlive: '5m',
+      },
+    },
     profiles: {
       policy: 'resident-v1',
       body: 'minecraft-human-semantic-v1',
@@ -66,6 +78,7 @@ function fixture(t: { after(callback: () => void): void }) {
         model: residents[index].model,
         urgentModel: null,
         mind: 'direct',
+        ollamaLocal: residents[index].ollamaLocal,
         profiles: residents[index].profiles,
         quotaAccountId: residents[index].quotaAccount.accountId,
       },
@@ -90,6 +103,29 @@ test('release plan binds exact resident body, profile, model, and quota identity
           urgentModel: null,
           mind: 'direct',
           profiles: { ...residents[0].profiles, body: 'minecraft-native-v1' },
+          quotaAccountId: residents[0].quotaAccount.accountId,
+        },
+        {
+          BEHOLD_EXPERIMENT_RELEASE_PLAN: prepared.planFile,
+          BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256: prepared.planSha256,
+        },
+      ),
+    /configuration mismatch/,
+  );
+  assert.throws(
+    () =>
+      experimentReleaseGateFromEnvironment(
+        {
+          entityId: residents[0].entityId,
+          bodyUsername: residents[0].bodyUsername,
+          model: residents[0].model,
+          urgentModel: null,
+          mind: 'direct',
+          ollamaLocal: {
+            ...residents[0].ollamaLocal,
+            modelDigest: digest('f'),
+          },
+          profiles: residents[0].profiles,
           quotaAccountId: residents[0].quotaAccount.accountId,
         },
         {

@@ -29,6 +29,16 @@ import {
   openRouterRoutePolicy,
   type OpenRouterRoutePolicy,
 } from './openrouter-route';
+import {
+  assertOllamaLocalRequest,
+  exactOllamaChatEndpoint,
+  inspectOllamaLocalResponseIdentity,
+  ollamaAttemptIdentity,
+  ollamaLocalPolicy,
+  verifyOllamaPreflight,
+  type OllamaLocalPolicy,
+  type OllamaLocalPreflight,
+} from './ollama-local';
 
 export const COGNITION_BROKER_EVENT_PROTOCOL = 'behold.cognition-broker-event.v1' as const;
 export const COGNITION_ADMISSION_LIMIT_PROTOCOL = 'behold.cognition-admission-limit.v1' as const;
@@ -126,7 +136,10 @@ export type CognitionBroker = Readonly<{
 
 export type CognitionBrokerOptions = Readonly<{
   upstreamEndpoint: string;
-  upstreamApiKey: string;
+  /** Required for remote OpenRouter transport and forbidden for local Ollama. */
+  upstreamApiKey?: string;
+  /** Read-only loopback inventory/config evidence; required only for local Ollama. */
+  ollamaPreflight?: OllamaLocalPreflight;
   clients: readonly Readonly<{
     bearer: string;
     residentKey: string;
@@ -136,6 +149,8 @@ export type CognitionBrokerOptions = Readonly<{
     models?: readonly string[];
     /** Exact direct-provider routing/output contract admitted before upstream I/O. */
     routePolicy?: OpenRouterRoutePolicy;
+    /** Exact native Ollama tag/content/settings contract admitted before upstream I/O. */
+    ollamaLocal?: OllamaLocalPolicy;
     /** Durable per-purpose provider-attempt quota owned by this resident account. */
     accounting?: Readonly<{
       scopeId: string;
@@ -169,6 +184,7 @@ type Client = Readonly<{
   model: string;
   models: readonly string[];
   routePolicy: OpenRouterRoutePolicy | null;
+  ollamaLocal: OllamaLocalPolicy | null;
   accounting: CognitionBrokerOptions['clients'][number]['accounting'] | null;
 }>;
 
@@ -205,13 +221,29 @@ const PRIORITIES: readonly CognitionPriority[] = ['urgent', 'deliberative', 'aux
 export async function startCognitionBroker(
   options: CognitionBrokerOptions,
 ): Promise<CognitionBroker> {
-  const upstream = exactUpstreamEndpoint(
-    options.upstreamEndpoint,
-    options.allowedUpstreamOrigins ?? ['https://openrouter.ai'],
-  );
-  const upstreamApiKey = String(options.upstreamApiKey || '').trim();
-  if (upstreamApiKey.length < 12) throw new Error('cognition broker requires an upstream API key');
   const clients = normalizeClients(options.clients);
+  const ollamaClients = clients.filter((client) => client.ollamaLocal != null);
+  if (ollamaClients.length > 0 && ollamaClients.length !== clients.length) {
+    throw new Error('one cognition broker cannot mix OpenRouter and local Ollama clients');
+  }
+  const usesOllama = ollamaClients.length > 0;
+  const upstream = usesOllama
+    ? exactOllamaChatEndpoint(options.upstreamEndpoint)
+    : exactUpstreamEndpoint(
+        options.upstreamEndpoint,
+        options.allowedUpstreamOrigins ?? ['https://openrouter.ai'],
+      );
+  const upstreamApiKey = String(options.upstreamApiKey || '').trim();
+  if (usesOllama) {
+    if (upstreamApiKey) throw new Error('local Ollama transport forbids an upstream API key');
+    if (!options.ollamaPreflight) throw new Error('local Ollama transport requires preflight');
+    verifyOllamaPreflight(
+      options.ollamaPreflight,
+      ollamaClients.map((client) => client.ollamaLocal!),
+    );
+  } else if (upstreamApiKey.length < 12) {
+    throw new Error('cognition broker requires an upstream API key');
+  }
   const maxConcurrent = positiveInteger(options.maxConcurrent, 'maxConcurrent', 1_024);
   const maxAccepted =
     options.maxAccepted == null
@@ -450,6 +482,22 @@ export async function startCognitionBroker(
           throw codedError(
             'request_route_policy_mismatch',
             error?.message || 'request route policy differs from the admitted policy',
+          );
+        }
+      }
+      if (client.ollamaLocal) {
+        if (purpose !== 'resident_decision') {
+          throw codedError(
+            'request_ollama_policy_mismatch',
+            'local Ollama clients admit direct resident decisions only',
+          );
+        }
+        try {
+          assertOllamaLocalRequest(requestValue, model, client.ollamaLocal);
+        } catch (error: any) {
+          throw codedError(
+            'request_ollama_policy_mismatch',
+            error?.message || 'request differs from the admitted Ollama policy',
           );
         }
       }
@@ -778,6 +826,15 @@ export async function startCognitionBroker(
           urgentTriggerSequence: job.urgentTriggerSequence,
           requestedModel: job.model,
           upstreamEndpoint: upstream,
+          ...(job.client.ollamaLocal ? { upstreamAuthentication: 'none_loopback' as const } : {}),
+          ...(job.client.ollamaLocal
+            ? {
+                ollamaIdentity: ollamaAttemptIdentity(
+                  job.client.ollamaLocal,
+                  options.ollamaPreflight!,
+                ),
+              }
+            : {}),
           requestBody: job.body,
           queuedAt: job.queuedAt,
           admittedAt: job.admission!.admittedAt,
@@ -799,7 +856,7 @@ export async function startCognitionBroker(
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${upstreamApiKey}`,
+          ...(usesOllama ? {} : { authorization: `Bearer ${upstreamApiKey}` }),
         },
         // Admission rejects non-canonical UTF-8, so this is byte-preserving.
         body: job.body.toString('utf8'),
@@ -822,6 +879,13 @@ export async function startCognitionBroker(
               parseJsonObject(responseBody),
               job.model,
               job.client.routePolicy,
+            )
+          : null;
+      const localIdentity =
+        upstreamResponse.ok && job.client.ollamaLocal
+          ? inspectOllamaLocalResponseIdentity(
+              parseJsonObject(responseBody),
+              job.client.ollamaLocal,
             )
           : null;
       if (routeIdentity && !routeIdentity.ok) {
@@ -868,6 +932,54 @@ export async function startCognitionBroker(
           502,
           failure.code,
           'model upstream returned an unadmitted route identity',
+          admissionHeaders,
+        );
+        return;
+      }
+      if (localIdentity && !localIdentity.ok) {
+        const failure = codedError(
+          'ollama_identity_mismatch',
+          `Ollama response model did not match the admitted local identity: ${localIdentity.reason}`,
+        );
+        const transportCapture = finishTransportCapture(job, {
+          terminal: 'ollama_identity_mismatch',
+          completedAt: now(),
+          response: {
+            status: upstreamResponse.status,
+            ok: upstreamResponse.ok,
+            body: responseBody,
+            contentType,
+          },
+          error: failure,
+        });
+        settleProviderCharge(job, {
+          outcome: 'ollama_identity_mismatch',
+          status: upstreamResponse.status,
+          ok: false,
+          responseBytes: responseBody.byteLength,
+          responseSha256: sha256(responseBody),
+          usage: providerUsage(responseBody),
+          localIdentity,
+          transportCapture,
+        });
+        job.state = 'completed';
+        metrics.failed += 1;
+        emit('completed', job, {
+          status: 502,
+          ok: false,
+          error: failure.code,
+          upstreamStatus: upstreamResponse.status,
+          responseBytes: responseBody.byteLength,
+          queueMs: job.admission!.queueMs,
+          activeBeforeRelease: active,
+          localIdentity,
+          transportCapture,
+        });
+        writeError(
+          job.response,
+          502,
+          failure.code,
+          'Ollama returned an unadmitted model identity',
           admissionHeaders,
         );
         return;
@@ -1142,6 +1254,8 @@ export async function startCognitionBroker(
     endpoint = `http://127.0.0.1:${address.port}/v1/chat/completions`;
     emit('started', null, {
       endpoint,
+      upstreamTransport: usesOllama ? 'ollama_local_native_chat' : 'openrouter_chat_completions',
+      ...(usesOllama ? { ollamaPreflight: options.ollamaPreflight } : {}),
       concurrencyLimit: maxConcurrent,
       acceptedLimit: maxAccepted,
       maxCallMs,
@@ -1347,6 +1461,20 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       } catch {
         throw new Error(`invalid cognition client route policy at index ${index}`);
       }
+      let ollamaLocal: OllamaLocalPolicy | null = null;
+      try {
+        ollamaLocal = value.ollamaLocal ? ollamaLocalPolicy(value.ollamaLocal) : null;
+      } catch {
+        throw new Error(`invalid cognition client Ollama policy at index ${index}`);
+      }
+      if (routePolicy && ollamaLocal) {
+        throw new Error(
+          `cognition client cannot combine OpenRouter and Ollama policy at index ${index}`,
+        );
+      }
+      if (ollamaLocal && (ollamaLocal.modelTag !== model || models.length !== 1)) {
+        throw new Error(`cognition client Ollama policy model differs at index ${index}`);
+      }
       if (
         bearer.length < 32 ||
         bearer.length > 512 ||
@@ -1375,6 +1503,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         model,
         models: Object.freeze(models),
         routePolicy,
+        ollamaLocal,
         accounting,
       });
     }),
@@ -1567,7 +1696,19 @@ function providerUsage(body: Buffer) {
   } catch {
     return null;
   }
-  const usage = value?.usage;
+  const usage =
+    value?.usage ??
+    (value?.prompt_eval_count != null || value?.eval_count != null
+      ? {
+          prompt_tokens: value?.prompt_eval_count,
+          completion_tokens: value?.eval_count,
+          total_tokens:
+            Number.isFinite(Number(value?.prompt_eval_count)) &&
+            Number.isFinite(Number(value?.eval_count))
+              ? Number(value.prompt_eval_count) + Number(value.eval_count)
+              : undefined,
+        }
+      : null);
   if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null;
   const fields = ['prompt_tokens', 'completion_tokens', 'total_tokens', 'cost'] as const;
   const reported: Partial<Record<(typeof fields)[number], number>> = {};

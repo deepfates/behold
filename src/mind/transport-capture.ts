@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CognitionPriority, CognitionPurpose } from './cognition';
+import type { OllamaAttemptIdentity } from './ollama-local';
 
 export const COGNITION_TRANSPORT_ATTEMPT_START_PROTOCOL =
   'behold.cognition-transport-attempt-start.v1' as const;
@@ -30,12 +31,14 @@ export type CognitionTransportAttemptStart = Readonly<{
   purpose: CognitionPurpose;
   urgentTriggerSequence: number | null;
   requestedModel: string;
+  /** Exact local model/content/settings identity, absent for remote transports. */
+  ollamaIdentity?: OllamaAttemptIdentity;
   route: Readonly<{
     method: 'POST';
     endpoint: string;
     origin: string;
     path: string;
-    authentication: 'runner_bearer_not_retained';
+    authentication: 'runner_bearer_not_retained' | 'none_loopback';
   }>;
   request: TransportContentReference;
   timing: Readonly<{
@@ -65,6 +68,7 @@ export type CognitionTransportAttempt = Readonly<{
     | 'success'
     | 'provider_error'
     | 'route_identity_mismatch'
+    | 'ollama_identity_mismatch'
     | 'network_error'
     | 'timeout'
     | 'cancelled';
@@ -126,7 +130,9 @@ export type CognitionTransportCaptureStore = Readonly<{
     purpose: CognitionPurpose;
     urgentTriggerSequence: number | null;
     requestedModel: string;
+    ollamaIdentity?: OllamaAttemptIdentity;
     upstreamEndpoint: string;
+    upstreamAuthentication?: CognitionTransportAttemptStart['route']['authentication'];
     requestBody: Buffer;
     queuedAt: number;
     admittedAt: number;
@@ -201,12 +207,13 @@ export function createCognitionTransportCapture(input: {
           ? null
           : nonnegativeInteger(attempt.urgentTriggerSequence, 'capture urgent trigger'),
       requestedModel: boundedText(attempt.requestedModel, 'capture requested model', 300),
+      ...(attempt.ollamaIdentity ? { ollamaIdentity: deepFreeze(attempt.ollamaIdentity) } : {}),
       route: {
         method: 'POST' as const,
         endpoint,
         origin: route.origin,
         path: route.pathname,
-        authentication: 'runner_bearer_not_retained' as const,
+        authentication: attempt.upstreamAuthentication ?? 'runner_bearer_not_retained',
       },
       request,
       timing: {
@@ -233,7 +240,9 @@ export function createCognitionTransportCapture(input: {
     const response = outcome.response ? captureResponse(blobs, outcome.response, secrets) : null;
     const error = outcome.error == null ? null : captureError(outcome.error, secrets);
     if (
-      ['success', 'provider_error', 'route_identity_mismatch'].includes(outcome.terminal) &&
+      ['success', 'provider_error', 'route_identity_mismatch', 'ollama_identity_mismatch'].includes(
+        outcome.terminal,
+      ) &&
       !response
     ) {
       throw codedError('transport_capture_invalid', 'response terminal requires response bytes');
@@ -251,6 +260,12 @@ export function createCognitionTransportCapture(input: {
       throw codedError(
         'transport_capture_invalid',
         'route-identity terminal requires the original ok response',
+      );
+    }
+    if (outcome.terminal === 'ollama_identity_mismatch' && response?.ok !== true) {
+      throw codedError(
+        'transport_capture_invalid',
+        'Ollama identity terminal requires the original ok response',
       );
     }
     if (!['success', 'provider_error'].includes(outcome.terminal) && !error) {
@@ -417,8 +432,11 @@ export function verifyCognitionTransportCapture(
     responses: records.filter((record) => record.response != null).length,
     successfulResponses: records.filter((record) => record.terminal === 'success').length,
     providerFailures: records.filter((record) => record.terminal === 'provider_error').length,
-    identityFailures: records.filter((record) => record.terminal === 'route_identity_mismatch')
-      .length,
+    identityFailures: records.filter(
+      (record) =>
+        record.terminal === 'route_identity_mismatch' ||
+        record.terminal === 'ollama_identity_mismatch',
+    ).length,
     transportErrors: records.filter(
       (record) => record.response == null && record.terminal !== 'cancelled',
     ).length,
@@ -464,10 +482,28 @@ function responseMetadata(body: Buffer) {
     id: optionalText(value?.id),
     model: optionalText(value?.model),
     provider: optionalText(value?.provider),
-    finishReason: optionalText(value?.choices?.[0]?.finish_reason),
-    nativeFinishReason: optionalText(value?.choices?.[0]?.native_finish_reason),
-    usage: providerUsage(value?.usage),
+    finishReason: optionalText(value?.choices?.[0]?.finish_reason ?? value?.done_reason),
+    nativeFinishReason: optionalText(
+      value?.choices?.[0]?.native_finish_reason ?? value?.done_reason,
+    ),
+    usage: providerUsage(value?.usage ?? ollamaUsage(value)),
   };
+}
+
+function ollamaUsage(value: any) {
+  const prompt = nonnegativeFinite(value?.prompt_eval_count);
+  const completion = nonnegativeFinite(value?.eval_count);
+  if (prompt == null && completion == null) return null;
+  return {
+    ...(prompt == null ? {} : { prompt_tokens: prompt }),
+    ...(completion == null ? {} : { completion_tokens: completion }),
+    ...(prompt == null || completion == null ? {} : { total_tokens: prompt + completion }),
+  };
+}
+
+function nonnegativeFinite(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
 function providerUsage(value: unknown) {
@@ -526,7 +562,9 @@ function parseStart(value: any): CognitionTransportAttemptStart {
 function parseAttempt(value: any): CognitionTransportAttempt {
   assertProtocolDigest(value, COGNITION_TRANSPORT_ATTEMPT_PROTOCOL, 'attempt');
   if (
-    (['success', 'provider_error', 'route_identity_mismatch'].includes(value.terminal) &&
+    (['success', 'provider_error', 'route_identity_mismatch', 'ollama_identity_mismatch'].includes(
+      value.terminal,
+    ) &&
       value.response == null) ||
     (!['success', 'provider_error'].includes(value.terminal) && value.error == null)
   ) {

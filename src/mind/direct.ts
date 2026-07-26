@@ -228,7 +228,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
   };
 }
 
-function responseDecision(
+export function responseDecision(
   data: any,
   request: ResidentMindRequest,
   call: ModelCallEvidence,

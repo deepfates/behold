@@ -29,6 +29,8 @@ import {
 } from '../mind/minecraft-body';
 import { isCognitionTransportEnabled } from '../mind/cognition';
 import { openRouterRoutePolicyFromEnvironment } from '../mind/openrouter-route';
+import { ollamaLocalPolicyFromEnvironment } from '../mind/ollama-local';
+import { createOllamaLocalResidentMind } from '../mind/ollama';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
 import { createProjectMemory } from '../entity/projects';
@@ -122,8 +124,21 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const providerRoute = openRouterRoutePolicyFromEnvironment(
     process.env.BEHOLD_OPENROUTER_ROUTE_POLICY,
   );
+  const ollamaLocal = ollamaLocalPolicyFromEnvironment(process.env.BEHOLD_OLLAMA_LOCAL_POLICY);
   if (providerRoute && mindAdapter !== 'direct') {
     throw new Error('OpenRouter route policy requires the direct resident mind adapter');
+  }
+  if (ollamaLocal && mindAdapter !== 'direct') {
+    throw new Error('Ollama local policy requires the direct resident mind adapter');
+  }
+  if (ollamaLocal && providerRoute) {
+    throw new Error('A resident cannot combine OpenRouter and Ollama transport policies');
+  }
+  if (ollamaLocal && !cognitionTransport) {
+    throw new Error('Ollama local policy requires the authenticated cognition transport');
+  }
+  if (ollamaLocal && ollamaLocal.modelTag !== cfg.llm.model) {
+    throw new Error('Ollama local model tag differs from LLM_MODEL');
   }
   const releaseGate = experimentReleaseGateFromEnvironment({
     entityId: name,
@@ -132,6 +147,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     urgentModel: urgentModel ?? null,
     mind: mindAdapter,
     ...(providerRoute ? { providerRoute } : {}),
+    ...(ollamaLocal ? { ollamaLocal } : {}),
     profiles: {
       policy: policyProfile,
       body: bodyProfile,
@@ -180,8 +196,13 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     model: cfg.llm.model,
     urgentModel: urgentModel ?? null,
     controller: {
-      kind: cfg.llm.apiKey && !opts.paused ? 'llm' : 'operator',
+      kind:
+        (process.env.OPENROUTER_API_KEY || process.env.BEHOLD_COGNITION_BEARER) && !opts.paused
+          ? 'llm'
+          : 'operator',
       mindAdapter,
+      providerRoute,
+      ollamaLocal,
       policyProfile,
       bodyProfile,
       actionProfile,
@@ -549,7 +570,15 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   });
 
   // Optional LLM policy
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = ollamaLocal ? process.env.BEHOLD_COGNITION_BEARER : process.env.OPENROUTER_API_KEY;
+  const cognitionEndpoint = ollamaLocal
+    ? process.env.BEHOLD_COGNITION_ENDPOINT
+    : process.env.OPENROUTER_BASE_URL;
+  if (ollamaLocal && (!apiKey || !cognitionEndpoint)) {
+    throw new Error(
+      'Ollama local policy is missing its runner-owned broker credential or endpoint',
+    );
+  }
   const model = cfg.llm.model;
   if (apiKey && !opts.paused) {
     const completeToolSpecs = interp.list('inhabitant').map((s: any) => ({
@@ -590,7 +619,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         actionProfile,
         safetyProfile,
         ...(releaseGate ? { experimentRelease: () => experimentRelease } : {}),
-        endpoint: process.env.OPENROUTER_BASE_URL || undefined,
+        endpoint: cognitionEndpoint || undefined,
         mind:
           mindAdapter === 'ax'
             ? createAxResidentMind({
@@ -601,7 +630,15 @@ export async function runConsole(opts: ConsoleOptions = {}) {
                 recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
                 cognitionTransport,
               })
-            : undefined,
+            : ollamaLocal
+              ? createOllamaLocalResidentMind({
+                  bearer: apiKey!,
+                  endpoint: cognitionEndpoint!,
+                  policy: ollamaLocal,
+                  cognitionTransport: true,
+                  recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+                })
+              : undefined,
         recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
         cognitionTransport,
         ...(providerRoute ? { routePolicy: providerRoute } : {}),
@@ -641,7 +678,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       `[console] LLM policy enabled (model ${model}${urgentModel ? `, bodily urgency ${urgentModel}` : ''}, mind ${mindAdapter}, policy ${policyProfile}, body ${bodyProfile}, actions ${actionProfile}, safety ${safetyProfile})`,
     );
   } else if (!apiKey) {
-    console.error('[console] No OPENROUTER_API_KEY; LLM autopilot disabled.');
+    console.error('[console] No admitted cognition credential; LLM autopilot disabled.');
   } else {
     console.error('[console] Starting paused (no LLM).');
   }

@@ -182,3 +182,30 @@ is requested before that narrow transport/configuration seam is implemented
 and provider-free tested. `beh-n4fe` remains open: no non-scripted persistent
 resident consequence, human native entry, stop/resume of the accepted living
 experience, or readable Textile aftermath has passed.
+
+**2026-07-26T00:23:13Z**
+
+The transport and reading gates moved materially without launching a model.
+OpenRouter direct residents now bind exact provider order, disabled fallbacks,
+and output cap through managed configuration, release identity, raw wire
+capture, and returned provider/model checks. Separately, a native local Ollama
+transport admits only an exact loopback endpoint, cloud-disabled server config,
+installed model tag/content digest, tool capability, sufficient context, and
+common output/context/temperature/load settings. It sends no OpenRouter
+provider/fallback fields or upstream credential, binds local identity into the
+release and each attempt, and retains response-tag drift as its own failure.
+
+Fake-local adapter/broker/release/world-runner tests passed, and a real
+read-only Ollama version/tags/show/ps preflight admitted the installed 3B and
+70B Llama models while `/api/ps` remained empty before and after. No model was
+loaded and no inference occurred. Textile `ce1d100` independently passed the
+exact Oxford fixture through readable import, MAP navigation, and byte-identical
+source export, closing the pilot's concrete watch/read adapter gate while the
+wider cross-project presentation ticket remains open.
+
+`beh-n4fe` remains open. The local models have no measured cold/warm latency or
+memory-load evidence, no autonomous Oxford pilot has run, and the acceptance
+criteria still require a non-scripted persistent witnessed resident
+consequence, native human entry, stop/resume, and the composed readable
+aftermath. Equal quotas remain resource governance, never fairness or a model
+ranking.

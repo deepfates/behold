@@ -47,6 +47,13 @@ import {
   type OpenRouterRoutePolicy,
 } from '../src/mind/openrouter-route';
 import {
+  ollamaLocalPolicy,
+  preflightOllamaLocal,
+  serializeOllamaLocalPolicy,
+  type OllamaLocalPolicy,
+  type OllamaLocalPreflight,
+} from '../src/mind/ollama-local';
+import {
   COGNITION_TRANSPORT_PROTOCOL,
   cognitionAccountId,
   cognitionResidentKey,
@@ -200,6 +207,8 @@ export type ManagedResidentSpec = Readonly<{
   }>;
   /** Exact direct-provider route and output contract; absent only for legacy/uncontrolled runs. */
   providerRoute?: OpenRouterRoutePolicy;
+  /** Exact loopback Ollama model/content/settings contract. */
+  ollamaLocal?: OllamaLocalPolicy;
   /** Explicit, non-authoritative variables for a specialized controller entrypoint. */
   environment?: Readonly<Record<string, string>>;
   /** Connect the body and preserve the life without starting cognition. */
@@ -226,6 +235,7 @@ const MANAGED_RESIDENT_SET_FIELDS = new Set([
   'allowTools',
   'providerQuotas',
   'providerRoute',
+  'ollamaLocal',
   'paused',
 ]);
 
@@ -393,6 +403,28 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
         throw residentConfigInvalid(file, `resident ${index} providerRoute requires direct mind`);
       }
     }
+    if (candidate.ollamaLocal !== undefined) {
+      try {
+        result.ollamaLocal = ollamaLocalPolicy(candidate.ollamaLocal);
+      } catch (error: any) {
+        throw residentConfigInvalid(
+          file,
+          `wrong ollamaLocal for resident ${index}: ${error?.message || String(error)}`,
+        );
+      }
+      if ((result.mind ?? 'direct') !== 'direct') {
+        throw residentConfigInvalid(file, `resident ${index} ollamaLocal requires direct mind`);
+      }
+      if ((result.ollamaLocal as OllamaLocalPolicy).modelTag !== model) {
+        throw residentConfigInvalid(file, `resident ${index} ollamaLocal tag must equal model`);
+      }
+      if (result.providerRoute) {
+        throw residentConfigInvalid(
+          file,
+          `resident ${index} cannot combine providerRoute and ollamaLocal`,
+        );
+      }
+    }
     if (result.target && !result.task) {
       throw residentConfigInvalid(file, `resident ${index} target requires task`);
     }
@@ -487,6 +519,8 @@ export type ManagedWorldRunOptions = Readonly<{
   maxTotalModelCalls?: number;
   /** Stable experiment identity required when per-resident provider quotas are configured. */
   accountingScopeId?: string;
+  /** Plain local config proving Ollama cloud routes are disabled. */
+  ollamaServerConfigFile?: string;
   residentStartupDelayMs?: number;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -506,6 +540,8 @@ export type WorldRunnerDependencies = Readonly<{
   }) => ChildProcessWithoutNullStreams;
   /** Deterministic provider-free upstream used only by managed integration fixtures. */
   cognitionFetch?: typeof fetch;
+  /** Read-only local Ollama version/tags/show/ps preflight fixture. */
+  ollamaPreflightFetch?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
   stdout?: (text: string) => void;
@@ -531,6 +567,7 @@ export type ManagedWorldRun = Readonly<{
     resumeAfterBudget: boolean | null;
     providerQuotas: ManagedResidentSpec['providerQuotas'] | null;
     providerRoute: OpenRouterRoutePolicy | null;
+    ollamaLocal: OllamaLocalPolicy | null;
     paused: boolean;
     pid: number;
     leasePath: string;
@@ -545,6 +582,7 @@ export type ManagedWorldRun = Readonly<{
     accountingSnapshot(): ReturnType<CognitionBroker['snapshot']>['accounting'];
     admissionLimitReached: CognitionBroker['admissionLimitReached'];
     admissionLimitSettled: CognitionBroker['admissionLimitSettled'];
+    ollamaPreflight: OllamaLocalPreflight | null;
   }> | null;
   experimentRelease: Readonly<{
     releaseId: string;
@@ -622,6 +660,7 @@ type NormalizedManagedResident = Readonly<{
     auxiliaryContextAttempts: number;
   }>;
   providerRoute?: OpenRouterRoutePolicy;
+  ollamaLocal?: OllamaLocalPolicy;
   environment: Readonly<Record<string, string>>;
   paused: boolean;
   leasePath: string;
@@ -645,6 +684,7 @@ type ManagedCognition = Readonly<{
       model: string;
       models?: readonly string[];
       routePolicy?: OpenRouterRoutePolicy;
+      ollamaLocal?: OllamaLocalPolicy;
       accounting?: {
         scopeId: string;
         worldId: string;
@@ -656,6 +696,7 @@ type ManagedCognition = Readonly<{
   >;
   concurrencyLimit: number;
   maxTotalModelCalls: number | null;
+  ollamaPreflight: OllamaLocalPreflight | null;
 }>;
 
 type ManagedExperimentRelease = Readonly<{
@@ -875,6 +916,45 @@ function normalizeManagedResidents(
           { index, entityId, mind },
         );
       }
+      let ollamaLocal: OllamaLocalPolicy | undefined;
+      try {
+        ollamaLocal =
+          candidate.ollamaLocal == null ? undefined : ollamaLocalPolicy(candidate.ollamaLocal);
+      } catch (error: any) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} has invalid Ollama policy: ${error?.message || String(error)}`,
+          'resident_ollama_policy_invalid',
+          { index, entityId, ollamaLocal: candidate.ollamaLocal },
+        );
+      }
+      if (ollamaLocal && mind !== 'direct') {
+        throw new WorldRunnerError(
+          `Resident ${entityId} Ollama policy requires the direct mind adapter`,
+          'resident_ollama_mind_invalid',
+          { index, entityId, mind },
+        );
+      }
+      if (ollamaLocal && ollamaLocal.modelTag !== model) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} Ollama tag must equal its configured model`,
+          'resident_ollama_model_invalid',
+          { index, entityId, model, modelTag: ollamaLocal.modelTag },
+        );
+      }
+      if (ollamaLocal && urgentModel) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} Ollama pilot does not admit a second urgent model`,
+          'resident_ollama_urgent_model_unsupported',
+          { index, entityId, urgentModel },
+        );
+      }
+      if (ollamaLocal && providerRoute) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} cannot combine OpenRouter and Ollama transport`,
+          'resident_transport_policy_conflict',
+          { index, entityId },
+        );
+      }
       if (candidate.target && !candidate.task) {
         throw new WorldRunnerError(
           `Resident ${entityId} has a target without a task`,
@@ -917,6 +997,7 @@ function normalizeManagedResidents(
         ...(candidate.allowTools ? { allowTools: Object.freeze([...candidate.allowTools]) } : {}),
         ...(providerQuotas ? { providerQuotas } : {}),
         ...(providerRoute ? { providerRoute } : {}),
+        ...(ollamaLocal ? { ollamaLocal } : {}),
         environment,
         paused: candidate.paused === true,
         leasePath,
@@ -948,6 +1029,44 @@ function normalizeManagedResidents(
         residents: routedResidents.map((resident) => ({
           entityId: resident.entityId,
           maxOutputTokens: resident.providerRoute!.maxOutputTokens,
+        })),
+      },
+    );
+  }
+  const ollamaResidents = activeResidents.filter((resident) => resident.ollamaLocal != null);
+  if (ollamaResidents.length > 0 && ollamaResidents.length !== activeResidents.length) {
+    throw new WorldRunnerError(
+      'Local Ollama control must cover every active resident or none of them',
+      'resident_ollama_population_incomplete',
+      {
+        configured: ollamaResidents.map((resident) => resident.entityId),
+        missing: activeResidents
+          .filter((resident) => resident.ollamaLocal == null)
+          .map((resident) => resident.entityId),
+      },
+    );
+  }
+  if (ollamaResidents.length > 0 && routedResidents.length > 0) {
+    throw new WorldRunnerError(
+      'A managed population cannot mix local Ollama and OpenRouter route policy',
+      'resident_transport_population_conflict',
+    );
+  }
+  const ollamaEndpoints = new Set(
+    ollamaResidents.map((resident) => resident.ollamaLocal!.endpoint),
+  );
+  const ollamaSettings = new Set(
+    ollamaResidents.map((resident) => JSON.stringify(resident.ollamaLocal!.settings)),
+  );
+  if (ollamaEndpoints.size > 1 || ollamaSettings.size > 1) {
+    throw new WorldRunnerError(
+      'Local Ollama residents must share one endpoint and exact output, context, temperature, and load settings',
+      'resident_ollama_common_settings_mismatch',
+      {
+        residents: ollamaResidents.map((resident) => ({
+          entityId: resident.entityId,
+          endpoint: resident.ollamaLocal!.endpoint,
+          settings: resident.ollamaLocal!.settings,
         })),
       },
     );
@@ -1177,6 +1296,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         resumeAfterBudget: entry.resident.resumeAfterBudget ?? null,
         providerQuotas: entry.resident.providerQuotas ?? null,
         providerRoute: entry.resident.providerRoute ?? null,
+        ollamaLocal: entry.resident.ollamaLocal ?? null,
         paused: entry.resident.paused,
         pid: entry.child.pid!,
         leasePath: entry.resident.leasePath,
@@ -1271,7 +1391,28 @@ export async function startManagedWorld(
   dependencies: WorldRunnerDependencies = {},
 ): Promise<ManagedWorldRun> {
   const residents = normalizeManagedResidents(options);
+  const activeOllamaPolicies = residents
+    .filter((resident) => !resident.paused && resident.ollamaLocal != null)
+    .map((resident) => resident.ollamaLocal!);
   const providerAccounting = managedProviderAccounting(options, residents);
+  if (activeOllamaPolicies.length > 0 && !providerAccounting) {
+    throw new WorldRunnerError(
+      'Local Ollama managed runs require per-resident quotas and a durable experiment release',
+      'resident_ollama_release_accounting_missing',
+    );
+  }
+  const ollamaPreflight =
+    activeOllamaPolicies.length > 0
+      ? await preflightOllamaLocal({
+          policies: activeOllamaPolicies,
+          cloudConfigFile:
+            options.ollamaServerConfigFile ?? path.join(os.homedir(), '.ollama', 'server.json'),
+          ...(dependencies.ollamaPreflightFetch
+            ? { fetch: dependencies.ollamaPreflightFetch }
+            : {}),
+          ...(dependencies.now ? { now: dependencies.now } : {}),
+        })
+      : null;
   const cognitionResidentCount = residents.filter((resident) => !resident.paused).length;
   const maxConcurrentModelCalls =
     cognitionResidentCount > 0 ? managedModelConcurrencyLimit(options, cognitionResidentCount) : 0;
@@ -1379,7 +1520,7 @@ export async function startManagedWorld(
       );
     }
     const upstreamApiKey = optionalText(process.env.OPENROUTER_API_KEY);
-    if (upstreamApiKey && cognitionResidentCount > 0) {
+    if ((upstreamApiKey || ollamaPreflight) && cognitionResidentCount > 0) {
       const clients = new Map(
         residents
           .filter((resident) => !resident.paused)
@@ -1393,6 +1534,7 @@ export async function startManagedWorld(
                 model: resident.model,
                 ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
                 ...(resident.providerRoute ? { routePolicy: resident.providerRoute } : {}),
+                ...(resident.ollamaLocal ? { ollamaLocal: resident.ollamaLocal } : {}),
                 ...(accounting
                   ? {
                       accounting: Object.freeze({
@@ -1409,8 +1551,10 @@ export async function startManagedWorld(
       const journalFile = path.join(runRoot, managedRunId, '_cognition', 'broker.jsonl');
       const transportCaptureDirectory = path.join(runRoot, managedRunId, '_cognition', 'transport');
       const broker = await startCognitionBroker({
-        upstreamEndpoint: chatCompletionEndpoint(process.env.OPENROUTER_BASE_URL),
-        upstreamApiKey,
+        upstreamEndpoint: ollamaPreflight
+          ? activeOllamaPolicies[0].endpoint
+          : chatCompletionEndpoint(process.env.OPENROUTER_BASE_URL),
+        ...(ollamaPreflight ? { ollamaPreflight } : { upstreamApiKey: upstreamApiKey! }),
         clients: [...clients.values()],
         maxConcurrent: maxConcurrentModelCalls,
         ...(maxTotalModelCalls == null ? {} : { maxAccepted: maxTotalModelCalls }),
@@ -1423,6 +1567,7 @@ export async function startManagedWorld(
         clients,
         concurrencyLimit: maxConcurrentModelCalls,
         maxTotalModelCalls,
+        ollamaPreflight,
       });
     }
     if (providerAccounting && !cognition) {
@@ -1454,6 +1599,7 @@ export async function startManagedWorld(
           target: resident.target ?? null,
           allowTools: resident.allowTools ?? null,
           providerRoute: resident.providerRoute ?? null,
+          ollamaLocal: resident.ollamaLocal ?? null,
           providerAccounting: providerAccounting
             ? {
                 accountId: providerAccounting.accounts.get(resident.entityId)!.accountId,
@@ -1494,7 +1640,10 @@ export async function startManagedWorld(
               journalFile: cognition.broker.journalFile,
               transportCaptureDirectory: cognition.broker.transportCaptureDirectory,
               credentialOwner: 'world_runner',
-              transport: 'loopback_chat_completions',
+              transport: cognition.ollamaPreflight
+                ? 'ollama_local_native_chat'
+                : 'openrouter_chat_completions',
+              ollamaPreflight: cognition.ollamaPreflight,
             }
           : null,
       },
@@ -1523,6 +1672,7 @@ export async function startManagedWorld(
         journalFile: cognition.broker.journalFile,
         transportCaptureDirectory: cognition.broker.transportCaptureDirectory,
         accounting: cognition.broker.snapshot().accounting,
+        ollamaPreflight: cognition.ollamaPreflight,
       });
     }
     control.update('starting', { server: null, controllers: [] });
@@ -1627,6 +1777,7 @@ export async function startManagedWorld(
             urgentModel: resident.urgentModel ?? null,
             mind: resident.mind,
             ...(resident.providerRoute ? { providerRoute: resident.providerRoute } : {}),
+            ...(resident.ollamaLocal ? { ollamaLocal: resident.ollamaLocal } : {}),
             profiles: {
               policy: resident.policyProfile,
               body: resident.bodyProfile,
@@ -1715,6 +1866,7 @@ export async function startManagedWorld(
         urgentModel: resident.urgentModel ?? null,
         mind: resident.mind,
         providerRoute: resident.providerRoute ?? null,
+        ollamaLocal: resident.ollamaLocal ?? null,
         tickMs: resident.tickMs,
         maxTurnSteps: resident.maxTurnSteps ?? null,
         resumeAfterBudget: resident.resumeAfterBudget ?? null,
@@ -2030,6 +2182,7 @@ export async function startManagedWorld(
             accountingSnapshot: () => runningCognition.broker.snapshot().accounting,
             admissionLimitReached: runningCognition.broker.admissionLimitReached,
             admissionLimitSettled: runningCognition.broker.admissionLimitSettled,
+            ollamaPreflight: runningCognition.ollamaPreflight,
           })
         : null,
       experimentRelease: committedExperimentRelease,
@@ -2649,9 +2802,15 @@ function managedControllerEnvironment(
         'cognition_client_missing',
       );
     }
-    env.OPENROUTER_API_KEY = client.bearer;
-    env.OPENROUTER_BASE_URL = cognition.broker.endpoint;
     env.BEHOLD_COGNITION_TRANSPORT = COGNITION_TRANSPORT_PROTOCOL;
+    if (resident.ollamaLocal) {
+      env.BEHOLD_COGNITION_BEARER = client.bearer;
+      env.BEHOLD_COGNITION_ENDPOINT = cognition.broker.endpoint;
+      env.BEHOLD_OLLAMA_LOCAL_POLICY = serializeOllamaLocalPolicy(resident.ollamaLocal);
+    } else {
+      env.OPENROUTER_API_KEY = client.bearer;
+      env.OPENROUTER_BASE_URL = cognition.broker.endpoint;
+    }
     if (resident.providerRoute) {
       env.BEHOLD_OPENROUTER_ROUTE_POLICY = serializeOpenRouterRoutePolicy(resident.providerRoute);
     }
@@ -2682,8 +2841,12 @@ const RESERVED_RESIDENT_ENVIRONMENT = new Set([
   'OPENROUTER_API_KEY',
   'OPENROUTER_BASE_URL',
   'BEHOLD_COGNITION_TRANSPORT',
+  'BEHOLD_COGNITION_BEARER',
+  'BEHOLD_COGNITION_ENDPOINT',
   'BEHOLD_COGNITION_ACCOUNT_ID',
   'BEHOLD_OPENROUTER_ROUTE_POLICY',
+  'BEHOLD_OLLAMA_LOCAL_POLICY',
+  'BEHOLD_OLLAMA_SERVER_CONFIG',
   'BEHOLD_EXPERIMENT_RELEASE_PLAN',
   'BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256',
   'VIEWER_ENABLED',
@@ -3490,7 +3653,9 @@ export async function runCli(argv = process.argv.slice(2)) {
   if (
     !process.env.OPENROUTER_API_KEY &&
     (configuredResidents
-      ? configuredResidents.some((resident) => resident.paused !== true)
+      ? configuredResidents.some(
+          (resident) => resident.paused !== true && resident.ollamaLocal == null,
+        )
       : !parsed.values.paused)
   ) {
     throw new WorldRunnerError(
@@ -3598,6 +3763,13 @@ export async function runCli(argv = process.argv.slice(2)) {
     ...(parsed.values.accountingScope == null
       ? {}
       : { accountingScopeId: String(parsed.values.accountingScope) }),
+    ...(residents.some((resident) => resident.ollamaLocal != null)
+      ? {
+          ollamaServerConfigFile:
+            process.env.BEHOLD_OLLAMA_SERVER_CONFIG ??
+            path.join(os.homedir(), '.ollama', 'server.json'),
+        }
+      : {}),
   });
   process.stdout.write(
     `[world-runner] ready: ${worldId}, server ${run.serverPid}, residents ${run.residents

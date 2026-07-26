@@ -354,6 +354,121 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
   );
 });
 
+test('resident-set input binds a separately named native Ollama transport', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-ollama-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'residents.json');
+  const ollamaLocal = {
+    protocol: 'behold.ollama-local-policy.v1',
+    endpoint: 'http://127.0.0.1:11434/api/chat',
+    modelTag: 'llama3.2:3b',
+    modelDigest: 'a'.repeat(64),
+    settings: {
+      contextTokens: 16_384,
+      maxOutputTokens: 512,
+      temperature: 0.2,
+      keepAlive: '5m',
+    },
+  };
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      protocol: 'behold.managed-resident-set.v1',
+      residents: [
+        {
+          entityId: 'LocalLife',
+          model: 'llama3.2:3b',
+          mind: 'direct',
+          ollamaLocal,
+          providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
+        },
+      ],
+    }),
+  );
+  assert.deepEqual(loadManagedResidentSet(file), [
+    {
+      entityId: 'LocalLife',
+      model: 'llama3.2:3b',
+      mind: 'direct',
+      ollamaLocal,
+      providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
+    },
+  ]);
+
+  for (const drift of [
+    { ...ollamaLocal, endpoint: 'http://localhost:11434/api/chat' },
+    { ...ollamaLocal, modelTag: 'llama3.3:latest' },
+  ]) {
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        protocol: 'behold.managed-resident-set.v1',
+        residents: [{ entityId: 'LocalLife', model: 'llama3.2:3b', ollamaLocal: drift }],
+      }),
+    );
+    assert.throws(
+      () => loadManagedResidentSet(file),
+      (error: any) => error?.code === 'resident_config_invalid',
+    );
+  }
+});
+
+test('managed Ollama population settings fail before world or daemon inspection', async (t) => {
+  const fixture = makeFixture(t);
+  let inspections = 0;
+  const base = {
+    protocol: 'behold.ollama-local-policy.v1' as const,
+    endpoint: 'http://127.0.0.1:11434/api/chat',
+    settings: {
+      contextTokens: 16_384,
+      maxOutputTokens: 512,
+      temperature: 0.2,
+      keepAlive: '5m',
+    },
+  };
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'local-pilot',
+          residents: [
+            {
+              entityId: 'LocalA',
+              model: 'llama3.2:3b',
+              providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
+              ollamaLocal: { ...base, modelTag: 'llama3.2:3b', modelDigest: 'a'.repeat(64) },
+            },
+            {
+              entityId: 'LocalB',
+              model: 'llama3.3:latest',
+              providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
+              ollamaLocal: {
+                ...base,
+                modelTag: 'llama3.3:latest',
+                modelDigest: 'b'.repeat(64),
+                settings: { ...base.settings, contextTokens: 32_768 },
+              },
+            },
+          ],
+        },
+        {
+          inspectRuntime: async () => {
+            inspections += 1;
+            return runtimeEvidence(null);
+          },
+          verifyArtifacts: async () => ARTIFACTS_OK,
+          ollamaPreflightFetch: async () => {
+            inspections += 1;
+            return new Response('{}');
+          },
+        },
+      ),
+    (error: any) => error?.code === 'resident_ollama_common_settings_mismatch',
+  );
+  assert.equal(inspections, 0);
+});
+
 test('managed route control covers every active resident with one output cap before world inspection', async (t) => {
   const fixture = makeFixture(t);
   let inspections = 0;

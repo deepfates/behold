@@ -1,4 +1,5 @@
 import type { CognitionAdmissionEvidence } from './cognition';
+import type { OllamaLocalPolicy, OllamaLocalResponseIdentity } from './ollama-local';
 import type { OpenRouterResponseIdentity, OpenRouterRoutePolicy } from './openrouter-route';
 import type { RequestByteAttribution } from './request-attribution';
 
@@ -11,7 +12,8 @@ export type ModelCallTerminal =
   | 'malformed_output'
   | 'adapter_rejected'
   | 'admission_rejected'
-  | 'route_identity_mismatch';
+  | 'route_identity_mismatch'
+  | 'ollama_identity_mismatch';
 
 export type ModelAdapterIntervention = Readonly<{
   protocol: 'behold.model-adapter-intervention.v1';
@@ -71,6 +73,8 @@ export type ModelCallEvidence = {
     body?: unknown;
     /** Versioned provider route/output contract bound before serialization. */
     routePolicy?: OpenRouterRoutePolicy;
+    /** Versioned loopback Ollama model/content/settings contract. */
+    localPolicy?: OllamaLocalPolicy;
   };
   response: {
     terminal?: 'success';
@@ -90,6 +94,7 @@ export type ModelCallFailureEvidence = Omit<ModelCallEvidence, 'response'> & {
     status: number | null;
     bodyPreview: string | null;
     routeIdentity?: OpenRouterResponseIdentity;
+    localIdentity?: OllamaLocalResponseIdentity;
     /** Opt-in adapter/provider attempt evidence retained for diagnosis. */
     raw?: unknown;
   };

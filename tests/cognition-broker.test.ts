@@ -20,6 +20,7 @@ import {
 } from '../src/mind/cognition';
 import { verifyQuotaLedger } from '../src/observability/quota-ledger';
 import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
+import { preflightOllamaLocal } from '../src/mind/ollama-local';
 
 const UPSTREAM_KEY = 'upstream-secret-fixture';
 
@@ -817,6 +818,133 @@ test('the transport gate retains and refuses successful upstream route identity 
   assert.equal(verified.records[0].response?.model, 'fixture/other-model');
   assert.equal(verified.records[0].response?.provider, 'Unadmitted Provider');
   assert.equal(verified.records[0].error?.code, 'route_identity_mismatch');
+});
+
+test('the transport gate keeps native Ollama admission and model identity distinct', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-ollama-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalFile = path.join(root, 'broker.jsonl');
+  const transportCaptureDirectory = path.join(root, 'transport');
+  const cloudConfigFile = path.join(root, 'server.json');
+  fs.writeFileSync(cloudConfigFile, JSON.stringify({ disable_ollama_cloud: true }));
+  const localPolicy = {
+    protocol: 'behold.ollama-local-policy.v1',
+    endpoint: 'http://127.0.0.1:11434/api/chat',
+    modelTag: 'fixture/model',
+    modelDigest: 'd'.repeat(64),
+    settings: {
+      contextTokens: 16_384,
+      maxOutputTokens: 512,
+      temperature: 0.2,
+      keepAlive: '5m',
+    },
+  } as const;
+  const preflight = await preflightOllamaLocal({
+    policies: [localPolicy],
+    cloudConfigFile,
+    now: () => new Date('2026-07-25T20:00:00.000Z'),
+    fetch: async (url) => {
+      const route = new URL(String(url)).pathname;
+      if (route === '/api/version') return jsonResponse({ version: '0.23.2' });
+      if (route === '/api/tags') {
+        return jsonResponse({ models: [{ model: 'fixture/model', digest: 'd'.repeat(64) }] });
+      }
+      if (route === '/api/ps') return jsonResponse({ models: [] });
+      if (route === '/api/show') {
+        return jsonResponse({
+          capabilities: ['completion', 'tools'],
+          model_info: { 'llama.context_length': 131_072 },
+        });
+      }
+      throw new Error(`unexpected preflight route ${route}`);
+    },
+  });
+  let upstreamCalls = 0;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: localPolicy.endpoint,
+    ollamaPreflight: preflight,
+    clients: [{ ...client('a'), ollamaLocal: localPolicy }],
+    maxConcurrent: 1,
+    journalFile,
+    transportCaptureDirectory,
+    fetch: async (url, init) => {
+      upstreamCalls += 1;
+      assert.equal(String(url), localPolicy.endpoint);
+      assert.equal(new Headers(init?.headers).has('authorization'), false);
+      const body = JSON.parse(String(init?.body));
+      assert.equal(Object.hasOwn(body, 'provider'), false);
+      assert.equal(Object.hasOwn(body, 'parallel_tool_calls'), false);
+      return jsonResponse({
+        model: upstreamCalls === 1 ? 'fixture/model' : 'fixture/drifted',
+        message: { role: 'assistant', content: null },
+        done: true,
+        done_reason: 'stop',
+        prompt_eval_count: 10,
+        eval_count: 2,
+      });
+    },
+  });
+
+  const exactBody = JSON.stringify({
+    model: 'fixture/model',
+    messages: [],
+    tools: [],
+    stream: false,
+    options: { num_ctx: 16_384, num_predict: 512, temperature: 0.2 },
+    keep_alive: '5m',
+  });
+  try {
+    const wrong = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify({ ...JSON.parse(exactBody), provider: { allow_fallbacks: false } }),
+      'deliberative',
+      'ollama-provider-drift',
+    );
+    assert.equal(wrong.status, 400);
+    assert.equal(((await wrong.json()) as any).error.code, 'request_ollama_policy_mismatch');
+    assert.equal(upstreamCalls, 0);
+
+    const auxiliary = await brokerRequest(
+      broker,
+      'a',
+      exactBody,
+      'auxiliary',
+      'ollama-fold',
+      undefined,
+      'loom_fold',
+    );
+    assert.equal(auxiliary.status, 400);
+    assert.equal(((await auxiliary.json()) as any).error.code, 'request_ollama_policy_mismatch');
+    assert.equal(upstreamCalls, 0);
+
+    const admitted = await brokerRequest(broker, 'a', exactBody, 'deliberative', 'ollama-exact');
+    assert.equal(admitted.status, 200);
+    assert.equal(((await admitted.json()) as any).model, 'fixture/model');
+
+    const drifted = await brokerRequest(
+      broker,
+      'a',
+      exactBody,
+      'deliberative',
+      'ollama-returned-drift',
+    );
+    assert.equal(drifted.status, 502);
+    assert.equal(((await drifted.json()) as any).error.code, 'ollama_identity_mismatch');
+  } finally {
+    await broker.close();
+  }
+
+  const events = verifyCognitionBrokerJournal(journalFile).events;
+  const verified = verifyCognitionTransportCapture(transportCaptureDirectory, events);
+  assert.equal(verified.attempts, 2);
+  assert.equal((verified as any).identityFailures, 1);
+  assert.equal(verified.starts[0].ollamaIdentity?.policy.modelDigest, 'd'.repeat(64));
+  assert.equal(verified.starts[0].ollamaIdentity?.preflightDigest, preflight.digest);
+  assert.equal(verified.starts[0].route.authentication, 'none_loopback');
+  assert.equal(verified.records[1].terminal, 'ollama_identity_mismatch');
+  assert.equal(verified.records[1].response?.model, 'fixture/drifted');
+  assert.equal(verified.records[1].error?.code, 'ollama_identity_mismatch');
 });
 
 test('the transport gate bounds an upstream response while preserving terminal evidence', async () => {

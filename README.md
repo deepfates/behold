@@ -173,6 +173,7 @@ Environment Variables
 - `BEHOLD_ACTION_PROFILE` — `resident-v1`, legacy `minecraft-player-v1`, or the cursor/key-like `minecraft-human-semantic-v1` surface
 - `BEHOLD_SAFETY_PROFILE` — `resident-safe-v1` or `vanilla-player-v1`; the latter exposes risky actions that ordinary Minecraft permits
 - `BEHOLD_RECORD_MODEL_IO=1` — opt in to storing full provider request/response bodies for exact replay; the default records hashes and byte attribution without copying private lived context
+- `BEHOLD_OLLAMA_SERVER_CONFIG` — optional path to the plain local Ollama server config; local managed admission defaults to `~/.ollama/server.json` and requires `disable_ollama_cloud: true`
 
 LLM Autopilot (optional)
 
@@ -246,6 +247,7 @@ Managed population
 - Quota-controlled populations can put equal `providerQuotas` on every resident and pass a stable `--accountingScope`. These hard per-life quotas separate resident-decision provider attempts from auxiliary context work and survive owner epochs; they intentionally cannot be combined with the purpose-blind `--maxModelCalls`. Equality prevents resource monopoly but does not make heterogeneous providers/models a fair comparison. Exact meanings and limitations are in [`docs/EXPERIMENT_ACCOUNTING.md`](docs/EXPERIMENT_ACCOUNTING.md).
 - Quota-controlled mode is all-ready gated: Minecraft time freezes before resident connection, every normal policy/body/credential must durably arm against one exact population and frozen-world basis, and no model request is admitted until one shared release epoch is committed. Later turns carry that release reference, while actual first/second/later observation order remains explicit rather than being called simultaneous.
 - Every managed provider attempt is retained separately under the private run `_cognition/transport` boundary: exact content-addressed request/response bytes, route/model/provider, timing, terminal, reported usage/cost, and broker-authenticated references. Ax correction retries are off by default; explicit corrections are separately charged/captured. Malformed model output, provider/transport failure, cancellation, and loom fallback remain named outcomes instead of becoming successful model turns.
+- A separately named local Ollama direct transport uses native loopback `/api/chat` bytes, never an OpenRouter provider object or fallback. Its resident config binds the exact installed tag/content digest and common context/output/temperature/load settings; read-only preflight proves cloud-disabled config, installed tool capability, and context before world authority is acquired. Local runs still require durable per-resident quotas and the all-ready release.
 - `--duration <seconds>` bounds post-readiness live time and then uses the normal resident drain, Minecraft save, and verified stop path.
 - Readiness requires every named resident's exact PID/entity/run lease. Any unexpected resident exit makes the shared run unhealthy; the owner drains every resident before saving and stopping Minecraft.
 - `npm run proof:owned-world-population` runs the clean-revision two-resident,

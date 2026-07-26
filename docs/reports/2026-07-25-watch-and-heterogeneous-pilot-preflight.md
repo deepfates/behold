@@ -127,42 +127,17 @@ physical actions, tokens, latency, and cost distinct. Provider failure and
 free-route reliability belong to the observed deployment ecology and must not
 be attributed automatically to intelligence.
 
-## Exact route-control gap
+## Exact remote route control
 
-The production owner of direct request bytes is
-`src/mind/direct-wire.ts:directOpenRouterRequestBody`. It currently emits
-`model`, messages, tools, tool choice, non-parallel tools, and temperature. It
-emits neither an output-token cap nor OpenRouter's `provider` routing object.
-`src/mind/direct.ts:createDirectResidentMind` serializes and hashes that body,
-makes one request, and retains returned model/provider identity. The world
-runner's resident config owns model and quota identity, but has no admitted
-route policy.
-
-The cognition broker authenticates the resident, exact model, purpose, quota,
-and raw body, then forwards the bytes unchanged. Its body validator permits a
-valid output cap but does not require one and does not validate a provider
-policy. Returned provider/model identity is captured, not compared with an
-admitted route. Therefore capture is honest about what happened but cannot
-prevent a fallback or unequal output envelope.
-
-The smallest owning implementation seam is:
-
-1. Add a versioned direct-mind route policy to each managed resident: requested
-   model, exact ordered provider slug(s), `allow_fallbacks: false`, required
-   data-policy/ZDR filters, and one shared maximum output token count.
-2. Have `directOpenRouterRequestBody` render that exact policy and output cap.
-   Use the direct adapter for this pilot; do not route through Ax or folding.
-3. Bind the policy into the release/configuration identity, and have the broker
-   reject any authenticated resident body that differs before quota charge or
-   upstream I/O. The existing exact body hash/capture then proves the sent
-   bytes.
-4. Require returned model/provider to match the admitted identity and record a
-   distinct route-identity failure. Never substitute or silently retry.
-
-This is a narrow transport/configuration fix, not a treatment engine. Until it
-is implemented and tested provider-free, the technical route control is not
-implementable from operator configuration and the provider-backed pilot stays
-closed.
+The previously identified remote route gap is now closed in the direct path.
+Each managed resident may bind a versioned exact provider order,
+`allow_fallbacks: false`, and output cap. The direct wire renders those bytes;
+the broker rejects drift before quota charge or upstream I/O; the release binds
+the policy; and a returned provider/model mismatch is a distinct terminal with
+the original response retained. Ax and auxiliary folding remain outside that
+admitted route-controlled path. Local/no-network tests exercised exact bytes,
+negative admission, returned-identity failure, durable capture, release
+identity, and managed propagation. No provider completion was called.
 
 OpenRouter documents exact provider ordering and fallback control in its
 [provider routing API](https://openrouter.ai/docs/guides/routing/provider-selection),
@@ -209,3 +184,58 @@ Immediately before any future call, re-query the exact endpoints, verify $0,
 context/output limits, provider identity, retention/training/ZDR policy, and
 account privacy settings; fail closed on any drift. No winner/loser conclusion
 is permitted from the resulting heterogeneous run.
+
+## Local Ollama alternative: implemented preflight, inference still closed
+
+Behold now has a separately named native Ollama transport rather than treating
+the local daemon as an OpenRouter-compatible provider. Admission requires an
+exact `http://127.0.0.1:<port>/api/chat` or IPv6-loopback endpoint, a plain
+server config with `disable_ollama_cloud: true`, the exact installed tag and
+content digest, advertised tool capability, sufficient model context, and one
+common output/context/temperature/`keep_alive` setting. Native request bytes
+contain no OpenRouter `provider`, fallback, or `parallel_tool_calls` fields. The
+model tag is checked again on every successful response; drift becomes
+`ollama_identity_mismatch`. The release and each raw transport-attempt start
+bind the tag, content digest, settings, preflight digest, and Ollama version.
+
+A real read-only preflight on this Mac passed without inference on 2026-07-25:
+
+- Ollama `0.23.2`, loopback, cloud-disabled config digest
+  `30c5a0e23ac2015aa3fb9a17391e1ab72fa5668ff9bd37cd3caccc864c8e21ec`;
+- `llama3.2:3b` digest
+  `a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72`,
+  3.2B Q4_K_M, completion plus tools, 131,072 model context;
+- `llama3.3:latest` digest
+  `a6eb4748fd2990ad2952b2335a95a7f952d1a06119a0aa6a2df6cd052a93a3fa`,
+  70.6B Q4_K_M, completion plus tools, 131,072 model context; and
+- `/api/ps` was empty before and after the pass. The preflight called only
+  version, tags, show, and process inventory; neither model was loaded.
+
+`phi4:latest` is installed but advertises completion rather than tools, and
+`moondream:latest` advertises vision rather than tools and has only a 2,048
+context. Neither satisfies the existing semantic-body tool contract without a
+new behavioral adapter, so neither belongs in this bounded pilot.
+
+At the proposed explicit 16,384-token context, file weights plus an F16
+key/value-cache estimate give these lower bounds before graph/runtime overhead:
+
+| Residency     |                     Approximate lower bound | Consequence                                                  |
+| ------------- | ------------------------------------------: | ------------------------------------------------------------ |
+| 3B alone      |   1.88 GiB weights + 1.75 GiB KV = 3.63 GiB | Small local arm; actual latency unmeasured                   |
+| 70B alone     | 39.60 GiB weights + 5.00 GiB KV = 44.60 GiB | Dominates sequential peak; actual latency unmeasured         |
+| both retained | 41.48 GiB weights + 6.75 GiB KV = 48.23 GiB | Plausible on 128 GiB unified memory, but not yet load-proven |
+
+`maxModelConcurrency: 1` serializes physical attempts but does not by itself
+make residency sequential: a shared `keepAlive: "5m"` can retain both models.
+Strict sequential residency requires the common `keepAlive: "0s"`, which
+trades memory isolation for a cold-load penalty on every opportunity. No honest
+latency number exists yet. The first authorized heavy-slot pass should load and
+infer with each model sequentially, record cold/warm load, prompt-evaluation,
+generation, and total durations from Ollama's native response, unload cleanly,
+and only then decide whether simultaneous retention is acceptable.
+
+The local pair is still a heterogeneous living-world integration: 3B and 70B
+differ radically in capacity and deployment latency even though they share a
+model family, body, prompt projection, and resource-governance quotas. Those
+controls do not create a fair model comparison, and the pilot must make no
+winner claim.

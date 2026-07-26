@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ollamaLocalPolicy, type OllamaLocalPolicy } from '../mind/ollama-local';
 import { openRouterRoutePolicy, type OpenRouterRoutePolicy } from '../mind/openrouter-route';
 
 export const EXPERIMENT_RELEASE_PLAN_PROTOCOL = 'behold.experiment-release-plan.v1' as const;
@@ -17,6 +18,7 @@ export type ExperimentReleaseResident = Readonly<{
   urgentModel: string | null;
   mind: 'direct' | 'ax';
   providerRoute?: OpenRouterRoutePolicy;
+  ollamaLocal?: OllamaLocalPolicy;
   profiles: Readonly<{
     policy: string;
     body: string;
@@ -560,6 +562,11 @@ function parseResident(value: unknown): ExperimentReleaseResident {
     typeof value === 'object' &&
     !Array.isArray(value) &&
     Object.prototype.hasOwnProperty.call(value, 'providerRoute');
+  const hasOllamaLocal =
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.prototype.hasOwnProperty.call(value, 'ollamaLocal');
   const record = exactRecord(
     value,
     [
@@ -569,6 +576,7 @@ function parseResident(value: unknown): ExperimentReleaseResident {
       'urgentModel',
       'mind',
       ...(hasProviderRoute ? ['providerRoute'] : []),
+      ...(hasOllamaLocal ? ['ollamaLocal'] : []),
       'profiles',
       'quotaAccount',
     ],
@@ -595,6 +603,16 @@ function parseResident(value: unknown): ExperimentReleaseResident {
   if (record.mind !== 'direct' && record.mind !== 'ax') {
     throw new Error('release resident mind must be direct or ax');
   }
+  if (hasProviderRoute && hasOllamaLocal) {
+    throw new Error('release resident cannot combine OpenRouter and Ollama transport');
+  }
+  if (hasOllamaLocal && record.mind !== 'direct') {
+    throw new Error('release resident Ollama transport requires the direct mind');
+  }
+  const localPolicy = hasOllamaLocal ? ollamaLocalPolicy(record.ollamaLocal) : null;
+  if (localPolicy && localPolicy.modelTag !== record.model) {
+    throw new Error('release resident Ollama tag differs from resident model');
+  }
   return deepFreeze({
     entityId: boundedId(record.entityId, 'release resident'),
     bodyUsername: minecraftUsername(record.bodyUsername),
@@ -605,6 +623,7 @@ function parseResident(value: unknown): ExperimentReleaseResident {
         : boundedText(record.urgentModel, 'release urgent model', 300),
     mind: record.mind,
     ...(hasProviderRoute ? { providerRoute: openRouterRoutePolicy(record.providerRoute) } : {}),
+    ...(localPolicy ? { ollamaLocal: localPolicy } : {}),
     profiles: {
       policy: boundedId(profiles.policy, 'release policy profile'),
       body: boundedId(profiles.body, 'release body profile'),
@@ -817,6 +836,7 @@ function sameResidentConfiguration(
     actual.urgentModel === expected.urgentModel &&
     actual.mind === expected.mind &&
     stableJson(actual.providerRoute ?? null) === stableJson(expected.providerRoute ?? null) &&
+    stableJson(actual.ollamaLocal ?? null) === stableJson(expected.ollamaLocal ?? null) &&
     stableJson(actual.profiles) === stableJson(expected.profiles) &&
     (expected.quotaAccountId == null || actual.quotaAccount.accountId === expected.quotaAccountId)
   );
