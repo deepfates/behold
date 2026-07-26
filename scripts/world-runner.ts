@@ -63,6 +63,18 @@ import {
   usesOllamaResidentSessionTransport,
 } from '../src/mind/ollama-json-action';
 import {
+  lmStudioLocalPolicy,
+  lmStudioResidentInstanceId,
+  preflightLmStudioLocal,
+  prepareLmStudioResidentSession,
+  releaseLmStudioResidentSession,
+  serializeLmStudioLocalPolicy,
+  type LmStudioCommandRunner,
+  type LmStudioLocalPolicy,
+  type LmStudioLocalPreflight,
+  type LmStudioResidentSession,
+} from '../src/mind/lmstudio-local';
+import {
   COGNITION_TRANSPORT_PROTOCOL,
   cognitionAccountId,
   cognitionResidentKey,
@@ -229,6 +241,8 @@ export type ManagedResidentSpec = Readonly<{
   providerRoute?: OpenRouterRoutePolicy;
   /** Exact loopback Ollama model/content/settings contract. */
   ollamaLocal?: OllamaLocalPolicy;
+  /** Exact loopback LM Studio runtime/artifact/instance/settings contract. */
+  lmStudioLocal?: LmStudioLocalPolicy;
   /** Explicit four-slot scored cognition treatment; absent keeps ordinary world-event scheduling. */
   decisionSchedule?: FixedDecisionPilotSchedule;
   /** Explicit, non-authoritative variables for a specialized controller entrypoint. */
@@ -258,6 +272,7 @@ const MANAGED_RESIDENT_SET_FIELDS = new Set([
   'providerQuotas',
   'providerRoute',
   'ollamaLocal',
+  'lmStudioLocal',
   'decisionSchedule',
   'paused',
 ]);
@@ -448,6 +463,28 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
         );
       }
     }
+    if (candidate.lmStudioLocal !== undefined) {
+      try {
+        result.lmStudioLocal = lmStudioLocalPolicy(candidate.lmStudioLocal);
+      } catch (error: any) {
+        throw residentConfigInvalid(
+          file,
+          `wrong lmStudioLocal for resident ${index}: ${error?.message || String(error)}`,
+        );
+      }
+      if ((result.mind ?? 'direct') !== 'direct') {
+        throw residentConfigInvalid(file, `resident ${index} lmStudioLocal requires direct mind`);
+      }
+      if ((result.lmStudioLocal as LmStudioLocalPolicy).modelKey !== model) {
+        throw residentConfigInvalid(file, `resident ${index} lmStudioLocal model must equal model`);
+      }
+      if (result.providerRoute || result.ollamaLocal) {
+        throw residentConfigInvalid(
+          file,
+          `resident ${index} cannot combine providerRoute, ollamaLocal, and lmStudioLocal`,
+        );
+      }
+    }
     if (candidate.decisionSchedule !== undefined) {
       try {
         result.decisionSchedule = fixedDecisionPilotSchedule(candidate.decisionSchedule);
@@ -560,6 +597,8 @@ export type ManagedWorldRunOptions = Readonly<{
   accountingScopeId?: string;
   /** Plain local config proving Ollama cloud routes are disabled. */
   ollamaServerConfigFile?: string;
+  /** Exact installed LM Studio artifact root used only for read-only admission hashing. */
+  lmStudioModelsRoot?: string;
   residentStartupDelayMs?: number;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -583,6 +622,14 @@ export type WorldRunnerDependencies = Readonly<{
   ollamaPreflightFetch?: typeof fetch;
   /** Model-load/unload fixture for the versioned local resident session. */
   ollamaSessionFetch?: typeof fetch;
+  /** Read-only LM Studio inventory fixture. */
+  lmStudioPreflightFetch?: typeof fetch;
+  /** Session inventory fixture for LM Studio model load/unload. */
+  lmStudioSessionFetch?: typeof fetch;
+  /** Exact CLI seam for LM Studio read-only inventory and owned load/unload. */
+  lmStudioRunLms?: LmStudioCommandRunner;
+  /** Installed app identity fixture. */
+  lmStudioReadAppVersion?: () => string;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
   stdout?: (text: string) => void;
@@ -609,6 +656,7 @@ export type ManagedWorldRun = Readonly<{
     providerQuotas: ManagedResidentSpec['providerQuotas'] | null;
     providerRoute: OpenRouterRoutePolicy | null;
     ollamaLocal: OllamaLocalPolicy | null;
+    lmStudioLocal: LmStudioLocalPolicy | null;
     decisionSchedule: FixedDecisionPilotSchedule | null;
     paused: boolean;
     viewer: ManagedResidentViewerEndpoint | null;
@@ -627,6 +675,8 @@ export type ManagedWorldRun = Readonly<{
     admissionLimitSettled: CognitionBroker['admissionLimitSettled'];
     ollamaPreflight: OllamaLocalPreflight | null;
     ollamaResidentSession: OllamaResidentSession | null;
+    lmStudioPreflight: LmStudioLocalPreflight | null;
+    lmStudioResidentSession: LmStudioResidentSession | null;
   }> | null;
   experimentRelease: Readonly<{
     releaseId: string;
@@ -705,6 +755,7 @@ type NormalizedManagedResident = Readonly<{
   }>;
   providerRoute?: OpenRouterRoutePolicy;
   ollamaLocal?: OllamaLocalPolicy;
+  lmStudioLocal?: LmStudioLocalPolicy;
   decisionSchedule?: FixedDecisionPilotSchedule;
   environment: Readonly<Record<string, string>>;
   paused: boolean;
@@ -741,6 +792,7 @@ type ManagedCognition = Readonly<{
       models?: readonly string[];
       routePolicy?: OpenRouterRoutePolicy;
       ollamaLocal?: OllamaLocalPolicy;
+      lmStudioLocal?: LmStudioLocalPolicy;
       accounting?: {
         scopeId: string;
         worldId: string;
@@ -753,6 +805,7 @@ type ManagedCognition = Readonly<{
   concurrencyLimit: number;
   maxTotalModelCalls: number | null;
   ollamaPreflight: OllamaLocalPreflight | null;
+  lmStudioPreflight: LmStudioLocalPreflight | null;
 }>;
 
 type ManagedExperimentRelease = Readonly<{
@@ -1013,7 +1066,55 @@ function normalizeManagedResidents(
           { index, entityId },
         );
       }
-      if (policyProfile === 'legible-resident-v1' && !ollamaLocal) {
+      let lmStudioLocal: LmStudioLocalPolicy | undefined;
+      try {
+        lmStudioLocal =
+          candidate.lmStudioLocal == null
+            ? undefined
+            : lmStudioLocalPolicy(candidate.lmStudioLocal);
+      } catch (error: any) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} has invalid LM Studio policy: ${error?.message || String(error)}`,
+          'resident_lmstudio_policy_invalid',
+          { index, entityId, lmStudioLocal: candidate.lmStudioLocal },
+        );
+      }
+      if (lmStudioLocal && mind !== 'direct') {
+        throw new WorldRunnerError(
+          `Resident ${entityId} LM Studio policy requires the direct mind adapter`,
+          'resident_lmstudio_mind_invalid',
+          { index, entityId, mind },
+        );
+      }
+      if (lmStudioLocal && lmStudioLocal.modelKey !== model) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} LM Studio model must equal its configured model`,
+          'resident_lmstudio_model_invalid',
+          { index, entityId, model, modelKey: lmStudioLocal.modelKey },
+        );
+      }
+      if (lmStudioLocal && urgentModel) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} LM Studio session does not admit a second urgent model`,
+          'resident_lmstudio_urgent_model_unsupported',
+          { index, entityId, urgentModel },
+        );
+      }
+      if (lmStudioLocal && (providerRoute || ollamaLocal)) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} cannot combine OpenRouter, Ollama, and LM Studio transport`,
+          'resident_transport_policy_conflict',
+          { index, entityId },
+        );
+      }
+      if (lmStudioLocal && policyProfile !== 'legible-resident-v1') {
+        throw new WorldRunnerError(
+          `Resident ${entityId} LM Studio resident-session transport requires legible-resident-v1`,
+          'resident_lmstudio_treatment_mismatch',
+          { index, entityId, policyProfile },
+        );
+      }
+      if (policyProfile === 'legible-resident-v1' && !ollamaLocal && !lmStudioLocal) {
         throw new WorldRunnerError(
           `Resident ${entityId} legible-resident-v1 requires the strict local JSON v2 transport`,
           'resident_legible_transport_missing',
@@ -1104,6 +1205,7 @@ function normalizeManagedResidents(
         ...(providerQuotas ? { providerQuotas } : {}),
         ...(providerRoute ? { providerRoute } : {}),
         ...(ollamaLocal ? { ollamaLocal } : {}),
+        ...(lmStudioLocal ? { lmStudioLocal } : {}),
         ...(decisionSchedule ? { decisionSchedule } : {}),
         environment,
         paused: candidate.paused === true,
@@ -1202,6 +1304,52 @@ function normalizeManagedResidents(
           endpoint: resident.ollamaLocal!.endpoint,
           transport: resident.ollamaLocal!.transport,
           settings: resident.ollamaLocal!.settings,
+        })),
+      },
+    );
+  }
+  const lmStudioResidents = activeResidents.filter((resident) => resident.lmStudioLocal != null);
+  if (lmStudioResidents.length > 0 && lmStudioResidents.length !== activeResidents.length) {
+    throw new WorldRunnerError(
+      'Local LM Studio control must cover every active resident or none of them',
+      'resident_lmstudio_population_incomplete',
+      {
+        configured: lmStudioResidents.map((resident) => resident.entityId),
+        missing: activeResidents
+          .filter((resident) => resident.lmStudioLocal == null)
+          .map((resident) => resident.entityId),
+      },
+    );
+  }
+  if (lmStudioResidents.length > 0 && (routedResidents.length > 0 || ollamaResidents.length > 0)) {
+    throw new WorldRunnerError(
+      'A managed population cannot mix LM Studio, Ollama, and OpenRouter route policy',
+      'resident_transport_population_conflict',
+    );
+  }
+  const lmStudioCommon = new Set(
+    lmStudioResidents.map((resident) =>
+      JSON.stringify({
+        endpoint: resident.lmStudioLocal!.endpoint,
+        runtime: resident.lmStudioLocal!.runtime,
+        protocol: resident.lmStudioLocal!.transport.protocol,
+        schemaProtocol: resident.lmStudioLocal!.transport.schemaProtocol,
+        schemaSha256: resident.lmStudioLocal!.transport.schemaSha256,
+        settings: resident.lmStudioLocal!.settings,
+      }),
+    ),
+  );
+  if (lmStudioCommon.size > 1) {
+    throw new WorldRunnerError(
+      'Local LM Studio residents must share one runtime, endpoint, strict schema, context, output, and temperature contract',
+      'resident_lmstudio_common_settings_mismatch',
+      {
+        residents: lmStudioResidents.map((resident) => ({
+          entityId: resident.entityId,
+          endpoint: resident.lmStudioLocal!.endpoint,
+          runtime: resident.lmStudioLocal!.runtime,
+          transport: resident.lmStudioLocal!.transport,
+          settings: resident.lmStudioLocal!.settings,
         })),
       },
     );
@@ -1445,6 +1593,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         providerQuotas: entry.resident.providerQuotas ?? null,
         providerRoute: entry.resident.providerRoute ?? null,
         ollamaLocal: entry.resident.ollamaLocal ?? null,
+        lmStudioLocal: entry.resident.lmStudioLocal ?? null,
         decisionSchedule: entry.resident.decisionSchedule ?? null,
         paused: entry.resident.paused,
         viewer: entry.viewer,
@@ -1601,11 +1750,20 @@ export async function startManagedWorld(
   const requiresOllamaResidentSession = activeOllamaPolicies.some(
     usesOllamaResidentSessionTransport,
   );
+  const activeLmStudioPolicies = residents
+    .filter((resident) => !resident.paused && resident.lmStudioLocal != null)
+    .map((resident) => resident.lmStudioLocal!);
   const providerAccounting = managedProviderAccounting(options, residents);
   if (activeOllamaPolicies.length > 0 && !providerAccounting) {
     throw new WorldRunnerError(
-      'Local Ollama managed runs require per-resident quotas and a durable experiment release',
+      'Local Ollama resident sessions require per-resident quotas and a durable experiment release',
       'resident_ollama_release_accounting_missing',
+    );
+  }
+  if (activeLmStudioPolicies.length > 0 && !providerAccounting) {
+    throw new WorldRunnerError(
+      'Local LM Studio resident sessions require per-resident quotas and a durable experiment release',
+      'resident_lmstudio_release_accounting_missing',
     );
   }
   const ollamaPreflight =
@@ -1616,6 +1774,22 @@ export async function startManagedWorld(
             options.ollamaServerConfigFile ?? path.join(os.homedir(), '.ollama', 'server.json'),
           ...(dependencies.ollamaPreflightFetch
             ? { fetch: dependencies.ollamaPreflightFetch }
+            : {}),
+          ...(dependencies.now ? { now: dependencies.now } : {}),
+        })
+      : null;
+  const lmStudioPreflight =
+    activeLmStudioPolicies.length > 0
+      ? await preflightLmStudioLocal({
+          policies: activeLmStudioPolicies,
+          modelsRoot:
+            options.lmStudioModelsRoot ?? path.join(os.homedir(), '.cache', 'lm-studio', 'models'),
+          ...(dependencies.lmStudioPreflightFetch
+            ? { fetch: dependencies.lmStudioPreflightFetch }
+            : {}),
+          ...(dependencies.lmStudioRunLms ? { runLms: dependencies.lmStudioRunLms } : {}),
+          ...(dependencies.lmStudioReadAppVersion
+            ? { readAppVersion: dependencies.lmStudioReadAppVersion }
             : {}),
           ...(dependencies.now ? { now: dependencies.now } : {}),
         })
@@ -1700,6 +1874,7 @@ export async function startManagedWorld(
   const controllerProcesses: ManagedResidentProcess[] = [];
   let cognition: ManagedCognition | null = null;
   let ollamaResidentSession: OllamaResidentSession | null = null;
+  let lmStudioResidentSession: LmStudioResidentSession | null = null;
   let experiment: ManagedExperimentRelease | null = null;
   let committedExperimentRelease: ManagedWorldRun['experimentRelease'] = null;
   let stopping = false;
@@ -1728,7 +1903,7 @@ export async function startManagedWorld(
       );
     }
     const upstreamApiKey = optionalText(process.env.OPENROUTER_API_KEY);
-    if ((upstreamApiKey || ollamaPreflight) && cognitionResidentCount > 0) {
+    if ((upstreamApiKey || ollamaPreflight || lmStudioPreflight) && cognitionResidentCount > 0) {
       const clients = new Map(
         residents
           .filter((resident) => !resident.paused)
@@ -1743,6 +1918,7 @@ export async function startManagedWorld(
                 ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
                 ...(resident.providerRoute ? { routePolicy: resident.providerRoute } : {}),
                 ...(resident.ollamaLocal ? { ollamaLocal: resident.ollamaLocal } : {}),
+                ...(resident.lmStudioLocal ? { lmStudioLocal: resident.lmStudioLocal } : {}),
                 ...(accounting
                   ? {
                       accounting: Object.freeze({
@@ -1761,8 +1937,14 @@ export async function startManagedWorld(
       const broker = await startCognitionBroker({
         upstreamEndpoint: ollamaPreflight
           ? activeOllamaPolicies[0].endpoint
-          : chatCompletionEndpoint(process.env.OPENROUTER_BASE_URL),
-        ...(ollamaPreflight ? { ollamaPreflight } : { upstreamApiKey: upstreamApiKey! }),
+          : lmStudioPreflight
+            ? activeLmStudioPolicies[0].endpoint
+            : chatCompletionEndpoint(process.env.OPENROUTER_BASE_URL),
+        ...(ollamaPreflight
+          ? { ollamaPreflight }
+          : lmStudioPreflight
+            ? { lmStudioPreflight }
+            : { upstreamApiKey: upstreamApiKey! }),
         clients: [...clients.values()],
         maxConcurrent: maxConcurrentModelCalls,
         ...(maxTotalModelCalls == null ? {} : { maxAccepted: maxTotalModelCalls }),
@@ -1776,6 +1958,7 @@ export async function startManagedWorld(
         concurrencyLimit: maxConcurrentModelCalls,
         maxTotalModelCalls,
         ollamaPreflight,
+        lmStudioPreflight,
       });
     }
     if (providerAccounting && !cognition) {
@@ -1808,6 +1991,7 @@ export async function startManagedWorld(
           allowTools: resident.allowTools ?? null,
           providerRoute: resident.providerRoute ?? null,
           ollamaLocal: resident.ollamaLocal ?? null,
+          lmStudioLocal: resident.lmStudioLocal ?? null,
           decisionSchedule: resident.decisionSchedule ?? null,
           providerAccounting: providerAccounting
             ? {
@@ -1866,8 +2050,11 @@ export async function startManagedWorld(
               credentialOwner: 'world_runner',
               transport: cognition.ollamaPreflight
                 ? 'ollama_local_native_chat'
-                : 'openrouter_chat_completions',
+                : cognition.lmStudioPreflight
+                  ? 'lmstudio_local_openai_structured_output'
+                  : 'openrouter_chat_completions',
               ollamaPreflight: cognition.ollamaPreflight,
+              lmStudioPreflight: cognition.lmStudioPreflight,
             }
           : null,
       },
@@ -1897,6 +2084,7 @@ export async function startManagedWorld(
         transportCaptureDirectory: cognition.broker.transportCaptureDirectory,
         accounting: cognition.broker.snapshot().accounting,
         ollamaPreflight: cognition.ollamaPreflight,
+        lmStudioPreflight: cognition.lmStudioPreflight,
       });
     }
     control.update('starting', { server: null, controllers: [] });
@@ -1971,6 +2159,22 @@ export async function startManagedWorld(
           session: ollamaResidentSession,
         });
       }
+      if (activeLmStudioPolicies.length > 0) {
+        lmStudioResidentSession = await prepareLmStudioResidentSession({
+          policies: activeLmStudioPolicies,
+          preflight: lmStudioPreflight!,
+          ...(dependencies.lmStudioRunLms ? { runLms: dependencies.lmStudioRunLms } : {}),
+          ...(dependencies.lmStudioSessionFetch
+            ? { fetch: dependencies.lmStudioSessionFetch }
+            : {}),
+        });
+        control.append('experiment_setup_lmstudio_resident_session_ready', {
+          phase: 'setup',
+          residentCognitionAdmitted: false,
+          worldTicks: 'frozen',
+          session: lmStudioResidentSession,
+        });
+      }
 
       const initialAccounting = matchedReleaseAccounting(cognition!, providerAccounting, residents);
       const accounts = new Map(
@@ -2016,6 +2220,7 @@ export async function startManagedWorld(
             mind: resident.mind,
             ...(resident.providerRoute ? { providerRoute: resident.providerRoute } : {}),
             ...(resident.ollamaLocal ? { ollamaLocal: resident.ollamaLocal } : {}),
+            ...(resident.lmStudioLocal ? { lmStudioLocal: resident.lmStudioLocal } : {}),
             ...(resident.decisionSchedule ? { decisionSchedule: resident.decisionSchedule } : {}),
             profiles: {
               policy: resident.policyProfile,
@@ -2113,6 +2318,7 @@ export async function startManagedWorld(
         mind: resident.mind,
         providerRoute: resident.providerRoute ?? null,
         ollamaLocal: resident.ollamaLocal ?? null,
+        lmStudioLocal: resident.lmStudioLocal ?? null,
         decisionSchedule: resident.decisionSchedule ?? null,
         tickMs: resident.tickMs,
         maxTurnSteps: resident.maxTurnSteps ?? null,
@@ -2256,6 +2462,7 @@ export async function startManagedWorld(
         cognition: cognitionBeforeRelease,
         accounting: accountingBeforeRelease,
         ollamaResidentSession,
+        lmStudioResidentSession,
         worldState: {
           runtimeDigestProfile: 'behold-tree-v2',
           runtimeDigest: releaseRuntimeDigest,
@@ -2422,6 +2629,10 @@ export async function startManagedWorld(
         ollamaResidentSession,
         ollamaPolicies: activeOllamaPolicies,
         ollamaSessionFetch: dependencies.ollamaSessionFetch,
+        lmStudioResidentSession,
+        lmStudioPolicies: activeLmStudioPolicies,
+        lmStudioRunLms: dependencies.lmStudioRunLms,
+        lmStudioSessionFetch: dependencies.lmStudioSessionFetch,
       });
       return stopPromise;
     };
@@ -2444,6 +2655,8 @@ export async function startManagedWorld(
             admissionLimitSettled: runningCognition.broker.admissionLimitSettled,
             ollamaPreflight: runningCognition.ollamaPreflight,
             ollamaResidentSession,
+            lmStudioPreflight: runningCognition.lmStudioPreflight,
+            lmStudioResidentSession,
           })
         : null,
       experimentRelease: committedExperimentRelease,
@@ -2471,6 +2684,10 @@ export async function startManagedWorld(
       ollamaResidentSession,
       ollamaPolicies: activeOllamaPolicies,
       ollamaSessionFetch: dependencies.ollamaSessionFetch,
+      lmStudioResidentSession,
+      lmStudioPolicies: activeLmStudioPolicies,
+      lmStudioRunLms: dependencies.lmStudioRunLms,
+      lmStudioSessionFetch: dependencies.lmStudioSessionFetch,
     });
     if (!cleaned) {
       try {
@@ -2678,10 +2895,15 @@ async function cleanupFailedStart(input: {
   ollamaResidentSession: OllamaResidentSession | null;
   ollamaPolicies: readonly OllamaLocalPolicy[];
   ollamaSessionFetch?: typeof fetch;
+  lmStudioResidentSession: LmStudioResidentSession | null;
+  lmStudioPolicies: readonly LmStudioLocalPolicy[];
+  lmStudioRunLms?: LmStudioCommandRunner;
+  lmStudioSessionFetch?: typeof fetch;
 }) {
   try {
     let cognitionFailure: Error | null = null;
     let ollamaFailure: Error | null = null;
+    let lmStudioFailure: Error | null = null;
     input.control.update('stopping');
     input.control.append('failed_start_cleanup_started');
     if (input.residents.length > 0) {
@@ -2738,6 +2960,20 @@ async function cleanupFailedStart(input: {
         ollamaFailure = error instanceof Error ? error : new Error(String(error));
       }
     }
+    if (input.lmStudioResidentSession) {
+      try {
+        await releaseManagedLmStudioResidentSession(
+          input.control,
+          input.lmStudioResidentSession,
+          input.lmStudioPolicies,
+          input.lmStudioRunLms,
+          input.lmStudioSessionFetch,
+          'failed_start',
+        );
+      } catch (error: any) {
+        lmStudioFailure = error instanceof Error ? error : new Error(String(error));
+      }
+    }
     if (input.server && input.serverExit) {
       if (!processExited(input.server) && input.serverOutput?.lines().some(isMinecraftReadyLine)) {
         const marker = input.serverOutput.mark();
@@ -2760,6 +2996,7 @@ async function cleanupFailedStart(input: {
     assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_failed_start_cleanup');
     if (cognitionFailure) throw cognitionFailure;
     if (ollamaFailure) throw ollamaFailure;
+    if (lmStudioFailure) throw lmStudioFailure;
     input.control.update('stopped_verified', { server: null, controllers: [] });
     input.control.append('failed_start_cleanup_completed');
     input.control.release();
@@ -2790,6 +3027,10 @@ async function stopManagedWorld(input: {
   ollamaResidentSession: OllamaResidentSession | null;
   ollamaPolicies: readonly OllamaLocalPolicy[];
   ollamaSessionFetch?: typeof fetch;
+  lmStudioResidentSession: LmStudioResidentSession | null;
+  lmStudioPolicies: readonly LmStudioLocalPolicy[];
+  lmStudioRunLms?: LmStudioCommandRunner;
+  lmStudioSessionFetch?: typeof fetch;
 }) {
   const { control, server } = input;
   control.update('stopping');
@@ -2827,6 +3068,7 @@ async function stopManagedWorld(input: {
 
     let cognitionFailure: Error | null = null;
     let ollamaFailure: Error | null = null;
+    let lmStudioFailure: Error | null = null;
     if (input.cognition) {
       try {
         await drainManagedCognition(control, input.cognition, input.timeoutMs, 'managed_stop');
@@ -2849,6 +3091,20 @@ async function stopManagedWorld(input: {
         );
       } catch (error: any) {
         ollamaFailure = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    if (input.lmStudioResidentSession) {
+      try {
+        await releaseManagedLmStudioResidentSession(
+          control,
+          input.lmStudioResidentSession,
+          input.lmStudioPolicies,
+          input.lmStudioRunLms,
+          input.lmStudioSessionFetch,
+          'managed_stop',
+        );
+      } catch (error: any) {
+        lmStudioFailure = error instanceof Error ? error : new Error(String(error));
       }
     }
 
@@ -2891,6 +3147,14 @@ async function stopManagedWorld(input: {
         'Ollama resident session did not release cleanly',
         'ollama_resident_session_shutdown_failed',
         { error: ollamaFailure.message },
+      );
+    }
+    if (lmStudioFailure) {
+      control.update('stopping', { server: null, controllers: [] });
+      throw new WorldRunnerError(
+        'LM Studio resident session did not release cleanly',
+        'lmstudio_resident_session_shutdown_failed',
+        { error: lmStudioFailure.message },
       );
     }
     if (abnormalExits.length) {
@@ -3038,6 +3302,41 @@ async function releaseManagedOllamaResidentSession(
   }
 }
 
+async function releaseManagedLmStudioResidentSession(
+  control: HeldWorldControl,
+  session: LmStudioResidentSession,
+  policies: readonly LmStudioLocalPolicy[],
+  runLms: LmStudioCommandRunner | undefined,
+  callFetch: typeof fetch | undefined,
+  phase: string,
+) {
+  control.append('lmstudio_resident_session_releasing', {
+    phase,
+    sessionDigest: session.digest,
+    models: session.models.map((model) => ({
+      modelKey: model.modelKey,
+      modelInstanceId: model.modelInstanceId,
+    })),
+  });
+  try {
+    const evidence = await releaseLmStudioResidentSession({
+      session,
+      policies,
+      ...(runLms ? { runLms } : {}),
+      ...(callFetch ? { fetch: callFetch } : {}),
+    });
+    control.append('lmstudio_resident_session_released', { phase, evidence });
+    return evidence;
+  } catch (error: any) {
+    control.append('lmstudio_resident_session_release_failed', {
+      phase,
+      sessionDigest: session.digest,
+      error: error?.message || String(error),
+    });
+    throw error;
+  }
+}
+
 function spawnDefaultServer(options: ManagedWorldRunOptions) {
   return spawn(
     options.java,
@@ -3148,6 +3447,11 @@ function managedControllerEnvironment(
       env.BEHOLD_COGNITION_BEARER = client.bearer;
       env.BEHOLD_COGNITION_ENDPOINT = cognition.broker.endpoint;
       env.BEHOLD_OLLAMA_LOCAL_POLICY = serializeOllamaLocalPolicy(resident.ollamaLocal);
+    } else if (resident.lmStudioLocal) {
+      env.BEHOLD_COGNITION_BEARER = client.bearer;
+      env.BEHOLD_COGNITION_ENDPOINT = cognition.broker.endpoint;
+      env.BEHOLD_LMSTUDIO_LOCAL_POLICY = serializeLmStudioLocalPolicy(resident.lmStudioLocal);
+      env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID = lmStudioResidentInstanceId(resident.lmStudioLocal);
     } else {
       env.OPENROUTER_API_KEY = client.bearer;
       env.OPENROUTER_BASE_URL = cognition.broker.endpoint;
@@ -3194,6 +3498,8 @@ const RESERVED_RESIDENT_ENVIRONMENT = new Set([
   'BEHOLD_OPENROUTER_ROUTE_POLICY',
   'BEHOLD_OLLAMA_LOCAL_POLICY',
   'BEHOLD_OLLAMA_SERVER_CONFIG',
+  'BEHOLD_LMSTUDIO_LOCAL_POLICY',
+  'BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID',
   'BEHOLD_EXPERIMENT_RELEASE_PLAN',
   'BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256',
   'VIEWER_ENABLED',
@@ -3985,6 +4291,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       duration: { type: 'string' },
       viewerBasePort: { type: 'string' },
       viewerDistance: { type: 'string' },
+      lmStudioModelsRoot: { type: 'string' },
       task: { type: 'string' },
       target: { type: 'string' },
       help: { type: 'boolean', default: false },
@@ -4037,7 +4344,10 @@ export async function runCli(argv = process.argv.slice(2)) {
     !process.env.OPENROUTER_API_KEY &&
     (configuredResidents
       ? configuredResidents.some(
-          (resident) => resident.paused !== true && resident.ollamaLocal == null,
+          (resident) =>
+            resident.paused !== true &&
+            resident.ollamaLocal == null &&
+            resident.lmStudioLocal == null,
         )
       : !parsed.values.paused)
   ) {
@@ -4170,6 +4480,16 @@ export async function runCli(argv = process.argv.slice(2)) {
             path.join(os.homedir(), '.ollama', 'server.json'),
         }
       : {}),
+    ...(residents.some((resident) => resident.lmStudioLocal != null)
+      ? {
+          lmStudioModelsRoot: path.resolve(
+            String(
+              parsed.values.lmStudioModelsRoot ??
+                path.join(os.homedir(), '.cache', 'lm-studio', 'models'),
+            ),
+          ),
+        }
+      : {}),
   });
   process.stdout.write(
     `[world-runner] ready: ${worldId}, server ${run.serverPid}, residents ${run.residents
@@ -4232,7 +4552,7 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1|legible-resident-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1|legible-resident-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--lmStudioModelsRoot <dir>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Repeat --body in the same order only when a life ID differs from its Minecraft username.',

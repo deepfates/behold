@@ -7,6 +7,7 @@ import test from 'node:test';
 import type { ModelCallEvidence } from '../src/mind/evidence';
 import {
   assertLmStudioLocalJsonActionRequest,
+  assertLmStudioLocalWireRequest,
   createLmStudioLocalJsonActionRequest,
   digestRegularFileTree,
   lmStudioLocalPolicy,
@@ -99,6 +100,7 @@ test('LM Studio wire preserves the exact strict resident schema and stable prefi
     assertLmStudioLocalJsonActionRequest(body, residentRequest as any, residentPolicy, instanceId),
     first.identity,
   );
+  assert.deepEqual(assertLmStudioLocalWireRequest(body, residentPolicy), first.identity);
 
   const next = createLmStudioLocalJsonActionRequest(
     {
@@ -443,6 +445,7 @@ function response(instanceId: string, output: unknown) {
     id: 'chatcmpl_fixture',
     object: 'chat.completion',
     model: instanceId,
+    system_fingerprint: instanceId,
     choices: [
       {
         index: 0,

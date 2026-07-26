@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { CognitionPriority, CognitionPurpose } from './cognition';
 import type { OllamaAttemptIdentity } from './ollama-local';
+import type { LmStudioAttemptIdentity } from './lmstudio-local';
 
 export const COGNITION_TRANSPORT_ATTEMPT_START_PROTOCOL =
   'behold.cognition-transport-attempt-start.v1' as const;
@@ -33,6 +34,8 @@ export type CognitionTransportAttemptStart = Readonly<{
   requestedModel: string;
   /** Exact local model/content/settings identity, absent for remote transports. */
   ollamaIdentity?: OllamaAttemptIdentity;
+  /** Exact LM Studio runtime/artifact/instance/request identity. */
+  lmStudioIdentity?: LmStudioAttemptIdentity;
   route: Readonly<{
     method: 'POST';
     endpoint: string;
@@ -69,6 +72,7 @@ export type CognitionTransportAttempt = Readonly<{
     | 'provider_error'
     | 'route_identity_mismatch'
     | 'ollama_identity_mismatch'
+    | 'lmstudio_identity_mismatch'
     | 'network_error'
     | 'timeout'
     | 'cancelled';
@@ -131,6 +135,7 @@ export type CognitionTransportCaptureStore = Readonly<{
     urgentTriggerSequence: number | null;
     requestedModel: string;
     ollamaIdentity?: OllamaAttemptIdentity;
+    lmStudioIdentity?: LmStudioAttemptIdentity;
     upstreamEndpoint: string;
     upstreamAuthentication?: CognitionTransportAttemptStart['route']['authentication'];
     requestBody: Buffer;
@@ -208,6 +213,9 @@ export function createCognitionTransportCapture(input: {
           : nonnegativeInteger(attempt.urgentTriggerSequence, 'capture urgent trigger'),
       requestedModel: boundedText(attempt.requestedModel, 'capture requested model', 300),
       ...(attempt.ollamaIdentity ? { ollamaIdentity: deepFreeze(attempt.ollamaIdentity) } : {}),
+      ...(attempt.lmStudioIdentity
+        ? { lmStudioIdentity: deepFreeze(attempt.lmStudioIdentity) }
+        : {}),
       route: {
         method: 'POST' as const,
         endpoint,
@@ -240,9 +248,13 @@ export function createCognitionTransportCapture(input: {
     const response = outcome.response ? captureResponse(blobs, outcome.response, secrets) : null;
     const error = outcome.error == null ? null : captureError(outcome.error, secrets);
     if (
-      ['success', 'provider_error', 'route_identity_mismatch', 'ollama_identity_mismatch'].includes(
-        outcome.terminal,
-      ) &&
+      [
+        'success',
+        'provider_error',
+        'route_identity_mismatch',
+        'ollama_identity_mismatch',
+        'lmstudio_identity_mismatch',
+      ].includes(outcome.terminal) &&
       !response
     ) {
       throw codedError('transport_capture_invalid', 'response terminal requires response bytes');
@@ -266,6 +278,12 @@ export function createCognitionTransportCapture(input: {
       throw codedError(
         'transport_capture_invalid',
         'Ollama identity terminal requires the original ok response',
+      );
+    }
+    if (outcome.terminal === 'lmstudio_identity_mismatch' && response?.ok !== true) {
+      throw codedError(
+        'transport_capture_invalid',
+        'LM Studio identity terminal requires the original ok response',
       );
     }
     if (!['success', 'provider_error'].includes(outcome.terminal) && !error) {
@@ -435,7 +453,8 @@ export function verifyCognitionTransportCapture(
     identityFailures: records.filter(
       (record) =>
         record.terminal === 'route_identity_mismatch' ||
-        record.terminal === 'ollama_identity_mismatch',
+        record.terminal === 'ollama_identity_mismatch' ||
+        record.terminal === 'lmstudio_identity_mismatch',
     ).length,
     transportErrors: records.filter(
       (record) => record.response == null && record.terminal !== 'cancelled',
@@ -562,9 +581,13 @@ function parseStart(value: any): CognitionTransportAttemptStart {
 function parseAttempt(value: any): CognitionTransportAttempt {
   assertProtocolDigest(value, COGNITION_TRANSPORT_ATTEMPT_PROTOCOL, 'attempt');
   if (
-    (['success', 'provider_error', 'route_identity_mismatch', 'ollama_identity_mismatch'].includes(
-      value.terminal,
-    ) &&
+    ([
+      'success',
+      'provider_error',
+      'route_identity_mismatch',
+      'ollama_identity_mismatch',
+      'lmstudio_identity_mismatch',
+    ].includes(value.terminal) &&
       value.response == null) ||
     (!['success', 'provider_error'].includes(value.terminal) && value.error == null)
   ) {

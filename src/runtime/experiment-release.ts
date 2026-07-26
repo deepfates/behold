@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ollamaLocalPolicy, type OllamaLocalPolicy } from '../mind/ollama-local';
+import { lmStudioLocalPolicy, type LmStudioLocalPolicy } from '../mind/lmstudio-local';
 import { openRouterRoutePolicy, type OpenRouterRoutePolicy } from '../mind/openrouter-route';
 import {
   assertFixedDecisionPilotPopulation,
@@ -24,6 +25,7 @@ export type ExperimentReleaseResident = Readonly<{
   mind: 'direct' | 'ax';
   providerRoute?: OpenRouterRoutePolicy;
   ollamaLocal?: OllamaLocalPolicy;
+  lmStudioLocal?: LmStudioLocalPolicy;
   decisionSchedule?: FixedDecisionPilotSchedule;
   profiles: Readonly<{
     policy: string;
@@ -589,6 +591,11 @@ function parseResident(value: unknown): ExperimentReleaseResident {
     typeof value === 'object' &&
     !Array.isArray(value) &&
     Object.prototype.hasOwnProperty.call(value, 'ollamaLocal');
+  const hasLmStudioLocal =
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.prototype.hasOwnProperty.call(value, 'lmStudioLocal');
   const hasDecisionSchedule =
     value != null &&
     typeof value === 'object' &&
@@ -604,6 +611,7 @@ function parseResident(value: unknown): ExperimentReleaseResident {
       'mind',
       ...(hasProviderRoute ? ['providerRoute'] : []),
       ...(hasOllamaLocal ? ['ollamaLocal'] : []),
+      ...(hasLmStudioLocal ? ['lmStudioLocal'] : []),
       ...(hasDecisionSchedule ? ['decisionSchedule'] : []),
       'profiles',
       'quotaAccount',
@@ -631,15 +639,22 @@ function parseResident(value: unknown): ExperimentReleaseResident {
   if (record.mind !== 'direct' && record.mind !== 'ax') {
     throw new Error('release resident mind must be direct or ax');
   }
-  if (hasProviderRoute && hasOllamaLocal) {
-    throw new Error('release resident cannot combine OpenRouter and Ollama transport');
+  if ([hasProviderRoute, hasOllamaLocal, hasLmStudioLocal].filter(Boolean).length > 1) {
+    throw new Error('release resident cannot combine OpenRouter, Ollama, and LM Studio transport');
   }
   if (hasOllamaLocal && record.mind !== 'direct') {
     throw new Error('release resident Ollama transport requires the direct mind');
   }
+  if (hasLmStudioLocal && record.mind !== 'direct') {
+    throw new Error('release resident LM Studio transport requires the direct mind');
+  }
   const localPolicy = hasOllamaLocal ? ollamaLocalPolicy(record.ollamaLocal) : null;
+  const lmStudioPolicy = hasLmStudioLocal ? lmStudioLocalPolicy(record.lmStudioLocal) : null;
   if (localPolicy && localPolicy.modelTag !== record.model) {
     throw new Error('release resident Ollama tag differs from resident model');
+  }
+  if (lmStudioPolicy && lmStudioPolicy.modelKey !== record.model) {
+    throw new Error('release resident LM Studio model differs from resident model');
   }
   return deepFreeze({
     entityId: boundedId(record.entityId, 'release resident'),
@@ -652,6 +667,7 @@ function parseResident(value: unknown): ExperimentReleaseResident {
     mind: record.mind,
     ...(hasProviderRoute ? { providerRoute: openRouterRoutePolicy(record.providerRoute) } : {}),
     ...(localPolicy ? { ollamaLocal: localPolicy } : {}),
+    ...(lmStudioPolicy ? { lmStudioLocal: lmStudioPolicy } : {}),
     ...(hasDecisionSchedule
       ? { decisionSchedule: fixedDecisionPilotSchedule(record.decisionSchedule) }
       : {}),
@@ -868,6 +884,7 @@ function sameResidentConfiguration(
     actual.mind === expected.mind &&
     stableJson(actual.providerRoute ?? null) === stableJson(expected.providerRoute ?? null) &&
     stableJson(actual.ollamaLocal ?? null) === stableJson(expected.ollamaLocal ?? null) &&
+    stableJson(actual.lmStudioLocal ?? null) === stableJson(expected.lmStudioLocal ?? null) &&
     stableJson(actual.decisionSchedule ?? null) === stableJson(expected.decisionSchedule ?? null) &&
     stableJson(actual.profiles) === stableJson(expected.profiles) &&
     (expected.quotaAccountId == null || actual.quotaAccount.accountId === expected.quotaAccountId)

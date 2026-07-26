@@ -3,6 +3,11 @@ import type { OllamaLocalPolicy, OllamaLocalResponseIdentity } from './ollama-lo
 import type { OllamaLocalJsonActionRequestIdentity } from './ollama-json-action';
 import type { OpenRouterResponseIdentity, OpenRouterRoutePolicy } from './openrouter-route';
 import type { RequestByteAttribution } from './request-attribution';
+import type {
+  LmStudioLocalPolicy,
+  LmStudioLocalRequestIdentity,
+  LmStudioLocalResponseIdentity,
+} from './lmstudio-local';
 
 export type ModelCallTerminal =
   | 'success'
@@ -14,7 +19,8 @@ export type ModelCallTerminal =
   | 'adapter_rejected'
   | 'admission_rejected'
   | 'route_identity_mismatch'
-  | 'ollama_identity_mismatch';
+  | 'ollama_identity_mismatch'
+  | 'lmstudio_identity_mismatch';
 
 export type ModelAdapterIntervention = Readonly<{
   protocol: 'behold.model-adapter-intervention.v1';
@@ -80,6 +86,11 @@ export type ModelCallEvidence = {
     localPolicy?: OllamaLocalPolicy;
     /** Exact per-attempt JSON action contract and response-format identity. */
     localActionTransport?: OllamaLocalJsonActionRequestIdentity;
+    /** Versioned loopback LM Studio runtime/artifact/instance contract. */
+    lmStudioPolicy?: LmStudioLocalPolicy;
+    /** Exact LM Studio strict resident wire identity. */
+    lmStudioActionTransport?: LmStudioLocalRequestIdentity;
+    requestedModelInstance?: string;
   };
   response: {
     terminal?: 'success';
@@ -100,6 +111,7 @@ export type ModelCallFailureEvidence = Omit<ModelCallEvidence, 'response'> & {
     bodyPreview: string | null;
     routeIdentity?: OpenRouterResponseIdentity;
     localIdentity?: OllamaLocalResponseIdentity;
+    lmStudioIdentity?: LmStudioLocalResponseIdentity;
     /** Opt-in adapter/provider attempt evidence retained for diagnosis. */
     raw?: unknown;
   };

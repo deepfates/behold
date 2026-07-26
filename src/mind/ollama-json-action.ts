@@ -142,6 +142,10 @@ export type StrictLocalResidentSessionEnvelope = Readonly<{
   stablePrefixSha256: string;
 }>;
 
+export type StrictLocalResidentSessionEnvelopeIdentity = Readonly<
+  Omit<StrictLocalResidentSessionEnvelope, 'protocol' | 'messages' | 'responseSchema'>
+>;
+
 export function ollamaLocalJsonActionTransport(value: unknown): OllamaLocalJsonActionTransport {
   const record = exactRecord(
     value,
@@ -254,6 +258,63 @@ export function createStrictLocalResidentSessionEnvelope(
     responseSchema,
     actionContractSha256: sha256(contractJson),
     responseSchemaSha256: sha256(stableJson(responseSchema)),
+    stablePrefixSha256: sha256(stableJson(messages.slice(0, 2))),
+  });
+}
+
+/**
+ * Verify the backend-independent resident contract already serialized onto a
+ * local runtime's wire. This proves the prompt contract and constrained schema
+ * agree without reconstructing or normalizing the resident request.
+ */
+export function assertStrictLocalResidentSessionEnvelope(
+  messagesValue: unknown,
+  responseSchemaValue: unknown,
+): StrictLocalResidentSessionEnvelopeIdentity {
+  if (!Array.isArray(messagesValue) || messagesValue.length < 3) {
+    throw new Error('Strict local resident session messages are incomplete');
+  }
+  const messages = messagesValue as unknown[];
+  const contractMessage = exactRecord(
+    messages[1],
+    ['role', 'content'],
+    'Strict local resident action contract message',
+  );
+  const markers = contractMarkers(2);
+  if (
+    contractMessage.role !== 'system' ||
+    typeof contractMessage.content !== 'string' ||
+    !contractMessage.content.startsWith(`${markers.instruction}${markers.begin}`) ||
+    !contractMessage.content.endsWith(markers.end)
+  ) {
+    throw new Error('Strict local resident action contract markers are invalid');
+  }
+  const contractJson = contractMessage.content.slice(
+    markers.instruction.length + markers.begin.length,
+    contractMessage.content.length - markers.end.length,
+  );
+  let contractValue: unknown;
+  try {
+    contractValue = JSON.parse(contractJson);
+  } catch {
+    throw new Error('Strict local resident action contract is not valid JSON');
+  }
+  const contract = parseActionContract(contractValue, 2);
+  if (contractJson !== stableJson(contract)) {
+    throw new Error('Strict local resident action contract is not exact canonical JSON');
+  }
+  const expectedSchema = responseFormat(contract.actions, contract.requiredAction, 2);
+  if (stableJson(responseSchemaValue) !== stableJson(expectedSchema)) {
+    throw new Error('Strict local resident response schema differs from its action contract');
+  }
+  assertResidentSessionMessageLayout(messages);
+  return deepFreeze({
+    schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+    schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+    messageLayoutProtocol: OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL,
+    workingContinuityProtocol: RESIDENT_WORKING_CONTINUITY_PROTOCOL,
+    actionContractSha256: sha256(contractJson),
+    responseSchemaSha256: sha256(stableJson(expectedSchema)),
     stablePrefixSha256: sha256(stableJson(messages.slice(0, 2))),
   });
 }

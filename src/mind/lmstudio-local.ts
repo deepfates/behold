@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { ModelCallEvidence } from './evidence';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
 import {
+  assertStrictLocalResidentSessionEnvelope,
   createStrictLocalResidentSessionEnvelope,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
@@ -90,6 +91,18 @@ export type LmStudioLocalRequestIdentity = Readonly<{
   workingContinuityProtocol: 'behold.resident-working-continuity.v1';
   stablePrefixSha256: string;
 }>;
+
+export type LmStudioLocalResponseIdentity = Readonly<{
+  ok: boolean;
+  requestedModel: string;
+  requestedInstance: string;
+  returnedModel: string | null;
+  returnedFingerprint: string | null;
+  artifactTreeSha256: string;
+  reason: 'matched' | 'model_missing' | 'model_mismatch' | 'fingerprint_mismatch';
+}>;
+
+export type LmStudioAttemptIdentity = ReturnType<typeof lmStudioAttemptIdentity>;
 
 export type LmStudioResidentSession = Readonly<{
   protocol: 'behold.lmstudio-resident-session.v1';
@@ -231,6 +244,23 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
   });
 }
 
+export function lmStudioLocalPolicyFromEnvironment(value: unknown) {
+  if (value == null || String(value).trim() === '') return null;
+  const source = String(value);
+  if (source.length > 32_768) throw new Error('LM Studio local policy environment is too large');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    throw new Error('LM Studio local policy environment is not valid JSON');
+  }
+  return lmStudioLocalPolicy(parsed);
+}
+
+export function serializeLmStudioLocalPolicy(value: LmStudioLocalPolicy) {
+  return JSON.stringify(lmStudioLocalPolicy(value));
+}
+
 export function createLmStudioLocalJsonActionRequest(
   requestValue: ResidentMindRequest,
   policyValue: LmStudioLocalPolicy,
@@ -293,6 +323,92 @@ export function assertLmStudioLocalJsonActionRequest(
   return expected.identity;
 }
 
+/** Verify one raw LM Studio wire body before broker admission. */
+export function assertLmStudioLocalWireRequest(
+  value: unknown,
+  policyValue: LmStudioLocalPolicy,
+): LmStudioLocalRequestIdentity {
+  const policy = lmStudioLocalPolicy(policyValue);
+  const instanceId = lmStudioResidentInstanceId(policy);
+  const record = exactRecord(
+    value,
+    ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
+    'LM Studio local resident request',
+  );
+  if (
+    record.model !== instanceId ||
+    record.stream !== false ||
+    record.temperature !== policy.settings.temperature ||
+    record.max_tokens !== policy.settings.maxOutputTokens
+  ) {
+    throw new Error('LM Studio wire model or generation settings differ from admission');
+  }
+  const responseFormat = exactRecord(
+    record.response_format,
+    ['type', 'json_schema'],
+    'LM Studio response format',
+  );
+  const jsonSchema = exactRecord(
+    responseFormat.json_schema,
+    ['name', 'strict', 'schema'],
+    'LM Studio JSON schema wrapper',
+  );
+  if (
+    responseFormat.type !== 'json_schema' ||
+    jsonSchema.name !== 'behold_resident_action_v2' ||
+    jsonSchema.strict !== true
+  ) {
+    throw new Error('LM Studio response format is not the exact strict resident schema wrapper');
+  }
+  const envelope = assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
+  return deepFreeze({
+    protocol: LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL,
+    transportProtocol: LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
+    schemaProtocol: envelope.schemaProtocol,
+    schemaSha256: envelope.schemaSha256,
+    modelKey: policy.modelKey,
+    catalogKey: policy.catalogKey,
+    indexedModelIdentifier: policy.indexedModelIdentifier,
+    modelInstanceId: instanceId,
+    artifactTreeSha256: policy.artifact.treeSha256,
+    templateSha256: policy.transport.templateSha256,
+    runtime: policy.runtime,
+    actionContractSha256: envelope.actionContractSha256,
+    responseSchemaSha256: envelope.responseSchemaSha256,
+    responseFormatSha256: sha256(stableJson(responseFormat)),
+    messageLayoutProtocol: envelope.messageLayoutProtocol,
+    workingContinuityProtocol: envelope.workingContinuityProtocol,
+    stablePrefixSha256: envelope.stablePrefixSha256,
+  });
+}
+
+export function inspectLmStudioLocalResponseIdentity(
+  value: unknown,
+  policyValue: LmStudioLocalPolicy,
+): LmStudioLocalResponseIdentity {
+  const policy = lmStudioLocalPolicy(policyValue);
+  const instanceId = lmStudioResidentInstanceId(policy);
+  const returnedModel = plainRecord(value) ? optionalText(value.model) : null;
+  const returnedFingerprint = plainRecord(value) ? optionalText(value.system_fingerprint) : null;
+  const reason: LmStudioLocalResponseIdentity['reason'] =
+    returnedModel == null
+      ? 'model_missing'
+      : returnedModel !== instanceId
+        ? 'model_mismatch'
+        : returnedFingerprint !== instanceId
+          ? 'fingerprint_mismatch'
+          : 'matched';
+  return deepFreeze({
+    ok: reason === 'matched',
+    requestedModel: policy.modelKey,
+    requestedInstance: instanceId,
+    returnedModel,
+    returnedFingerprint,
+    artifactTreeSha256: policy.artifact.treeSha256,
+    reason,
+  });
+}
+
 export function parseLmStudioLocalJsonActionDecision(
   data: unknown,
   request: ResidentMindRequest,
@@ -306,6 +422,9 @@ export function parseLmStudioLocalJsonActionDecision(
   if (!response) throw new Error('LM Studio response was not an object');
   if (response.model !== instanceId) {
     throw new Error('LM Studio response model instance differs from the admitted instance');
+  }
+  if (response.system_fingerprint !== instanceId) {
+    throw new Error('LM Studio response fingerprint differs from the admitted instance');
   }
   if (!Array.isArray(response.choices) || response.choices.length !== 1) {
     throw new Error('LM Studio response must contain exactly one choice');
@@ -418,7 +537,7 @@ export async function preflightLmStudioLocal(input: {
       loaded.some(
         (entry) =>
           plainRecord(entry) &&
-          (entry.identifier === residentInstanceId(policy) ||
+          (entry.identifier === lmStudioResidentInstanceId(policy) ||
             entry.modelKey === policy.modelKey ||
             entry.modelKey === policy.catalogKey),
       )
@@ -545,7 +664,7 @@ export async function prepareLmStudioResidentSession(input: {
           '--parallel',
           '1',
           '--identifier',
-          residentInstanceId(policy),
+          lmStudioResidentInstanceId(policy),
           '--yes',
           ...hostArgs,
         ]),
@@ -559,7 +678,8 @@ export async function prepareLmStudioResidentSession(input: {
       const instance =
         plainRecord(catalog) && Array.isArray(catalog.loaded_instances)
           ? catalog.loaded_instances.find(
-              (entry: unknown) => plainRecord(entry) && entry.id === residentInstanceId(policy),
+              (entry: unknown) =>
+                plainRecord(entry) && entry.id === lmStudioResidentInstanceId(policy),
             )
           : null;
       const config = plainRecord(instance) && plainRecord(instance.config) ? instance.config : null;
@@ -581,7 +701,7 @@ export async function prepareLmStudioResidentSession(input: {
             modelKey: policy.modelKey,
             catalogKey: policy.catalogKey,
             artifactTreeSha256: policy.artifact.treeSha256,
-            modelInstanceId: residentInstanceId(policy),
+            modelInstanceId: lmStudioResidentInstanceId(policy),
             contextTokens: policy.settings.contextTokens,
           }),
         ),
@@ -591,7 +711,7 @@ export async function prepareLmStudioResidentSession(input: {
   } catch (error) {
     for (const policy of [...loadedByThisSession].reverse()) {
       try {
-        runLms(['unload', residentInstanceId(policy), ...hostArgs]);
+        runLms(['unload', lmStudioResidentInstanceId(policy), ...hostArgs]);
       } catch {
         // The owning error remains primary; a caller must verify cleanup.
       }
@@ -616,7 +736,7 @@ export async function releaseLmStudioResidentSession(input: {
         !input.session.models.some(
           (model) =>
             model.modelKey === policy.modelKey &&
-            model.modelInstanceId === residentInstanceId(policy) &&
+            model.modelInstanceId === lmStudioResidentInstanceId(policy) &&
             model.artifactTreeSha256 === policy.artifact.treeSha256,
         ),
     )
@@ -629,7 +749,7 @@ export async function releaseLmStudioResidentSession(input: {
   const failures: string[] = [];
   for (const policy of [...policies].reverse()) {
     try {
-      boundedCliOutput(runLms(['unload', residentInstanceId(policy), ...hostArgs]));
+      boundedCliOutput(runLms(['unload', lmStudioResidentInstanceId(policy), ...hostArgs]));
     } catch (error: any) {
       failures.push(`${policy.modelKey}: ${error?.message || String(error)}`);
     }
@@ -645,7 +765,7 @@ export async function releaseLmStudioResidentSession(input: {
         Array.isArray(entry.loaded_instances) &&
         entry.loaded_instances.some(
           (instance: unknown) =>
-            plainRecord(instance) && instance.id === residentInstanceId(policy),
+            plainRecord(instance) && instance.id === lmStudioResidentInstanceId(policy),
         ),
     ),
   );
@@ -660,7 +780,7 @@ export async function releaseLmStudioResidentSession(input: {
   return deepFreeze({
     protocol: 'behold.lmstudio-resident-session-release.v1' as const,
     sessionDigest: input.session.digest,
-    unloadedInstances: Object.freeze(policies.map(residentInstanceId)),
+    unloadedInstances: Object.freeze(policies.map(lmStudioResidentInstanceId)),
   });
 }
 
@@ -756,7 +876,8 @@ function uniquePolicies(values: readonly LmStudioLocalPolicy[]) {
   return [...unique.values()];
 }
 
-function residentInstanceId(policy: LmStudioLocalPolicy) {
+export function lmStudioResidentInstanceId(policyValue: LmStudioLocalPolicy) {
+  const policy = lmStudioLocalPolicy(policyValue);
   return `behold-${sha256(
     stableJson({
       modelKey: policy.modelKey,
@@ -774,7 +895,7 @@ function exactInstanceId(value: unknown) {
   return text;
 }
 
-function exactLmStudioEndpoint(value: unknown) {
+export function exactLmStudioEndpoint(value: unknown) {
   const url = new URL(String(value || ''));
   if (
     url.protocol !== 'http:' ||

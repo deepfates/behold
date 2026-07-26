@@ -51,6 +51,7 @@ import {
   OLLAMA_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
 } from '../src/mind/ollama-json-action';
 import { FIXED_DECISION_PILOT_SCHEDULE_PROTOCOL } from '../src/policy/fixed-decision-pilot';
+import { digestRegularFileTree, lmStudioResidentInstanceId } from '../src/mind/lmstudio-local';
 
 const CLEAR: OwnershipEvidence = { state: 'clear', probe: 'fixture', owners: [] };
 const ARTIFACTS_OK = { artifactIntegrityOk: true, artifacts: {} };
@@ -790,6 +791,237 @@ test('managed resident session loads while ticks are frozen and unloads after co
   );
   const sessionReleased = lifecycle.findIndex(
     (event) => event.type === 'ollama_resident_session_released',
+  );
+  const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');
+  assert.ok(
+    drained >= 0 && releasing > drained && sessionReleased > releasing && saved > sessionReleased,
+  );
+});
+
+test('managed LM Studio session binds its exact instance into release and controller lifecycle', async (t) => {
+  const fixture = makeFixture(t);
+  const modelsRoot = path.join(fixture.root, 'lmstudio-models');
+  const relativePath = 'fixture/cedar-4b-mlx';
+  const artifactRoot = path.join(modelsRoot, relativePath);
+  const template = 'fixture strict resident template';
+  fs.mkdirSync(artifactRoot, { recursive: true });
+  fs.writeFileSync(path.join(artifactRoot, 'chat_template.jinja'), template);
+  fs.writeFileSync(path.join(artifactRoot, 'config.json'), '{"model_type":"qwen3"}\n');
+  fs.writeFileSync(path.join(artifactRoot, 'model.safetensors'), 'fixture weights');
+  const treeSha256 = await digestRegularFileTree(artifactRoot);
+  const lmStudioLocal = {
+    protocol: 'behold.lmstudio-local-policy.v1' as const,
+    endpoint: 'http://127.0.0.1:1234/v1/chat/completions',
+    modelKey: 'fixture/cedar-4b-mlx',
+    catalogKey: 'fixture/cedar-4b-mlx',
+    indexedModelIdentifier: relativePath,
+    artifact: { relativePath, treeSha256, sizeBytes: 12345 },
+    transport: {
+      protocol: 'behold.lmstudio-local-resident-session.v1' as const,
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+      templateSha256: createHash('sha256').update(template).digest('hex'),
+    },
+    runtime: {
+      appVersion: '0.4.12+1',
+      cliCommit: 'fixture-cli',
+      engine: 'fixture-mlx-engine',
+      format: 'mlx' as const,
+    },
+    settings: { contextTokens: 16_384, maxOutputTokens: 512, temperature: 0.2 },
+  };
+  const instanceId = lmStudioResidentInstanceId(lmStudioLocal);
+  const controllerEntry = path.join(fixture.root, 'lmstudio-session-controller.js');
+  fs.writeFileSync(
+    controllerEntry,
+    `
+      const fs = require('node:fs');
+      const os = require('node:os');
+      const path = require('node:path');
+      const { experimentReleaseGateFromEnvironment } = require(path.resolve('dist/src/runtime/experiment-release.js'));
+      const entityId = process.argv[2];
+      const model = process.argv[process.argv.indexOf('--model') + 1];
+      const policy = JSON.parse(process.env.BEHOLD_LMSTUDIO_LOCAL_POLICY);
+      if (process.env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID !== ${JSON.stringify(instanceId)}) process.exit(21);
+      if (process.env.OPENROUTER_API_KEY || process.env.BEHOLD_OLLAMA_LOCAL_POLICY) process.exit(22);
+      const lease = path.join(process.env.BEHOLD_ENTITY_DIR, entityId, 'runtime.lock');
+      const journalFile = path.join(process.env.BEHOLD_RUN_DIR, 'lmstudio-session-fixture.jsonl');
+      fs.mkdirSync(path.dirname(lease), { recursive: true });
+      fs.mkdirSync(path.dirname(journalFile), { recursive: true });
+      fs.writeFileSync(lease, JSON.stringify({
+        protocol: 'behold.entity-runtime-lease.v1', entityId,
+        pid: process.pid, hostname: os.hostname(), managedRunId: process.env.BEHOLD_RUN_ID
+      }));
+      fs.writeFileSync(journalFile, JSON.stringify({ type: 'setup_local_world_ready' }) + '\\n');
+      const gate = experimentReleaseGateFromEnvironment({
+        entityId,
+        bodyUsername: process.env.MINECRAFT_USERNAME,
+        model,
+        urgentModel: null,
+        mind: process.env.BEHOLD_MIND,
+        lmStudioLocal: policy,
+        profiles: {
+          policy: process.env.BEHOLD_POLICY_PROFILE,
+          body: process.env.BEHOLD_BODY_PROFILE,
+          actions: process.env.BEHOLD_ACTION_PROFILE,
+          safety: process.env.BEHOLD_SAFETY_PROFILE,
+        },
+        quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
+      });
+      gate.arm({ journalFile, setupObservation: { fixture: 'lmstudio-session' } });
+      console.error('[bot] Local world loaded.');
+      console.error('[bot] Experiment release armed: ' + gate.prepared.plan.releaseId + ' ' + entityId);
+      gate.waitAndClaim().catch((error) => { console.error(error); process.exit(1); });
+      process.stdin.resume();
+      process.stdin.on('end', () => {
+        if (fs.existsSync(lease)) fs.unlinkSync(lease);
+        process.exit(0);
+      });
+    `,
+  );
+
+  let serverPid: number | null = null;
+  let serverAlive = false;
+  const spawnServer = () => {
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        `
+          const readline = require('node:readline');
+          console.log('[Server thread/INFO]: Done (0.1s)! For help, type "help"');
+          const rl = readline.createInterface({ input: process.stdin });
+          rl.on('line', (line) => {
+            if (line === 'tick freeze') console.log('[Server thread/INFO]: The game is frozen');
+            if (line === 'tick unfreeze') console.log('[Server thread/INFO]: The game is running normally');
+            if (line === 'save-all flush') console.log('[Server thread/INFO]: Saved the game');
+            if (line === 'stop') process.exit(0);
+          });
+        `,
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    ) as ChildProcessWithoutNullStreams;
+    serverPid = child.pid!;
+    serverAlive = true;
+    child.once('exit', () => {
+      serverAlive = false;
+    });
+    return child;
+  };
+
+  const loaded = new Set<string>();
+  const commands: string[][] = [];
+  const runLms = (args: readonly string[]) => {
+    commands.push([...args]);
+    if (args[0] === '--version') return 'CLI commit: fixture-cli\n';
+    if (args[0] === 'runtime') return 'fixture-mlx-engine ✓ MLX\n';
+    if (args[0] === 'ls') {
+      return JSON.stringify([
+        {
+          type: 'llm',
+          modelKey: lmStudioLocal.catalogKey,
+          format: 'safetensors',
+          path: lmStudioLocal.catalogKey,
+          sizeBytes: lmStudioLocal.artifact.sizeBytes,
+          indexedModelIdentifier: lmStudioLocal.indexedModelIdentifier,
+        },
+      ]);
+    }
+    if (args[0] === 'ps') return '[]';
+    if (args[0] === 'load') {
+      loaded.add(String(args[args.indexOf('--identifier') + 1]));
+      return 'loaded\n';
+    }
+    if (args[0] === 'unload') {
+      loaded.delete(String(args[1]));
+      return 'unloaded\n';
+    }
+    throw new Error(`unexpected lms command ${args.join(' ')}`);
+  };
+  const inventoryFetch: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        models: [
+          {
+            type: 'llm',
+            key: lmStudioLocal.catalogKey,
+            architecture: 'qwen3',
+            format: 'mlx',
+            size_bytes: lmStudioLocal.artifact.sizeBytes,
+            max_context_length: 65_536,
+            selected_variant: null,
+            capabilities: { trained_for_tool_use: true },
+            loaded_instances: [...loaded].map((id) => ({
+              id,
+              config: { context_length: 16_384, parallel: 1 },
+            })),
+          },
+        ],
+      }),
+      { headers: { 'content-type': 'application/json' } },
+    );
+
+  const run = fixture.trackRun(
+    await startManagedWorld(
+      {
+        ...fixture.options,
+        controllerEntry,
+        accountingScopeId: 'lmstudio-session-lifecycle-v1',
+        lmStudioModelsRoot: modelsRoot,
+        residents: [
+          {
+            entityId: 'StudioLife',
+            bodyUsername: 'StudioBody',
+            model: lmStudioLocal.modelKey,
+            mind: 'direct',
+            policyProfile: 'legible-resident-v1',
+            bodyProfile: 'minecraft-human-semantic-v1',
+            actionProfile: 'minecraft-human-semantic-v1',
+            safetyProfile: 'vanilla-player-v1',
+            providerQuotas: { residentDecisionAttempts: 2, auxiliaryContextAttempts: 1 },
+            lmStudioLocal,
+          },
+        ],
+      },
+      {
+        spawnServer,
+        verifyArtifacts: async () => ARTIFACTS_OK,
+        inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+        lmStudioPreflightFetch: inventoryFetch,
+        lmStudioSessionFetch: inventoryFetch,
+        lmStudioRunLms: runLms,
+        lmStudioReadAppVersion: () => '0.4.12+1',
+        stdout: () => {},
+        stderr: () => {},
+      },
+    ),
+  );
+  assert.deepEqual([...loaded], [instanceId]);
+  assert.equal(run.cognition?.lmStudioResidentSession?.models[0]?.modelInstanceId, instanceId);
+  const beforeStop = verifyWorldLifecycleJournal(run.control.journalFile).events;
+  const frozen = beforeStop.findIndex(
+    (event) =>
+      event.type === 'experiment_setup_operator_action' &&
+      (event.data as any)?.action === 'minecraft_tick_freeze',
+  );
+  const sessionReady = beforeStop.findIndex(
+    (event) => event.type === 'experiment_setup_lmstudio_resident_session_ready',
+  );
+  const released = beforeStop.findIndex((event) => event.type === 'experiment_released');
+  assert.ok(frozen >= 0 && sessionReady > frozen && released > sessionReady);
+
+  await run.stop('lmstudio_session_fixture_complete');
+  await run.finished;
+  assert.deepEqual([...loaded], []);
+  assert.equal(commands.filter((args) => args[0] === 'load').length, 1);
+  assert.equal(commands.filter((args) => args[0] === 'unload').length, 1);
+  const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile).events;
+  const drained = lifecycle.findIndex((event) => event.type === 'cognition_broker_drained');
+  const releasing = lifecycle.findIndex(
+    (event) => event.type === 'lmstudio_resident_session_releasing',
+  );
+  const sessionReleased = lifecycle.findIndex(
+    (event) => event.type === 'lmstudio_resident_session_released',
   );
   const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');
   assert.ok(

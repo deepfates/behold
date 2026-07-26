@@ -39,6 +39,16 @@ import {
   type OllamaLocalPolicy,
   type OllamaLocalPreflight,
 } from './ollama-local';
+import {
+  assertLmStudioLocalWireRequest,
+  exactLmStudioEndpoint,
+  inspectLmStudioLocalResponseIdentity,
+  lmStudioAttemptIdentity,
+  lmStudioLocalPolicy,
+  verifyLmStudioPreflight,
+  type LmStudioLocalPolicy,
+  type LmStudioLocalPreflight,
+} from './lmstudio-local';
 
 export const COGNITION_BROKER_EVENT_PROTOCOL = 'behold.cognition-broker-event.v1' as const;
 export const COGNITION_ADMISSION_LIMIT_PROTOCOL = 'behold.cognition-admission-limit.v1' as const;
@@ -136,10 +146,12 @@ export type CognitionBroker = Readonly<{
 
 export type CognitionBrokerOptions = Readonly<{
   upstreamEndpoint: string;
-  /** Required for remote OpenRouter transport and forbidden for local Ollama. */
+  /** Required for remote OpenRouter transport and forbidden for local runtimes. */
   upstreamApiKey?: string;
   /** Read-only loopback inventory/config evidence; required only for local Ollama. */
   ollamaPreflight?: OllamaLocalPreflight;
+  /** Read-only exact runtime/model/artifact evidence; required only for local LM Studio. */
+  lmStudioPreflight?: LmStudioLocalPreflight;
   clients: readonly Readonly<{
     bearer: string;
     residentKey: string;
@@ -151,6 +163,8 @@ export type CognitionBrokerOptions = Readonly<{
     routePolicy?: OpenRouterRoutePolicy;
     /** Exact Ollama transport/schema/tag/content/template/settings contract. */
     ollamaLocal?: OllamaLocalPolicy;
+    /** Exact LM Studio runtime/artifact/instance/transport contract. */
+    lmStudioLocal?: LmStudioLocalPolicy;
     /** Durable per-purpose provider-attempt quota owned by this resident account. */
     accounting?: Readonly<{
       scopeId: string;
@@ -185,6 +199,7 @@ type Client = Readonly<{
   models: readonly string[];
   routePolicy: OpenRouterRoutePolicy | null;
   ollamaLocal: OllamaLocalPolicy | null;
+  lmStudioLocal: LmStudioLocalPolicy | null;
   accounting: CognitionBrokerOptions['clients'][number]['accounting'] | null;
 }>;
 
@@ -223,26 +238,56 @@ export async function startCognitionBroker(
 ): Promise<CognitionBroker> {
   const clients = normalizeClients(options.clients);
   const ollamaClients = clients.filter((client) => client.ollamaLocal != null);
-  if (ollamaClients.length > 0 && ollamaClients.length !== clients.length) {
-    throw new Error('one cognition broker cannot mix OpenRouter and local Ollama clients');
+  const lmStudioClients = clients.filter((client) => client.lmStudioLocal != null);
+  const localClientCount = ollamaClients.length + lmStudioClients.length;
+  if (
+    (ollamaClients.length > 0 && ollamaClients.length !== clients.length) ||
+    (lmStudioClients.length > 0 && lmStudioClients.length !== clients.length) ||
+    localClientCount > clients.length
+  ) {
+    throw new Error('one cognition broker cannot mix OpenRouter, Ollama, and LM Studio clients');
   }
   const usesOllama = ollamaClients.length > 0;
+  const usesLmStudio = lmStudioClients.length > 0;
+  const usesLocalRuntime = usesOllama || usesLmStudio;
   const upstream = usesOllama
     ? exactOllamaChatEndpoint(options.upstreamEndpoint)
-    : exactUpstreamEndpoint(
-        options.upstreamEndpoint,
-        options.allowedUpstreamOrigins ?? ['https://openrouter.ai'],
-      );
+    : usesLmStudio
+      ? exactLmStudioEndpoint(options.upstreamEndpoint)
+      : exactUpstreamEndpoint(
+          options.upstreamEndpoint,
+          options.allowedUpstreamOrigins ?? ['https://openrouter.ai'],
+        );
   const upstreamApiKey = String(options.upstreamApiKey || '').trim();
   if (usesOllama) {
     if (upstreamApiKey) throw new Error('local Ollama transport forbids an upstream API key');
+    if (options.lmStudioPreflight) {
+      throw new Error('local Ollama transport forbids LM Studio preflight');
+    }
     if (!options.ollamaPreflight) throw new Error('local Ollama transport requires preflight');
     verifyOllamaPreflight(
       options.ollamaPreflight,
       ollamaClients.map((client) => client.ollamaLocal!),
     );
-  } else if (upstreamApiKey.length < 12) {
-    throw new Error('cognition broker requires an upstream API key');
+  } else if (usesLmStudio) {
+    if (upstreamApiKey) throw new Error('local LM Studio transport forbids an upstream API key');
+    if (options.ollamaPreflight) {
+      throw new Error('local LM Studio transport forbids Ollama preflight');
+    }
+    if (!options.lmStudioPreflight) {
+      throw new Error('local LM Studio transport requires preflight');
+    }
+    verifyLmStudioPreflight(
+      options.lmStudioPreflight,
+      lmStudioClients.map((client) => client.lmStudioLocal!),
+    );
+  } else {
+    if (options.ollamaPreflight || options.lmStudioPreflight) {
+      throw new Error('remote cognition transport forbids local runtime preflight');
+    }
+    if (upstreamApiKey.length < 12) {
+      throw new Error('cognition broker requires an upstream API key');
+    }
   }
   const maxConcurrent = positiveInteger(options.maxConcurrent, 'maxConcurrent', 1_024);
   const maxAccepted =
@@ -465,8 +510,8 @@ export async function startCognitionBroker(
     try {
       body = await readBody(request, maxBodyBytes);
       const requestValue = validateRequestBody(body);
-      model = requestValue.model;
-      if (!client.models.includes(model)) {
+      model = client.lmStudioLocal ? client.model : requestValue.model;
+      if (!client.lmStudioLocal && !client.models.includes(model)) {
         throw codedError('request_model_not_admitted', 'resident requested an unbound model');
       }
       if (client.routePolicy) {
@@ -498,6 +543,22 @@ export async function startCognitionBroker(
           throw codedError(
             'request_ollama_policy_mismatch',
             error?.message || 'request differs from the admitted Ollama policy',
+          );
+        }
+      }
+      if (client.lmStudioLocal) {
+        if (purpose !== 'resident_decision') {
+          throw codedError(
+            'request_lmstudio_policy_mismatch',
+            'local LM Studio clients admit direct resident decisions only',
+          );
+        }
+        try {
+          assertLmStudioLocalWireRequest(requestValue, client.lmStudioLocal);
+        } catch (error: any) {
+          throw codedError(
+            'request_lmstudio_policy_mismatch',
+            error?.message || 'request differs from the admitted LM Studio policy',
           );
         }
       }
@@ -826,13 +887,27 @@ export async function startCognitionBroker(
           urgentTriggerSequence: job.urgentTriggerSequence,
           requestedModel: job.model,
           upstreamEndpoint: upstream,
-          ...(job.client.ollamaLocal ? { upstreamAuthentication: 'none_loopback' as const } : {}),
+          ...(job.client.ollamaLocal || job.client.lmStudioLocal
+            ? { upstreamAuthentication: 'none_loopback' as const }
+            : {}),
           ...(job.client.ollamaLocal
             ? {
                 ollamaIdentity: ollamaAttemptIdentity(
                   job.client.ollamaLocal,
                   options.ollamaPreflight!,
                   parseJsonObject(job.body),
+                ),
+              }
+            : {}),
+          ...(job.client.lmStudioLocal
+            ? {
+                lmStudioIdentity: lmStudioAttemptIdentity(
+                  job.client.lmStudioLocal,
+                  options.lmStudioPreflight!,
+                  assertLmStudioLocalWireRequest(
+                    parseJsonObject(job.body),
+                    job.client.lmStudioLocal,
+                  ),
                 ),
               }
             : {}),
@@ -857,7 +932,7 @@ export async function startCognitionBroker(
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          ...(usesOllama ? {} : { authorization: `Bearer ${upstreamApiKey}` }),
+          ...(usesLocalRuntime ? {} : { authorization: `Bearer ${upstreamApiKey}` }),
         },
         // Admission rejects non-canonical UTF-8, so this is byte-preserving.
         body: job.body.toString('utf8'),
@@ -887,6 +962,13 @@ export async function startCognitionBroker(
           ? inspectOllamaLocalResponseIdentity(
               parseJsonObject(responseBody),
               job.client.ollamaLocal,
+            )
+          : null;
+      const lmStudioIdentity =
+        upstreamResponse.ok && job.client.lmStudioLocal
+          ? inspectLmStudioLocalResponseIdentity(
+              parseJsonObject(responseBody),
+              job.client.lmStudioLocal,
             )
           : null;
       if (routeIdentity && !routeIdentity.ok) {
@@ -981,6 +1063,54 @@ export async function startCognitionBroker(
           502,
           failure.code,
           'Ollama returned an unadmitted model identity',
+          admissionHeaders,
+        );
+        return;
+      }
+      if (lmStudioIdentity && !lmStudioIdentity.ok) {
+        const failure = codedError(
+          'lmstudio_identity_mismatch',
+          `LM Studio response model did not match the admitted local identity: ${lmStudioIdentity.reason}`,
+        );
+        const transportCapture = finishTransportCapture(job, {
+          terminal: 'lmstudio_identity_mismatch',
+          completedAt: now(),
+          response: {
+            status: upstreamResponse.status,
+            ok: upstreamResponse.ok,
+            body: responseBody,
+            contentType,
+          },
+          error: failure,
+        });
+        settleProviderCharge(job, {
+          outcome: 'lmstudio_identity_mismatch',
+          status: upstreamResponse.status,
+          ok: false,
+          responseBytes: responseBody.byteLength,
+          responseSha256: sha256(responseBody),
+          usage: providerUsage(responseBody),
+          lmStudioIdentity,
+          transportCapture,
+        });
+        job.state = 'completed';
+        metrics.failed += 1;
+        emit('completed', job, {
+          status: 502,
+          ok: false,
+          error: failure.code,
+          upstreamStatus: upstreamResponse.status,
+          responseBytes: responseBody.byteLength,
+          queueMs: job.admission!.queueMs,
+          activeBeforeRelease: active,
+          lmStudioIdentity,
+          transportCapture,
+        });
+        writeError(
+          job.response,
+          502,
+          failure.code,
+          'LM Studio returned an unadmitted model instance identity',
           admissionHeaders,
         );
         return;
@@ -1255,8 +1385,13 @@ export async function startCognitionBroker(
     endpoint = `http://127.0.0.1:${address.port}/v1/chat/completions`;
     emit('started', null, {
       endpoint,
-      upstreamTransport: usesOllama ? 'ollama_local_native_chat' : 'openrouter_chat_completions',
+      upstreamTransport: usesOllama
+        ? 'ollama_local_native_chat'
+        : usesLmStudio
+          ? 'lmstudio_local_openai_structured_output'
+          : 'openrouter_chat_completions',
       ...(usesOllama ? { ollamaPreflight: options.ollamaPreflight } : {}),
+      ...(usesLmStudio ? { lmStudioPreflight: options.lmStudioPreflight } : {}),
       concurrencyLimit: maxConcurrent,
       acceptedLimit: maxAccepted,
       maxCallMs,
@@ -1468,13 +1603,22 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       } catch {
         throw new Error(`invalid cognition client Ollama policy at index ${index}`);
       }
-      if (routePolicy && ollamaLocal) {
+      let lmStudioLocal: LmStudioLocalPolicy | null = null;
+      try {
+        lmStudioLocal = value.lmStudioLocal ? lmStudioLocalPolicy(value.lmStudioLocal) : null;
+      } catch {
+        throw new Error(`invalid cognition client LM Studio policy at index ${index}`);
+      }
+      if ([routePolicy, ollamaLocal, lmStudioLocal].filter(Boolean).length > 1) {
         throw new Error(
-          `cognition client cannot combine OpenRouter and Ollama policy at index ${index}`,
+          `cognition client cannot combine OpenRouter, Ollama, and LM Studio policy at index ${index}`,
         );
       }
       if (ollamaLocal && (ollamaLocal.modelTag !== model || models.length !== 1)) {
         throw new Error(`cognition client Ollama policy model differs at index ${index}`);
+      }
+      if (lmStudioLocal && (lmStudioLocal.modelKey !== model || models.length !== 1)) {
+        throw new Error(`cognition client LM Studio policy model differs at index ${index}`);
       }
       if (
         bearer.length < 32 ||
@@ -1505,6 +1649,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         models: Object.freeze(models),
         routePolicy,
         ollamaLocal,
+        lmStudioLocal,
         accounting,
       });
     }),

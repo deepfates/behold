@@ -1,0 +1,342 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { ResidentMindCallError } from '../src/mind/evidence';
+import { createLmStudioLocalResidentMind } from '../src/mind/lmstudio';
+import type { ResidentMindRequest } from '../src/mind/interface';
+import { lmStudioResidentInstanceId, type LmStudioLocalPolicy } from '../src/mind/lmstudio-local';
+import {
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+} from '../src/mind/ollama-json-action';
+
+const BEARER = 'resident-broker-bearer-that-is-long-enough';
+const BROKER = 'http://127.0.0.1:40123/v1/chat/completions';
+
+test('LM Studio mind sends one exact strict resident request and retains its identities', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  let calls = 0;
+  let capturedUrl = '';
+  let capturedInit: RequestInit | undefined;
+  const times = [1_000, 1_125];
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    recordModelIO: true,
+    now: () => times.shift()!,
+    fetch: async (input, init) => {
+      calls += 1;
+      capturedUrl = String(input);
+      capturedInit = init;
+      return response(
+        instance,
+        {
+          intention: 'Take one ordinary step toward the visible tree',
+          expectedObservableConsequence: 'The tree should appear closer in my next perception',
+          action: 'move_controls',
+          arguments: { direction: 'forward', durationMs: 500 },
+        },
+        admissionHeaders(),
+      );
+    },
+  });
+
+  const decision = await mind.decide(request(), { signal: new AbortController().signal });
+  assert.equal(calls, 1);
+  assert.equal(capturedUrl, BROKER);
+  assert.equal(capturedInit?.method, 'POST');
+  assert.equal((capturedInit?.headers as any).authorization, `Bearer ${BEARER}`);
+  assert.equal((capturedInit?.headers as any)['x-behold-cognition-purpose'], 'resident_decision');
+  const body = JSON.parse(String(capturedInit?.body));
+  assert.deepEqual(Object.keys(body).sort(), [
+    'max_tokens',
+    'messages',
+    'model',
+    'response_format',
+    'stream',
+    'temperature',
+  ]);
+  assert.equal(body.model, instance);
+  assert.equal(body.stream, false);
+  assert.equal(body.response_format.type, 'json_schema');
+  assert.equal(body.response_format.json_schema.strict, true);
+  assert.equal(Object.hasOwn(body, 'tools'), false);
+  assert.equal(Object.hasOwn(body, 'previous_response_id'), false);
+  assert.deepEqual(decision.action, {
+    name: 'move_controls',
+    input: { direction: 'forward', durationMs: 500 },
+    callId: null,
+  });
+  assert.equal(decision.call.adapter?.name, 'direct-lmstudio-local-json-action');
+  assert.equal(decision.call.adapter?.version, 'resident-session-v1');
+  assert.equal(decision.call.latencyMs, 125);
+  assert.equal(decision.call.admissions?.[0]?.admissionOrdinal, 1);
+  assert.equal(decision.call.request.model, policy().modelKey);
+  assert.equal((decision.call.request as any).requestedModelInstance, instance);
+  assert.equal((decision.call.request as any).lmStudioActionTransport.modelInstanceId, instance);
+  assert.equal(
+    (decision.call.request as any).lmStudioActionTransport.artifactTreeSha256,
+    policy().artifact.treeSha256,
+  );
+  assert.equal((decision.call.response as any).model, instance);
+  assert.deepEqual((decision.call.response as any).usage, {
+    prompt_tokens: 90,
+    completion_tokens: 30,
+    total_tokens: 120,
+  });
+});
+
+test('LM Studio mind rejects instance drift distinctly and never retries', async () => {
+  let calls = 0;
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: lmStudioResidentInstanceId(policy()),
+    cognitionTransport: true,
+    recordModelIO: true,
+    fetch: async () => {
+      calls += 1;
+      return response('behold-bbbbbbbbbbbbbbbbbbbbbbbb', validOutput());
+    },
+  });
+
+  await assert.rejects(
+    mind.decide(request(), { signal: new AbortController().signal }),
+    (error: any) => {
+      assert.ok(error instanceof ResidentMindCallError);
+      const failure = error.call.response as any;
+      assert.equal(failure.terminal, 'lmstudio_identity_mismatch');
+      assert.equal(failure.lmStudioIdentity.reason, 'model_mismatch');
+      assert.equal(failure.lmStudioIdentity.returnedModel, 'behold-bbbbbbbbbbbbbbbbbbbbbbbb');
+      assert.equal(failure.raw.model, 'behold-bbbbbbbbbbbbbbbbbbbbbbbb');
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+});
+
+test('LM Studio mind retains malformed output without correction, normalization, or retry', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  let calls = 0;
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    recordModelIO: true,
+    fetch: async () => {
+      calls += 1;
+      return response(instance, {
+        intention: 'Walk forward',
+        expectedObservableConsequence: { copiedControllerOutcome: true },
+        action: 'move_controls',
+        arguments: { input: { direction: 'forward', durationMs: 500 } },
+      });
+    },
+  });
+
+  await assert.rejects(
+    mind.decide(request(), { signal: new AbortController().signal }),
+    (error: any) => {
+      assert.ok(error instanceof ResidentMindCallError);
+      const failure = error.call.response as any;
+      assert.equal(failure.terminal, 'malformed_output');
+      assert.deepEqual(failure.raw.choices[0].message.tool_calls, []);
+      assert.match(error.message, /malformed output/);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+});
+
+test('LM Studio mind propagates abort to its sole physical request', async () => {
+  let calls = 0;
+  let observedSignal: AbortSignal | undefined;
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: lmStudioResidentInstanceId(policy()),
+    cognitionTransport: true,
+    fetch: async (_input, init) => {
+      calls += 1;
+      observedSignal = init?.signal as AbortSignal;
+      return await new Promise<Response>((_resolve, reject) => {
+        observedSignal!.addEventListener(
+          'abort',
+          () =>
+            reject(
+              Object.assign(new Error('aborted by resident controller'), { name: 'AbortError' }),
+            ),
+          { once: true },
+        );
+      });
+    },
+  });
+  const abort = new AbortController();
+  const pending = mind.decide(request(), { signal: abort.signal });
+  abort.abort();
+  await assert.rejects(pending, (error: any) => {
+    assert.ok(error instanceof ResidentMindCallError);
+    assert.equal(error.call.response.terminal, 'cancelled');
+    return true;
+  });
+  assert.equal(calls, 1);
+  assert.equal(observedSignal, abort.signal);
+});
+
+test('LM Studio mind leaves canonical action-input validation to the controller boundary', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    fetch: async () =>
+      response(instance, {
+        ...validOutput(),
+        arguments: { direction: 'forward', durationMs: 999_999 },
+      }),
+  });
+
+  const decision = await mind.decide(request(), { signal: new AbortController().signal });
+  assert.deepEqual(decision.action?.input, { direction: 'forward', durationMs: 999_999 });
+  assert.equal(
+    decision.call.request.mindRequestSha256?.length,
+    64,
+    'the controller receives the exact originating request identity for final validation',
+  );
+});
+
+function policy(): LmStudioLocalPolicy {
+  return {
+    protocol: 'behold.lmstudio-local-policy.v1',
+    endpoint: 'http://127.0.0.1:1234/v1/chat/completions',
+    modelKey: 'google/gemma-4-26b-a4b-qat',
+    catalogKey: 'google/gemma-4-26b-a4b-qat',
+    indexedModelIdentifier: 'google/gemma-4-26b-a4b-qat',
+    artifact: {
+      relativePath: 'google/gemma-4-26b-a4b-qat',
+      treeSha256: 'b'.repeat(64),
+      sizeBytes: 15_600_000_000,
+    },
+    transport: {
+      protocol: 'behold.lmstudio-local-resident-session.v1',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+      templateSha256: 'c'.repeat(64),
+    },
+    runtime: {
+      appVersion: '0.4.12+1',
+      cliCommit: '0b2a176',
+      engine: 'mlx-llm-mac-arm64-apple-metal-advsimd@1.10.1',
+      format: 'mlx',
+    },
+    settings: { contextTokens: 16_384, maxOutputTokens: 512, temperature: 0.2 },
+  };
+}
+
+function request(): ResidentMindRequest {
+  return {
+    protocol: 'behold.mind-request.v1',
+    entityId: 'OxfordAster',
+    model: policy().modelKey,
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+    observation: { protocol: 'behold.minecraft-human-semantic-observation.v1', health: 20 },
+    conversation: [
+      {
+        role: 'system',
+        content:
+          'You are a persistent embodied Minecraft resident. Direct your own conduct from lived perception.',
+      },
+      {
+        role: 'user',
+        content: 'You see an ordinary tree ahead and open ground beneath your body.',
+      },
+    ],
+    actions: [
+      {
+        name: 'move_controls',
+        description: 'Press one ordinary movement control for a bounded duration.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            direction: { type: 'string', enum: ['forward', 'back', 'left', 'right'] },
+            durationMs: { type: 'integer', minimum: 100, maximum: 2_000 },
+          },
+          required: ['direction', 'durationMs'],
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'wait_for_event',
+        inputSchema: {
+          type: 'object',
+          properties: { reason: { type: 'string', maxLength: 240 } },
+          required: ['reason'],
+          additionalProperties: false,
+        },
+      },
+    ],
+    requiredAction: null,
+  };
+}
+
+function validOutput() {
+  return {
+    intention: 'Take one ordinary step toward the visible tree',
+    expectedObservableConsequence: 'The tree should appear closer in my next perception',
+    action: 'move_controls',
+    arguments: { direction: 'forward', durationMs: 500 },
+  };
+}
+
+function response(instance: string, output: unknown, headers: HeadersInit = {}) {
+  return new Response(
+    JSON.stringify({
+      id: 'chatcmpl-lmstudio-fixture',
+      object: 'chat.completion',
+      model: instance,
+      system_fingerprint: instance,
+      choices: [
+        {
+          index: 0,
+          finish_reason: 'stop',
+          message: { role: 'assistant', content: JSON.stringify(output), tool_calls: [] },
+        },
+      ],
+      usage: { prompt_tokens: 90, completion_tokens: 30, total_tokens: 120 },
+    }),
+    { status: 200, headers: { 'content-type': 'application/json', ...headers } },
+  );
+}
+
+function admissionHeaders(): Record<string, string> {
+  return {
+    'x-behold-cognition-protocol': 'behold.cognition-admission.v1',
+    'x-behold-cognition-broker-id': 'broker-fixture',
+    'x-behold-cognition-broker-request-id': 'broker-request-fixture',
+    'x-behold-cognition-resident-key': 'd'.repeat(64),
+    'x-behold-cognition-model': policy().modelKey,
+    'x-behold-cognition-body-sha256': 'e'.repeat(64),
+    'x-behold-cognition-request-id': 'client-request-fixture',
+    'x-behold-cognition-priority': 'deliberative',
+    'x-behold-cognition-purpose': 'resident_decision',
+    'x-behold-cognition-urgent-trigger': 'none',
+    'x-behold-cognition-queued-at': '1000',
+    'x-behold-cognition-admitted-at': '1001',
+    'x-behold-cognition-queue-ms': '1',
+    'x-behold-cognition-queue-depth': '0',
+    'x-behold-cognition-active-before': '0',
+    'x-behold-cognition-limit': '2',
+    'x-behold-cognition-admission-ordinal': '1',
+  };
+}

@@ -35,6 +35,11 @@ import { isCognitionTransportEnabled } from '../mind/cognition';
 import { openRouterRoutePolicyFromEnvironment } from '../mind/openrouter-route';
 import { ollamaLocalPolicyFromEnvironment } from '../mind/ollama-local';
 import { createOllamaLocalResidentMind } from '../mind/ollama';
+import { createLmStudioLocalResidentMind } from '../mind/lmstudio';
+import {
+  lmStudioLocalPolicyFromEnvironment,
+  lmStudioResidentInstanceId,
+} from '../mind/lmstudio-local';
 import {
   assertOllamaLocalJsonActionTreatment,
   usesOllamaResidentSessionTransport,
@@ -144,7 +149,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     process.env.BEHOLD_OPENROUTER_ROUTE_POLICY,
   );
   const ollamaLocal = ollamaLocalPolicyFromEnvironment(process.env.BEHOLD_OLLAMA_LOCAL_POLICY);
-  if (policyProfile === 'legible-resident-v1' && !ollamaLocal) {
+  const lmStudioLocal = lmStudioLocalPolicyFromEnvironment(
+    process.env.BEHOLD_LMSTUDIO_LOCAL_POLICY,
+  );
+  if (policyProfile === 'legible-resident-v1' && !ollamaLocal && !lmStudioLocal) {
     throw new Error('legible-resident-v1 requires the strict local JSON v2 transport');
   }
   if (ollamaLocal) assertOllamaLocalJsonActionTreatment({ policyProfile }, ollamaLocal);
@@ -157,11 +165,23 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   if (ollamaLocal && providerRoute) {
     throw new Error('A resident cannot combine OpenRouter and Ollama transport policies');
   }
+  if (lmStudioLocal && mindAdapter !== 'direct') {
+    throw new Error('LM Studio local policy requires the direct resident mind adapter');
+  }
+  if (lmStudioLocal && (providerRoute || ollamaLocal)) {
+    throw new Error('A resident cannot combine OpenRouter, Ollama, and LM Studio policies');
+  }
   if (ollamaLocal && !cognitionTransport) {
     throw new Error('Ollama local policy requires the authenticated cognition transport');
   }
+  if (lmStudioLocal && !cognitionTransport) {
+    throw new Error('LM Studio local policy requires the authenticated cognition transport');
+  }
   if (ollamaLocal && ollamaLocal.modelTag !== cfg.llm.model) {
     throw new Error('Ollama local model tag differs from LLM_MODEL');
+  }
+  if (lmStudioLocal && lmStudioLocal.modelKey !== cfg.llm.model) {
+    throw new Error('LM Studio local model key differs from LLM_MODEL');
   }
   const maxTurnSteps = opts.maxTurnSteps ?? (opts.task ? 8 : 16);
   const resumeAfterBudget = opts.resumeAfterBudget ?? opts.task == null;
@@ -181,6 +201,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     mind: mindAdapter,
     ...(providerRoute ? { providerRoute } : {}),
     ...(ollamaLocal ? { ollamaLocal } : {}),
+    ...(lmStudioLocal ? { lmStudioLocal } : {}),
     ...(decisionSchedule ? { decisionSchedule } : {}),
     profiles: {
       policy: policyProfile,
@@ -239,6 +260,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       mindAdapter,
       providerRoute,
       ollamaLocal,
+      lmStudioLocal,
       policyProfile,
       bodyProfile,
       actionProfile,
@@ -711,13 +733,16 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   });
 
   // Optional LLM policy
-  const apiKey = ollamaLocal ? process.env.BEHOLD_COGNITION_BEARER : process.env.OPENROUTER_API_KEY;
-  const cognitionEndpoint = ollamaLocal
+  const localResidentSession = ollamaLocal != null || lmStudioLocal != null;
+  const apiKey = localResidentSession
+    ? process.env.BEHOLD_COGNITION_BEARER
+    : process.env.OPENROUTER_API_KEY;
+  const cognitionEndpoint = localResidentSession
     ? process.env.BEHOLD_COGNITION_ENDPOINT
     : process.env.OPENROUTER_BASE_URL;
-  if (ollamaLocal && (!apiKey || !cognitionEndpoint)) {
+  if (localResidentSession && (!apiKey || !cognitionEndpoint)) {
     throw new Error(
-      'Ollama local policy is missing its runner-owned broker credential or endpoint',
+      'Local resident policy is missing its runner-owned broker credential or endpoint',
     );
   }
   const model = cfg.llm.model;
@@ -760,7 +785,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         actionProfile,
         safetyProfile,
         workingContinuity:
-          ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)
+          (ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)) || lmStudioLocal
             ? 'resident-session-v1'
             : 'recent-action-v1',
         ...(releaseGate ? { experimentRelease: () => experimentRelease } : {}),
@@ -783,7 +808,19 @@ export async function runConsole(opts: ConsoleOptions = {}) {
                   cognitionTransport: true,
                   recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
                 })
-              : undefined,
+              : lmStudioLocal
+                ? createLmStudioLocalResidentMind({
+                    bearer: apiKey!,
+                    endpoint: cognitionEndpoint!,
+                    policy: lmStudioLocal,
+                    modelInstanceId: admittedLmStudioModelInstance(
+                      process.env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID,
+                      lmStudioLocal,
+                    ),
+                    cognitionTransport: true,
+                    recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+                  })
+                : undefined,
         recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
         cognitionTransport,
         ...(providerRoute ? { routePolicy: providerRoute } : {}),
@@ -1023,6 +1060,18 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   } finally {
     for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
   }
+}
+
+function admittedLmStudioModelInstance(
+  value: unknown,
+  policy: Parameters<typeof lmStudioResidentInstanceId>[0],
+) {
+  const configured = String(value || '').trim();
+  const admitted = lmStudioResidentInstanceId(policy);
+  if (!configured || configured !== admitted) {
+    throw new Error('LM Studio model instance differs from the runner-admitted resident session');
+  }
+  return configured;
 }
 
 function residentMindAdapter(value: string | undefined): 'direct' | 'ax' {

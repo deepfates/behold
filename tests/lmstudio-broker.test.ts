@@ -1,0 +1,244 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { startCognitionBroker, verifyCognitionBrokerJournal } from '../src/mind/cognition-broker';
+import { cognitionClientHeaders, cognitionResidentKey } from '../src/mind/cognition';
+import {
+  createLmStudioLocalJsonActionRequest,
+  lmStudioResidentInstanceId,
+  type LmStudioLocalPolicy,
+  type LmStudioLocalPreflight,
+} from '../src/mind/lmstudio-local';
+import {
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+} from '../src/mind/ollama-json-action';
+import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
+
+test('the cognition gate preserves exact LM Studio wire and rejects returned instance drift', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lmstudio-broker-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalFile = path.join(root, 'broker.jsonl');
+  const transportCaptureDirectory = path.join(root, 'transport');
+  const policy = localPolicy();
+  const preflight = localPreflight(policy);
+  const instanceId = lmStudioResidentInstanceId(policy);
+  const serialized = createLmStudioLocalJsonActionRequest(
+    residentRequest(policy.modelKey) as any,
+    policy,
+    instanceId,
+  );
+  let calls = 0;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: policy.endpoint,
+    lmStudioPreflight: preflight,
+    clients: [
+      {
+        bearer: token(),
+        residentKey: cognitionResidentKey('lmstudio-fixture', 'Aster'),
+        model: policy.modelKey,
+        lmStudioLocal: policy,
+      },
+    ],
+    maxConcurrent: 1,
+    journalFile,
+    transportCaptureDirectory,
+    fetch: async (url, init) => {
+      calls += 1;
+      assert.equal(String(url), policy.endpoint);
+      assert.equal(new Headers(init?.headers).has('authorization'), false);
+      assert.deepEqual(JSON.parse(String(init?.body)), serialized.body);
+      const returnedInstance = calls === 1 ? instanceId : 'behold-drifted-instance';
+      return jsonResponse({
+        id: `chatcmpl-${calls}`,
+        object: 'chat.completion',
+        model: returnedInstance,
+        system_fingerprint: returnedInstance,
+        choices: [
+          {
+            index: 0,
+            finish_reason: 'stop',
+            message: {
+              role: 'assistant',
+              content: JSON.stringify({
+                intention: 'Wait for another lived change.',
+                expectedObservableConsequence: 'A later perception may contain a new event.',
+                action: 'wait_for_event',
+                arguments: { reason: 'Nothing presently requires movement.' },
+              }),
+              tool_calls: [],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+      });
+    },
+  });
+
+  try {
+    const driftedWire = structuredClone(serialized.body) as any;
+    driftedWire.response_format.json_schema.schema.oneOf[0].properties.arguments.properties.reason.maxLength = 1;
+    const refused = await request(broker.endpoint, JSON.stringify(driftedWire), 'wire-drift');
+    assert.equal(refused.status, 400);
+    assert.equal(((await refused.json()) as any).error.code, 'request_lmstudio_policy_mismatch');
+    assert.equal(calls, 0);
+
+    const admitted = await request(broker.endpoint, JSON.stringify(serialized.body), 'exact');
+    assert.equal(admitted.status, 200);
+    assert.equal(((await admitted.json()) as any).model, instanceId);
+
+    const identityDrift = await request(
+      broker.endpoint,
+      JSON.stringify(serialized.body),
+      'identity-drift',
+    );
+    assert.equal(identityDrift.status, 502);
+    assert.equal(((await identityDrift.json()) as any).error.code, 'lmstudio_identity_mismatch');
+  } finally {
+    await broker.close();
+  }
+
+  const events = verifyCognitionBrokerJournal(journalFile).events;
+  const capture = verifyCognitionTransportCapture(transportCaptureDirectory, events);
+  assert.equal(capture.attempts, 2);
+  assert.equal(capture.identityFailures, 1);
+  assert.equal(capture.starts[0].route.authentication, 'none_loopback');
+  assert.equal(capture.starts[0].lmStudioIdentity?.preflightDigest, preflight.digest);
+  assert.equal(
+    capture.starts[0].lmStudioIdentity?.request.stablePrefixSha256,
+    serialized.identity.stablePrefixSha256,
+  );
+  assert.equal(capture.records[1].terminal, 'lmstudio_identity_mismatch');
+});
+
+function localPolicy(): LmStudioLocalPolicy {
+  return {
+    protocol: 'behold.lmstudio-local-policy.v1',
+    endpoint: 'http://127.0.0.1:1234/v1/chat/completions',
+    modelKey: 'fixture/gemma@4bit',
+    catalogKey: 'fixture/gemma',
+    indexedModelIdentifier: 'fixture/gemma@publisher/gemma-mlx-4bit',
+    artifact: {
+      relativePath: 'publisher/gemma-mlx-4bit',
+      treeSha256: 'a'.repeat(64),
+      sizeBytes: 4_000_000,
+    },
+    transport: {
+      protocol: 'behold.lmstudio-local-resident-session.v1',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+      templateSha256: 'b'.repeat(64),
+    },
+    runtime: {
+      appVersion: '0.4.12+1',
+      cliCommit: 'fixture-cli',
+      engine: 'mlx-fixture@1.0.0',
+      format: 'mlx',
+    },
+    settings: { contextTokens: 16_384, maxOutputTokens: 512, temperature: 0.2 },
+  };
+}
+
+function localPreflight(policy: LmStudioLocalPolicy): LmStudioLocalPreflight {
+  const base = {
+    protocol: 'behold.lmstudio-local-preflight.v1' as const,
+    checkedAt: '2026-07-26T12:00:00.000Z',
+    endpoint: policy.endpoint,
+    runtime: policy.runtime,
+    models: [
+      {
+        modelKey: policy.modelKey,
+        catalogKey: policy.catalogKey,
+        indexedModelIdentifier: policy.indexedModelIdentifier,
+        artifactTreeSha256: policy.artifact.treeSha256,
+        templateSha256: policy.transport.templateSha256,
+        sizeBytes: policy.artifact.sizeBytes,
+        architecture: 'gemma4',
+        maxContextTokens: 262_144,
+        trainedForToolUse: true,
+      },
+    ],
+  };
+  return { ...base, digest: sha256(stableJson(base)) };
+}
+
+function residentRequest(model: string) {
+  return {
+    protocol: 'behold.mind-request.v1',
+    entityId: 'Aster',
+    model,
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+    observation: { protocol: 'behold.minecraft-human-semantic-observation.v1' },
+    conversation: [
+      { role: 'system', content: 'You are a persistent embodied Minecraft resident.' },
+      {
+        role: 'system',
+        content:
+          'Resident working continuity from your own entity loom.\n{"protocol":"behold.resident-working-continuity.v1","experiences":[]}',
+      },
+      { role: 'user', content: 'Current perception: no immediate danger.' },
+    ],
+    actions: [
+      {
+        name: 'wait_for_event',
+        description: 'Yield until the world provides another event.',
+        inputSchema: {
+          type: 'object',
+          properties: { reason: { type: 'string', minLength: 1, maxLength: 200 } },
+          required: ['reason'],
+          additionalProperties: false,
+        },
+      },
+    ],
+    requiredAction: null,
+  };
+}
+
+function request(endpoint: string, body: string, requestId: string) {
+  return fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token()}`,
+      ...cognitionClientHeaders({
+        requestId,
+        priority: 'deliberative',
+        purpose: 'resident_decision',
+        urgentTriggerSequence: null,
+      }),
+    },
+    body,
+  });
+}
+
+function token() {
+  return `local-lmstudio-${'x'.repeat(48)}`;
+}
+
+function jsonResponse(value: unknown) {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
