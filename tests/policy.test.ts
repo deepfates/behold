@@ -19,6 +19,7 @@ import { minecraftActionsForProfile } from '../src/agent/action-profiles';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine } from '../src/loop/engine';
 import { createOllamaLocalResidentMind } from '../src/mind/ollama';
+import { residentMindRequestSha256 } from '../src/mind/request-artifact';
 import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
@@ -166,6 +167,20 @@ test('release-gated policy admits no mind call before release and attributes eve
   assert.deepEqual(requests[0].experimentRelease, release);
   assert.deepEqual(modelTurns[0].experimentRelease, release);
   assert.deepEqual(entityTurns[0].experimentRelease, release);
+  assert.equal(entityTurns[0].observation.protocol, 'behold.inhabitant.v2');
+  assert.equal(
+    entityTurns[0].observationPresentation?.protocol,
+    'behold.entity-turn-observation-presentation.v1',
+  );
+  assert.deepEqual(entityTurns[0].observationPresentation?.observation, requests[0].observation);
+  assert.equal(
+    entityTurns[0].observationPresentation?.requestSha256,
+    residentMindRequestSha256(requests[0]),
+  );
+  assert.equal(
+    entityTurns[0].observationPresentation?.nextObservation.protocol,
+    'behold.minecraft-human-semantic-observation.v1',
+  );
   await active.stop();
 });
 

@@ -11,6 +11,11 @@ import {
   validateEntityLifeRangeReference,
   type EntityTurn,
 } from '../src/entity/loom';
+import {
+  createEntityTurnObservationPresentation,
+  decodeEntityTurnFromLync,
+} from '../src/entity/turn-observation-binding';
+import { projectMinecraftCurrentObservation } from '../src/mind/minecraft-body';
 import { residentTurnMayReplay } from '../src/mind/resident-visibility';
 import { acquireWorldControl } from '../src/runtime/world-control';
 
@@ -51,6 +56,204 @@ function turn(sequence: number, parentId: string | null, entityId = 'Scout'): En
   };
 }
 
+function oxfordPilotShapedTurn(): EntityTurn {
+  const release = {
+    protocol: 'behold.experiment-release-reference.v1' as const,
+    releaseId: 'a'.repeat(64),
+    releaseDigest: 'b'.repeat(64),
+    lifecycleSequence: 23,
+    lifecycleDigest: 'c'.repeat(64),
+    residentObservedOrder: 2,
+    residentObservedAt: '2026-07-26T05:47:16.869Z',
+  };
+  const rawObservation: any = {
+    protocol: 'behold.inhabitant.v2',
+    circle: {
+      id: 'oxford-pilot-fixture',
+      substrate: 'minecraft',
+      managedRunId: 'private-managed-run',
+    },
+    sequence: 14,
+    observedAt: 1_785_044_929_081,
+    eventWindow: {
+      requestedAfterSequence: 7,
+      oldestAvailableSequence: 1,
+      newestAvailableSequence: 14,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
+    task: null,
+    self: {
+      identity: 'OxfordLlamaP1',
+      body: { substrate: 'minecraft', username: 'LlamaPilot', uuid: 'private-body-id' },
+      pose: {
+        position: { x: 1968.5, y: -48, z: 1404.5 },
+        yaw: 0,
+        pitch: 0,
+        velocity: { x: 0, y: -0.1, z: 0 },
+        onGround: true,
+      },
+      condition: {
+        health: 20,
+        food: 20,
+        oxygen: null,
+        sleeping: false,
+        dimension: 'overworld',
+        isDay: true,
+      },
+      heldItem: null,
+      inventory: [],
+      projects: [],
+      places: [],
+      placeConflicts: [],
+      currentAction: null,
+    },
+    scene: {
+      social: { source: 'server_roster', playersOnline: ['PhiPilot'] },
+      focus: null,
+      entities: [
+        {
+          id: 'player:PhiPilot',
+          name: 'PhiPilot',
+          kind: 'player',
+          position: { x: 1980.5, y: -48, z: 1399.5 },
+          distance: 13,
+          source: 'vision',
+          visibility: 'visible',
+        },
+      ],
+      terrain: {
+        source: 'vision',
+        visualField: {
+          protocol: 'behold.visual-field.v1',
+          available: true,
+          dimensions: { rows: 1, columns: 2 },
+          rowOrder: 'top_to_bottom',
+          columnOrder: 'left_to_right',
+          materialRows: ['ab'],
+          depthRows: ['12'],
+          materialLegend: [
+            { symbol: 'a', name: 'polished_andesite' },
+            { symbol: 'b', name: 'oak_leaves' },
+          ],
+          depthLegend: [
+            { symbol: '1', label: 'interaction', maxDistance: 4.5 },
+            { symbol: '2', label: 'near', maxDistance: 8 },
+          ],
+          noHitSymbol: '.',
+          unavailableSymbol: '?',
+          center: { row: 0, column: 0, alignedWith: 'current_view' },
+        },
+      },
+    },
+    events: [
+      {
+        sequence: 14,
+        at: 1_785_044_929_081,
+        type: 'entity_became_visible',
+        salience: 'high',
+        source: 'vision',
+        data: {
+          id: 'player:PhiPilot',
+          name: 'PhiPilot',
+          kind: 'player',
+          position: { x: 1980.5, y: -48, z: 1399.5 },
+          distance: 13,
+        },
+        isNew: true,
+      },
+    ],
+  };
+  const rawNextObservation = structuredClone(rawObservation);
+  rawNextObservation.sequence = 20;
+  rawNextObservation.observedAt += 500;
+  rawNextObservation.self.pose.yaw = -Math.PI / 2;
+  rawNextObservation.scene.entities = [];
+  rawNextObservation.events = [
+    {
+      sequence: 20,
+      at: rawNextObservation.observedAt,
+      type: 'entity_left_view',
+      salience: 'ambient',
+      source: 'vision',
+      data: {
+        id: 'player:PhiPilot',
+        name: 'PhiPilot',
+        kind: 'player',
+        lastSeenDistance: 13,
+      },
+      isNew: true,
+    },
+  ];
+  return {
+    protocol: 'behold.entity-turn.v1',
+    circleId: 'oxford-pilot-fixture',
+    id: 'OxfordLlamaP1:turn:1',
+    entityId: 'OxfordLlamaP1',
+    sequence: 1,
+    parentId: null,
+    model: 'llama3.2:3b',
+    profiles: {
+      policy: 'neutral-benchmark-v1',
+      body: 'minecraft-human-semantic-v1',
+      actions: 'minecraft-human-semantic-v1',
+      safety: 'vanilla-player-v1',
+    },
+    experimentRelease: release,
+    startedAt: 1_785_044_929_081,
+    completedAt: 1_785_044_929_581,
+    observation: rawObservation,
+    observationPresentation: createEntityTurnObservationPresentation({
+      requestSha256: 'd'.repeat(64),
+      observation: projectMinecraftCurrentObservation(
+        rawObservation,
+        'minecraft-human-semantic-v1',
+      ),
+      nextObservation: projectMinecraftCurrentObservation(
+        rawNextObservation,
+        'minecraft-human-semantic-v1',
+      ),
+    }),
+    utterance: {
+      assistant: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'pilot-look-1',
+            type: 'function',
+            function: {
+              name: 'look_direction',
+              arguments: '{"horizontal":"right","vertical":"same"}',
+            },
+          },
+        ],
+      },
+    },
+    action: {
+      id: 'pilot-look-1',
+      name: 'look_direction',
+      input: { horizontal: 'right', vertical: 'same' },
+      source: 'llm',
+      kind: 'exclusive',
+      toolCallId: 'pilot-look-1',
+    },
+    outcome: {
+      ok: true,
+      eventType: 'action_completed',
+      result: {
+        ok: true,
+        horizontal: 'right',
+        vertical: 'same',
+        from: { facing: 'east', vertical: 'level' },
+        orientation: { facing: 'south', vertical: 'level' },
+        confirmation: 'mineflayer:body_orientation',
+      },
+    },
+    nextObservation: rawNextObservation,
+  };
+}
+
 test('entity history projects prior actions and their observations back into model context', () => {
   const messages = historyMessages([turn(1, null)]);
   assert.equal(messages[0]?.role, 'user');
@@ -77,6 +280,62 @@ test('model replay keeps the visible decision but not provider-private reasoning
   assert.equal(assistant.tool_calls[0].function.name, 'status');
   assert.equal(JSON.stringify(assistant).includes('provider-private'), false);
   assert.equal(JSON.stringify(assistant).includes('duplicate hidden chain'), false);
+});
+
+test('human-semantic Lync turns bind a safe readable projection to unchanged private pilot frames', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-human-presentation-'));
+  const expected = oxfordPilotShapedTurn();
+  const life = await openEntityLoom(expected.entityId, root, expected.circleId);
+  await life.append(expected);
+  const sourceLines = fs
+    .readFileSync(life.file, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  const sourceTurn = sourceLines.find((event) => event.kind === 'lync/turn')?.payload?.payload;
+  assert.equal(sourceTurn.observation.protocol, 'behold.minecraft-human-semantic-observation.v1');
+  assert.equal(
+    sourceTurn.nextObservation.protocol,
+    'behold.minecraft-human-semantic-observation.v1',
+  );
+  assert.equal(JSON.stringify(sourceTurn.observation).includes('1968.5'), false);
+  assert.equal(JSON.stringify(sourceTurn.observation).includes('private-body-id'), false);
+  assert.deepEqual(sourceTurn.privateCausalFrames.observation, expected.observation);
+  assert.deepEqual(sourceTurn.privateCausalFrames.nextObservation, expected.nextObservation);
+  assert.equal(sourceTurn.observationBinding.turn.id, expected.id);
+  assert.equal(sourceTurn.observationBinding.turn.entityId, expected.entityId);
+  assert.equal(sourceTurn.observationBinding.profiles.body, 'minecraft-human-semantic-v1');
+  assert.equal(
+    sourceTurn.observationBinding.experimentRelease.releaseId,
+    expected.experimentRelease?.releaseId,
+  );
+  assert.match(sourceTurn.observationBinding.digest, /^[a-f0-9]{64}$/);
+  await life.close();
+
+  const reopened = await openEntityLoom(expected.entityId, root, expected.circleId);
+  assert.deepEqual(reopened.turns()[0]?.observation, expected.observation);
+  assert.deepEqual(reopened.turns()[0]?.nextObservation, expected.nextObservation);
+  assert.deepEqual(reopened.turns()[0]?.observationPresentation, expected.observationPresentation);
+  await reopened.close();
+
+  const tampered = structuredClone(sourceTurn);
+  tampered.observation.self.identity = 'tampered-resident';
+  assert.throws(
+    () => decodeEntityTurnFromLync(tampered),
+    /binding does not match its turn or causal frames/,
+  );
+  const rawTampered = structuredClone(sourceTurn);
+  rawTampered.privateCausalFrames.observation.self.pose.position.x += 1;
+  assert.throws(
+    () => decodeEntityTurnFromLync(rawTampered),
+    /binding does not match its turn or causal frames/,
+  );
+  const releaseTampered = structuredClone(sourceTurn);
+  releaseTampered.experimentRelease.releaseId = 'e'.repeat(64);
+  assert.throws(
+    () => decodeEntityTurnFromLync(releaseTampered),
+    /binding does not match its turn or causal frames/,
+  );
 });
 
 test('a replaceable scripted controller is remembered without impersonating the LLM', () => {

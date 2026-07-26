@@ -9,6 +9,11 @@ import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import { projectResidentVisibleValue } from '../mind/resident-visibility';
 import { sanitizeName } from '../observability/journal';
 import {
+  decodeEntityTurnFromLync,
+  encodeEntityTurnForLync,
+  type EntityTurnObservationPresentation,
+} from './turn-observation-binding';
+import {
   beginManagedControllerAdmission,
   beginUnmanagedControllerAdmission,
   confirmManagedControllerAdmission,
@@ -36,7 +41,10 @@ export type EntityTurn = {
   attention?: ResidentAttention;
   startedAt: number;
   completedAt: number;
+  /** Private controller frame. Lync stores its public projection separately. */
   observation: any;
+  /** Exact safe mind-facing observation pair retained for Lync presentation. */
+  observationPresentation?: EntityTurnObservationPresentation;
   utterance: { assistant: any };
   action: {
     id: string;
@@ -60,6 +68,7 @@ export type EntityTurn = {
       adapter: string | null;
     };
   };
+  /** Private authenticated terminal frame. */
   nextObservation: any;
 };
 
@@ -433,13 +442,12 @@ export async function resolveEntityLifeRange(
   }
   const { loom, info } = await openEntityLoomReadOnly(entityId, manifest.loomId, storageDirectory);
   const turns = await loom.threadTo(manifest.tipTurnId);
-  validateEntityTrajectory(
-    turns.map((turn) => turn.payload),
-    entityId,
-    `Lync loom ${manifest.loomId}`,
-  );
-  const start = turns.find((turn) => turn.payload.sequence === startSequence);
-  const end = turns.find((turn) => turn.payload.sequence === endSequence);
+  const decoded = turns.map((turn) => decodeEntityTurnFromLync(turn.payload));
+  validateEntityTrajectory(decoded, entityId, `Lync loom ${manifest.loomId}`);
+  const startIndex = decoded.findIndex((turn) => turn.sequence === startSequence);
+  const endIndex = decoded.findIndex((turn) => turn.sequence === endSequence);
+  const start = startIndex < 0 ? null : turns[startIndex];
+  const end = endIndex < 0 ? null : turns[endIndex];
   if (!start || !end) {
     throw new Error(
       `entity ${entityId} does not contain committed range ${startSequence}..${endSequence}`,
@@ -483,21 +491,19 @@ export async function readEntityLifeRange(
   );
   try {
     const ancestry = await loom.threadTo(range.end.turnId);
-    validateEntityTrajectory(
-      ancestry.map((turn) => turn.payload),
-      range.entityId,
-      `Lync loom ${range.life.loomId}`,
-    );
+    const decoded = ancestry.map((turn) => decodeEntityTurnFromLync(turn.payload));
+    validateEntityTrajectory(decoded, range.entityId, `Lync loom ${range.life.loomId}`);
     const startIndex = ancestry.findIndex((turn) => turn.id === range.start.turnId);
     if (startIndex < 0) {
       throw new Error('entity life range start is not an ancestor of its end');
     }
     const selected = ancestry.slice(startIndex);
+    const selectedDecoded = decoded.slice(startIndex);
     const start = selected[0];
     const end = selected.at(-1)!;
     if (
-      start.payload.sequence !== range.sequences.start ||
-      end.payload.sequence !== range.sequences.end ||
+      selectedDecoded[0]?.sequence !== range.sequences.start ||
+      selectedDecoded.at(-1)?.sequence !== range.sequences.end ||
       (info.meta?.circleId ?? null) !== range.circleId
     ) {
       throw new Error('entity life range metadata differs from its exact Lync anchors');
@@ -524,7 +530,7 @@ export async function readEntityLifeRange(
     });
     return deepFreeze({
       reference,
-      turns: selected.map((turn) => structuredClone(turn.payload)),
+      turns: selectedDecoded.map((turn) => structuredClone(turn)),
     });
   } finally {
     loom.close();
@@ -839,7 +845,7 @@ function isProcessAlive(pid: number) {
 }
 
 async function appendLyncTurn(loom: LyncEntityLoom, parentId: string | null, turn: EntityTurn) {
-  return loom.appendTurn(parentId, turn, {
+  return loom.appendTurn(parentId, encodeEntityTurnForLync(turn), {
     protocol: 'behold.entity-turn-link.v1',
     entityId: turn.entityId,
     sequence: turn.sequence,
@@ -869,7 +875,7 @@ async function findMigrationTip(loom: LyncEntityLoom, legacy: EntityTurn[]) {
   const candidates: Array<{ tip: string; length: number }> = [];
   for (const leaf of leaves) {
     const thread = await loom.threadTo(leaf.id);
-    const payloads = thread.map((turn) => turn.payload);
+    const payloads = thread.map((turn) => decodeEntityTurnFromLync(turn.payload));
     if (isLegacyCompatible(payloads, legacy)) {
       candidates.push({ tip: leaf.id, length: payloads.length });
     }
@@ -912,7 +918,7 @@ async function recoverUniqueTip(
 
 async function materializeThread(loom: LyncEntityLoom, tip: string | null, entityId: string) {
   const turns = tip === null ? [] : await loom.threadTo(tip);
-  const payloads = turns.map((turn) => turn.payload);
+  const payloads = turns.map((turn) => decodeEntityTurnFromLync(turn.payload));
   validateEntityTrajectory(payloads, entityId, `Lync loom ${loom.id}`);
   for (const storedTurn of turns) validateLyncTurnMeta(storedTurn, entityId);
   return payloads;

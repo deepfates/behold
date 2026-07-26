@@ -4,6 +4,7 @@ import { isCriticalBodyCondition } from '../agent/condition';
 import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
 import { historyMessages, type EntityTurn } from '../entity/loom';
+import { createEntityTurnObservationPresentation } from '../entity/turn-observation-binding';
 import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
@@ -177,17 +178,23 @@ type TurnDraft = {
   model: string;
   startedAt: number;
   observation: any;
+  modelObservation: any;
+  requestSha256: string;
   assistant: any;
   attention: ResidentAttention;
   experimentRelease: ExperimentReleaseReference | null;
 };
 
-type ModelDecision = {
+type ValidatedModelDecision = {
   assistant: any;
   intent: Intent | null;
   toolCallId: string | null;
   wait: boolean;
   call: ModelCallEvidence;
+};
+
+type ModelDecision = ValidatedModelDecision & {
+  requestSha256: string;
 };
 
 type ActiveDecision = {
@@ -717,7 +724,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             phase: 'scheduled',
             at: now(),
           });
-          let validated: ModelDecision;
+          let validated: ValidatedModelDecision;
           try {
             const proposed = await mind.decide(request, { signal });
             if (signal.aborted) {
@@ -748,7 +755,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             terminal: 'success',
             call: validated.call,
           });
-          return validated;
+          return { ...validated, requestSha256 };
         } finally {
           if (deadline) clearTimeout(deadline);
         }
@@ -771,6 +778,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         model: decisionModel,
         startedAt,
         observation: currentObservation,
+        modelObservation: cloneJson(modelObservation),
+        requestSha256: decision.requestSha256,
         assistant,
         attention,
         experimentRelease,
@@ -1323,6 +1332,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       startedAt: draft.startedAt,
       completedAt,
       observation: draft.observation,
+      ...(usesHumanSemanticBody(bodyProfile)
+        ? {
+            observationPresentation: createEntityTurnObservationPresentation({
+              requestSha256: draft.requestSha256,
+              observation: draft.modelObservation,
+              nextObservation: projectCurrentObservation(nextObservation),
+            }),
+          }
+        : {}),
       utterance: { assistant: draft.assistant },
       action: { ...action, source: 'llm' },
       outcome,
@@ -2374,7 +2392,7 @@ function validateMindDecision(
   requiredAction: string | null,
   expectedModel: string,
   expectedMindRequestSha256: string,
-): ModelDecision {
+): ValidatedModelDecision {
   if (decision?.protocol !== 'behold.mind-decision.v1') {
     throw new Error('mind returned an unsupported decision protocol');
   }

@@ -1,8 +1,8 @@
 # Resident Lync presentation contract
 
-Status: Behold-owned domain contract for the ratified `Hac-i4by` Textile
-presentation work. This document does not change Lync storage or authorize a
-generic renderer to infer meaning from unknown JSON.
+Status: Behold-owned domain and storage-boundary contract for the ratified
+`Hac-i4by` Textile presentation work. It does not authorize a generic renderer
+to infer meaning from unknown JSON.
 
 ## Source and non-mutation boundary
 
@@ -19,6 +19,23 @@ unchanged. Presentation is a derived view. Every derived section MUST retain
 the source event `id`, `parents`, `author`, `kind`, and one or more exact JSON
 source paths. Presentation MUST NOT rewrite, replace, append to, or repair the
 source loom.
+
+For new model turns using `minecraft-human-semantic-v1`, the public
+`observation` and `nextObservation` paths are the exact versioned semantic
+projections prepared at the admitted request and authenticated terminal frame.
+The private controller frames remain unchanged under
+`privateCausalFrames` (`behold.entity-turn-private-causal-frames.v1`). An
+`observationBinding` (`behold.entity-turn-observation-binding.v1`) hashes both
+representations and binds them to the turn/entity/circle, body/action profiles,
+experiment release, and complete admitted resident-mind request hash. Behold
+verifies this binding before restoring private frames for replay or evaluation.
+Textile continues to read only the public allowlisted paths and must not recurse
+into `privateCausalFrames`.
+
+Older retained lives are not silently rewritten. A legacy turn that stores a
+raw `behold.inhabitant.v2` frame on the public path remains exact source
+evidence and receives Textile's named unsupported-observation diagnostic until
+an explicitly derived, non-mutating projection is requested.
 
 ## Dispatch boundary
 
