@@ -127,3 +127,8 @@ inference. The smallest honest next experiment, if separately authorized, is
 one inference through this exact transport using the already admitted envelope
 and zero retry/substitution. It must retain malformed output as an observed
 deployment outcome and cannot establish a fair 3B-versus-70B comparison.
+
+That single follow-up was separately authorized and completed once. The 3B
+model returned conforming `wait_for_event` JSON, and the unchanged validator
+accepted it without any world execution. See
+[`2026-07-25-ollama-json-action-3b-single-inference.md`](2026-07-25-ollama-json-action-3b-single-inference.md).

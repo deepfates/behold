@@ -288,3 +288,28 @@ inference, Minecraft, provider, retry, or substitution ran. `beh-n4fe` remains
 open; this closes only the strict-JSON model-free conformance slice and leaves
 the first separately authorized inference and living-world pilot outstanding.
 Details: `docs/reports/2026-07-25-ollama-json-action-conformance.md`.
+
+**2026-07-26T01:57:15Z**
+
+The one separately authorized 3B inference completed through
+`behold.ollama-local-json-action.v1` and then stopped. It used the retained
+OxfordAster human-semantic observation, all 18 canonical actions, the ordinary
+uncoached controller prompt, and no task or required action. The model returned
+one exact JSON proposal: `wait_for_event` with reason `Birch is online`.
+Behold's unchanged validator accepted the unchanged arguments; no world
+interface existed and no action executed.
+
+The broker recorded exactly one local `/api/chat` attempt, the exact admitted
+3B content/template/transport/schema/catalog/format identities, and a raw
+response blob. There was no retry, correction, normalization, substitution,
+70B request, provider call, Minecraft process, or world mutation. Native timing
+was 1.703 seconds total (0.589 load, 0.867 prompt evaluation, 0.118 generation),
+with 1,671 prompt and 17 completion tokens. `keep_alive: 0s` unloaded cleanly;
+the first and final `/api/ps` checks were empty.
+
+This proves only one strict transport/decode/validator success and falsifies the
+narrow claim that the new path necessarily repeats the old native-tools
+typed-wrapper failure. It does not prove reliable conformance, useful embodied
+behavior, numeric-bound grammar enforcement, or a living-world pilot.
+`beh-n4fe` remains open. Details:
+`docs/reports/2026-07-25-ollama-json-action-3b-single-inference.md`.
