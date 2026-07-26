@@ -18,7 +18,9 @@ production gap exposed by `berduck-qwen2-1.5b` was then closed without changing
 the resident contract. Berduck's exact production path was fast and
 reasoning-free, but both fresh horizons selected the same look-down camera
 action and the addressed-chat commitment confused Qwen's activity with the
-resident's own expected consequence. It therefore did not earn Minecraft.
+resident's own expected consequence. The remaining installed SmolLM2 instruct
+family then failed exact JSON integrity and the five-second horizon at 1.7B,
+360M, and 135M. None earned Minecraft.
 
 No retry, repair, prompt change, normalization, fallback, action steering,
 provider call, download, or Minecraft mutation was used. Since neither
@@ -188,6 +190,44 @@ settled, none remained unsettled, and the quota tip is
 `f3f4d4fc8e86e3904e29f2c07c27a60450d915426028605583f47ba25d2f3976`.
 The owned instance unloaded and `lms ps --json` was empty.
 
+## SmolLM2 instruct GGUF family
+
+Exact GGUF admission made three previously unreachable installed SmolLM2 Q8
+artifacts eligible for a production-path screen. They share the same 368-byte
+non-reasoning chat template, SHA-256
+`872be49dbb638044ad01b60388f48d469ff2980e5f0dccdc22ec907db54d0788`,
+and an indexed 8,192-token context:
+
+| Model                 | Artifact bytes | Artifact-tree SHA-256                                              |
+| --------------------- | -------------: | ------------------------------------------------------------------ |
+| SmolLM2 1.7B Instruct |  1,820,414,656 | `300e13a5b041c6e1c285369153de67dd58dc885be401e1d78237d4dea411b83b` |
+| SmolLM2 360M Instruct |    386,404,992 | `e9ed1328c2fd6da423facb77f83828b8ad20e095549f23e58be7203dae9d01c4` |
+| SmolLM2 135M Instruct |    144,811,072 | `e75f4d88e3d93c82bad3bb059a14168979fdc6f3a7e9f8cc4a900687b5c67eaa` |
+
+Each received one authority-free prefix readiness and, because its first fresh
+resident decision failed, no second horizon or corrective attempt:
+
+| Model | Readiness | First decision | Result                                                                            |
+| ----- | --------: | -------------: | --------------------------------------------------------------------------------- |
+| 1.7B  |   1.115 s |        6.130 s | invalid mixed schema prose, comments, duplicated actions, and malformed `whisper` |
+| 360M  |   0.504 s |        7.939 s | invalid partial object followed by repeated charter text; 512-token output cap    |
+| 135M  |   0.408 s |        6.516 s | invalid copied contract/observation fragments; 512-token output cap               |
+
+The 1.7B output did contain a potentially useful intention to communicate with
+Qwen, but intention is not an admitted action. It represented `action` both as
+a schema object and later as `whisper`, included non-JSON commentary, and did
+not close one valid object. The smaller models degraded further. All readiness
+responses were clean; no response exposed private reasoning or tool calls. The
+unchanged parser rejected every decision.
+
+Each broker journal verifies nine events and two successful physical responses;
+both quota charges settled and none remained unsettled. The journal file
+SHA-256 values for 1.7B, 360M, and 135M are respectively
+`67842c6ca0f88104126c4104833e4e0572b9a648646ad4bf830debcf7b2017f9`,
+`133e0446f61892b6685103f1e98a5bb1f7d3997605483fd09e3cdaf67c80c54c`,
+and `5aa49d090ec9f222b889295d415eea5617e01e1bcc4dcf84d034362e3ae1e76d`.
+Every owned instance unloaded and final LM Studio inventory was empty.
+
 ## Remaining installed boundary
 
 The current conclusion is narrower than “local models cannot work.” It is that
@@ -202,13 +242,17 @@ a candidate that supports another release:
 - The existing llama.cpp GPT-OSS and Bonsai treatments failed timing/grounding,
   while exact production Berduck repeated one camera action and confused the
   addressed consequence.
+- The exact installed SmolLM2 instruct family failed both strict output
+  integrity and the body horizon at 1.7B, 360M, and 135M without retries.
 - The installed Ollama Llama 3.2 and Phi-4 treatment was slow and behaviorally
   unsuccessful. Llama 3.3 is not an untouched candidate: current local runtime
   records already contain real starts and completions, so it was not relabeled
   as fresh and rerun.
 - Other indexed artifacts are large, base, reasoning-oriented, OCR/vision
   specialists, or zero-byte model directories rather than installed artifacts.
-  They were not promoted merely because an index entry exists.
+  Baguettotron's embedded template explicitly opens a `<think>` section, while
+  Pleias-RAG has no embedded chat template for exact admission. They were not
+  promoted merely because an index entry exists.
 
 The installed Qwen3-VL 4B candidate was not merely inferred to have been
 exercised: it crossed exact MLX preflight and production-path fresh horizons,

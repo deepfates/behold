@@ -81,7 +81,8 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   The last compact MLX candidate timed out after 60.018 seconds; production
   Berduck GGUF was fast but chose the same look-down action at two fresh
   horizons and confused the addressed consequence, so it did not earn a live
-  treatment. See
+  treatment. The installed SmolLM2 1.7B/360M/135M instruct family then failed
+  exact JSON integrity and the five-second horizon on each first decision. See
   [Resident-instance isolation and installed frontier](reports/2026-07-26-resident-instance-and-installed-frontier.md).
 - A versioned neutral evaluation configuration now crosses the CLI, managed
   runner, run journal, mind request, affordance projection, and interpreter:
