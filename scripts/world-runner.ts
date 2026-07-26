@@ -3203,6 +3203,10 @@ async function cleanupFailedStart(input: {
     const stopped = await input.inspectRuntime();
     assertStoppedEvidence(stopped, 'after_failed_start_cleanup');
     assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_failed_start_cleanup');
+    input.control.append(
+      'failed_start_terminal_world_state',
+      terminalManagedWorldState(input.control),
+    );
     if (cognitionFailure) throw cognitionFailure;
     if (ollamaFailure) throw ollamaFailure;
     if (lmStudioFailure) throw lmStudioFailure;
@@ -3357,6 +3361,8 @@ async function stopManagedWorld(input: {
     const stopped = await input.inspectRuntime();
     assertStoppedEvidence(stopped, 'after_managed_shutdown');
     assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_managed_shutdown');
+    const terminalWorldState = terminalManagedWorldState(control);
+    control.append('run_terminal_world_state', terminalWorldState);
     if (externalSettlement && (externalSettlement.failures.length > 0 || !serverExit)) {
       control.update('stopping', { server: null, controllers: [] });
       throw new WorldRunnerError(
@@ -3398,7 +3404,7 @@ async function stopManagedWorld(input: {
       );
     }
     control.update('stopped_verified', { server: null, controllers: [] });
-    control.append('run_stopped', { reason: input.reason });
+    control.append('run_stopped', { reason: input.reason, terminalWorldState });
     control.release();
   } catch (error: any) {
     const failure = error instanceof Error ? error : new Error(String(error));
@@ -3408,6 +3414,31 @@ async function stopManagedWorld(input: {
     } catch {}
     throw failure;
   }
+}
+
+function terminalManagedWorldState(control: HeldWorldControl) {
+  const owner = control.record();
+  const tree = digestTree(owner.runtime.path);
+  const stats = fs.statSync(owner.runtime.path);
+  if (
+    !stats.isDirectory() ||
+    stats.dev !== owner.runtime.device ||
+    stats.ino !== owner.runtime.inode
+  ) {
+    throw new WorldRunnerError(
+      'Managed runtime identity changed before terminal history capture',
+      'terminal_world_identity_changed',
+      {
+        expected: owner.runtime,
+        actual: { path: owner.runtime.path, device: stats.dev, inode: stats.ino },
+      },
+    );
+  }
+  return Object.freeze({
+    protocol: 'behold.managed-terminal-world-state.v1' as const,
+    runtime: owner.runtime,
+    tree,
+  });
 }
 
 async function drainManagedCognition(

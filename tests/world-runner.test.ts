@@ -1178,6 +1178,14 @@ test('managed release adopts an exact frozen external server authority without t
     commands.map(({ command }) => command),
     ['save', 'save', 'unfreeze', 'save', 'stop'],
   );
+  const terminal = verifyWorldLifecycleJournal(run.control.journalFile).events.find(
+    (event) => event.type === 'run_terminal_world_state',
+  );
+  assert.equal((terminal?.data as any)?.protocol, 'behold.managed-terminal-world-state.v1');
+  assert.equal(
+    (terminal?.data as any)?.tree?.digest,
+    digestTree(fixture.options.world.runtime.worldPath).digest,
+  );
   assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
 });
 
