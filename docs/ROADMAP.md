@@ -75,18 +75,18 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   [llama.cpp GPT-OSS runtime frontier](reports/2026-07-26-llamacpp-gptoss-runtime-frontier.md).
 - Same-model LM Studio residents now share one exact weight instance, with
   parallel slots capped by broker concurrency rather than duplicated weights.
-  Resident prompts,
-  broker credentials, accounting, controller processes, and Lync histories
-  remain isolated, and every request carries its complete stateless context.
-  The complete suite exercises that boundary, but it has not been repeated
-  live. Exact GGUF admission also binds the embedded chat-template bytes,
-  artifact tree, llama.cpp runtime, instance settings, schema, and unload lifecycle.
-  The last compact MLX candidate timed out after 60.018 seconds; production
-  Berduck GGUF was fast but chose the same look-down action at two fresh
-  horizons and confused the addressed consequence, so it did not earn a live
-  treatment. The installed SmolLM2 1.7B/360M/135M instruct family then failed
-  exact JSON integrity and the five-second horizon on each first decision. See
-  [Resident-instance isolation and installed frontier](reports/2026-07-26-resident-instance-and-installed-frontier.md).
+  Resident prompts, broker credentials, accounting, controller processes, and
+  Lync histories remain isolated, every request carries its complete stateless
+  context, and the broker now rejects a foreign resident observation or fold
+  source even when the weights are shared. Current Gemma 4 26B-A4B QAT MLX
+  cleared the compact gate and ran at a 3.77-4.52 second mean in two ordinary
+  live/resume episodes. It nevertheless converged on camera oscillation and
+  repeated stale digging, with no successful world mutation or useful social
+  exchange. Gemma 4 12B GGUF exchanged chat and preserved movement across
+  restart but took 8.24-17.91 seconds live. This is a credible local runtime and
+  a negative resident treatment, not First Life. See
+  [Gemma 4 LM Studio Oxford treatment](reports/2026-07-26-gemma4-lmstudio-oxford-treatment.md)
+  and [Resident-instance isolation and installed frontier](reports/2026-07-26-resident-instance-and-installed-frontier.md).
 - A versioned neutral evaluation configuration now crosses the CLI, managed
   runner, run journal, mind request, affordance projection, and interpreter:
   `neutral-benchmark-v1` emits only protocol guidance, does not force project
