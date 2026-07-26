@@ -41,9 +41,23 @@ import { COGNITION_TRANSPORT_PROTOCOL, cognitionAccountId } from '../src/mind/co
 import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 import { openQuotaLedger, verifyQuotaLedger } from '../src/observability/quota-ledger';
 import { readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom';
+import {
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+  OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+} from '../src/mind/ollama-json-action';
 
 const CLEAR: OwnershipEvidence = { state: 'clear', probe: 'fixture', owners: [] };
 const ARTIFACTS_OK = { artifactIntegrityOk: true, artifacts: {} };
+
+function fixtureOllamaTransport(templateDigest = 'c'.repeat(64)) {
+  return {
+    protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+    schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+    schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+    templateSha256: templateDigest,
+  } as const;
+}
 
 test('lifecycle markers require exact positive protocol lines', () => {
   assert.equal(
@@ -354,15 +368,16 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
   );
 });
 
-test('resident-set input binds a separately named native Ollama transport', (t) => {
+test('resident-set input binds a separately named strict-JSON Ollama transport', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-ollama-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const file = path.join(root, 'residents.json');
   const ollamaLocal = {
-    protocol: 'behold.ollama-local-policy.v1',
+    protocol: 'behold.ollama-local-policy.v2',
     endpoint: 'http://127.0.0.1:11434/api/chat',
     modelTag: 'llama3.2:3b',
     modelDigest: 'a'.repeat(64),
+    transport: fixtureOllamaTransport(),
     settings: {
       contextTokens: 16_384,
       maxOutputTokens: 512,
@@ -417,8 +432,9 @@ test('managed Ollama population settings fail before world or daemon inspection'
   const fixture = makeFixture(t);
   let inspections = 0;
   const base = {
-    protocol: 'behold.ollama-local-policy.v1' as const,
+    protocol: 'behold.ollama-local-policy.v2' as const,
     endpoint: 'http://127.0.0.1:11434/api/chat',
+    transport: fixtureOllamaTransport(),
     settings: {
       contextTokens: 16_384,
       maxOutputTokens: 512,

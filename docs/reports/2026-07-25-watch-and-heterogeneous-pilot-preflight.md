@@ -187,18 +187,23 @@ is permitted from the resulting heterogeneous run.
 
 ## Local Ollama alternative: implemented preflight, inference still closed
 
-Behold now has a separately named native Ollama transport rather than treating
-the local daemon as an OpenRouter-compatible provider. Admission requires an
-exact `http://127.0.0.1:<port>/api/chat` or IPv6-loopback endpoint, a plain
-server config with `disable_ollama_cloud: true`, the exact installed tag and
-content digest, advertised tool capability, sufficient model context, and one
-common output/context/temperature/`keep_alive` setting. Native request bytes
-contain no OpenRouter `provider`, fallback, or `parallel_tool_calls` fields. The
-model tag is checked again on every successful response; drift becomes
-`ollama_identity_mismatch`. The release and each raw transport-attempt start
-bind the tag, content digest, settings, preflight digest, and Ollama version.
+Behold now has a separately named strict-JSON Ollama transport rather than
+treating the local daemon as an OpenRouter-compatible provider. Admission
+requires an exact `http://127.0.0.1:<port>/api/chat` or IPv6-loopback endpoint,
+a plain server config with `disable_ollama_cloud: true`, the exact installed
+tag, content digest, and template digest, advertised completion capability,
+sufficient model context, and one common output/context/temperature/
+`keep_alive` setting. Native request bytes contain Ollama `format` but no
+native `tools`, OpenRouter `provider`, fallback, or `parallel_tool_calls`
+fields. The model tag is checked again on every successful response; drift
+becomes `ollama_identity_mismatch`. The release and each raw transport-attempt
+start bind the transport/schema, tag, content and template digests, settings,
+preflight digest, and Ollama version; each attempt also binds its exact action
+catalog and response format.
 
-A real read-only preflight on this Mac passed without inference on 2026-07-25:
+A real read-only **v1 native-tools** preflight on this Mac passed without
+inference on 2026-07-25 and established the installed inventory later used by
+the model-free strict-JSON proof:
 
 - Ollama `0.23.2`, loopback, cloud-disabled config digest
   `30c5a0e23ac2015aa3fb9a17391e1ab72fa5668ff9bd37cd3caccc864c8e21ec`;
@@ -211,10 +216,12 @@ A real read-only preflight on this Mac passed without inference on 2026-07-25:
 - `/api/ps` was empty before and after the pass. The preflight called only
   version, tags, show, and process inventory; neither model was loaded.
 
-`phi4:latest` is installed but advertises completion rather than tools, and
-`moondream:latest` advertises vision rather than tools and has only a 2,048
-context. Neither satisfies the existing semantic-body tool contract without a
-new behavioral adapter, so neither belongs in this bounded pilot.
+`phi4:latest` is installed and advertises completion, so the strict-JSON path
+does not exclude it merely for lacking native tools. It is not one of the two
+owner-selected local pilot candidates and has not passed the exact
+transport/template admission. `moondream:latest` has only a 2,048 context and
+cannot satisfy the common 16,384-token envelope. Neither is admitted in this
+bounded pilot lane.
 
 At the proposed explicit 16,384-token context, file weights plus an F16
 key/value-cache estimate give these lower bounds before graph/runtime overhead:
@@ -251,3 +258,13 @@ not. See
 [`2026-07-25-ollama-tool-argument-root-cause.md`](2026-07-25-ollama-tool-argument-root-cause.md).
 No 70B inference occurred, and local Ollama remains closed for a resident pilot
 until the model-free schema-render round trip is honest.
+
+Follow-up on 2026-07-26 UTC: the separately versioned
+`behold.ollama-local-json-action.v1` path now omits native tools, repeats the
+exact 18-action human-semantic catalog in message content, and sends the same
+catalog as Ollama's raw `format` schema. Model-free decode/render against both
+installed templates preserved the raw schema and exact contract text. Numeric
+`type: number` bounds are visible in both places but are not enforced by the
+pinned Ollama grammar converter; Behold's original validator still enforces
+them before intent. No inference ran. See
+[`2026-07-25-ollama-json-action-conformance.md`](2026-07-25-ollama-json-action-conformance.md).

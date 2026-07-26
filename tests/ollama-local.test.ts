@@ -1,25 +1,32 @@
-import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import test from 'node:test';
 import { createOllamaLocalResidentMind } from '../src/mind/ollama';
-import { ResidentMindCallError } from '../src/mind/evidence';
-import { validateResidentActionInput } from '../src/mind/schema';
 import {
-  directOllamaRequestBody,
+  createOllamaLocalJsonActionRequest,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+  OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+} from '../src/mind/ollama-json-action';
+import {
+  assertOllamaLocalRequest,
   ollamaLocalPolicy,
   preflightOllamaLocal,
 } from '../src/mind/ollama-local';
-import typedWrapperFixture from './fixtures/ollama-local-typed-wrapper.json';
+import { ResidentMindCallError } from '../src/mind/evidence';
 
 const DIGEST_3B = 'a'.repeat(64);
 const DIGEST_70B = 'b'.repeat(64);
+const TEMPLATE_3B = 'fixture installed template for 3b';
+const TEMPLATE_70B = 'fixture installed template for 70b';
 
-test('Ollama policy admits only exact loopback native chat with bounded common settings', () => {
+test('Ollama v2 policy admits only exact loopback JSON action transport identities', () => {
   assert.deepEqual(
-    ollamaLocalPolicy(policy('llama3.2:3b', DIGEST_3B)),
-    policy('llama3.2:3b', DIGEST_3B),
+    ollamaLocalPolicy(policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B)),
+    policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
   );
   for (const endpoint of [
     'https://127.0.0.1:11434/api/chat',
@@ -28,41 +35,103 @@ test('Ollama policy admits only exact loopback native chat with bounded common s
     'http://127.0.0.1:11434/v1/chat/completions',
     'http://127.0.0.1:11434/api/chat?remote=true',
   ]) {
-    assert.throws(() => ollamaLocalPolicy({ ...policy('llama3.2:3b', DIGEST_3B), endpoint }));
+    assert.throws(() =>
+      ollamaLocalPolicy({ ...policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B), endpoint }),
+    );
   }
   assert.throws(() =>
     ollamaLocalPolicy({
-      ...policy('llama3.2:3b', DIGEST_3B),
-      settings: { ...policy('llama3.2:3b', DIGEST_3B).settings, keepAlive: 'default' },
+      ...policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
+      protocol: 'behold.ollama-local-policy.v1',
+    }),
+  );
+  assert.throws(() =>
+    ollamaLocalPolicy({
+      ...policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
+      transport: {
+        ...policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B).transport,
+        schemaSha256: 'f'.repeat(64),
+      },
+    }),
+  );
+  assert.throws(() =>
+    ollamaLocalPolicy({
+      ...policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
+      settings: {
+        ...policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B).settings,
+        keepAlive: 'default',
+      },
     }),
   );
 });
 
-test('native Ollama request has no OpenRouter provider, fallback, or compatibility fields', () => {
-  const body = directOllamaRequestBody(request() as any, policy('test/model', DIGEST_3B));
+test('strict JSON action request has no native tools and preserves the exact action schemas in message and format', () => {
+  const residentRequest = request();
+  const localPolicy = policy('test/model', DIGEST_3B, TEMPLATE_3B);
+  const serialized = createOllamaLocalJsonActionRequest(residentRequest as any, localPolicy);
+  const body: any = serialized.body;
+
   assert.deepEqual(Object.keys(body).sort(), [
+    'format',
     'keep_alive',
     'messages',
     'model',
     'options',
     'stream',
-    'tools',
   ]);
+  assert.equal(Object.hasOwn(body, 'tools'), false);
   assert.equal(Object.hasOwn(body, 'provider'), false);
   assert.equal(Object.hasOwn(body, 'parallel_tool_calls'), false);
-  assert.equal(Object.hasOwn(body, 'max_tokens'), false);
   assert.deepEqual(body.options, { num_ctx: 16_384, num_predict: 512, temperature: 0.2 });
   assert.equal(body.keep_alive, '5m');
+  assert.equal(body.format.oneOf.length, residentRequest.actions.length);
+  residentRequest.actions.forEach((action, index) => {
+    const variant = body.format.oneOf[index];
+    assert.equal(variant.properties.action.const, action.name);
+    assert.deepEqual(variant.properties.arguments, action.inputSchema);
+  });
+  assert.match(body.messages.at(-1).content, /BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_BEGIN/);
+  assert.match(body.messages.at(-1).content, /"maximum":2000/);
+  assert.deepEqual(
+    assertOllamaLocalRequest(body, residentRequest.model, localPolicy),
+    serialized.identity,
+  );
+  assert.equal(serialized.identity.modelDigest, DIGEST_3B);
+  assert.equal(serialized.identity.templateSha256, sha256(TEMPLATE_3B));
+  assert.match(serialized.identity.actionContractSha256, /^[a-f0-9]{64}$/);
+  assert.match(serialized.identity.responseFormatSha256, /^[a-f0-9]{64}$/);
+
+  const drifted = structuredClone(body);
+  drifted.format.oneOf[0].properties.arguments.properties.durationMs.maximum = 20_000;
+  assert.throws(
+    () => assertOllamaLocalRequest(drifted, residentRequest.model, localPolicy),
+    /response format differs from the exact action contract/,
+  );
+
+  const required = createOllamaLocalJsonActionRequest(
+    { ...residentRequest, requiredAction: 'wait_for_event' } as any,
+    localPolicy,
+  );
+  assert.equal((required.body as any).format.oneOf.length, 1);
+  assert.equal((required.body as any).format.oneOf[0].properties.action.const, 'wait_for_event');
+  assert.deepEqual(
+    assertOllamaLocalRequest(required.body, residentRequest.model, localPolicy),
+    required.identity,
+  );
 });
 
-test('read-only Ollama preflight binds cloud-disabled config, installed digests, tools, and context', async (t) => {
+test('read-only Ollama preflight binds cloud, model, completion, context, and exact per-model templates', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-ollama-preflight-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const cloudConfigFile = path.join(root, 'server.json');
   fs.writeFileSync(cloudConfigFile, JSON.stringify({ disable_ollama_cloud: true }));
+  const policies = [
+    policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
+    policy('llama3.3:latest', DIGEST_70B, TEMPLATE_70B),
+  ];
   const calls: Array<{ path: string; body: any }> = [];
   const preflight = await preflightOllamaLocal({
-    policies: [policy('llama3.2:3b', DIGEST_3B), policy('llama3.3:latest', DIGEST_70B)],
+    policies,
     cloudConfigFile,
     now: () => new Date('2026-07-25T20:00:00.000Z'),
     fetch: async (url, init) => {
@@ -82,6 +151,7 @@ test('read-only Ollama preflight binds cloud-disabled config, installed digests,
       if (pathName === '/api/show') {
         return json({
           capabilities: ['completion', 'tools'],
+          template: body.model === 'llama3.2:3b' ? TEMPLATE_3B : TEMPLATE_70B,
           details: {
             family: 'llama',
             parameter_size: body.model === 'llama3.2:3b' ? '3.2B' : '70.6B',
@@ -96,26 +166,24 @@ test('read-only Ollama preflight binds cloud-disabled config, installed digests,
   assert.equal(preflight.server.cloudDisabled, true);
   assert.equal(preflight.server.version, '0.23.2');
   assert.deepEqual(
-    preflight.models.map((model) => [model.modelTag, model.modelDigest, model.contextLength]),
+    preflight.models.map((model) => [
+      model.modelTag,
+      model.modelDigest,
+      model.templateSha256,
+      model.contextLength,
+    ]),
     [
-      ['llama3.2:3b', DIGEST_3B, 131_072],
-      ['llama3.3:latest', DIGEST_70B, 131_072],
+      ['llama3.2:3b', DIGEST_3B, sha256(TEMPLATE_3B), 131_072],
+      ['llama3.3:latest', DIGEST_70B, sha256(TEMPLATE_70B), 131_072],
     ],
   );
   assert.equal(
     calls.some((call) => call.path === '/api/chat'),
     false,
   );
-  assert.deepEqual(
-    calls.filter((call) => call.path === '/api/show').map((call) => call.body),
-    [
-      { model: 'llama3.2:3b', verbose: false },
-      { model: 'llama3.3:latest', verbose: false },
-    ],
-  );
 });
 
-test('Ollama preflight fails closed before admission on cloud, digest, tool, or context drift', async (t) => {
+test('Ollama preflight fails closed on cloud, digest, template, completion, context, or transport drift', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-ollama-negative-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const cloudConfigFile = path.join(root, 'server.json');
@@ -123,7 +191,7 @@ test('Ollama preflight fails closed before admission on cloud, digest, tool, or 
   let calls = 0;
   await assert.rejects(
     preflightOllamaLocal({
-      policies: [policy('llama3.2:3b', DIGEST_3B)],
+      policies: [policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B)],
       cloudConfigFile,
       fetch: async () => {
         calls += 1;
@@ -136,25 +204,39 @@ test('Ollama preflight fails closed before admission on cloud, digest, tool, or 
 
   fs.writeFileSync(cloudConfigFile, JSON.stringify({ disable_ollama_cloud: true }));
   for (const show of [
-    { capabilities: ['completion'], model_info: { 'llama.context_length': 131_072 } },
-    { capabilities: ['completion', 'tools'], model_info: { 'llama.context_length': 8_192 } },
+    {
+      capabilities: ['tools'],
+      template: TEMPLATE_3B,
+      model_info: { 'llama.context_length': 131_072 },
+    },
+    {
+      capabilities: ['completion'],
+      template: TEMPLATE_3B,
+      model_info: { 'llama.context_length': 8_192 },
+    },
+    {
+      capabilities: ['completion'],
+      template: 'drifted template',
+      model_info: { 'llama.context_length': 131_072 },
+    },
   ]) {
     await assert.rejects(
       preflightOllamaLocal({
-        policies: [policy('llama3.2:3b', DIGEST_3B)],
+        policies: [policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B)],
         cloudConfigFile,
         fetch: preflightFetch(show),
       }),
-      /tool capability|context is smaller/,
+      /completion capability|context is smaller|installed template differs/,
     );
   }
   await assert.rejects(
     preflightOllamaLocal({
-      policies: [policy('llama3.2:3b', DIGEST_3B)],
+      policies: [policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B)],
       cloudConfigFile,
       fetch: preflightFetch(
         {
-          capabilities: ['completion', 'tools'],
+          capabilities: ['completion'],
+          template: TEMPLATE_3B,
           model_info: { 'llama.context_length': 131_072 },
         },
         'c'.repeat(64),
@@ -162,14 +244,31 @@ test('Ollama preflight fails closed before admission on cloud, digest, tool, or 
     }),
     /installed digest differs/,
   );
+  await assert.rejects(
+    preflightOllamaLocal({
+      policies: [
+        policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
+        {
+          ...policy('llama3.3:latest', DIGEST_70B, TEMPLATE_70B),
+          transport: {
+            ...policy('llama3.3:latest', DIGEST_70B, TEMPLATE_70B).transport,
+            protocol: 'unadmitted-transport',
+          },
+        } as any,
+      ],
+      cloudConfigFile,
+      fetch: async () => json({}),
+    }),
+    /action transport protocol/,
+  );
 });
 
-test('Ollama mind checks response tag and retains native failures distinctly', async () => {
+test('strict JSON action mind checks identity and accepts one exact action object', async () => {
   const bodies: any[] = [];
   const mind = createOllamaLocalResidentMind({
     bearer: 'resident-broker-bearer-that-is-long-enough',
     endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
-    policy: policy('test/model', DIGEST_3B),
+    policy: policy('test/model', DIGEST_3B, TEMPLATE_3B),
     cognitionTransport: true,
     fetch: async (_url, init) => {
       bodies.push(JSON.parse(String(init?.body)));
@@ -177,15 +276,10 @@ test('Ollama mind checks response tag and retains native failures distinctly', a
         model: 'test/model',
         message: {
           role: 'assistant',
-          content: 'I will step forward.',
-          tool_calls: [
-            {
-              function: {
-                name: 'move_direction',
-                arguments: { direction: 'forward', distance: 2 },
-              },
-            },
-          ],
+          content: JSON.stringify({
+            action: 'move_controls',
+            arguments: { direction: 'forward', durationMs: 500 },
+          }),
         },
         done: true,
         done_reason: 'stop',
@@ -197,22 +291,37 @@ test('Ollama mind checks response tag and retains native failures distinctly', a
   const decision = await mind.decide(request() as any, {
     signal: new AbortController().signal,
   });
-  assert.equal(decision.call.adapter?.name, 'direct-ollama-local');
+  assert.equal(decision.call.adapter?.name, 'direct-ollama-local-json-action');
+  assert.equal(decision.call.adapter?.version, 'v1');
   assert.equal(decision.call.response.provider, null);
+  assert.deepEqual(decision.action, {
+    name: 'move_controls',
+    input: { direction: 'forward', durationMs: 500 },
+    callId: null,
+  });
   assert.deepEqual(decision.call.response.usage, {
     prompt_tokens: 40,
     completion_tokens: 8,
     total_tokens: 48,
   });
-  assert.equal(Object.hasOwn(bodies[0], 'provider'), false);
+  assert.equal(Object.hasOwn(bodies[0], 'tools'), false);
+  assert.ok(decision.call.request.localActionTransport);
+  assert.equal(
+    decision.call.request.formatSha256,
+    decision.call.request.localActionTransport?.responseFormatSha256,
+  );
 
   const drifted = createOllamaLocalResidentMind({
     bearer: 'resident-broker-bearer-that-is-long-enough',
     endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
-    policy: policy('test/model', DIGEST_3B),
+    policy: policy('test/model', DIGEST_3B, TEMPLATE_3B),
     cognitionTransport: true,
     fetch: async () =>
-      json({ model: 'other/model', message: { role: 'assistant', content: null }, done: true }),
+      json({
+        model: 'other/model',
+        message: { role: 'assistant', content: '{"action":"wait_for_event","arguments":{}}' },
+        done: true,
+      }),
   });
   await assert.rejects(
     drifted.decide(request() as any, { signal: new AbortController().signal }),
@@ -225,65 +334,71 @@ test('Ollama mind checks response tag and retains native failures distinctly', a
   );
 });
 
-test('Ollama mind preserves the captured typed-wrapper arguments without correction', async () => {
-  const bodies: any[] = [];
-  let calls = 0;
-  const mind = createOllamaLocalResidentMind({
-    bearer: 'resident-broker-bearer-that-is-long-enough',
-    endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
-    policy: {
-      protocol: 'behold.ollama-local-policy.v1',
-      endpoint: 'http://127.0.0.1:11434/api/chat',
-      modelTag: typedWrapperFixture.source.modelTag,
-      modelDigest: typedWrapperFixture.source.modelDigest,
-      settings: {
-        contextTokens: 16_384,
-        maxOutputTokens: 512,
-        temperature: 0.2,
-        keepAlive: '0s',
-      },
-    },
-    cognitionTransport: true,
-    recordModelIO: true,
-    fetch: async (_url, init) => {
-      calls += 1;
-      bodies.push(JSON.parse(String(init?.body)));
-      return json(typedWrapperFixture.responseBody);
-    },
-  });
-
-  const decision = await mind.decide(typedWrapperFixture.mindRequest as any, {
-    signal: new AbortController().signal,
-  });
-
-  assert.equal(calls, 1);
-  assert.deepEqual(bodies, [typedWrapperFixture.requestBody]);
-  assert.equal(decision.disposition, 'wait');
-  assert.deepEqual(
-    decision.action?.input,
-    typedWrapperFixture.responseBody.message.tool_calls[0].function.arguments,
-  );
-  assert.deepEqual(decision.call.response.raw, typedWrapperFixture.responseBody);
-  assert.equal(decision.call.response.terminal, 'success');
-  assert.deepEqual(
-    validateResidentActionInput(
-      { reason: 'transport feasibility probe' },
-      typedWrapperFixture.mindRequest.actions[0].inputSchema,
-    ),
+test('strict JSON action mind retains malformed outputs distinctly with one attempt and no correction', async () => {
+  const malformed = [
+    { message: { role: 'assistant', content: 'not-json' }, reason: /not valid JSON/ },
     {
-      ok: false,
-      errors: ['$: schema uses unsupported keys additionalProperties'],
+      message: {
+        role: 'assistant',
+        content: '{"action":"move_controls","arguments":{},"extra":true}',
+      },
+      reason: /fields do not match/,
     },
-    'the synthetic probe schema was never an admitted Behold resident-action schema',
-  );
+    {
+      message: { role: 'assistant', content: '{"action":"move_controls","arguments":[]}' },
+      reason: /arguments were not an object/,
+    },
+    {
+      message: { role: 'assistant', content: '{"action":"hidden_macro","arguments":{}}' },
+      reason: /unadmitted action/,
+    },
+    {
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ function: { name: 'move_controls', arguments: {} } }],
+      },
+      reason: /forbidden native tool calls/,
+    },
+  ];
+  for (const candidate of malformed) {
+    let calls = 0;
+    const mind = createOllamaLocalResidentMind({
+      bearer: 'resident-broker-bearer-that-is-long-enough',
+      endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
+      policy: policy('test/model', DIGEST_3B, TEMPLATE_3B),
+      cognitionTransport: true,
+      recordModelIO: true,
+      fetch: async () => {
+        calls += 1;
+        return json({ model: 'test/model', message: candidate.message, done: true });
+      },
+    });
+    await assert.rejects(
+      mind.decide(request() as any, { signal: new AbortController().signal }),
+      (error: any) => {
+        assert.ok(error instanceof ResidentMindCallError);
+        assert.equal(error.call.response.terminal, 'malformed_output');
+        assert.match(error.message, candidate.reason);
+        return true;
+      },
+    );
+    assert.equal(calls, 1);
+  }
 });
 
-function policy(modelTag: string, modelDigest: string) {
+export function policy(modelTag: string, modelDigest: string, template: string) {
   return {
-    protocol: 'behold.ollama-local-policy.v1',
+    protocol: 'behold.ollama-local-policy.v2',
     endpoint: 'http://127.0.0.1:11434/api/chat',
     modelTag,
     modelDigest,
+    transport: {
+      protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+      templateSha256: sha256(template),
+    },
     settings: {
       contextTokens: 16_384,
       maxOutputTokens: 512,
@@ -293,7 +408,7 @@ function policy(modelTag: string, modelDigest: string) {
   } as const;
 }
 
-function request() {
+export function request() {
   return {
     protocol: 'behold.mind-request.v1',
     entityId: 'Scout',
@@ -309,21 +424,30 @@ function request() {
     ],
     actions: [
       {
-        name: 'move_direction',
-        description: 'Move relative to first-person orientation.',
+        name: 'move_controls',
+        description: 'Hold bounded Minecraft movement controls, then release them.',
         inputSchema: {
           type: 'object',
           properties: {
-            direction: { type: 'string' },
-            distance: { type: 'integer' },
+            direction: { type: 'string', enum: ['forward', 'back', 'left', 'right'] },
+            durationMs: { type: 'number', minimum: 100, maximum: 2000 },
           },
-          required: ['direction', 'distance'],
+          required: ['direction', 'durationMs'],
+        },
+      },
+      {
+        name: 'wait_for_event',
+        description: 'Yield until a later world event.',
+        inputSchema: {
+          type: 'object',
+          properties: { reason: { type: 'string' } },
+          required: ['reason'],
         },
       },
     ],
     requiredAction: null,
     attention: { mode: 'deliberative', context: 'bounded_loom', triggers: [] },
-  };
+  } as const;
 }
 
 function json(value: unknown, status = 200) {
@@ -344,4 +468,8 @@ function preflightFetch(show: unknown, digest = DIGEST_3B): typeof fetch {
     if (pathName === '/api/show') return json(show);
     throw new Error(`unexpected preflight route ${pathName}`);
   };
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
 }

@@ -1,14 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { cognitionClientHeaders, parseCognitionAdmission } from './cognition';
-import { responseDecision } from './direct';
 import { ResidentMindCallError, type ModelCallEvidence } from './evidence';
 import type { ResidentMind } from './interface';
 import {
-  directOllamaRequestBody,
   inspectOllamaLocalResponseIdentity,
   ollamaLocalPolicy,
   type OllamaLocalPolicy,
 } from './ollama-local';
+import {
+  createOllamaLocalJsonActionRequest,
+  parseOllamaLocalJsonActionDecision,
+} from './ollama-json-action';
 import { residentMindRequestSha256 } from './request-artifact';
 import { attributeProviderRequestBody } from './request-attribution';
 
@@ -23,7 +25,7 @@ export type OllamaLocalResidentMindOptions = Readonly<{
   fetch?: typeof fetch;
 }>;
 
-/** Native Ollama `/api/chat` adapter with no OpenRouter routing or provider semantics. */
+/** Strict native Ollama JSON-action adapter with no tools, correction, or provider semantics. */
 export function createOllamaLocalResidentMind(
   options: OllamaLocalResidentMindOptions,
 ): ResidentMind {
@@ -36,29 +38,32 @@ export function createOllamaLocalResidentMind(
   }
 
   return {
-    id: 'direct-ollama-local',
+    id: 'direct-ollama-local-json-action',
     async decide(request, { signal }) {
       if (request.model !== policy.modelTag) {
         throw new Error(`Ollama local mind was not configured for model ${request.model}`);
       }
       const startedAt = now();
       const requestId = `ollama-${randomUUID()}`;
-      const body = directOllamaRequestBody(request, policy) as Record<string, any>;
+      const serialized = createOllamaLocalJsonActionRequest(request, policy);
+      const body = serialized.body as Record<string, any>;
       const requestBody = JSON.stringify(body);
       const callRequest = {
         model: request.model,
         mindRequestSha256: residentMindRequestSha256(request),
         ...(options.recordModelIO ? { mindRequest: cloneJson(request) } : {}),
         messageCount: request.conversation.length,
-        toolCount: body.tools.length,
+        toolCount: request.actions.length,
         toolChoice: request.requiredAction,
         bodySha256: sha256(requestBody),
         bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
         byteAttribution: attributeProviderRequestBody(body),
         messagesSha256: sha256(stableJson(body.messages)),
-        toolsSha256: sha256(stableJson(body.tools)),
+        toolsSha256: serialized.identity.actionContractSha256,
+        formatSha256: serialized.identity.responseFormatSha256,
         kind: 'provider_request' as const,
         localPolicy: policy,
+        localActionTransport: serialized.identity,
         ...(options.recordModelIO ? { body: cloneJson(body) } : {}),
       };
       const priority = request.attention?.mode === 'urgent' ? 'urgent' : 'deliberative';
@@ -89,7 +94,7 @@ export function createOllamaLocalResidentMind(
           `Ollama local decision transport error: ${error?.message || String(error)}`,
           {
             protocol: 'behold.model-call.v1',
-            adapter: { name: 'direct-ollama-local' },
+            adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
             requestId,
             endpoint,
             startedAt,
@@ -110,7 +115,7 @@ export function createOllamaLocalResidentMind(
         const completedAt = now();
         throw new ResidentMindCallError(`Ollama local decision ${response.status}`, {
           protocol: 'behold.model-call.v1',
-          adapter: { name: 'direct-ollama-local' },
+          adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
           requestId,
           endpoint,
           startedAt,
@@ -133,7 +138,7 @@ export function createOllamaLocalResidentMind(
         const completedAt = now();
         throw new ResidentMindCallError('Ollama local decision returned malformed JSON', {
           protocol: 'behold.model-call.v1',
-          adapter: { name: 'direct-ollama-local' },
+          adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
           requestId,
           endpoint,
           startedAt,
@@ -156,7 +161,7 @@ export function createOllamaLocalResidentMind(
           'Ollama local decision returned unadmitted model identity',
           {
             protocol: 'behold.model-call.v1',
-            adapter: { name: 'direct-ollama-local' },
+            adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
             requestId,
             endpoint,
             startedAt,
@@ -176,7 +181,7 @@ export function createOllamaLocalResidentMind(
       const usage = ollamaUsage(data);
       const call: ModelCallEvidence = {
         protocol: 'behold.model-call.v1',
-        adapter: { name: 'direct-ollama-local' },
+        adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
         requestId,
         endpoint,
         startedAt,
@@ -196,7 +201,7 @@ export function createOllamaLocalResidentMind(
         },
       };
       try {
-        return responseDecision({ choices: [{ message: data?.message }] }, request, call);
+        return parseOllamaLocalJsonActionDecision(data, request, call);
       } catch (error: any) {
         throw new ResidentMindCallError(
           `Ollama local decision returned malformed output: ${error?.message || String(error)}`,
@@ -206,6 +211,7 @@ export function createOllamaLocalResidentMind(
               terminal: 'malformed_output',
               status: response.status,
               bodyPreview: text.slice(0, 200) || null,
+              ...(options.recordModelIO ? { raw: cloneJson(data) } : {}),
             },
           },
         );

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,6 +22,12 @@ import {
 import { verifyQuotaLedger } from '../src/observability/quota-ledger';
 import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 import { preflightOllamaLocal } from '../src/mind/ollama-local';
+import {
+  createOllamaLocalJsonActionRequest,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+  OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+} from '../src/mind/ollama-json-action';
 
 const UPSTREAM_KEY = 'upstream-secret-fixture';
 
@@ -820,18 +827,25 @@ test('the transport gate retains and refuses successful upstream route identity 
   assert.equal(verified.records[0].error?.code, 'route_identity_mismatch');
 });
 
-test('the transport gate keeps native Ollama admission and model identity distinct', async (t) => {
+test('the transport gate keeps strict-JSON Ollama admission and model identity distinct', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-ollama-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const journalFile = path.join(root, 'broker.jsonl');
   const transportCaptureDirectory = path.join(root, 'transport');
   const cloudConfigFile = path.join(root, 'server.json');
   fs.writeFileSync(cloudConfigFile, JSON.stringify({ disable_ollama_cloud: true }));
+  const template = 'fixture local cognition template';
   const localPolicy = {
-    protocol: 'behold.ollama-local-policy.v1',
+    protocol: 'behold.ollama-local-policy.v2',
     endpoint: 'http://127.0.0.1:11434/api/chat',
     modelTag: 'fixture/model',
     modelDigest: 'd'.repeat(64),
+    transport: {
+      protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+      templateSha256: createHash('sha256').update(template).digest('hex'),
+    },
     settings: {
       contextTokens: 16_384,
       maxOutputTokens: 512,
@@ -853,6 +867,7 @@ test('the transport gate keeps native Ollama admission and model identity distin
       if (route === '/api/show') {
         return jsonResponse({
           capabilities: ['completion', 'tools'],
+          template,
           model_info: { 'llama.context_length': 131_072 },
         });
       }
@@ -874,9 +889,13 @@ test('the transport gate keeps native Ollama admission and model identity distin
       const body = JSON.parse(String(init?.body));
       assert.equal(Object.hasOwn(body, 'provider'), false);
       assert.equal(Object.hasOwn(body, 'parallel_tool_calls'), false);
+      assert.equal(Object.hasOwn(body, 'tools'), false);
       return jsonResponse({
         model: upstreamCalls === 1 ? 'fixture/model' : 'fixture/drifted',
-        message: { role: 'assistant', content: null },
+        message: {
+          role: 'assistant',
+          content: '{"action":"wait_for_event","arguments":{"reason":"fixture"}}',
+        },
         done: true,
         done_reason: 'stop',
         prompt_eval_count: 10,
@@ -885,14 +904,31 @@ test('the transport gate keeps native Ollama admission and model identity distin
     },
   });
 
-  const exactBody = JSON.stringify({
-    model: 'fixture/model',
-    messages: [],
-    tools: [],
-    stream: false,
-    options: { num_ctx: 16_384, num_predict: 512, temperature: 0.2 },
-    keep_alive: '5m',
-  });
+  const exactRequest = createOllamaLocalJsonActionRequest(
+    {
+      protocol: 'behold.mind-request.v1',
+      entityId: 'FixtureLife',
+      model: 'fixture/model',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      observation: {},
+      conversation: [{ role: 'user', content: 'Wait.' }],
+      actions: [
+        {
+          name: 'wait_for_event',
+          inputSchema: {
+            type: 'object',
+            properties: { reason: { type: 'string' } },
+            required: ['reason'],
+          },
+        },
+      ],
+      requiredAction: null,
+    },
+    localPolicy,
+  );
+  const exactBody = JSON.stringify(exactRequest.body);
   try {
     const wrong = await brokerRequest(
       broker,
@@ -903,6 +939,19 @@ test('the transport gate keeps native Ollama admission and model identity distin
     );
     assert.equal(wrong.status, 400);
     assert.equal(((await wrong.json()) as any).error.code, 'request_ollama_policy_mismatch');
+    assert.equal(upstreamCalls, 0);
+
+    const formatDrift = JSON.parse(exactBody);
+    formatDrift.format.oneOf[0].properties.arguments.properties.reason.type = 'number';
+    const wrongFormat = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify(formatDrift),
+      'deliberative',
+      'ollama-format-drift',
+    );
+    assert.equal(wrongFormat.status, 400);
+    assert.equal(((await wrongFormat.json()) as any).error.code, 'request_ollama_policy_mismatch');
     assert.equal(upstreamCalls, 0);
 
     const auxiliary = await brokerRequest(
@@ -940,6 +989,14 @@ test('the transport gate keeps native Ollama admission and model identity distin
   assert.equal(verified.attempts, 2);
   assert.equal((verified as any).identityFailures, 1);
   assert.equal(verified.starts[0].ollamaIdentity?.policy.modelDigest, 'd'.repeat(64));
+  assert.equal(
+    verified.starts[0].ollamaIdentity?.request.actionContractSha256,
+    exactRequest.identity.actionContractSha256,
+  );
+  assert.equal(
+    verified.starts[0].ollamaIdentity?.request.responseFormatSha256,
+    exactRequest.identity.responseFormatSha256,
+  );
   assert.equal(verified.starts[0].ollamaIdentity?.preflightDigest, preflight.digest);
   assert.equal(verified.starts[0].route.authentication, 'none_loopback');
   assert.equal(verified.records[1].terminal, 'ollama_identity_mismatch');

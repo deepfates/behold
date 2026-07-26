@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+  OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+} from '../src/mind/ollama-json-action';
+import {
   commitExperimentRelease,
   createExperimentReleasePlan,
   experimentReleaseGateFromEnvironment,
@@ -26,10 +31,16 @@ function fixture(t: { after(callback: () => void): void }) {
     urgentModel: null,
     mind: 'direct' as const,
     ollamaLocal: {
-      protocol: 'behold.ollama-local-policy.v1' as const,
+      protocol: 'behold.ollama-local-policy.v2' as const,
       endpoint: 'http://127.0.0.1:11434/api/chat',
       modelTag: index === 0 ? 'fixture/model-a' : 'fixture/model-b',
       modelDigest: digest(index === 0 ? '5' : '6'),
+      transport: {
+        protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+        schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+        schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+        templateSha256: digest(index === 0 ? '7' : '8'),
+      },
       settings: {
         contextTokens: 16_384,
         maxOutputTokens: 512,
@@ -103,6 +114,32 @@ test('release plan binds exact resident body, profile, model, and quota identity
           urgentModel: null,
           mind: 'direct',
           profiles: { ...residents[0].profiles, body: 'minecraft-native-v1' },
+          quotaAccountId: residents[0].quotaAccount.accountId,
+        },
+        {
+          BEHOLD_EXPERIMENT_RELEASE_PLAN: prepared.planFile,
+          BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256: prepared.planSha256,
+        },
+      ),
+    /configuration mismatch/,
+  );
+  assert.throws(
+    () =>
+      experimentReleaseGateFromEnvironment(
+        {
+          entityId: residents[0].entityId,
+          bodyUsername: residents[0].bodyUsername,
+          model: residents[0].model,
+          urgentModel: null,
+          mind: 'direct',
+          ollamaLocal: {
+            ...residents[0].ollamaLocal,
+            transport: {
+              ...residents[0].ollamaLocal.transport,
+              templateSha256: digest('0'),
+            },
+          },
+          profiles: residents[0].profiles,
           quotaAccountId: residents[0].quotaAccount.accountId,
         },
         {

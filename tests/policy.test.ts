@@ -19,6 +19,11 @@ import { minecraftActionsForProfile } from '../src/agent/action-profiles';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { createEngine } from '../src/loop/engine';
 import { createOllamaLocalResidentMind } from '../src/mind/ollama';
+import {
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+  OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+} from '../src/mind/ollama-json-action';
 import typedWrapperFixture from './fixtures/ollama-local-typed-wrapper.json';
 
 function withMinecraftActionSurface<T extends { actions: readonly any[] }>(environment: T) {
@@ -2139,7 +2144,7 @@ test('the resident boundary rejects schema-invalid input before any world attemp
   }
 });
 
-test('captured Ollama typed-wrapper arguments cannot be corrected or reach a resident turn', async () => {
+test('captured native-tool output is malformed under JSON transport and cannot be corrected or reach a resident turn', async () => {
   let transportAttempts = 0;
   let worldAttempts = 0;
   const errors: any[] = [];
@@ -2150,10 +2155,16 @@ test('captured Ollama typed-wrapper arguments cannot be corrected or reach a res
     bearer: 'resident-broker-bearer-that-is-long-enough',
     endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
     policy: {
-      protocol: 'behold.ollama-local-policy.v1',
+      protocol: 'behold.ollama-local-policy.v2',
       endpoint: 'http://127.0.0.1:11434/api/chat',
       modelTag: typedWrapperFixture.source.modelTag,
       modelDigest: typedWrapperFixture.source.modelDigest,
+      transport: {
+        protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+        schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+        schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+        templateSha256: '966de95ca8a62200913e3f8bfbf84c8494536f1b94b49166851e76644e966396',
+      },
       settings: {
         contextTokens: 16_384,
         maxOutputTokens: 512,
@@ -2208,9 +2219,118 @@ test('captured Ollama typed-wrapper arguments cannot be corrected or reach a res
     assert.equal(modelTurns.length, 0);
     assert.equal(entityTurns.length, 0);
     assert.equal(errors.length, 1);
-    assert.match(errors[0].error, /invalid input for wait_for_event/);
-    assert.match(errors[0].error, /\$\.reason: expected string/);
+    assert.match(errors[0].error, /forbidden native tool calls/);
     assert.deepEqual(errors[0].call.response.raw, typedWrapperFixture.responseBody);
+    assert.deepEqual(
+      opportunities.map((event) => [event.phase, event.terminal ?? null]),
+      [
+        ['scheduled', null],
+        ['terminal', 'malformed_output'],
+      ],
+    );
+    assert.equal(opportunities[1].call.response.terminal, 'malformed_output');
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('strict local JSON output still crosses the original schema validator before world intent', async () => {
+  const move = {
+    type: 'function' as const,
+    function: {
+      name: 'move_controls',
+      description: 'Hold bounded Minecraft movement controls, then release them.',
+      parameters: {
+        type: 'object',
+        properties: {
+          direction: { type: 'string', enum: ['forward', 'back', 'left', 'right'] },
+          durationMs: { type: 'number', minimum: 100, maximum: 2000 },
+        },
+        required: ['direction', 'durationMs'],
+      },
+    },
+  };
+  let transportAttempts = 0;
+  let worldAttempts = 0;
+  const errors: any[] = [];
+  const opportunities: any[] = [];
+  const modelTurns: any[] = [];
+  const mind = createOllamaLocalResidentMind({
+    bearer: 'resident-broker-bearer-that-is-long-enough',
+    endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
+    policy: {
+      protocol: 'behold.ollama-local-policy.v2',
+      endpoint: 'http://127.0.0.1:11434/api/chat',
+      modelTag: 'test/model',
+      modelDigest: 'a'.repeat(64),
+      transport: {
+        protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+        schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+        schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+        templateSha256: 'b'.repeat(64),
+      },
+      settings: {
+        contextTokens: 16_384,
+        maxOutputTokens: 512,
+        temperature: 0.2,
+        keepAlive: '0s',
+      },
+    },
+    cognitionTransport: true,
+    fetch: async () => {
+      transportAttempts += 1;
+      return new Response(
+        JSON.stringify({
+          model: 'test/model',
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              action: 'move_controls',
+              arguments: { direction: 'forward', durationMs: 20_000 },
+            }),
+          },
+          done: true,
+          done_reason: 'stop',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    },
+  });
+  const policy = startLLMPolicy(
+    {
+      entityId: 'LocalSchemaResident',
+      actions: [move],
+      attempt: () => {
+        worldAttempts += 1;
+        return true;
+      },
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'neutral-benchmark-v1',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      acceptEngineEvent: () => true,
+      onDecisionOpportunity: (event) => opportunities.push(event),
+      onModelError: (error) => errors.push(error),
+      onModelTurn: (turn) => modelTurns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(transportAttempts, 1);
+    assert.equal(worldAttempts, 0);
+    assert.equal(modelTurns.length, 0);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /invalid input for move_controls/);
+    assert.match(errors[0].error, /durationMs: value is above maximum 2000/);
+    assert.equal(errors[0].call.adapter.name, 'direct-ollama-local-json-action');
+    assert.equal(errors[0].call.response.terminal, 'success');
     assert.deepEqual(
       opportunities.map((event) => [event.phase, event.terminal ?? null]),
       [
@@ -2218,7 +2338,6 @@ test('captured Ollama typed-wrapper arguments cannot be corrected or reach a res
         ['terminal', 'adapter_rejected'],
       ],
     );
-    assert.equal(opportunities[1].call.response.terminal, 'success');
   } finally {
     await policy.stop();
   }

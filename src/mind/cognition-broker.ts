@@ -149,7 +149,7 @@ export type CognitionBrokerOptions = Readonly<{
     models?: readonly string[];
     /** Exact direct-provider routing/output contract admitted before upstream I/O. */
     routePolicy?: OpenRouterRoutePolicy;
-    /** Exact native Ollama tag/content/settings contract admitted before upstream I/O. */
+    /** Exact Ollama transport/schema/tag/content/template/settings contract. */
     ollamaLocal?: OllamaLocalPolicy;
     /** Durable per-purpose provider-attempt quota owned by this resident account. */
     accounting?: Readonly<{
@@ -832,6 +832,7 @@ export async function startCognitionBroker(
                 ollamaIdentity: ollamaAttemptIdentity(
                   job.client.ollamaLocal,
                   options.ollamaPreflight!,
+                  parseJsonObject(job.body),
                 ),
               }
             : {}),

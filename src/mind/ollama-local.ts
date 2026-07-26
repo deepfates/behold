@@ -1,10 +1,15 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ResidentMindRequest } from './interface';
+import {
+  assertOllamaLocalJsonActionRequest,
+  ollamaLocalJsonActionTransport,
+  type OllamaLocalJsonActionRequestIdentity,
+  type OllamaLocalJsonActionTransport,
+} from './ollama-json-action';
 
-export const OLLAMA_LOCAL_POLICY_PROTOCOL = 'behold.ollama-local-policy.v1' as const;
-export const OLLAMA_LOCAL_PREFLIGHT_PROTOCOL = 'behold.ollama-local-preflight.v1' as const;
+export const OLLAMA_LOCAL_POLICY_PROTOCOL = 'behold.ollama-local-policy.v2' as const;
+export const OLLAMA_LOCAL_PREFLIGHT_PROTOCOL = 'behold.ollama-local-preflight.v2' as const;
 
 export type OllamaLocalPolicy = Readonly<{
   protocol: typeof OLLAMA_LOCAL_POLICY_PROTOCOL;
@@ -14,6 +19,8 @@ export type OllamaLocalPolicy = Readonly<{
   modelTag: string;
   /** Content digest reported by Ollama's installed-model inventory. */
   modelDigest: string;
+  /** Separately versioned strict JSON action transport; native tools are never admitted. */
+  transport: OllamaLocalJsonActionTransport;
   settings: Readonly<{
     contextTokens: number;
     maxOutputTokens: number;
@@ -39,6 +46,7 @@ export type OllamaLocalPreflight = Readonly<{
   models: readonly Readonly<{
     modelTag: string;
     modelDigest: string;
+    templateSha256: string;
     capabilities: readonly string[];
     contextLength: number;
     family: string | null;
@@ -56,8 +64,9 @@ export type OllamaLocalPreflight = Readonly<{
 }>;
 
 export type OllamaAttemptIdentity = Readonly<{
-  protocol: 'behold.ollama-attempt-identity.v1';
+  protocol: 'behold.ollama-attempt-identity.v2';
   policy: OllamaLocalPolicy;
+  request: OllamaLocalJsonActionRequestIdentity;
   preflightDigest: string;
   serverVersion: string;
 }>;
@@ -69,7 +78,7 @@ const MAX_PREFLIGHT_BYTES = 8 * 1024 * 1024;
 export function ollamaLocalPolicy(value: unknown): OllamaLocalPolicy {
   const record = exactRecord(
     value,
-    ['protocol', 'endpoint', 'modelTag', 'modelDigest', 'settings'],
+    ['protocol', 'endpoint', 'modelTag', 'modelDigest', 'transport', 'settings'],
     'Ollama local policy',
   );
   if (record.protocol !== OLLAMA_LOCAL_POLICY_PROTOCOL) {
@@ -108,6 +117,7 @@ export function ollamaLocalPolicy(value: unknown): OllamaLocalPolicy {
     endpoint: exactOllamaChatEndpoint(record.endpoint),
     modelTag: boundedText(record.modelTag, 'Ollama model tag', 300),
     modelDigest: sha256Digest(record.modelDigest, 'Ollama model digest'),
+    transport: ollamaLocalJsonActionTransport(record.transport),
     settings: { contextTokens, maxOutputTokens, temperature, keepAlive },
   });
 }
@@ -148,75 +158,13 @@ export function exactOllamaChatEndpoint(value: unknown) {
   return url.toString();
 }
 
-export function directOllamaRequestBody(
-  request: ResidentMindRequest,
-  policyValue: OllamaLocalPolicy,
-) {
-  const policy = ollamaLocalPolicy(policyValue);
-  if (request.model !== policy.modelTag) {
-    throw new Error('Ollama request model differs from the admitted local model tag');
-  }
-  const actions = request.requiredAction
-    ? request.actions.filter((action) => action.name === request.requiredAction)
-    : request.actions;
-  if (request.requiredAction && actions.length !== 1) {
-    throw new Error(
-      `required Ollama action ${request.requiredAction} is not in the action catalog`,
-    );
-  }
-  return deepFreeze({
-    model: policy.modelTag,
-    messages: cloneJson(request.conversation),
-    tools: actions.map((action) => ({
-      type: 'function' as const,
-      function: {
-        name: action.name,
-        ...(action.description == null ? {} : { description: action.description }),
-        parameters: cloneJson(action.inputSchema),
-      },
-    })),
-    stream: false as const,
-    options: {
-      num_ctx: policy.settings.contextTokens,
-      num_predict: policy.settings.maxOutputTokens,
-      temperature: policy.settings.temperature,
-    },
-    keep_alive: policy.settings.keepAlive,
-  });
-}
-
 export function assertOllamaLocalRequest(
   value: unknown,
   expectedModel: string,
   expectedPolicy: OllamaLocalPolicy,
 ) {
   const policy = ollamaLocalPolicy(expectedPolicy);
-  const record = exactRecord(
-    value,
-    ['model', 'messages', 'tools', 'stream', 'options', 'keep_alive'],
-    'Ollama request body',
-  );
-  if (expectedModel !== policy.modelTag || record.model !== policy.modelTag) {
-    throw new Error('Ollama request model differs from the admitted model tag');
-  }
-  if (!Array.isArray(record.messages)) throw new Error('Ollama request messages must be an array');
-  if (!Array.isArray(record.tools)) throw new Error('Ollama request tools must be an array');
-  if (record.stream !== false) throw new Error('Ollama streaming must be exactly false');
-  if (record.keep_alive !== policy.settings.keepAlive) {
-    throw new Error('Ollama keep_alive differs from the admitted load setting');
-  }
-  const options = exactRecord(
-    record.options,
-    ['num_ctx', 'num_predict', 'temperature'],
-    'Ollama request options',
-  );
-  if (
-    options.num_ctx !== policy.settings.contextTokens ||
-    options.num_predict !== policy.settings.maxOutputTokens ||
-    options.temperature !== policy.settings.temperature
-  ) {
-    throw new Error('Ollama request options differ from the admitted settings');
-  }
+  return assertOllamaLocalJsonActionRequest(value, expectedModel, policy);
 }
 
 export function inspectOllamaLocalResponseIdentity(
@@ -261,6 +209,18 @@ export async function preflightOllamaLocal(input: {
     throw new Error(
       'Ollama residents must share exact output, context, temperature, and load settings',
     );
+  }
+  const transports = new Set(
+    policies.map((policy) =>
+      stableJson({
+        protocol: policy.transport.protocol,
+        schemaProtocol: policy.transport.schemaProtocol,
+        schemaSha256: policy.transport.schemaSha256,
+      }),
+    ),
+  );
+  if (transports.size !== 1) {
+    throw new Error('Ollama residents must share one exact JSON action transport and schema');
   }
   const policiesByModel = new Map<string, OllamaLocalPolicy>();
   for (const policy of policies) {
@@ -313,12 +273,20 @@ export async function preflightOllamaLocal(input: {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ model: policy.modelTag, verbose: false }),
     });
-    if (!plainRecord(show) || !Array.isArray(show.capabilities)) {
+    if (
+      !plainRecord(show) ||
+      !Array.isArray(show.capabilities) ||
+      typeof show.template !== 'string'
+    ) {
       throw new Error(`Ollama show response is invalid for ${policy.modelTag}`);
     }
     const capabilities = show.capabilities.map((capability) => String(capability)).sort();
-    if (!capabilities.includes('tools')) {
-      throw new Error(`Ollama model does not advertise tool capability: ${policy.modelTag}`);
+    if (!capabilities.includes('completion')) {
+      throw new Error(`Ollama model does not advertise completion capability: ${policy.modelTag}`);
+    }
+    const templateSha256 = sha256(Buffer.from(show.template, 'utf8'));
+    if (templateSha256 !== policy.transport.templateSha256) {
+      throw new Error(`Ollama installed template differs for ${policy.modelTag}`);
     }
     const contextLength = ollamaContextLength(show.model_info);
     if (contextLength < policy.settings.contextTokens) {
@@ -331,6 +299,7 @@ export async function preflightOllamaLocal(input: {
       deepFreeze({
         modelTag: policy.modelTag,
         modelDigest: policy.modelDigest,
+        templateSha256,
         capabilities: Object.freeze(capabilities),
         contextLength,
         family: optionalText(details.family),
@@ -371,12 +340,14 @@ export async function preflightOllamaLocal(input: {
 export function ollamaAttemptIdentity(
   policyValue: OllamaLocalPolicy,
   preflight: OllamaLocalPreflight,
+  requestValue: unknown,
 ): OllamaAttemptIdentity {
   const policy = ollamaLocalPolicy(policyValue);
   verifyOllamaPreflight(preflight, [policy]);
   return deepFreeze({
-    protocol: 'behold.ollama-attempt-identity.v1',
+    protocol: 'behold.ollama-attempt-identity.v2',
     policy,
+    request: assertOllamaLocalRequest(requestValue, policy.modelTag, policy),
     preflightDigest: preflight.digest,
     serverVersion: preflight.server.version,
   });
@@ -405,7 +376,8 @@ export function verifyOllamaPreflight(
     if (
       !model ||
       model.modelDigest !== policy.modelDigest ||
-      !model.capabilities.includes('tools') ||
+      model.templateSha256 !== policy.transport.templateSha256 ||
+      !model.capabilities.includes('completion') ||
       model.contextLength < policy.settings.contextTokens
     ) {
       throw new Error(`Ollama preflight does not admit ${policy.modelTag}`);
@@ -518,10 +490,6 @@ function stableJson(value: any): string {
       .join(',')}}`;
   }
   return JSON.stringify(value);
-}
-
-function cloneJson(value: unknown): any {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
 function deepFreeze<T>(value: T): T {

@@ -51,10 +51,13 @@ substitutes a global value for a misspelled field.
 contracts. `providerRoute` binds an exact ordered OpenRouter provider list,
 disabled fallbacks, and output cap. `ollamaLocal` instead binds the exact
 loopback native `/api/chat` endpoint, installed model tag and content digest,
+installed template digest, versioned strict-JSON action transport/schema,
 context/output/temperature settings, and request-scoped `keep_alive` load
-setting. A local population must give every active resident an `ollamaLocal`
-contract with the same endpoint and settings. Its configured `model` must equal
-the exact Ollama tag.
+setting. It uses Ollama's `format` schema and never native `tools`. A local
+population must give every active resident an `ollamaLocal` contract with the
+same endpoint, transport/schema, and settings; per-model tag, content digest,
+and template digest remain exact resident identities. Its configured `model`
+must equal the exact Ollama tag.
 
 For example, one local resident entry has this shape (use the digest from the
 local `/api/tags` inventory, not this placeholder):
@@ -65,15 +68,21 @@ local `/api/tags` inventory, not this placeholder):
   "model": "llama3.2:3b",
   "mind": "direct",
   "ollamaLocal": {
-    "protocol": "behold.ollama-local-policy.v1",
+    "protocol": "behold.ollama-local-policy.v2",
     "endpoint": "http://127.0.0.1:11434/api/chat",
     "modelTag": "llama3.2:3b",
     "modelDigest": "<64-lowercase-hex>",
+    "transport": {
+      "protocol": "behold.ollama-local-json-action.v1",
+      "schemaProtocol": "behold.ollama-local-json-action-schema.v1",
+      "schemaSha256": "92be985cd94f981e79c70b4c59551d090440c17094815b7fcd73015e80441998",
+      "templateSha256": "<64-lowercase-hex>"
+    },
     "settings": {
       "contextTokens": 16384,
       "maxOutputTokens": 512,
       "temperature": 0.2,
-      "keepAlive": "5m"
+      "keepAlive": "0s"
     }
   },
   "providerQuotas": {

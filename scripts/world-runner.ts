@@ -1058,14 +1058,24 @@ function normalizeManagedResidents(
   const ollamaSettings = new Set(
     ollamaResidents.map((resident) => JSON.stringify(resident.ollamaLocal!.settings)),
   );
-  if (ollamaEndpoints.size > 1 || ollamaSettings.size > 1) {
+  const ollamaTransports = new Set(
+    ollamaResidents.map((resident) =>
+      JSON.stringify({
+        protocol: resident.ollamaLocal!.transport.protocol,
+        schemaProtocol: resident.ollamaLocal!.transport.schemaProtocol,
+        schemaSha256: resident.ollamaLocal!.transport.schemaSha256,
+      }),
+    ),
+  );
+  if (ollamaEndpoints.size > 1 || ollamaSettings.size > 1 || ollamaTransports.size > 1) {
     throw new WorldRunnerError(
-      'Local Ollama residents must share one endpoint and exact output, context, temperature, and load settings',
+      'Local Ollama residents must share one endpoint, JSON action transport/schema, and exact output, context, temperature, and load settings',
       'resident_ollama_common_settings_mismatch',
       {
         residents: ollamaResidents.map((resident) => ({
           entityId: resident.entityId,
           endpoint: resident.ollamaLocal!.endpoint,
+          transport: resident.ollamaLocal!.transport,
           settings: resident.ollamaLocal!.settings,
         })),
       },

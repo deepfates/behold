@@ -260,3 +260,31 @@ the canonical catalog verbatim in message content and retains fail-closed
 original-schema validation; that design was recorded but not implemented or
 ratified. `beh-n4fe` remains open, and 70B remains untested. Details:
 `docs/reports/2026-07-25-ollama-schema-roundtrip.md`.
+
+**2026-07-26T01:27:36Z**
+
+The separately authorized `behold.ollama-local-json-action.v1` transport now
+bypasses native Ollama tools. It sends the exact 18-action human-semantic
+catalog in both ordinary message content and Ollama's raw `format` schema,
+requires one exact action/arguments object, performs no correction, retry, or
+tolerant unwrapping, and retains Behold's original action validator as the
+final pre-intent boundary. Release and per-attempt evidence bind the
+transport/schema, model content, installed template, exact catalog, and exact
+response-format identities.
+
+A no-network/model-free decode and template-render pass covered both installed
+model templates. Both received the same raw format and exact contract text
+with zero native tools. The pinned grammar source enforces the discriminator,
+object shape, required fields, types, enums, and array items, but not the four
+numeric bounds because those fields are `type: number`; the bounds remain
+visible and the original controller validator enforces them. The converter
+also forbids extra argument keys although Behold's validator ignores them;
+this grammar-only narrowing is recorded, not promoted into a new body rule.
+
+Build, lint, and 12 focused tests passed. Malformed native-tool/JSON/shape
+outputs stay one-attempt failures, and an out-of-bounds syntactically valid
+action is rejected before intent or world mutation. No model loaded and no
+inference, Minecraft, provider, retry, or substitution ran. `beh-n4fe` remains
+open; this closes only the strict-JSON model-free conformance slice and leaves
+the first separately authorized inference and living-world pilot outstanding.
+Details: `docs/reports/2026-07-25-ollama-json-action-conformance.md`.

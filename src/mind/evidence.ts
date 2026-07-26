@@ -1,5 +1,6 @@
 import type { CognitionAdmissionEvidence } from './cognition';
 import type { OllamaLocalPolicy, OllamaLocalResponseIdentity } from './ollama-local';
+import type { OllamaLocalJsonActionRequestIdentity } from './ollama-json-action';
 import type { OpenRouterResponseIdentity, OpenRouterRoutePolicy } from './openrouter-route';
 import type { RequestByteAttribution } from './request-attribution';
 
@@ -64,6 +65,8 @@ export type ModelCallEvidence = {
     bodySha256: string;
     messagesSha256: string;
     toolsSha256: string;
+    /** Exact native structured-output schema when the adapter uses `format`. */
+    formatSha256?: string;
     /** Exact serialized bytes for provider requests or adapter input when known. */
     bodyBytes?: number;
     /** `provider_request` is exact wire input; `mind_input` is adapter input. */
@@ -75,6 +78,8 @@ export type ModelCallEvidence = {
     routePolicy?: OpenRouterRoutePolicy;
     /** Versioned loopback Ollama model/content/settings contract. */
     localPolicy?: OllamaLocalPolicy;
+    /** Exact per-attempt JSON action contract and response-format identity. */
+    localActionTransport?: OllamaLocalJsonActionRequestIdentity;
   };
   response: {
     terminal?: 'success';
