@@ -235,3 +235,28 @@ until a model-free exact schema decode/render round trip passes or an
 explicitly versioned alternative contract is ratified. This does not establish
 that the 3B model is incapable, and 70B remains untested. Details:
 `docs/reports/2026-07-25-ollama-tool-argument-root-cause.md`.
+
+**2026-07-26T01:01:01Z**
+
+The exact model-free gate ran once over the complete current resident surface:
+17 `minecraft-human-semantic-v1` actions plus `wait_for_event`. The pinned
+Ollama 0.23.2 `api.Tool` decode retained all action names, descriptions,
+properties, types, required lists, enums, described fields, and array items,
+but removed the numeric bounds from `drop_item`, `move_controls`,
+`deposit_in_focused_container`, and `withdraw_from_focused_container`. The
+installed 3B template then rendered all 18 tools as unlabeled Go structs such
+as `{function <nil> {...}}`, not JSON or named schema fields. Required lists
+survived only as positional bracketed values.
+
+Behold's original-schema validation still rejects missing, wrongly typed,
+out-of-enum, or out-of-bounds proposals before intent creation, so this is not
+a demonstrated world-safety bypass. It is a material model-guidance and
+attempt-integrity failure. Ollama `/api/ps` was empty before and after; no model,
+Minecraft process, remote provider, retry, or treatment change ran.
+
+Local Ollama remains no-go through native tools. The smallest candidate
+follow-up is a separately versioned strict JSON action transport that exposes
+the canonical catalog verbatim in message content and retains fail-closed
+original-schema validation; that design was recorded but not implemented or
+ratified. `beh-n4fe` remains open, and 70B remains untested. Details:
+`docs/reports/2026-07-25-ollama-schema-roundtrip.md`.

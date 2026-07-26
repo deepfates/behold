@@ -150,15 +150,16 @@ transport attempt and an invalid resident decision.
 
 ## Smallest honest next experiment
 
-No more inference should run yet. First, a model-free compatibility check should
-round-trip every canonical `minecraft-human-semantic-v1` action schema through
-the exact Ollama 0.23.2 `api.Tool` decode and installed template render, then
-compare the rendered semantic schema with the Behold request. The current
-source inspection predicts a red result for numeric bounds.
+The requested model-free check is now complete:
+[`2026-07-25-ollama-schema-roundtrip.md`](./2026-07-25-ollama-schema-roundtrip.md).
+It passed all 18 complete resident actions exactly once through the pinned
+Ollama 0.23.2 `api.Tool` decode and the installed 3B template, without loading a
+model.
 
-Until that discrepancy is either rejected before calls or resolved by an
-explicitly versioned and identity-bound transport/template contract, local
-Ollama is a no-go for the claim that residents receive the same complete action
-surface. A future single-attempt model probe should use an actual canonical
-resident request only after that model-free gate passes. It would be a new
-contract-conformance experiment, not a retry or compensation opportunity.
+The gate failed. Numeric bounds disappeared from four actions, as predicted,
+and the installed template exposed a larger defect: every tool was rendered as
+an unlabeled Go struct rather than JSON or named schema fields. Local Ollama is
+therefore no-go for the pilot through the native `tools` path. The follow-up
+report recommends the smallest candidate versioned transport seam and records
+why neither a custom template alone nor `format` alone repairs this path. No
+remedy or additional inference was attempted in this slice.
