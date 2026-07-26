@@ -310,7 +310,7 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    reflexes, forced schedules, or catch-up normalization.
 3. Finish the ordinary foreground operator path now established by `behold
 live`: exercise its v2 authoritative ecology aftermath and episode-frozen
-   Textile import, and add an explicit native-human entry treatment.
+   Textile import and explicit native-human entry treatment in a real episode.
    Do not substitute a dashboard or a bespoke ignored harness for this entry.
 4. Pass the ticket acceptance from that ordinary path: a non-scripted persistent
    resident consequence, independent witness, native co-presence, restart

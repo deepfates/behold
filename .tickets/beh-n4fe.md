@@ -498,3 +498,23 @@ controller, model, or graphical client was started. The exact evidence is in
 has not yet emitted this v2 shape, and useful adaptive conduct, persistent
 resident consequence, independent witness, and native-human co-presence remain
 open; `beh-n4fe` remains open.
+
+**2026-07-26T14:10:39Z**
+
+The ordinary live entry now owns an explicit, optional native-human treatment
+without launching a private graphical client on the operator's behalf.
+`--native-player USERNAME` declares a non-resident offline username, prints the
+exact existing native launcher settings after every resident is ready, and
+accepts co-presence only when the byte-preserved Place server log records the
+join and every independent resident's post-release journal witnesses it. The
+aftermath keeps the declaration, raw conservative
+`native_human_or_unmanaged_player` evidence references, and named assessment.
+A requested but unwitnessed treatment saves, stops, preserves its aftermath,
+and exits nonzero.
+
+The focused two-resident pass/failure/collision fixtures, build, lint, and help
+surface pass. No GUI, private account, world, resident, or model was started,
+so real Oxford native co-presence remains unexercised. Details are in
+`docs/reports/2026-07-26-native-human-live-entry.md`; adaptive conduct and a
+persistent resident-authored independently witnessed consequence also remain
+open, so `beh-n4fe` remains open.

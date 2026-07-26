@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  assessNativeHumanEntry,
   listPlaceServerLogs,
   liveEpisodeAccountingScope,
   preserveResidentLyncFiles,
@@ -110,4 +111,73 @@ test('live aftermath freezes lifelong Lync bytes and makes one direct Textile im
   fs.appendFileSync(firstSource, '{"v":1,"id":"later-turn"}\n');
   assert.equal(fs.readFileSync(first[0]!.file, 'utf8'), firstBytes);
   assert.equal(fs.readFileSync(textile.file, 'utf8'), firstBytes + secondBytes);
+});
+
+test('native-human treatment requires the server and every resident to witness the declared join', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-native-human-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const ecology = path.join(root, 'minecraft-server.log');
+  fs.writeFileSync(
+    ecology,
+    '[12:00:00] [Server thread/INFO]: Ada joined the game\n[12:01:00] [Server thread/INFO]: Ada left the game\n',
+  );
+  const residents = ['First', 'Second'].map((entityId, index) => {
+    const journalDirectory = path.join(root, entityId);
+    fs.mkdirSync(journalDirectory);
+    fs.writeFileSync(
+      path.join(journalDirectory, 'run.jsonl'),
+      `${JSON.stringify({
+        sequence: index + 4,
+        at: `2026-07-26T12:00:0${index}.000Z`,
+        agent: entityId,
+        type: 'external_player_intervention',
+        data: {
+          protocol: 'behold.external-player-intervention.v1',
+          kind: 'joined',
+          username: 'Ada',
+          classification: 'native_human_or_unmanaged_player',
+        },
+      })}\n`,
+    );
+    return { entityId, bodyUsername: entityId, journalDirectory };
+  });
+
+  const treatment = assessNativeHumanEntry({
+    declaredPlayer: 'Ada',
+    endpoint: { host: '127.0.0.1', port: 25565 },
+    ecologyLogFile: ecology,
+    residents,
+    repositoryRoot: root,
+  });
+  assert.equal(treatment.protocol, 'behold.live-native-human.v1');
+  assert.equal(treatment.classification, 'operator_declared_native_human');
+  assert.equal(treatment.assessment.passed, true);
+  assert.equal(treatment.evidence.serverJoins[0]?.line, 1);
+  assert.deepEqual(
+    treatment.evidence.residentWitnesses.map((resident) => resident.observed),
+    [true, true],
+  );
+
+  fs.writeFileSync(path.join(residents[1]!.journalDirectory, 'run.jsonl'), '');
+  const missingWitness = assessNativeHumanEntry({
+    declaredPlayer: 'Ada',
+    endpoint: { host: '127.0.0.1', port: 25565 },
+    ecologyLogFile: ecology,
+    residents,
+    repositoryRoot: root,
+  });
+  assert.equal(missingWitness.assessment.assertions.authoritativeServerJoin, true);
+  assert.equal(missingWitness.assessment.assertions.witnessedByEveryResident, false);
+  assert.equal(missingWitness.assessment.passed, false);
+  assert.throws(
+    () =>
+      assessNativeHumanEntry({
+        declaredPlayer: 'First',
+        endpoint: { host: '127.0.0.1', port: 25565 },
+        ecologyLogFile: ecology,
+        residents,
+        repositoryRoot: root,
+      }),
+    /collides with a managed resident body/,
+  );
 });

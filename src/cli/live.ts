@@ -33,6 +33,7 @@ const LIVE_AFTERMATH_PROTOCOL = 'behold.live-aftermath.v2' as const;
 const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
 const LIVE_LYNC_SNAPSHOT_PROTOCOL = 'behold.live-lync-snapshot.v1' as const;
 const LIVE_TEXTILE_IMPORT_PROTOCOL = 'behold.live-textile-import.v1' as const;
+const LIVE_NATIVE_HUMAN_PROTOCOL = 'behold.live-native-human.v1' as const;
 
 export async function runLiveCli(argv: string[]) {
   const parsed = parseArgs({
@@ -50,6 +51,7 @@ export async function runLiveCli(argv: string[]) {
       'server-jar': { type: 'string' },
       'max-model-concurrency': { type: 'string' },
       'lmstudio-models-root': { type: 'string' },
+      'native-player': { type: 'string' },
       help: { type: 'boolean', default: false },
     },
     allowPositionals: true,
@@ -79,6 +81,15 @@ export async function runLiveCli(argv: string[]) {
   const residents = loadManagedResidentSet(residentFile);
   if (residents.some((resident) => resident.providerQuotas == null || resident.paused === true)) {
     throw new Error('live requires an armed per-resident provider-attempt ceiling for every life');
+  }
+  const nativePlayer = parsed.values['native-player']
+    ? minecraftUsername(parsed.values['native-player'], '--native-player')
+    : null;
+  if (
+    nativePlayer &&
+    residents.some((resident) => resident.bodyUsername.toLowerCase() === nativePlayer.toLowerCase())
+  ) {
+    throw new Error('--native-player must be distinct from every managed resident body');
   }
   const releaseManifestFile = path.join(releaseRoot, 'release-manifest.json');
   const releaseManifest = readJson(releaseManifestFile);
@@ -255,7 +266,15 @@ export async function runLiveCli(argv: string[]) {
       }
       throw error;
     }
-    printLiveReady(sessionId, authority, run, durationMs, episodeRoot);
+    printLiveReady(
+      sessionId,
+      authority,
+      run,
+      durationMs,
+      episodeRoot,
+      nativePlayer,
+      repositoryRoot,
+    );
     run.control.append('live_session_duration_armed', {
       durationMs,
       beginsAt: 'run_ready',
@@ -277,6 +296,15 @@ export async function runLiveCli(argv: string[]) {
       destination: path.join(episodeRoot, 'minecraft-server.log'),
     });
     const transcript = verifyPlaceServeTranscript(authority.transcriptFile);
+    const nativeHuman = nativePlayer
+      ? assessNativeHumanEntry({
+          declaredPlayer: nativePlayer,
+          endpoint: authority.placeIdentity.endpoint,
+          ecologyLogFile: ecologyLog.file,
+          residents: run.residents,
+          repositoryRoot,
+        })
+      : null;
     const aftermath = writeAftermath({
       file: path.join(episodeRoot, 'aftermath.json'),
       sessionId,
@@ -290,15 +318,26 @@ export async function runLiveCli(argv: string[]) {
       entityRoot: paths.entities,
       ecologyLog,
       accountingScopeId,
+      nativeHuman,
     });
     process.stdout.write(`\n[behold live] stopped cleanly\n`);
     process.stdout.write(`[behold live] aftermath: ${aftermath.file}\n`);
     for (const life of aftermath.record.lives) {
       process.stdout.write(`[behold live] ${life.entityId} life: ${life.lyncDirectory}\n`);
     }
+    if (nativeHuman) {
+      process.stdout.write(
+        `[behold live] native human ${nativeHuman.declaredPlayer}: ${nativeHuman.assessment.passed ? 'witnessed' : 'not witnessed'}\n`,
+      );
+    }
     process.stdout.write(
       `[behold live] resume: behold live ${releaseRoot} --residents ${residentFile} --accept-eula --session ${sessionId}\n`,
     );
+    if (nativeHuman && !nativeHuman.assessment.passed) {
+      throw new Error(
+        `native-human treatment did not produce a server join witnessed by every resident; preserved ${aftermath.file}`,
+      );
+    }
     return 0;
   } catch (error) {
     if (run && !cleanStop) {
@@ -318,6 +357,8 @@ function printLiveReady(
   run: ManagedWorldRun,
   durationMs: number,
   episodeRoot: string,
+  nativePlayer: string | null,
+  repositoryRoot: string,
 ) {
   process.stdout.write(`\n[behold live] ${sessionId} is alive for ${durationMs / 1000}s\n`);
   process.stdout.write(
@@ -329,6 +370,11 @@ function printLiveReady(
     );
   }
   process.stdout.write(`[behold live] episode evidence: ${episodeRoot}\n`);
+  if (nativePlayer) {
+    process.stdout.write(
+      `[behold live] native human: set NATIVE_MC_SERVER=${authority.host}:${authority.port} and NATIVE_MC_USERNAME=${nativePlayer}, then run npm run native in ${repositoryRoot}\n`,
+    );
+  }
   process.stdout.write('[behold live] Ctrl-C saves the world and ends this episode.\n\n');
 }
 
@@ -434,6 +480,7 @@ function writeAftermath(input: {
   entityRoot: string;
   ecologyLog: ReturnType<typeof preservePlaceServerLog>;
   accountingScopeId: string;
+  nativeHuman: ReturnType<typeof assessNativeHumanEntry> | null;
 }) {
   const episodeRoot = path.dirname(path.resolve(input.file));
   const lives = input.run.residents.map((resident) => {
@@ -495,6 +542,7 @@ function writeAftermath(input: {
       state: 'closed',
       authority: 'operator_only',
     })),
+    nativeHuman: input.nativeHuman,
     lives,
     textile: {
       presenterProfile: 'org.behold.inhabitant.v1',
@@ -505,6 +553,93 @@ function writeAftermath(input: {
   const record = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
   writeJsonExclusive(input.file, record);
   return Object.freeze({ file: input.file, record });
+}
+
+export function assessNativeHumanEntry(input: {
+  declaredPlayer: string;
+  endpoint: Readonly<{ host: string; port: number }>;
+  ecologyLogFile: string;
+  residents: ReadonlyArray<
+    Readonly<{ entityId: string; bodyUsername: string; journalDirectory: string }>
+  >;
+  repositoryRoot: string;
+}) {
+  const declaredPlayer = minecraftUsername(input.declaredPlayer, 'declared native player');
+  if (
+    input.residents.some(
+      (resident) => resident.bodyUsername.toLowerCase() === declaredPlayer.toLowerCase(),
+    )
+  ) {
+    throw new Error('declared native player collides with a managed resident body');
+  }
+  const serverJoins = fs
+    .readFileSync(plainFile(input.ecologyLogFile, 'native-human ecology log'), 'utf8')
+    .split(/\r?\n/)
+    .flatMap((text, index) => {
+      const match = text.match(
+        /^\[([^\]]+)\] \[Server thread\/INFO\]: ([A-Za-z0-9_]{1,16}) joined the game$/,
+      );
+      return match?.[2]?.toLowerCase() === declaredPlayer.toLowerCase()
+        ? [{ line: index + 1, serverTime: match[1] }]
+        : [];
+    });
+  const residentWitnesses = input.residents.map((resident) => {
+    const events = listFiles(resident.journalDirectory, '.jsonl').flatMap((source) =>
+      fs
+        .readFileSync(plainFile(source.file, `${resident.entityId} run journal`), 'utf8')
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .filter(
+          (event) =>
+            event?.type === 'external_player_intervention' &&
+            event?.data?.protocol === 'behold.external-player-intervention.v1' &&
+            event?.data?.kind === 'joined' &&
+            event?.data?.classification === 'native_human_or_unmanaged_player' &&
+            typeof event?.data?.username === 'string' &&
+            event.data.username.toLowerCase() === declaredPlayer.toLowerCase(),
+        )
+        .map((event) => ({
+          file: source.file,
+          sequence: event.sequence,
+          at: event.at,
+          classification: event.data.classification,
+        })),
+    );
+    return Object.freeze({
+      entityId: resident.entityId,
+      bodyUsername: resident.bodyUsername,
+      observed: events.length > 0,
+      events,
+    });
+  });
+  const assertions = {
+    authoritativeServerJoin: serverJoins.length > 0,
+    witnessedByEveryResident: residentWitnesses.every((resident) => resident.observed),
+  };
+  return deepFreeze({
+    protocol: LIVE_NATIVE_HUMAN_PROTOCOL,
+    declaredPlayer,
+    classification: 'operator_declared_native_human',
+    endpoint: { host: input.endpoint.host, port: input.endpoint.port },
+    launcher: {
+      workingDirectory: path.resolve(input.repositoryRoot),
+      command: 'npm run native',
+      environment: {
+        NATIVE_MC_SERVER: `${input.endpoint.host}:${input.endpoint.port}`,
+        NATIVE_MC_USERNAME: declaredPlayer,
+      },
+    },
+    evidence: {
+      ecologyLogFile: path.resolve(input.ecologyLogFile),
+      serverJoins,
+      residentWitnesses,
+    },
+    assessment: {
+      assertions,
+      passed: Object.values(assertions).every(Boolean),
+    },
+  });
 }
 
 export function preserveResidentLyncFiles(input: {
@@ -738,6 +873,14 @@ function safeSegment(value: unknown, label: string) {
   return segment;
 }
 
+function minecraftUsername(value: unknown, label: string) {
+  const username = typeof value === 'string' ? value.trim() : '';
+  if (!/^[A-Za-z0-9_]{1,16}$/.test(username)) {
+    throw new Error(`${label} must be a valid offline Minecraft username`);
+  }
+  return username;
+}
+
 function plainDirectory(value: string, label: string) {
   const resolved = path.resolve(value);
   const stats = fs.lstatSync(resolved);
@@ -817,6 +960,7 @@ export function liveUsage() {
     '  --server-jar FILE              Pinned server JAR (default Behold managed artifact)',
     '  --max-model-concurrency N      Concurrent local cognition (default min(2, residents))',
     '  --lmstudio-models-root DIR     Exact local LM Studio artifact root',
+    '  --native-player USERNAME       Require this operator-declared native human join',
     '',
     'Residents keep their declared human-semantic body, charter, model transport, and durable',
     'attempt ceilings. The ceiling is safety/resource governance, not a fairness claim.',
