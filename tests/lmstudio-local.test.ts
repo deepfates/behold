@@ -22,6 +22,7 @@ import {
   preflightLmStudioLocal,
   prepareLmStudioResidentSession,
   releaseLmStudioResidentSession,
+  type LmStudioLocalPolicy,
 } from '../src/mind/lmstudio-local';
 import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
@@ -32,8 +33,9 @@ const TEMPLATE = 'fixture lm studio resident template';
 const APP_VERSION = '0.4.12+1';
 const CLI_COMMIT = '0b2a176';
 const ENGINE = 'mlx-llm-mac-arm64-apple-metal-advsimd@1.10.1';
+const GGUF_ENGINE = 'llama.cpp-mac-arm64-apple-metal-advsimd@2.14.0';
 
-test('LM Studio policy admits only exact loopback MLX resident sessions', async (t) => {
+test('LM Studio policy admits only exact loopback resident sessions', async (t) => {
   const fixture = await artifactFixture(t);
   const residentPolicy = policy(fixture);
   assert.deepEqual(lmStudioLocalPolicy(residentPolicy), residentPolicy);
@@ -49,7 +51,7 @@ test('LM Studio policy admits only exact loopback MLX resident sessions', async 
   assert.throws(() =>
     lmStudioLocalPolicy({
       ...residentPolicy,
-      runtime: { ...residentPolicy.runtime, format: 'gguf' },
+      runtime: { ...residentPolicy.runtime, format: 'onnx' },
     }),
   );
   assert.throws(() =>
@@ -57,6 +59,74 @@ test('LM Studio policy admits only exact loopback MLX resident sessions', async 
       ...residentPolicy,
       transport: { ...residentPolicy.transport, schemaSha256: 'f'.repeat(64) },
     }),
+  );
+});
+
+test('GGUF admission binds the exact artifact tree and embedded chat template through unload', async (t) => {
+  const fixture = await ggufArtifactFixture(t);
+  const residentPolicy = ggufPolicy(fixture);
+  assert.deepEqual(lmStudioLocalPolicy(residentPolicy), residentPolicy);
+  const loaded = new Set<string>();
+  const commands: string[][] = [];
+  const runLms = (args: readonly string[]) => {
+    commands.push([...args]);
+    if (args[0] === '--version') return `CLI commit: ${CLI_COMMIT}\n`;
+    if (args[0] === 'runtime') return `ENGINE SELECTED\n${GGUF_ENGINE} ✓ llama.cpp\n`;
+    if (args[0] === 'ls') return JSON.stringify([indexEntry(residentPolicy)]);
+    if (args[0] === 'ps') return '[]';
+    if (args[0] === 'load') {
+      loaded.add(String(args[args.indexOf('--identifier') + 1]));
+      return 'loaded\n';
+    }
+    if (args[0] === 'unload') {
+      loaded.delete(String(args[1]));
+      return 'unloaded\n';
+    }
+    throw new Error(`unexpected lms command ${args.join(' ')}`);
+  };
+  const fetch: typeof globalThis.fetch = async () => inventoryResponse(residentPolicy, [...loaded]);
+  const preflight = await preflightLmStudioLocal({
+    policies: [residentPolicy],
+    modelsRoot: fixture.modelsRoot,
+    readAppVersion: () => APP_VERSION,
+    runLms,
+    fetch,
+  });
+  assert.equal(preflight.runtime.format, 'gguf');
+  assert.equal(preflight.models[0].templateSha256, sha256(TEMPLATE));
+  const session = await prepareLmStudioResidentSession({
+    policies: [residentPolicy],
+    residentIds: ['OxfordBerduck'],
+    preflight,
+    runLms,
+    fetch,
+  });
+  assert.equal(session.models[0].residentId, 'OxfordBerduck');
+  assert.deepEqual([...loaded], [session.models[0].modelInstanceId]);
+  assert.equal(commands.find((args) => args[0] === 'load')?.[1], residentPolicy.catalogKey);
+  await releaseLmStudioResidentSession({
+    session,
+    policies: [residentPolicy],
+    residentIds: ['OxfordBerduck'],
+    runLms,
+    fetch,
+  });
+  assert.equal(loaded.size, 0);
+
+  await assert.rejects(
+    preflightLmStudioLocal({
+      policies: [
+        {
+          ...residentPolicy,
+          transport: { ...residentPolicy.transport, templateSha256: 'f'.repeat(64) },
+        },
+      ],
+      modelsRoot: fixture.modelsRoot,
+      readAppVersion: () => APP_VERSION,
+      runLms: preflightRunner(residentPolicy),
+      fetch: inventoryFetch(residentPolicy, []),
+    }),
+    /template bytes differ/,
   );
 });
 
@@ -517,6 +587,28 @@ async function artifactFixture(t: test.TestContext) {
   };
 }
 
+async function ggufArtifactFixture(t: test.TestContext) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lmstudio-gguf-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const modelsRoot = path.join(root, 'models');
+  const relativePath = 'mradermacher/berduck-qwen2-1.5b-GGUF';
+  const artifactRoot = path.join(modelsRoot, relativePath);
+  const fileName = 'berduck-qwen2-1.5b.Q8_0.gguf';
+  fs.mkdirSync(artifactRoot, { recursive: true });
+  const file = path.join(artifactRoot, fileName);
+  fs.writeFileSync(
+    file,
+    minimalGguf({ 'general.architecture': 'qwen2', 'tokenizer.chat_template': TEMPLATE }),
+  );
+  return {
+    modelsRoot,
+    relativePath,
+    indexedModelIdentifier: `${relativePath}/${fileName}`,
+    treeSha256: await digestRegularFileTree(artifactRoot),
+    sizeBytes: fs.statSync(file).size,
+  };
+}
+
 function policy(fixture: Awaited<ReturnType<typeof artifactFixture>>) {
   return {
     protocol: 'behold.lmstudio-local-policy.v1',
@@ -543,6 +635,34 @@ function policy(fixture: Awaited<ReturnType<typeof artifactFixture>>) {
     },
     settings: { contextTokens: 16_384, maxOutputTokens: 512, temperature: 0.2 },
   } as const;
+}
+
+function ggufPolicy(fixture: Awaited<ReturnType<typeof ggufArtifactFixture>>): LmStudioLocalPolicy {
+  return {
+    protocol: 'behold.lmstudio-local-policy.v1',
+    endpoint: 'http://127.0.0.1:1234/v1/chat/completions',
+    modelKey: 'berduck-qwen2-1.5b',
+    catalogKey: 'berduck-qwen2-1.5b',
+    indexedModelIdentifier: fixture.indexedModelIdentifier,
+    artifact: {
+      relativePath: fixture.relativePath,
+      treeSha256: fixture.treeSha256,
+      sizeBytes: fixture.sizeBytes,
+    },
+    transport: {
+      protocol: 'behold.lmstudio-local-resident-session.v1',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+      templateSha256: sha256(TEMPLATE),
+    },
+    runtime: {
+      appVersion: APP_VERSION,
+      cliCommit: CLI_COMMIT,
+      engine: GGUF_ENGINE,
+      format: 'gguf',
+    },
+    settings: { contextTokens: 16_384, maxOutputTokens: 512, temperature: 0.2 },
+  };
 }
 
 function request(model: string) {
@@ -600,21 +720,22 @@ function request(model: string) {
   } as const;
 }
 
-function preflightRunner(residentPolicy: ReturnType<typeof policy>) {
+function preflightRunner(residentPolicy: LmStudioLocalPolicy) {
   return (args: readonly string[]) => {
     if (args[0] === '--version') return `CLI commit: ${CLI_COMMIT}\n`;
-    if (args[0] === 'runtime') return `ENGINE SELECTED\n${ENGINE} ✓ MLX\n`;
+    if (args[0] === 'runtime')
+      return `ENGINE SELECTED\n${residentPolicy.runtime.engine} ✓ runtime\n`;
     if (args[0] === 'ls') return JSON.stringify([indexEntry(residentPolicy)]);
     if (args[0] === 'ps') return '[]';
     throw new Error(`unexpected lms command ${args.join(' ')}`);
   };
 }
 
-function indexEntry(residentPolicy: ReturnType<typeof policy>) {
+function indexEntry(residentPolicy: LmStudioLocalPolicy) {
   return {
     type: 'llm',
     modelKey: residentPolicy.catalogKey,
-    format: 'safetensors',
+    format: residentPolicy.runtime.format === 'mlx' ? 'safetensors' : 'gguf',
     path: residentPolicy.catalogKey,
     sizeBytes: residentPolicy.artifact.sizeBytes,
     indexedModelIdentifier: residentPolicy.indexedModelIdentifier,
@@ -623,20 +744,20 @@ function indexEntry(residentPolicy: ReturnType<typeof policy>) {
 }
 
 function inventoryFetch(
-  residentPolicy: ReturnType<typeof policy>,
+  residentPolicy: LmStudioLocalPolicy,
   loaded: readonly string[],
 ): typeof globalThis.fetch {
   return async () => inventoryResponse(residentPolicy, loaded);
 }
 
-function inventoryResponse(residentPolicy: ReturnType<typeof policy>, loaded: readonly string[]) {
+function inventoryResponse(residentPolicy: LmStudioLocalPolicy, loaded: readonly string[]) {
   return json({
     models: [
       {
         type: 'llm',
         key: residentPolicy.catalogKey,
         architecture: 'qwen3',
-        format: 'mlx',
+        format: residentPolicy.runtime.format,
         size_bytes: residentPolicy.artifact.sizeBytes,
         max_context_length: 65_536,
         selected_variant: null,
@@ -648,6 +769,31 @@ function inventoryResponse(residentPolicy: ReturnType<typeof policy>, loaded: re
       },
     ],
   });
+}
+
+function minimalGguf(metadata: Readonly<Record<string, string>>) {
+  const parts = [Buffer.from('GGUF'), uint32(3), uint64(0), uint64(Object.keys(metadata).length)];
+  for (const [key, value] of Object.entries(metadata)) {
+    parts.push(ggufString(key), uint32(8), ggufString(value));
+  }
+  return Buffer.concat(parts);
+}
+
+function ggufString(value: string) {
+  const bytes = Buffer.from(value, 'utf8');
+  return Buffer.concat([uint64(bytes.length), bytes]);
+}
+
+function uint32(value: number) {
+  const bytes = Buffer.alloc(4);
+  bytes.writeUInt32LE(value);
+  return bytes;
+}
+
+function uint64(value: number) {
+  const bytes = Buffer.alloc(8);
+  bytes.writeBigUInt64LE(BigInt(value));
+  return bytes;
 }
 
 function response(instanceId: string, output: unknown) {

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ModelCallEvidence } from './evidence';
 import type { LoomFoldRequest } from '../entity/folding';
+import { readGgufStringMetadataBytes } from './gguf';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
 import {
   assertStrictLocalResidentSessionPrefix,
@@ -56,7 +57,7 @@ export type LmStudioLocalPolicy = Readonly<{
     appVersion: string;
     cliCommit: string;
     engine: string;
-    format: 'mlx';
+    format: 'mlx' | 'gguf';
   }>;
   settings: Readonly<{
     contextTokens: number;
@@ -249,8 +250,8 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
     ['appVersion', 'cliCommit', 'engine', 'format'],
     'LM Studio runtime identity',
   );
-  if (runtime.format !== 'mlx') {
-    throw new Error('LM Studio resident session v1 admits only the MLX runtime');
+  if (runtime.format !== 'mlx' && runtime.format !== 'gguf') {
+    throw new Error('LM Studio resident session format must be mlx or gguf');
   }
   const settings = exactRecord(
     record.settings,
@@ -283,10 +284,8 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
     'LM Studio indexed model identity',
   );
   const relativePath = exactRelativePath(artifact.relativePath);
-  if (
-    indexedModelIdentifier !== relativePath &&
-    !indexedModelIdentifier.endsWith(`@${relativePath}`)
-  ) {
+  const format = runtime.format;
+  if (!indexedIdentityNamesArtifact(indexedModelIdentifier, relativePath, format)) {
     throw new Error('LM Studio indexed identity does not name the admitted artifact path');
   }
   if (modelKey !== catalogKey && !modelKey.startsWith(`${catalogKey}@`)) {
@@ -318,7 +317,7 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
       appVersion: boundedText(runtime.appVersion, 'LM Studio app version', 80),
       cliCommit: boundedText(runtime.cliCommit, 'LM Studio CLI commit', 80),
       engine: boundedIdentity(runtime.engine, 'LM Studio engine'),
-      format: 'mlx',
+      format,
     },
     settings: { contextTokens, maxOutputTokens, temperature },
   });
@@ -960,7 +959,7 @@ export async function preflightLmStudioLocal(input: {
     .filter((line) => line.includes('✓'))
     .map((line) => line.trim().split(/\s+/)[0]);
   if (!selectedEngines.includes(commonRuntime.engine)) {
-    throw new Error('LM Studio selected MLX engine differs from the admitted runtime');
+    throw new Error('LM Studio selected engine differs from the admitted runtime');
   }
   const readAppVersion =
     input.readAppVersion ?? (() => defaultLmStudioAppVersion(input.appInfoPlist));
@@ -1002,7 +1001,7 @@ export async function preflightLmStudioLocal(input: {
       !plainRecord(catalogIndexEntry) ||
       !plainRecord(exactIndexEntry) ||
       exactIndexEntry.indexedModelIdentifier !== policy.indexedModelIdentifier ||
-      exactIndexEntry.format !== 'safetensors' ||
+      exactIndexEntry.format !== (policy.runtime.format === 'mlx' ? 'safetensors' : 'gguf') ||
       Number(exactIndexEntry.sizeBytes) !== policy.artifact.sizeBytes ||
       (policy.modelKey !== policy.catalogKey &&
         catalogIndexEntry.selectedVariant !== policy.modelKey)
@@ -1026,7 +1025,7 @@ export async function preflightLmStudioLocal(input: {
     if (
       !plainRecord(inventoryEntry) ||
       inventoryEntry.type !== 'llm' ||
-      inventoryEntry.format !== 'mlx' ||
+      inventoryEntry.format !== policy.runtime.format ||
       Number(inventoryEntry.size_bytes) !== policy.artifact.sizeBytes ||
       (policy.modelKey !== policy.catalogKey &&
         inventoryEntry.selected_variant !== policy.modelKey) ||
@@ -1041,9 +1040,10 @@ export async function preflightLmStudioLocal(input: {
     if (artifactTreeSha256 !== policy.artifact.treeSha256) {
       throw new Error(`LM Studio artifact bytes differ for ${policy.modelKey}`);
     }
-    const templateFile = path.join(artifactRoot, 'chat_template.jinja');
-    assertInside(artifactRoot, templateFile, 'LM Studio chat template');
-    const templateSha256 = await digestFile(templateFile);
+    const templateSha256 =
+      policy.runtime.format === 'mlx'
+        ? await digestMlxTemplate(artifactRoot)
+        : await digestGgufTemplate(artifactRoot, policy);
     if (templateSha256 !== policy.transport.templateSha256) {
       throw new Error(`LM Studio template bytes differ for ${policy.modelKey}`);
     }
@@ -1383,6 +1383,24 @@ async function digestFile(file: string) {
   return hash.digest('hex');
 }
 
+async function digestMlxTemplate(artifactRoot: string) {
+  const templateFile = path.join(artifactRoot, 'chat_template.jinja');
+  assertInside(artifactRoot, templateFile, 'LM Studio chat template');
+  return digestFile(templateFile);
+}
+
+async function digestGgufTemplate(artifactRoot: string, policy: LmStudioLocalPolicy) {
+  const modelsRelative = ggufArtifactMember(policy);
+  const artifactFile = path.join(artifactRoot, modelsRelative);
+  assertInside(artifactRoot, artifactFile, 'LM Studio GGUF artifact');
+  const stat = await fs.promises.lstat(artifactFile);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== policy.artifact.sizeBytes) {
+    throw new Error(`LM Studio GGUF file identity differs for ${policy.modelKey}`);
+  }
+  const template = await readGgufStringMetadataBytes(artifactFile, 'tokenizer.chat_template');
+  return sha256(template);
+}
+
 function uniquePolicies(values: readonly LmStudioLocalPolicy[]) {
   if (!Array.isArray(values) || values.length < 1) {
     throw new Error('LM Studio resident session requires at least one policy');
@@ -1400,6 +1418,31 @@ function uniquePolicies(values: readonly LmStudioLocalPolicy[]) {
     throw new Error('LM Studio resident policies must use one exact loopback endpoint');
   }
   return [...unique.values()];
+}
+
+function indexedIdentityNamesArtifact(
+  indexedModelIdentifier: string,
+  relativePath: string,
+  format: LmStudioLocalPolicy['runtime']['format'],
+) {
+  if (format === 'mlx') {
+    return (
+      indexedModelIdentifier === relativePath || indexedModelIdentifier.endsWith(`@${relativePath}`)
+    );
+  }
+  return (
+    indexedModelIdentifier.startsWith(`${relativePath}/`) &&
+    exactRelativePath(indexedModelIdentifier) === indexedModelIdentifier
+  );
+}
+
+function ggufArtifactMember(policy: LmStudioLocalPolicy) {
+  if (policy.runtime.format !== 'gguf') throw new Error('LM Studio policy is not GGUF');
+  const prefix = `${policy.artifact.relativePath}/`;
+  if (!policy.indexedModelIdentifier.startsWith(prefix)) {
+    throw new Error('LM Studio GGUF index identity is outside its admitted artifact root');
+  }
+  return exactRelativePath(policy.indexedModelIdentifier.slice(prefix.length));
 }
 
 export function lmStudioResidentInstanceId(
@@ -1609,7 +1652,7 @@ function optionalText(value: unknown) {
   return typeof value === 'string' && value ? value : null;
 }
 
-function sha256(value: string) {
+function sha256(value: string | Buffer) {
   return createHash('sha256').update(value).digest('hex');
 }
 
