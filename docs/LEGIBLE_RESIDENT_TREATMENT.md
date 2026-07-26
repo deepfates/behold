@@ -3,8 +3,9 @@
 `legible-resident-v1` is a versioned behavioral treatment for sustained resident
 life through the ordinary human-comparable semantic Minecraft body. It is not a
 neutral benchmark and it is not the existing coached `resident-v1` product
-policy. No model or Minecraft run has yet established that it improves resident
-conduct.
+policy. Its first live Oxford acceptance did not establish improvement: Phi
+made two public camera commitments, Llama made no valid action, and neither
+resident adapted when hostile ecology arrived.
 
 ## Standing charter
 
@@ -96,17 +97,26 @@ These are different treatments, not a quality ordering. Deterministic tests can
 prove their prompts, schemas, persistence, and rejection boundaries; they
 cannot prove that the legible treatment causes better Minecraft behavior.
 
-## Smallest later live acceptance
+## First live result and next gate
 
-A later, separately authorized run should use the already-exercised Oxford V3
-admission, two exact local model identities, ordinary event-driven life, a
-fixed wall-clock stop, and only a high nonbinding physical-attempt ceiling.
-Before release, both residents must be bound to the same v2 treatment/body and
-their own prior Lync continuity. During the run there must be no task/project
-injection, retry, correction, normalization, catch-up, provider call, or
-operator action beyond emergency stop. Acceptance for the treatment seam is
-mechanical: each valid turn persists and replays the exact public commitment,
-action, authoritative outcome, and safe perceptions, and Textile renders them
-readably without exposing private causal frames. Whether the residents then
-develop sustained adaptive conduct remains an observed result, not an assumed
-property of this profile.
+The first live acceptance used the already-exercised Oxford V3 admission, two
+exact local model identities, ordinary event-driven life, a fixed four-minute
+wall clock, and only high nonbinding attempt ceilings. Both residents were
+bound to the same v2 treatment/body and their own prior Lync continuity. There
+was no task/project injection, retry, correction, normalization, catch-up,
+provider call, or operator action after release.
+
+The treatment seam passed mechanically for Phi's two valid turns: each exact
+public commitment, action, authoritative outcome, and safe current/next
+perception persisted and rendered through Textile without exposing private
+causal frames. Behavior remained red. Llama returned two malformed greetings;
+Phi only reversed its view; the five-second urgent-decision boundary then
+cancelled work much faster than either local model could answer while mobs
+killed both bodies repeatedly. The exact result is recorded in
+[Legible-resident Oxford acceptance](reports/2026-07-26-legible-oxford-acceptance.md).
+
+Another schedule or larger attempt ceiling is not the next gate. Before another
+live acceptance, the declared mind path must have measured response latency
+compatible with ordinary Minecraft danger without admitting a stale pre-death
+body frame. A later run must still observe behavior rather than assume this
+charter causes it.

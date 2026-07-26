@@ -363,3 +363,42 @@ treatment for both local residents, existing viewers and Textile aftermath, no
 task/project injection or retry/correction, and observation of whether public
 commitments actually support sustained adaptive conduct. The ticket remains
 open until the original living-world acceptance criteria pass.
+
+**2026-07-26T09:00:00Z**
+
+The one authorized four-minute natural Oxford acceptance at `1388b0a` failed
+behaviorally and remains preserved without rerun. Phi made two valid public
+camera commitments and reversed right/left views; Llama made no valid action,
+although both malformed outputs attempted to greet Phi. Ordinary night ecology
+then killed Phi five times and Llama eight times. Neither resident moved
+voluntarily, defended itself, sought shelter, spoke, used inventory, changed a
+block, coordinated, or adapted. This is not endpoint completion or a model
+ranking.
+
+The owning mechanics are now concrete. The local responses that reached
+transport took 7.1-36.7 seconds upstream, while newly urgent bodily decisions
+had a five-second deadline. That produced 43 deadline failures, 19 interrupted
+calls, 42 captured upstream cancellations, two malformed Llama responses, and
+only the two Phi turns. Raising the deadline alone would not make post-death
+body frames current. The next product ratchet is a transparently identified
+cognition path whose measured latency fits ordinary Minecraft danger, not more
+fixed slots, opportunities, or retry/correction.
+
+Textile imported non-mutating derived copies of both continuing lives with all
+23 turns readable, zero unsupported events or observation-protocol diagnostics,
+byte-preserved source lines, and no coordinate/private-frame/stable-reference
+prose. Phi's intention, expected consequence, action, outcome, and next
+perception are clear. The aftermath still omits the main ecological story:
+Minecraft's authoritative log has thirteen deaths, controller observations
+retained only four distinct death events, and no post-danger EntityTurn exists.
+Readable living-world history therefore still needs the authoritative
+world/body event stream beside resident turns rather than synthesized action
+prose. Controllers, broker, server, viewers, ownership, ports, and run-owned
+models stopped cleanly; the Oxford V3 source identities remained unchanged.
+The harness's final nonzero was a post-teardown assertion using
+`utterance.content` instead of canonical `utterance.assistant.content`; the
+valid turns and world result were preserved. Full evidence and exact identities
+are in `docs/reports/2026-07-26-legible-oxford-acceptance.md`. `beh-n4fe`
+remains open: there is still no resident-authored persistent consequence,
+adaptive social/world conduct, or native-human co-presence in the useful
+living experience.

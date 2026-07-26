@@ -42,8 +42,12 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   and a strict public intention plus expected-observable-consequence response.
   The exact public commitment persists and replays with its causal EntityTurn;
   profile or content tamper fails closed. It does not inherit `resident-v1`
-  survival/project coaching or loop-shaping guards, and no live run yet shows
-  that it improves behavior. See
+  survival/project coaching or loop-shaping guards. Its first live Oxford
+  acceptance produced two readable camera commitments from Phi and no valid
+  Llama action while ordinary hostile ecology killed the residents thirteen
+  times. Five-second urgent deadlines could not admit the 7-37 second local
+  responses, and the turn-only aftermath omitted most deaths. This is a failed
+  behavioral acceptance, not evidence that the treatment improves conduct. See
   [Legible resident treatment v1](LEGIBLE_RESIDENT_TREATMENT.md).
 - A versioned neutral evaluation configuration now crosses the CLI, managed
   runner, run journal, mind request, affordance projection, and interpreter:
