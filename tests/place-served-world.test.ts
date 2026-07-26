@@ -10,6 +10,7 @@ import {
   assertPlaceServedAuthority,
   assertPlaceServedResumeContinuity,
   establishPlaceServedWorldBasis,
+  reconcileRecoveredPlaceServedWorldHead,
   recordPlaceServedWorldHead,
   verifyPlaceServedWorldBasis,
 } from '../src/runtime/place-served-world';
@@ -210,6 +211,89 @@ test('served-world head refuses to normalize a failure after population release'
         headFile: fixture.headFile,
       }),
     /Only a clean stopped Behold lifecycle/,
+  );
+});
+
+test('a completed abandoned-after-save recovery can authenticate the stopped world head', (t) => {
+  const fixture = makeFixture(t);
+  const established = establishPlaceServedWorldBasis(
+    {
+      sessionRoot: fixture.sessionRoot,
+      authority: fixture.authority,
+      saveEvidence: fixture.saveTerminal,
+    },
+    { assertAuthorityOwnership: () => {} },
+  );
+  fs.writeFileSync(path.join(fixture.runtimeWorld, 'resident-lived.txt'), 'durable consequence');
+  const control = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: established.descriptor.worldId,
+    runtimePath: fixture.runtimeWorld,
+  });
+  control.update('starting', {
+    server: { pid: process.pid, jarSha256: fixture.identity.minecraftServerSha256 },
+  });
+  control.update('running');
+  control.update('stopping');
+  control.append('server_save_acknowledged');
+  const terminal = control.append('run_terminal_world_state', {
+    protocol: 'behold.managed-terminal-world-state.v1',
+    runtime: control.record().runtime,
+    tree: digestTree(fixture.runtimeWorld),
+  });
+  control.append('run_stop_failed', { error: 'fixture broker drain verification failed' });
+  control.update('recovery_required', { server: null, controllers: [] });
+  const lifecycleLines = fs.readFileSync(control.journalFile, 'utf8').trim().split('\n');
+  const finalEvent = JSON.parse(lifecycleLines.at(-1)!);
+  const ownerFile = path.join(fixture.controlRoot, established.descriptor.worldId, 'owner.json');
+  const preparedFile = path.join(fixture.sessionRoot, 'recovery.prepared.json');
+  const completedFile = path.join(fixture.sessionRoot, 'recovery.completed.json');
+  const prepared = {
+    protocol: 'behold.world-recovery-evidence.v1',
+    phase: 'prepared',
+    classification: 'abandoned_after_save_ack',
+    world: established.descriptor.worldId,
+    epoch: control.record().epoch,
+    owner: { file: ownerFile },
+    lifecycle: {
+      file: fs.realpathSync.native(control.journalFile),
+      tipDigest: finalEvent.digest,
+      eventCount: lifecycleLines.length,
+      saveAcknowledged: true,
+    },
+    runtime: {
+      runtimePath: established.descriptor.paths.runtimeWorld,
+      runtimeSessionLock: { state: 'clear' },
+      serverPort: { state: 'clear' },
+    },
+  };
+  fs.writeFileSync(preparedFile, `${JSON.stringify(prepared)}\n`);
+  const completed = {
+    protocol: 'behold.world-recovery-evidence.v1',
+    phase: 'completed',
+    classification: 'abandoned_after_save_ack',
+    world: established.descriptor.worldId,
+    epoch: control.record().epoch,
+    preparedEvidence: fs.realpathSync.native(preparedFile),
+    preparedSha256: sha256File(preparedFile),
+    releasedOwnerFile: ownerFile,
+    releasedControllerLeases: [],
+  };
+  fs.unlinkSync(ownerFile);
+  fs.writeFileSync(completedFile, `${JSON.stringify(completed)}\n`);
+
+  const head = reconcileRecoveredPlaceServedWorldHead({
+    descriptorFile: established.descriptor.paths.descriptor,
+    recoveryEvidenceFile: completedFile,
+    headFile: fixture.headFile,
+  });
+
+  assert.equal(head.terminalKind, 'recovered_after_save');
+  assert.equal(head.lifecycle.terminalSequence, terminal.sequence);
+  assert.equal(
+    assertPlaceServedResumeContinuity(established.descriptor.paths.descriptor, fixture.headFile)
+      .runtime.digest,
+    digestTree(fixture.runtimeWorld).digest,
   );
 });
 

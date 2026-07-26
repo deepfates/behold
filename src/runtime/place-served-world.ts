@@ -15,7 +15,8 @@ import { verifyWorldLifecycleJournal } from './world-control';
 export const PLACE_SERVED_WORLD_PROTOCOL = 'behold.place-served-world.v1' as const;
 export const PLACE_SERVED_WORLD_HEAD_PROTOCOL = 'behold.place-served-world-head.v1' as const;
 
-type PlaceServedWorldTerminalKind = 'completed_run' | 'failed_start_cleanup';
+type PlaceServedWorldTerminalKind =
+  'completed_run' | 'failed_start_cleanup' | 'recovered_after_save';
 
 export type PlaceServedWorldDescriptor = Readonly<{
   protocol: typeof PLACE_SERVED_WORLD_PROTOCOL;
@@ -351,20 +352,23 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
       (event) => event.sequence === head.lifecycle.terminalSequence,
     );
     const terminalKind = placeServedWorldTerminalKind(terminal?.type);
-    const completed = terminal
-      ? placeServedWorldTerminalCompletion(
-          lifecycle.events,
-          terminal.sequence,
-          terminalKind,
-          descriptor,
-        )
-      : null;
+    const recovered = head.terminalKind === 'recovered_after_save';
+    const completed = recovered
+      ? verifyRecoveredHeadEvidence(head, lifecycle, descriptor)
+      : terminal
+        ? placeServedWorldTerminalCompletion(
+            lifecycle.events,
+            terminal.sequence,
+            terminalKind,
+            descriptor,
+          )
+        : null;
     if (
       lifecycle.world !== descriptor.worldId ||
       lifecycle.tipDigest !== head.lifecycle.tipDigest ||
-      lifecycle.events.at(-1)?.type !== 'control_released' ||
-      terminalKind == null ||
-      (head.terminalKind != null && head.terminalKind !== terminalKind) ||
+      (!recovered && lifecycle.events.at(-1)?.type !== 'control_released') ||
+      (!recovered && terminalKind == null) ||
+      (!recovered && head.terminalKind != null && head.terminalKind !== terminalKind) ||
       terminal.digest !== head.lifecycle.terminalDigest ||
       (terminal.data as any)?.protocol !== 'behold.managed-terminal-world-state.v1' ||
       (terminal.data as any)?.tree?.digest !== head.runtimeDigest ||
@@ -435,6 +439,129 @@ export function recordPlaceServedWorldHead(input: {
   const head = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
   atomicWriteJson(input.headFile, head);
   return head;
+}
+
+export function reconcileRecoveredPlaceServedWorldHead(input: {
+  descriptorFile: string;
+  recoveryEvidenceFile: string;
+  headFile: string;
+  now?: () => Date;
+}) {
+  const { descriptor } = verifyPlaceServedWorldBasis(input.descriptorFile);
+  const completedFile = plainFile(input.recoveryEvidenceFile, 'completed world recovery evidence');
+  const completed = readJson(completedFile);
+  const preparedFile = plainFile(completed.preparedEvidence, 'prepared world recovery evidence');
+  const prepared = readJson(preparedFile);
+  if (
+    completed.protocol !== 'behold.world-recovery-evidence.v1' ||
+    completed.phase !== 'completed' ||
+    completed.classification !== 'abandoned_after_save_ack' ||
+    completed.world !== descriptor.worldId ||
+    completed.preparedSha256 !== sha256File(preparedFile) ||
+    prepared.protocol !== 'behold.world-recovery-evidence.v1' ||
+    prepared.phase !== 'prepared' ||
+    prepared.classification !== 'abandoned_after_save_ack' ||
+    prepared.world !== descriptor.worldId ||
+    prepared.lifecycle?.saveAcknowledged !== true ||
+    completed.epoch !== prepared.epoch ||
+    completed.releasedOwnerFile !== prepared.owner?.file ||
+    fs.existsSync(completed.releasedOwnerFile)
+  ) {
+    throw new Error('World recovery evidence cannot advance the served-world head');
+  }
+  const lifecycle = verifyWorldLifecycleJournal(prepared.lifecycle.file);
+  const terminal = [...lifecycle.events]
+    .reverse()
+    .find((event) => event.type === 'run_terminal_world_state');
+  const save = lifecycle.events.find(
+    (event) => event.type === 'server_save_acknowledged' && event.sequence < terminal?.sequence,
+  );
+  const failed = lifecycle.events.find(
+    (event) => event.type === 'run_stop_failed' && event.sequence > terminal?.sequence,
+  );
+  if (
+    lifecycle.world !== descriptor.worldId ||
+    lifecycle.tipDigest !== prepared.lifecycle.tipDigest ||
+    lifecycle.events.length !== prepared.lifecycle.eventCount ||
+    lifecycle.events.at(-1)?.type !== 'control_state_changed' ||
+    (lifecycle.events.at(-1)?.data as any)?.state !== 'recovery_required' ||
+    !terminal ||
+    !save ||
+    !failed ||
+    (terminal.data as any)?.protocol !== 'behold.managed-terminal-world-state.v1'
+  ) {
+    throw new Error('Recovered lifecycle does not prove a saved stopped world');
+  }
+  const runtime = digestTree(descriptor.paths.runtimeWorld);
+  if (
+    runtime.digest !== (terminal.data as any)?.tree?.digest ||
+    prepared.runtime?.runtimePath !== descriptor.paths.runtimeWorld ||
+    prepared.runtime?.runtimeSessionLock?.state !== 'clear' ||
+    prepared.runtime?.serverPort?.state !== 'clear'
+  ) {
+    throw new Error('Recovered Place runtime differs from its stopped recovery evidence');
+  }
+  const base = {
+    protocol: PLACE_SERVED_WORLD_HEAD_PROTOCOL,
+    worldId: descriptor.worldId,
+    updatedAt: (input.now?.() ?? new Date()).toISOString(),
+    runtimeDigest: runtime.digest,
+    terminalKind: 'recovered_after_save' as const,
+    lifecycle: {
+      file: lifecycle.file,
+      terminalSequence: terminal.sequence,
+      terminalDigest: terminal.digest,
+      tipDigest: lifecycle.tipDigest,
+    },
+    recovery: {
+      completedEvidenceFile: completedFile,
+      completedEvidenceSha256: sha256File(completedFile),
+      preparedEvidenceFile: preparedFile,
+      preparedEvidenceSha256: completed.preparedSha256,
+    },
+  };
+  const head = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
+  verifyRecoveredHeadEvidence(head, lifecycle, descriptor);
+  atomicWriteJson(input.headFile, head);
+  return head;
+}
+
+function verifyRecoveredHeadEvidence(
+  head: any,
+  lifecycle: any,
+  descriptor: PlaceServedWorldDescriptor,
+) {
+  const recovery = head.recovery;
+  if (
+    head.terminalKind !== 'recovered_after_save' ||
+    !recovery ||
+    sha256File(recovery.completedEvidenceFile) !== recovery.completedEvidenceSha256 ||
+    sha256File(recovery.preparedEvidenceFile) !== recovery.preparedEvidenceSha256
+  ) {
+    return null;
+  }
+  const completed = readJson(recovery.completedEvidenceFile);
+  const prepared = readJson(recovery.preparedEvidenceFile);
+  const terminal = lifecycle.events.find(
+    (event: any) => event.sequence === head.lifecycle.terminalSequence,
+  );
+  return completed.protocol === 'behold.world-recovery-evidence.v1' &&
+    completed.phase === 'completed' &&
+    completed.classification === 'abandoned_after_save_ack' &&
+    completed.world === descriptor.worldId &&
+    completed.preparedEvidence === recovery.preparedEvidenceFile &&
+    completed.preparedSha256 === recovery.preparedEvidenceSha256 &&
+    prepared.protocol === 'behold.world-recovery-evidence.v1' &&
+    prepared.phase === 'prepared' &&
+    prepared.classification === 'abandoned_after_save_ack' &&
+    prepared.world === descriptor.worldId &&
+    prepared.lifecycle?.file === lifecycle.file &&
+    prepared.lifecycle?.tipDigest === lifecycle.tipDigest &&
+    prepared.lifecycle?.saveAcknowledged === true &&
+    terminal?.type === 'run_terminal_world_state' &&
+    (terminal.data as any)?.tree?.digest === head.runtimeDigest
+    ? completed
+    : null;
 }
 
 function placeServedWorldTerminalKind(type: unknown): PlaceServedWorldTerminalKind | null {
