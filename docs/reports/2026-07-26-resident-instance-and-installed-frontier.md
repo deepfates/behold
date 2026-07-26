@@ -13,12 +13,12 @@ It does not alter choices or rescue Qwen's repeated-camera behavior.
 
 The only untouched compact MLX candidate accepted by the installed model index,
 `rice-cracker-qwen3.5-0.8b-abliterated-base`, passed exact setup readiness but
-timed out on its first resident decision after 60.018 seconds. A separate
-untouched GGUF candidate, `berduck-qwen2-1.5b`, produced one valid, reasoning-free
-decision in 2.312 seconds, but it remains outside the exact production boundary
-and the single choice merely looked down while paraphrasing the already-visible
-scene. That is useful frontier evidence, not sufficient grounds to add a new
-runtime family and release it into Minecraft.
+timed out on its first resident decision after 60.018 seconds. The GGUF
+production gap exposed by `berduck-qwen2-1.5b` was then closed without changing
+the resident contract. Berduck's exact production path was fast and
+reasoning-free, but both fresh horizons selected the same look-down camera
+action and the addressed-chat commitment confused Qwen's activity with the
+resident's own expected consequence. It therefore did not earn Minecraft.
 
 No retry, repair, prompt change, normalization, fallback, action steering,
 provider call, download, or Minecraft mutation was used. Since neither
@@ -46,9 +46,7 @@ This is implemented and fixture-exercised, not live-exercised. A same-model
 two-resident test proves two loads, distinct IDs, and two unloads. A broker test
 presents Birch's model instance on Aster's credential and receives a refusal
 before any upstream call. The managed runner test proves that the scoped ID
-crosses release, controller environment, and cleanup. Lint passed; the focused
-LM Studio/runner gate passed 54 tests; the complete suite passed 564 tests and
-skipped one mounted-artifact test, with zero failures.
+crosses release, controller environment, and cleanup.
 
 ## Rice-Cracker Qwen3.5 0.8B
 
@@ -95,8 +93,8 @@ output quality is unknown because no decision response existed to parse.
 
 ## Berduck Qwen2 1.5B GGUF
 
-Static inventory exposed one further compact instruct-shaped artifact outside
-the MLX-only production boundary:
+Static inventory exposed one further compact instruct-shaped artifact that the
+then-MLX-only production boundary could not admit:
 
 - model key `berduck-qwen2-1.5b`;
 - index identity
@@ -107,6 +105,8 @@ the MLX-only production boundary:
   `29b38f80cd7e0f19a7e3024dc3d822209b199ab62cafd69d9be7d3af8c69f2f2`;
 - regular-file-tree SHA-256
   `5c5f93ebf582cb3d3e2ba5edcc826381e81f2ef0b82beb8ace4c4e7882ad2059`;
+- exact embedded `tokenizer.chat_template` SHA-256
+  `cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f`;
 - llama.cpp engine
   `llama.cpp-mac-arm64-apple-metal-advsimd@2.14.0`.
 
@@ -126,25 +126,73 @@ materials. This was not the voice-copying failure seen from Bonsai, but neither
 was it evidence of consequence-sensitive continuation or useful response to an
 addressed urgent event.
 
-The result SHA-256 is
+That first diagnostic's result SHA-256 is
 `3f747c5c1cc5a49e3644f8303eabc204f69b1ef8c865dfc437d83f3b564a846b`;
 the model-log SHA-256 is
 `42e0ebfc7b926ee0a902766ee7a2ce5e4c92456d36547081d11705d6ded982e3`.
 The instance unloaded and final inventory was empty.
 
-Behold's production LM Studio policy deliberately admits only an exact MLX
-engine and verifies a standalone `chat_template.jinja`. This GGUF stores its
-template inside the model container; the diagnostic did not independently
-extract and bind those exact template bytes. Treating the whole artifact hash
-as if it were a template hash would blur two identities. A production GGUF
-extension therefore remains unimplemented. One weak but legal choice is not a
-sufficient behavioral reason to expand that boundary and launch a live world.
+### Exact GGUF product boundary
+
+Commit `c25c8a7` extends the same LM Studio resident-session policy narrowly to
+GGUF. A bounded streaming metadata reader verifies the GGUF magic and version,
+walks typed metadata without loading model tensors, requires exactly one UTF-8
+string at `tokenizer.chat_template`, and hashes those exact embedded bytes. The
+preflight also binds the regular-file artifact tree, exact indexed GGUF member
+and byte count, app and CLI versions, selected llama.cpp engine, native model
+inventory, context, output cap, temperature, strict schema, and unloaded state.
+It then uses the existing entity-bound instance load, two stable inventory
+reads, authenticated broker, response identity check, unchanged strict parser
+and controller validator, and independent unload verification.
+
+The implementation does not treat the whole model hash as a template hash,
+extract or rewrite a sidecar template, add llama.cpp-specific prompt content,
+or normalize output. A fixture binds a minimal GGUF's exact embedded template,
+rejects a template digest mismatch, loads an entity-scoped instance, and proves
+unload. Lint passed; 55 focused LM Studio/broker/runner tests passed. The full
+suite passed 565 tests, skipped one mounted-artifact test, and had zero
+failures.
+
+### Multi-horizon production result
+
+The production-path screen used two exact retained fresh Oxford horizons in one
+session: nearby Qwen with no prior resident action continuity, followed by a
+newly addressed urgent message from Qwen. One authority-free prefix readiness
+completed in 0.789 seconds. The two resident decisions completed in 2.099 and
+2.566 seconds. All three responses used the exact entity-bound instance,
+reported zero reasoning tokens, contained no tool calls, and passed their
+unchanged schemas. There was no retry or correction.
+
+Both decisions were identical:
+
+```text
+look_direction {"horizontal":"same","vertical":"down"}
+```
+
+The first commitment proposed looking around despite selecting no horizontal
+turn. The second reused the visible stone-brick/stained-glass subject and said
+the expected consequence was that the player-list UI would show Qwen exploring
+those materials. That confuses another resident's incoming report with this
+body's expected camera consequence. Fast structural conformance therefore did
+not become evidence of grounded adaptation.
+
+The production result SHA-256 is
+`e4a4c829f4ebd3d7a5024155d29b8f819eca5a83e776c3d9918f4ca44343ffed`.
+The broker journal verifies twelve events with tip
+`49d655cb8bb4f974ac5426e6acf5adeb272242aa4e5ddb139915db5b9b0520b6`;
+its file SHA-256 is
+`1f39100ce0034f599b86e51ae6a9e19f90a9c722d32428656ef3a5c90ccc204b`.
+Transport verification found three successful attempts, no failures,
+cancellations, identity failures, or corrections. All three quota charges
+settled, none remained unsettled, and the quota tip is
+`f3f4d4fc8e86e3904e29f2c07c27a60450d915426028605583f47ba25d2f3976`.
+The owned instance unloaded and `lms ps --json` was empty.
 
 ## Remaining installed boundary
 
 The current conclusion is narrower than “local models cannot work.” It is that
-no untouched candidate remains inside the exact installed production boundary
-with evidence supporting another release:
+the exact installed compact frontier has now been exercised without producing
+a candidate that supports another release:
 
 - Gemma 4 26B and Qwen3-VL 4B were already exercised under MLX; Gemma missed
   the body horizon and Qwen's live/resume treatment produced 47 identical
@@ -152,21 +200,27 @@ with evidence supporting another release:
 - Bonsai 8B is incompatible with the selected MLX engine; SmolLM3's installed
   template requests private reasoning by default; Rice timed out here.
 - The existing llama.cpp GPT-OSS and Bonsai treatments failed timing/grounding,
-  and Berduck has only the narrow non-production result above.
+  while exact production Berduck repeated one camera action and confused the
+  addressed consequence.
 - The installed Ollama Llama 3.2 and Phi-4 treatment was slow and behaviorally
   unsuccessful. Llama 3.3 is not an untouched candidate: current local runtime
   records already contain real starts and completions, so it was not relabeled
   as fresh and rerun.
 - Other indexed artifacts are large, base, reasoning-oriented, OCR/vision
-  specialists, or outside the admitted runtime; zero-byte model directories are
-  not installed artifacts. They were not promoted merely because an index
-  entry exists.
+  specialists, or zero-byte model directories rather than installed artifacts.
+  They were not promoted merely because an index entry exists.
+
+The installed Qwen3-VL 4B candidate was not merely inferred to have been
+exercised: it crossed exact MLX preflight and production-path fresh horizons,
+then completed two ordinary Oxford live/resume episodes with 47 actions. It was
+therefore not rerun or relabeled as untouched.
 
 The intended endpoint remains sustained, adaptive, resident-chosen life in
 ordinary Minecraft time. The mechanics now preserve entity-specific local
 session identity, current action admission, clean live/resume/view aftermath,
 and Textile-readable histories. What is missing is an admitted mind/runtime
 combination that can produce current, grounded choices at body-relevant
-latency. Acquiring a different artifact, accepting a remote provider/privacy or
-spend boundary, or declaring a native-human treatment are owner-held changes;
-the existing evidence does not authorize one implicitly.
+latency. Under the no-provider, no-native-human boundary, the smallest remaining
+owner-held choice is whether to authorize installing a different compact local
+instruction artifact for the now-exact MLX/GGUF product path. No artifact was
+downloaded or selected implicitly here.
