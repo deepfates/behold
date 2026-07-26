@@ -6,6 +6,7 @@ import type { RequestByteAttribution } from './request-attribution';
 import type {
   LmStudioLocalPolicy,
   LmStudioLocalLoomFoldRequestIdentity,
+  LmStudioLocalPrefixReadinessRequestIdentity,
   LmStudioLocalRequestIdentity,
   LmStudioLocalResponseIdentity,
 } from './lmstudio-local';
@@ -93,6 +94,10 @@ export type ModelCallEvidence = {
     lmStudioActionTransport?: LmStudioLocalRequestIdentity;
     /** Exact LM Studio non-authoritative long-range memory fold identity. */
     lmStudioLoomFoldTransport?: LmStudioLocalLoomFoldRequestIdentity;
+    /** Exact LM Studio authority-free stable-prefix readiness identity. */
+    lmStudioPrefixReadinessTransport?: LmStudioLocalPrefixReadinessRequestIdentity;
+    /** First-call readiness evidence bound into the resident decision it prepared. */
+    lmStudioPrefixReadiness?: unknown;
     requestedModelInstance?: string;
   };
   response: {

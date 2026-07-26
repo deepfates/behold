@@ -20,7 +20,7 @@ test('LM Studio mind sends one exact strict resident request and retains its ide
   let calls = 0;
   let capturedUrl = '';
   let capturedInit: RequestInit | undefined;
-  const times = [1_000, 1_125];
+  const times = [1_000, 1_125, 1_126, 1_251];
   const mind = createLmStudioLocalResidentMind({
     bearer: BEARER,
     endpoint: BROKER,
@@ -33,6 +33,13 @@ test('LM Studio mind sends one exact strict resident request and retains its ide
       calls += 1;
       capturedUrl = String(input);
       capturedInit = init;
+      if (isPrefixReadiness(init)) {
+        return response(
+          instance,
+          { ready: true },
+          admissionHeaders('resident_prefix_readiness', 'auxiliary'),
+        );
+      }
       return response(
         instance,
         {
@@ -46,8 +53,11 @@ test('LM Studio mind sends one exact strict resident request and retains its ide
     },
   });
 
+  const readiness = await mind.prepare!(request(), { signal: new AbortController().signal });
+  assert.equal((readiness as any).authority, 'none');
+  assert.equal((readiness as any).responseUsedAsResidentDecision, false);
   const decision = await mind.decide(request(), { signal: new AbortController().signal });
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   assert.equal(capturedUrl, BROKER);
   assert.equal(capturedInit?.method, 'POST');
   assert.equal((capturedInit?.headers as any).authorization, `Bearer ${BEARER}`);
@@ -75,6 +85,15 @@ test('LM Studio mind sends one exact strict resident request and retains its ide
   assert.equal(decision.call.adapter?.name, 'direct-lmstudio-local-json-action');
   assert.equal(decision.call.adapter?.version, 'resident-session-v1');
   assert.equal(decision.call.latencyMs, 125);
+  assert.equal((decision.call.request as any).lmStudioPrefixReadiness.authority, 'none');
+  assert.equal(
+    (decision.call.request as any).lmStudioPrefixReadiness.responseUsedAsResidentDecision,
+    false,
+  );
+  assert.equal(
+    (decision.call.request as any).lmStudioPrefixReadiness.call.response.usage.reasoning_tokens,
+    0,
+  );
   assert.equal(decision.call.admissions?.[0]?.admissionOrdinal, 1);
   assert.equal(decision.call.request.model, policy().modelKey);
   assert.equal((decision.call.request as any).requestedModelInstance, instance);
@@ -88,7 +107,36 @@ test('LM Studio mind sends one exact strict resident request and retains its ide
     prompt_tokens: 90,
     completion_tokens: 30,
     total_tokens: 120,
+    reasoning_tokens: 0,
   });
+});
+
+test('LM Studio mind refuses action inference when its prepared action contract drifts', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  let calls = 0;
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    fetch: async (_input, init) => {
+      calls += 1;
+      assert.equal(isPrefixReadiness(init), true);
+      return response(instance, { ready: true });
+    },
+  });
+
+  await mind.prepare!(request(), { signal: new AbortController().signal });
+  const drifted = {
+    ...request(),
+    actions: request().actions.filter((action) => action.name === 'wait_for_event'),
+  };
+  await assert.rejects(
+    mind.decide(drifted, { signal: new AbortController().signal }),
+    /action contract drifted after prefix readiness/,
+  );
+  assert.equal(calls, 1);
 });
 
 test('LM Studio mind rejects instance drift distinctly and never retries', async () => {
@@ -100,8 +148,11 @@ test('LM Studio mind rejects instance drift distinctly and never retries', async
     modelInstanceId: lmStudioResidentInstanceId(policy()),
     cognitionTransport: true,
     recordModelIO: true,
-    fetch: async () => {
+    fetch: async (_input, init) => {
       calls += 1;
+      if (isPrefixReadiness(init)) {
+        return response(lmStudioResidentInstanceId(policy()), { ready: true });
+      }
       return response('behold-bbbbbbbbbbbbbbbbbbbbbbbb', validOutput());
     },
   });
@@ -118,7 +169,7 @@ test('LM Studio mind rejects instance drift distinctly and never retries', async
       return true;
     },
   );
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });
 
 test('LM Studio mind retains malformed output without correction, normalization, or retry', async () => {
@@ -131,8 +182,9 @@ test('LM Studio mind retains malformed output without correction, normalization,
     modelInstanceId: instance,
     cognitionTransport: true,
     recordModelIO: true,
-    fetch: async () => {
+    fetch: async (_input, init) => {
       calls += 1;
+      if (isPrefixReadiness(init)) return response(instance, { ready: true });
       return response(instance, {
         intention: 'Walk forward',
         expectedObservableConsequence: { copiedControllerOutcome: true },
@@ -153,7 +205,7 @@ test('LM Studio mind retains malformed output without correction, normalization,
       return true;
     },
   );
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });
 
 test('LM Studio mind propagates abort to its sole physical request', async () => {
@@ -200,11 +252,13 @@ test('LM Studio mind leaves canonical action-input validation to the controller 
     policy: policy(),
     modelInstanceId: instance,
     cognitionTransport: true,
-    fetch: async () =>
-      response(instance, {
-        ...validOutput(),
-        arguments: { direction: 'forward', durationMs: 999_999 },
-      }),
+    fetch: async (_input, init) =>
+      isPrefixReadiness(init)
+        ? response(instance, { ready: true })
+        : response(instance, {
+            ...validOutput(),
+            arguments: { direction: 'forward', durationMs: 999_999 },
+          }),
   });
 
   const decision = await mind.decide(request(), { signal: new AbortController().signal });
@@ -401,14 +455,26 @@ function response(instance: string, output: unknown, headers: HeadersInit = {}) 
           message: { role: 'assistant', content: JSON.stringify(output), tool_calls: [] },
         },
       ],
-      usage: { prompt_tokens: 90, completion_tokens: 30, total_tokens: 120 },
+      usage: {
+        prompt_tokens: 90,
+        completion_tokens: 30,
+        total_tokens: 120,
+        completion_tokens_details: { reasoning_tokens: 0 },
+      },
     }),
     { status: 200, headers: { 'content-type': 'application/json', ...headers } },
   );
 }
 
+function isPrefixReadiness(init: RequestInit | undefined) {
+  return (
+    JSON.parse(String(init?.body)).response_format?.json_schema?.name ===
+    'behold_resident_prefix_ready_v1'
+  );
+}
+
 function admissionHeaders(
-  purpose: 'resident_decision' | 'loom_fold' = 'resident_decision',
+  purpose: 'resident_decision' | 'resident_prefix_readiness' | 'loom_fold' = 'resident_decision',
   priority: 'deliberative' | 'auxiliary' = 'deliberative',
 ): Record<string, string> {
   return {

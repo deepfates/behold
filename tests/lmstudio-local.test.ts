@@ -8,13 +8,16 @@ import type { ModelCallEvidence } from '../src/mind/evidence';
 import {
   assertLmStudioLocalJsonActionRequest,
   assertLmStudioLocalLoomFoldWireRequest,
+  assertLmStudioLocalPrefixReadinessWireRequest,
   assertLmStudioLocalWireRequest,
   createLmStudioLocalJsonActionRequest,
   createLmStudioLocalLoomFoldRequest,
+  createLmStudioLocalPrefixReadinessRequest,
   digestRegularFileTree,
   lmStudioLocalPolicy,
   parseLmStudioLocalJsonActionDecision,
   parseLmStudioLocalLoomFoldResponse,
+  parseLmStudioLocalPrefixReadinessResponse,
   preflightLmStudioLocal,
   prepareLmStudioResidentSession,
   releaseLmStudioResidentSession,
@@ -219,6 +222,49 @@ test('LM Studio wire preserves the exact strict resident schema and stable prefi
   );
 });
 
+test('LM Studio prefix readiness prefills only the exact stable contract without action authority', async (t) => {
+  const fixture = await artifactFixture(t);
+  const residentPolicy = policy(fixture);
+  const residentRequest = request(residentPolicy.modelKey) as any;
+  const instanceId = expectedInstanceId(residentPolicy);
+  const action = createLmStudioLocalJsonActionRequest(residentRequest, residentPolicy, instanceId);
+  const readiness = createLmStudioLocalPrefixReadinessRequest(
+    residentRequest,
+    residentPolicy,
+    instanceId,
+  );
+  const body: any = readiness.body;
+  assert.deepEqual(body.messages.slice(0, 2), (action.body as any).messages.slice(0, 2));
+  assert.equal(body.messages.length, 3);
+  assert.match(body.messages[2].content, /no Minecraft observation, world authority, or action/);
+  assert.equal(body.response_format.json_schema.name, 'behold_resident_prefix_ready_v1');
+  assert.equal(body.max_tokens, 16);
+  assert.equal(Object.hasOwn(body, 'tools'), false);
+  assert.deepEqual(
+    assertLmStudioLocalPrefixReadinessWireRequest(body, residentPolicy),
+    readiness.identity,
+  );
+  assert.equal(readiness.identity.stablePrefixSha256, action.identity.stablePrefixSha256);
+  assert.equal(readiness.identity.actionContractSha256, action.identity.actionContractSha256);
+  assert.equal(
+    parseLmStudioLocalPrefixReadinessResponse(
+      response(instanceId, { ready: true }),
+      residentPolicy,
+      instanceId,
+    ),
+    true,
+  );
+
+  const drifted = structuredClone(body);
+  drifted.messages[2].content += ' Choose move_controls.';
+  assert.throws(() => assertLmStudioLocalPrefixReadinessWireRequest(drifted, residentPolicy));
+  const leaked: any = response(instanceId, { ready: true });
+  leaked.choices[0].message.reasoning_content = 'I should prepare an action.';
+  assert.throws(() =>
+    parseLmStudioLocalPrefixReadinessResponse(leaked, residentPolicy, instanceId),
+  );
+});
+
 test('LM Studio response admits one exact public decision and rejects identity, tools, multiplicity, and malformed output', async (t) => {
   const fixture = await artifactFixture(t);
   const residentPolicy = policy(fixture);
@@ -264,6 +310,19 @@ test('LM Studio response admits one exact public decision and rejects identity, 
       ],
     },
     response(instanceId, { ...output, expectedObservableConsequence: { ok: true } }),
+    {
+      ...response(instanceId, output),
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify(output),
+            reasoning_content: 'private chain of thought',
+            tool_calls: [],
+          },
+        },
+      ],
+    },
   ]) {
     assert.throws(() =>
       parseLmStudioLocalJsonActionDecision(

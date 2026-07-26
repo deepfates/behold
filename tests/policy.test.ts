@@ -184,6 +184,60 @@ test('release-gated policy admits no mind call before release and attributes eve
   await active.stop();
 });
 
+test('mind preparation derives a current authority-free request without deciding or acting', async () => {
+  const prepared: ResidentMindRequest[] = [];
+  let decisions = 0;
+  let attempts = 0;
+  const mind: ResidentMind = {
+    id: 'preparable-mind',
+    prepare: async (request) => {
+      prepared.push(request);
+      return {
+        protocol: 'fixture.prefix-readiness.v1',
+        authority: 'none',
+      };
+    },
+    decide: async () => {
+      decisions += 1;
+      assert.fail('preparation must not decide');
+    },
+  };
+  const environment = {
+    entityId: 'PreparedResident',
+    actions: [] as any[],
+    attempt: () => {
+      attempts += 1;
+      return true;
+    },
+    observe: (sinceSequence = 0) => experience(3, null, sinceSequence),
+  };
+  const policy = startLLMPolicy(environment, {
+    apiKey: 'unused',
+    model: 'test/model',
+    mind,
+    policyProfile: 'neutral-benchmark-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    acceptEngineEvent: () => true,
+  });
+
+  const evidence = await policy.prepareMind();
+  assert.deepEqual(evidence, {
+    protocol: 'fixture.prefix-readiness.v1',
+    authority: 'none',
+  });
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].experimentRelease, undefined);
+  assert.equal((prepared[0].conversation[0] as any)?.role, 'system');
+  assert.match(String((prepared[0].conversation.at(-1) as any)?.content), /Setup world experience/);
+  assert.equal(decisions, 0);
+  assert.equal(attempts, 0);
+  assert.equal(policy.state().entityTurns, 0);
+  assert.equal(policy.state().lastSequence, 0);
+  assert.strictEqual(await policy.prepareMind(), evidence);
+  assert.equal(prepared.length, 1);
+  await policy.stop();
+});
+
 test('new harm reclaims stale deliberative work but not its already urgent bounded response', () => {
   const harm = { type: 'self_hurt', salience: 'urgent' as const };
   assert.equal(bodilyUrgencyReclaimsModelAction(harm, null), true);

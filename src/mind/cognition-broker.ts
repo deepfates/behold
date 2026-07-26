@@ -40,6 +40,7 @@ import {
   type OllamaLocalPreflight,
 } from './ollama-local';
 import {
+  assertLmStudioLocalPrefixReadinessWireRequest,
   assertLmStudioLocalLoomFoldWireRequest,
   assertLmStudioLocalWireRequest,
   exactLmStudioEndpoint,
@@ -118,6 +119,7 @@ export type CognitionBrokerSnapshot = Readonly<{
   peakActive: number;
   peakQueued: number;
   accepted: number;
+  acceptedByPurpose: Readonly<Record<CognitionPurpose, number>>;
   admitted: number;
   completed: number;
   failed: number;
@@ -172,7 +174,7 @@ export type CognitionBrokerOptions = Readonly<{
       worldId: string;
       accountId: string;
       ledgerFile: string;
-      limits: Readonly<Record<CognitionPurpose, number>>;
+      limits: Readonly<{ resident_decision: number; loom_fold: number }>;
     }>;
   }>[];
   maxConcurrent: number;
@@ -413,6 +415,11 @@ export async function startCognitionBroker(
     totalQueueMs: 0,
     admissionOrdinal: 0,
   };
+  const acceptedByPurpose: Record<CognitionPurpose, number> = {
+    resident_decision: 0,
+    resident_prefix_readiness: 0,
+    loom_fold: 0,
+  };
 
   const emit = (type: CognitionBrokerEvent['type'], job: Job | null, data: unknown = {}) => {
     const base = {
@@ -501,6 +508,7 @@ export async function startCognitionBroker(
       !clientRequestId ||
       !isPriority(priority) ||
       !isPurpose(purpose) ||
+      (purpose === 'resident_prefix_readiness' && !client.lmStudioLocal) ||
       urgentTriggerSequence === 'invalid' ||
       (priority === 'urgent') !== (urgentTriggerSequence != null)
     ) {
@@ -604,6 +612,7 @@ export async function startCognitionBroker(
       transportCaptureReference: null,
     };
     metrics.accepted += 1;
+    acceptedByPurpose[purpose] += 1;
     queues.get(priority)!.push(job);
     metrics.peakQueued = Math.max(metrics.peakQueued, queuedCount());
     try {
@@ -693,11 +702,14 @@ export async function startCognitionBroker(
       if (accounting) {
         let charged: ReturnType<QuotaLedger['charge']>;
         try {
-          charged = accounting.charge(job.purpose, job.brokerRequestId, {
+          const quotaPurpose =
+            job.purpose === 'resident_prefix_readiness' ? 'resident_decision' : job.purpose;
+          charged = accounting.charge(quotaPurpose, job.brokerRequestId, {
             clientRequestId: job.clientRequestId,
             residentKey: job.client.residentKey,
             priority: job.priority,
             purpose: job.purpose,
+            quotaPurpose,
             urgentTriggerSequence: job.urgentTriggerSequence,
             model: job.model,
             bodySha256: job.bodySha256,
@@ -1339,6 +1351,7 @@ export async function startCognitionBroker(
       concurrencyLimit: maxConcurrent,
       acceptedLimit: maxAccepted,
       acceptedRemaining: maxAccepted == null ? null : Math.max(0, maxAccepted - metrics.accepted),
+      acceptedByPurpose: Object.freeze({ ...acceptedByPurpose }),
       active,
       queued: queuedCount(),
       ...metrics,
@@ -1569,9 +1582,11 @@ function assertLmStudioRequestForPurpose(
   policy: LmStudioLocalPolicy,
   purpose: CognitionPurpose,
 ) {
-  return purpose === 'loom_fold'
-    ? assertLmStudioLocalLoomFoldWireRequest(value, policy)
-    : assertLmStudioLocalWireRequest(value, policy);
+  if (purpose === 'loom_fold') return assertLmStudioLocalLoomFoldWireRequest(value, policy);
+  if (purpose === 'resident_prefix_readiness') {
+    return assertLmStudioLocalPrefixReadinessWireRequest(value, policy);
+  }
+  return assertLmStudioLocalWireRequest(value, policy);
 }
 
 function normalizeClients(values: CognitionBrokerOptions['clients']): readonly Client[] {
@@ -1908,7 +1923,9 @@ function isPriority(value: unknown): value is CognitionPriority {
 }
 
 function isPurpose(value: unknown): value is CognitionPurpose {
-  return value === 'resident_decision' || value === 'loom_fold';
+  return (
+    value === 'resident_decision' || value === 'resident_prefix_readiness' || value === 'loom_fold'
+  );
 }
 
 function parseUrgentTrigger(value: string | string[] | undefined): number | null | 'invalid' {

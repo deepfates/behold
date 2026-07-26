@@ -84,6 +84,14 @@ export type ResidentMindDecision = {
 
 export type ResidentMind = {
   id: string;
+  /**
+   * Optional authority-free setup for a stable request prefix. The controller
+   * may call this before world release; it must not return or admit an action.
+   */
+  prepare?: (
+    request: Readonly<ResidentMindRequest>,
+    options: Readonly<{ signal: AbortSignal }>,
+  ) => Promise<unknown>;
   decide: (
     request: Readonly<ResidentMindRequest>,
     options: Readonly<{ signal: AbortSignal }>,

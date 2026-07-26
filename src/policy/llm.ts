@@ -518,6 +518,87 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let suspended = false;
   let activeDecision: ActiveDecision | null = null;
   let continuingBodilyAttention: ResidentAttention | null = null;
+  let mindPreparation: Promise<unknown> | null = null;
+
+  async function prepareMind() {
+    if (!mind.prepare) return null;
+    mindPreparation ??= withModelRequest(async (signal) => {
+      const rawObservation = observe();
+      const modelObservation = projectCurrentObservation(rawObservation);
+      const currentAttention = attentionForObservation(modelObservation);
+      const attention = hasBodilyUrgency(currentAttention)
+        ? { ...currentAttention, decisionBudgetMs: urgentDecisionTimeoutMs }
+        : currentAttention;
+      const decisionModel = hasBodilyUrgency(attention)
+        ? opts.urgentModel || opts.model
+        : opts.model;
+      const physicallyOffered = actionsOfferedByEnvironment(
+        environment,
+        rawObservation,
+        executableTools,
+        executableCatalog,
+        log,
+      );
+      const withYield = physicallyOffered.some((spec) => spec.function.name === WAIT_TOOL)
+        ? physicallyOffered
+        : [...physicallyOffered, waitToolSpec];
+      const availableTools = availableModelTools(
+        withYield,
+        rawObservation,
+        attention,
+        policyProfile,
+      );
+      const requiredTool = usesResidentV1Behavior(policyProfile)
+        ? requiredSelfDirectionTool(rawObservation, availableTools, allow)
+        : null;
+      const preparationMessages = [
+        messages[0],
+        worldUpdateMessage(
+          modelObservation,
+          'Setup world experience',
+          lastTool,
+          opts.workingContinuity,
+        ),
+      ];
+      const request: ResidentMindRequest = {
+        protocol: 'behold.mind-request.v1',
+        entityId,
+        model: decisionModel,
+        policyProfile,
+        bodyProfile,
+        actionProfile,
+        safetyProfile,
+        observation: cloneJson(modelObservation),
+        conversation: cloneJson(
+          conversationForAttention(
+            preparationMessages,
+            attention,
+            availableTools,
+            projectWorkingContinuity(
+              attention.context === 'bounded_loom'
+                ? DELIBERATIVE_CONTINUITY_TURNS
+                : URGENT_CONTINUITY_TURNS,
+              attention.context === 'bounded_loom'
+                ? DELIBERATIVE_CONTINUITY_BYTES
+                : URGENT_CONTINUITY_BYTES,
+            ),
+            policyProfile,
+          ),
+        ),
+        actions: cloneJson(
+          availableTools.map((action) => ({
+            name: action.function.name,
+            description: action.function.description,
+            inputSchema: action.function.parameters ?? { type: 'object', properties: {} },
+          })),
+        ),
+        requiredAction: requiredTool,
+        attention,
+      };
+      return await mind.prepare!(request, { signal });
+    });
+    return await mindPreparation;
+  }
 
   async function wake(force = false) {
     if (stopped || suspended) return;
@@ -1340,15 +1421,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     } else if (!Array.isArray(frame?.events) && Number.isFinite(Number(frame?.sequence))) {
       lastSequence = Math.max(lastSequence, Number(frame.sequence));
     }
-    messages.push({
-      role: 'user',
-      content: [
-        `${label}:\n${JSON.stringify(projected)}`,
-        ...(opts.workingContinuity === 'resident-session-v1'
-          ? []
-          : [`Previous action: ${lastTool ?? 'none'}`]),
-      ].join('\n'),
-    });
+    messages.push(worldUpdateMessage(projected, label, lastTool, opts.workingContinuity));
   }
 
   async function closeTurn(
@@ -1516,6 +1589,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   return {
+    prepareMind,
     start,
     stop,
     tick: () => wake(true),
@@ -1539,6 +1613,23 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       loomMaintenanceActive,
       loomContext: loomContext.state(),
     }),
+  };
+}
+
+function worldUpdateMessage(
+  projected: unknown,
+  label: string,
+  lastTool: string | null,
+  workingContinuity: Options['workingContinuity'],
+) {
+  return {
+    role: 'user' as const,
+    content: [
+      `${label}:\n${JSON.stringify(projected)}`,
+      ...(workingContinuity === 'resident-session-v1'
+        ? []
+        : [`Previous action: ${lastTool ?? 'none'}`]),
+    ].join('\n'),
   };
 }
 

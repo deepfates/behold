@@ -4,7 +4,7 @@ export const COGNITION_TRANSPORT_PROTOCOL = 'behold.cognition-transport.v1' as c
 export const COGNITION_ADMISSION_PROTOCOL = 'behold.cognition-admission.v1' as const;
 
 export type CognitionPriority = 'urgent' | 'deliberative' | 'auxiliary';
-export type CognitionPurpose = 'resident_decision' | 'loom_fold';
+export type CognitionPurpose = 'resident_decision' | 'resident_prefix_readiness' | 'loom_fold';
 
 export type CognitionAdmissionEvidence = Readonly<{
   protocol: typeof COGNITION_ADMISSION_PROTOCOL;
@@ -151,7 +151,9 @@ function isPriority(value: unknown): value is CognitionPriority {
 }
 
 function isPurpose(value: unknown): value is CognitionPurpose {
-  return value === 'resident_decision' || value === 'loom_fold';
+  return (
+    value === 'resident_decision' || value === 'resident_prefix_readiness' || value === 'loom_fold'
+  );
 }
 
 function finiteHeader(headers: Headers, name: string) {

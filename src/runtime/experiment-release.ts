@@ -172,15 +172,16 @@ export function createExperimentReleasePlan(input: {
   for (const resident of residents) {
     if (!resident.decisionSchedule) continue;
     const account = resident.quotaAccount;
+    const expectedDecisionAttempts = 4 + (resident.lmStudioLocal ? 1 : 0);
     if (
-      account.limits.resident_decision !== 4 ||
+      account.limits.resident_decision !== expectedDecisionAttempts ||
       account.used.resident_decision !== 0 ||
       account.used.loom_fold !== 0 ||
-      account.remaining.resident_decision !== 4 ||
+      account.remaining.resident_decision !== expectedDecisionAttempts ||
       account.remaining.loom_fold !== account.limits.loom_fold
     ) {
       throw new Error(
-        `fixed decision pilot release requires a fresh four-decision quota account for ${resident.entityId}`,
+        `fixed decision pilot release requires a fresh ${expectedDecisionAttempts}-attempt decision account for ${resident.entityId}`,
       );
     }
   }

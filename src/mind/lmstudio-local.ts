@@ -6,6 +6,7 @@ import type { ModelCallEvidence } from './evidence';
 import type { LoomFoldRequest } from '../entity/folding';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
 import {
+  assertStrictLocalResidentSessionPrefix,
   assertStrictLocalResidentSessionEnvelope,
   createStrictLocalResidentSessionEnvelope,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
@@ -19,6 +20,10 @@ export const LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL =
 export const LMSTUDIO_LOCAL_PREFLIGHT_PROTOCOL = 'behold.lmstudio-local-preflight.v1' as const;
 export const LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL =
   'behold.lmstudio-local-request-identity.v1' as const;
+export const LMSTUDIO_LOCAL_PREFIX_READINESS_TRANSPORT_PROTOCOL =
+  'behold.lmstudio-local-prefix-readiness.v1' as const;
+export const LMSTUDIO_LOCAL_PREFIX_READINESS_REQUEST_IDENTITY_PROTOCOL =
+  'behold.lmstudio-local-prefix-readiness-request-identity.v1' as const;
 export const LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL =
   'behold.lmstudio-local-loom-fold.v1' as const;
 export const LMSTUDIO_LOCAL_LOOM_FOLD_SCHEMA_PROTOCOL =
@@ -99,6 +104,21 @@ export type LmStudioLocalRequestIdentity = Readonly<{
   stablePrefixSha256: string;
 }>;
 
+export type LmStudioLocalPrefixReadinessRequestIdentity = Readonly<{
+  protocol: typeof LMSTUDIO_LOCAL_PREFIX_READINESS_REQUEST_IDENTITY_PROTOCOL;
+  transportProtocol: typeof LMSTUDIO_LOCAL_PREFIX_READINESS_TRANSPORT_PROTOCOL;
+  modelKey: string;
+  catalogKey: string;
+  indexedModelIdentifier: string;
+  modelInstanceId: string;
+  artifactTreeSha256: string;
+  templateSha256: string;
+  runtime: LmStudioLocalPolicy['runtime'];
+  actionContractSha256: string;
+  stablePrefixSha256: string;
+  responseFormatSha256: string;
+}>;
+
 export type LmStudioLocalLoomFoldRequestIdentity = Readonly<{
   protocol: typeof LMSTUDIO_LOCAL_LOOM_FOLD_REQUEST_IDENTITY_PROTOCOL;
   transportProtocol: typeof LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL;
@@ -149,6 +169,14 @@ const MAX_OUTPUT_TOKENS = 32_768;
 const MAX_CLI_BYTES = 8 * 1024 * 1024;
 const MAX_LOOM_FOLD_SUMMARY_CHARS = 8_000;
 const MAX_LOOM_FOLD_SOURCE_BYTES = 256 * 1024;
+const LMSTUDIO_PREFIX_READINESS_PROMPT =
+  'Setup-only prefix readiness. There is no Minecraft observation, world authority, or action to choose. Return ready true.';
+const LMSTUDIO_PREFIX_READINESS_SCHEMA = deepFreeze({
+  type: 'object',
+  properties: { ready: { const: true } },
+  required: ['ready'],
+  additionalProperties: false,
+});
 
 const LMSTUDIO_LOOM_FOLD_SYSTEM_PROMPT = [
   "You are producing a bounded, non-authoritative view of one entity's append-only loom.",
@@ -361,6 +389,157 @@ export function createLmStudioLocalJsonActionRequest(
   return deepFreeze({ body, identity });
 }
 
+export function createLmStudioLocalPrefixReadinessRequest(
+  requestValue: ResidentMindRequest,
+  policyValue: LmStudioLocalPolicy,
+  modelInstanceId: string,
+) {
+  const policy = lmStudioLocalPolicy(policyValue);
+  if (requestValue.model !== policy.modelKey) {
+    throw new Error('LM Studio prefix readiness model differs from the admitted model key');
+  }
+  const instanceId = exactInstanceId(modelInstanceId);
+  const envelope = createStrictLocalResidentSessionEnvelope(requestValue);
+  const messages = deepFreeze([
+    ...envelope.messages.slice(0, 2),
+    { role: 'user' as const, content: LMSTUDIO_PREFIX_READINESS_PROMPT },
+  ]);
+  const responseFormat = deepFreeze({
+    type: 'json_schema' as const,
+    json_schema: {
+      name: 'behold_resident_prefix_ready_v1',
+      strict: true as const,
+      schema: LMSTUDIO_PREFIX_READINESS_SCHEMA,
+    },
+  });
+  const body = deepFreeze({
+    model: instanceId,
+    messages,
+    response_format: responseFormat,
+    temperature: policy.settings.temperature,
+    max_tokens: 16,
+    stream: false as const,
+  });
+  const identity: LmStudioLocalPrefixReadinessRequestIdentity = deepFreeze({
+    protocol: LMSTUDIO_LOCAL_PREFIX_READINESS_REQUEST_IDENTITY_PROTOCOL,
+    transportProtocol: LMSTUDIO_LOCAL_PREFIX_READINESS_TRANSPORT_PROTOCOL,
+    modelKey: policy.modelKey,
+    catalogKey: policy.catalogKey,
+    indexedModelIdentifier: policy.indexedModelIdentifier,
+    modelInstanceId: instanceId,
+    artifactTreeSha256: policy.artifact.treeSha256,
+    templateSha256: policy.transport.templateSha256,
+    runtime: policy.runtime,
+    actionContractSha256: envelope.actionContractSha256,
+    stablePrefixSha256: envelope.stablePrefixSha256,
+    responseFormatSha256: sha256(stableJson(responseFormat)),
+  });
+  return deepFreeze({ body, identity });
+}
+
+export function assertLmStudioLocalPrefixReadinessWireRequest(
+  value: unknown,
+  policyValue: LmStudioLocalPolicy,
+): LmStudioLocalPrefixReadinessRequestIdentity {
+  const policy = lmStudioLocalPolicy(policyValue);
+  const instanceId = lmStudioResidentInstanceId(policy);
+  const record = exactRecord(
+    value,
+    ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
+    'LM Studio prefix readiness request',
+  );
+  if (
+    record.model !== instanceId ||
+    record.stream !== false ||
+    record.temperature !== policy.settings.temperature ||
+    record.max_tokens !== 16
+  ) {
+    throw new Error('LM Studio prefix readiness generation settings differ from admission');
+  }
+  if (!Array.isArray(record.messages) || record.messages.length !== 3) {
+    throw new Error('LM Studio prefix readiness requires exactly three messages');
+  }
+  const setup = exactRecord(record.messages[2], ['role', 'content'], 'LM Studio readiness setup');
+  if (setup.role !== 'user' || setup.content !== LMSTUDIO_PREFIX_READINESS_PROMPT) {
+    throw new Error('LM Studio prefix readiness setup prompt differs from admission');
+  }
+  const prefix = assertStrictLocalResidentSessionPrefix(record.messages.slice(0, 2));
+  const responseFormat = exactRecord(
+    record.response_format,
+    ['type', 'json_schema'],
+    'LM Studio prefix readiness response format',
+  );
+  const wrapper = exactRecord(
+    responseFormat.json_schema,
+    ['name', 'strict', 'schema'],
+    'LM Studio prefix readiness schema wrapper',
+  );
+  if (
+    responseFormat.type !== 'json_schema' ||
+    wrapper.name !== 'behold_resident_prefix_ready_v1' ||
+    wrapper.strict !== true ||
+    stableJson(wrapper.schema) !== stableJson(LMSTUDIO_PREFIX_READINESS_SCHEMA)
+  ) {
+    throw new Error('LM Studio prefix readiness response schema differs from admission');
+  }
+  return deepFreeze({
+    protocol: LMSTUDIO_LOCAL_PREFIX_READINESS_REQUEST_IDENTITY_PROTOCOL,
+    transportProtocol: LMSTUDIO_LOCAL_PREFIX_READINESS_TRANSPORT_PROTOCOL,
+    modelKey: policy.modelKey,
+    catalogKey: policy.catalogKey,
+    indexedModelIdentifier: policy.indexedModelIdentifier,
+    modelInstanceId: instanceId,
+    artifactTreeSha256: policy.artifact.treeSha256,
+    templateSha256: policy.transport.templateSha256,
+    runtime: policy.runtime,
+    actionContractSha256: prefix.actionContractSha256,
+    stablePrefixSha256: prefix.stablePrefixSha256,
+    responseFormatSha256: sha256(stableJson(responseFormat)),
+  });
+}
+
+export function parseLmStudioLocalPrefixReadinessResponse(
+  data: unknown,
+  policyValue: LmStudioLocalPolicy,
+  modelInstanceId: string,
+) {
+  const policy = lmStudioLocalPolicy(policyValue);
+  const instanceId = exactInstanceId(modelInstanceId);
+  const identity = inspectLmStudioLocalResponseIdentity(data, policy);
+  if (!identity.ok || identity.returnedModel !== instanceId) {
+    throw new Error('LM Studio prefix readiness response identity differs from admission');
+  }
+  const response = plainRecord(data) ? data : null;
+  if (!response || !Array.isArray(response.choices) || response.choices.length !== 1) {
+    throw new Error('LM Studio prefix readiness response must contain exactly one choice');
+  }
+  const choice = plainRecord(response.choices[0]) ? response.choices[0] : null;
+  const message = choice && plainRecord(choice.message) ? choice.message : null;
+  if (!message || message.role !== 'assistant' || typeof message.content !== 'string') {
+    throw new Error('LM Studio prefix readiness response contained no assistant text');
+  }
+  if (
+    message.tool_calls != null &&
+    (!Array.isArray(message.tool_calls) || message.tool_calls.length > 0)
+  ) {
+    throw new Error('LM Studio prefix readiness response used forbidden tool calls');
+  }
+  if (typeof message.reasoning_content === 'string' && message.reasoning_content.length > 0) {
+    throw new Error('LM Studio prefix readiness response exposed forbidden private reasoning');
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(message.content);
+  } catch {
+    throw new Error('LM Studio prefix readiness response was not valid JSON');
+  }
+  const ready = exactRecord(decoded, ['ready'], 'LM Studio prefix readiness response');
+  if (ready.ready !== true) {
+    throw new Error('LM Studio prefix readiness response did not confirm readiness');
+  }
+  return true;
+}
+
 export function assertLmStudioLocalJsonActionRequest(
   value: unknown,
   request: ResidentMindRequest,
@@ -547,6 +726,9 @@ export function parseLmStudioLocalLoomFoldResponse(
   if (!message || message.role !== 'assistant') {
     throw new Error('LM Studio loom-fold response contained no assistant message');
   }
+  if (typeof message.reasoning_content === 'string' && message.reasoning_content.length > 0) {
+    throw new Error('LM Studio loom-fold response exposed forbidden private reasoning');
+  }
   if (
     message.tool_calls != null &&
     (!Array.isArray(message.tool_calls) || message.tool_calls.length > 0)
@@ -715,6 +897,9 @@ export function parseLmStudioLocalJsonActionDecision(
   const message = choice && plainRecord(choice.message) ? choice.message : null;
   if (!message || message.role !== 'assistant') {
     throw new Error('LM Studio response contained no assistant message');
+  }
+  if (typeof message.reasoning_content === 'string' && message.reasoning_content.length > 0) {
+    throw new Error('LM Studio strict resident response exposed forbidden private reasoning');
   }
   if (
     message.tool_calls != null &&
@@ -922,6 +1107,8 @@ export async function prepareLmStudioResidentSession(input: {
   preflight: LmStudioLocalPreflight;
   runLms?: LmStudioCommandRunner;
   fetch?: typeof fetch;
+  sleep?: (milliseconds: number) => Promise<void>;
+  stabilizationDelayMs?: number;
 }): Promise<LmStudioResidentSession> {
   const policies = uniquePolicies(input.policies);
   verifyLmStudioPreflight(input.preflight, policies);
@@ -952,26 +1139,29 @@ export async function prepareLmStudioResidentSession(input: {
         ]),
       );
     }
-    const inventory = await readLocalJson(callFetch, `${origin}/api/v1/models`, { method: 'GET' });
-    const models =
-      plainRecord(inventory) && Array.isArray(inventory.models) ? inventory.models : [];
-    for (const policy of policies) {
-      const catalog = models.find((entry) => plainRecord(entry) && entry.key === policy.catalogKey);
-      const instance =
-        plainRecord(catalog) && Array.isArray(catalog.loaded_instances)
-          ? catalog.loaded_instances.find(
-              (entry: unknown) =>
-                plainRecord(entry) && entry.id === lmStudioResidentInstanceId(policy),
-            )
-          : null;
-      const config = plainRecord(instance) && plainRecord(instance.config) ? instance.config : null;
-      if (
-        !config ||
-        config.context_length !== policy.settings.contextTokens ||
-        config.parallel !== 1
-      ) {
-        throw new Error(`LM Studio did not retain exact resident instance ${policy.modelKey}`);
+    const stabilizationDelayMs =
+      input.stabilizationDelayMs ?? (input.runLms == null && input.fetch == null ? 500 : 0);
+    if (!Number.isSafeInteger(stabilizationDelayMs) || stabilizationDelayMs < 0) {
+      throw new Error('LM Studio stabilization delay must be a nonnegative integer');
+    }
+    const sleep = input.sleep ?? defaultDelay;
+    let stableReads = 0;
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 20 && stableReads < 2; attempt += 1) {
+      try {
+        const inventory = await readLocalJson(callFetch, `${origin}/api/v1/models`, {
+          method: 'GET',
+        });
+        assertLoadedLmStudioResidentInventory(inventory, policies);
+        stableReads += 1;
+      } catch (error) {
+        stableReads = 0;
+        lastError = error;
       }
+      if (stableReads < 2) await sleep(stabilizationDelayMs);
+    }
+    if (stableReads < 2) {
+      throw lastError ?? new Error('LM Studio resident instances never became HTTP-stable');
     }
     const base = {
       protocol: 'behold.lmstudio-resident-session.v1' as const,
@@ -1000,6 +1190,35 @@ export async function prepareLmStudioResidentSession(input: {
     }
     throw error;
   }
+}
+
+function assertLoadedLmStudioResidentInventory(
+  inventory: unknown,
+  policies: readonly LmStudioLocalPolicy[],
+) {
+  const models = plainRecord(inventory) && Array.isArray(inventory.models) ? inventory.models : [];
+  for (const policy of policies) {
+    const catalog = models.find((entry) => plainRecord(entry) && entry.key === policy.catalogKey);
+    const instance =
+      plainRecord(catalog) && Array.isArray(catalog.loaded_instances)
+        ? catalog.loaded_instances.find(
+            (entry: unknown) =>
+              plainRecord(entry) && entry.id === lmStudioResidentInstanceId(policy),
+          )
+        : null;
+    const config = plainRecord(instance) && plainRecord(instance.config) ? instance.config : null;
+    if (
+      !config ||
+      config.context_length !== policy.settings.contextTokens ||
+      config.parallel !== 1
+    ) {
+      throw new Error(`LM Studio did not retain exact resident instance ${policy.modelKey}`);
+    }
+  }
+}
+
+function defaultDelay(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export async function releaseLmStudioResidentSession(input: {
@@ -1069,7 +1288,10 @@ export async function releaseLmStudioResidentSession(input: {
 export function lmStudioAttemptIdentity(
   policyValue: LmStudioLocalPolicy,
   preflight: LmStudioLocalPreflight,
-  request: LmStudioLocalRequestIdentity | LmStudioLocalLoomFoldRequestIdentity,
+  request:
+    | LmStudioLocalRequestIdentity
+    | LmStudioLocalLoomFoldRequestIdentity
+    | LmStudioLocalPrefixReadinessRequestIdentity,
 ) {
   const policy = lmStudioLocalPolicy(policyValue);
   const { digest, ...base } = preflight;

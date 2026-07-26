@@ -686,6 +686,16 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         localWorldReady = true;
         experience.markLocalWorldReady(INITIAL_WORLD_SYNC_SETTLE_MS);
         const readyObservation = experience.observe();
+        const mindPreparation = policy ? await policy.prepareMind() : null;
+        if (mindPreparation != null) {
+          appendJournal(releaseGate ? 'setup_model_prefix_readiness' : 'model_prefix_readiness', {
+            protocol: 'behold.model-prefix-readiness-event.v1',
+            phase: releaseGate ? 'setup_before_experiment_release' : 'before_policy_start',
+            worldReleased: releaseGate == null,
+            actionAuthority: 'none',
+            evidence: mindPreparation,
+          });
+        }
         if (releaseGate) {
           appendJournal('setup_local_world_ready', readyObservation);
           const arm = releaseGate.arm({

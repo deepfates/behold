@@ -839,6 +839,7 @@ test('managed LM Studio session binds its exact instance into release and contro
       const os = require('node:os');
       const path = require('node:path');
       const { experimentReleaseGateFromEnvironment } = require(path.resolve('dist/src/runtime/experiment-release.js'));
+      const { createLmStudioLocalResidentMind } = require(path.resolve('dist/src/mind/lmstudio.js'));
       const entityId = process.argv[2];
       const model = process.argv[process.argv.indexOf('--model') + 1];
       const policy = JSON.parse(process.env.BEHOLD_LMSTUDIO_LOCAL_POLICY);
@@ -868,10 +869,48 @@ test('managed LM Studio session binds its exact instance into release and contro
         },
         quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
       });
-      gate.arm({ journalFile, setupObservation: { fixture: 'lmstudio-session' } });
-      console.error('[bot] Local world loaded.');
-      console.error('[bot] Experiment release armed: ' + gate.prepared.plan.releaseId + ' ' + entityId);
-      gate.waitAndClaim().catch((error) => { console.error(error); process.exit(1); });
+      async function prepareAndArm() {
+        const mind = createLmStudioLocalResidentMind({
+          bearer: process.env.BEHOLD_COGNITION_BEARER,
+          endpoint: process.env.BEHOLD_COGNITION_ENDPOINT,
+          policy,
+          modelInstanceId: process.env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID,
+          cognitionTransport: true,
+        });
+        const evidence = await mind.prepare({
+          protocol: 'behold.mind-request.v1',
+          entityId,
+          model,
+          policyProfile: 'legible-resident-v1',
+          bodyProfile: 'minecraft-human-semantic-v1',
+          actionProfile: 'minecraft-human-semantic-v1',
+          safetyProfile: 'vanilla-player-v1',
+          observation: { fixture: 'lmstudio-session' },
+          conversation: [
+            { role: 'system', content: 'Fixture resident charter.' },
+            { role: 'user', content: 'Fixture frozen setup observation.' },
+          ],
+          actions: [{
+            name: 'wait_for_event',
+            inputSchema: {
+              type: 'object',
+              properties: { reason: { type: 'string', maxLength: 240 } },
+              required: ['reason'],
+              additionalProperties: false,
+            },
+          }],
+          requiredAction: null,
+          attention: { mode: 'deliberative', context: 'bounded_loom', triggers: [] },
+        }, { signal: new AbortController().signal });
+        fs.appendFileSync(journalFile, JSON.stringify({
+          type: 'setup_model_prefix_readiness', evidence,
+        }) + '\\n');
+        gate.arm({ journalFile, setupObservation: { fixture: 'lmstudio-session' } });
+        console.error('[bot] Local world loaded.');
+        console.error('[bot] Experiment release armed: ' + gate.prepared.plan.releaseId + ' ' + entityId);
+        await gate.waitAndClaim();
+      }
+      prepareAndArm().catch((error) => { console.error(error); process.exit(1); });
       process.stdin.resume();
       process.stdin.on('end', () => {
         if (fs.existsSync(lease)) fs.unlinkSync(lease);
@@ -989,6 +1028,31 @@ test('managed LM Studio session binds its exact instance into release and contro
         inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
         lmStudioPreflightFetch: inventoryFetch,
         lmStudioSessionFetch: inventoryFetch,
+        cognitionFetch: async (_input, init) => {
+          const body = JSON.parse(String(init?.body));
+          assert.equal(body.response_format?.json_schema?.name, 'behold_resident_prefix_ready_v1');
+          return new Response(
+            JSON.stringify({
+              id: 'fixture-prefix-ready',
+              model: instanceId,
+              system_fingerprint: instanceId,
+              choices: [
+                {
+                  index: 0,
+                  finish_reason: 'stop',
+                  message: { role: 'assistant', content: '{"ready":true}', tool_calls: [] },
+                },
+              ],
+              usage: {
+                prompt_tokens: 10,
+                completion_tokens: 2,
+                total_tokens: 12,
+                completion_tokens_details: { reasoning_tokens: 0 },
+              },
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          );
+        },
         lmStudioRunLms: runLms,
         lmStudioReadAppVersion: () => '0.4.12+1',
         stdout: () => {},

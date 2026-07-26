@@ -282,7 +282,7 @@ test('fixed pilot release binds the complete schedule and refuses a reused quota
             : resident,
         ),
       }),
-    /fresh four-decision quota account/,
+    /fresh 4-attempt decision account/,
   );
 });
 

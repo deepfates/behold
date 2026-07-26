@@ -9,6 +9,7 @@ import { cognitionClientHeaders, cognitionResidentKey } from '../src/mind/cognit
 import {
   createLmStudioLocalJsonActionRequest,
   createLmStudioLocalLoomFoldRequest,
+  createLmStudioLocalPrefixReadinessRequest,
   lmStudioResidentInstanceId,
   type LmStudioLocalPolicy,
   type LmStudioLocalPreflight,
@@ -225,6 +226,114 @@ test('the cognition gate admits and captures only the exact LM Studio loom-fold 
   assert.doesNotMatch(fs.readFileSync(ledgerFile, 'utf8'), /"purpose":"resident_decision"/);
 });
 
+test('the cognition gate records authority-free prefix readiness against the resident decision budget', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lmstudio-prefix-broker-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const journalFile = path.join(root, 'broker.jsonl');
+  const ledgerFile = path.join(root, 'quota.jsonl');
+  const transportCaptureDirectory = path.join(root, 'transport');
+  const policy = localPolicy();
+  const preflight = localPreflight(policy);
+  const instanceId = lmStudioResidentInstanceId(policy);
+  const residentKey = cognitionResidentKey('lmstudio-prefix-fixture', 'Aster');
+  const readiness = createLmStudioLocalPrefixReadinessRequest(
+    residentRequest(policy.modelKey) as any,
+    policy,
+    instanceId,
+  );
+  let upstreamAttempts = 0;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: policy.endpoint,
+    lmStudioPreflight: preflight,
+    clients: [
+      {
+        bearer: token(),
+        residentKey,
+        model: policy.modelKey,
+        lmStudioLocal: policy,
+        accounting: {
+          scopeId: 'lmstudio-prefix-fixture',
+          worldId: 'world-fixture',
+          accountId: residentKey,
+          ledgerFile,
+          limits: { resident_decision: 1, loom_fold: 1 },
+        },
+      },
+    ],
+    maxConcurrent: 1,
+    journalFile,
+    transportCaptureDirectory,
+    fetch: async (_url, init) => {
+      upstreamAttempts += 1;
+      assert.deepEqual(JSON.parse(String(init?.body)), readiness.body);
+      return jsonResponse({
+        id: 'chatcmpl-prefix-1',
+        object: 'chat.completion',
+        model: instanceId,
+        system_fingerprint: instanceId,
+        choices: [
+          {
+            index: 0,
+            finish_reason: 'stop',
+            message: {
+              role: 'assistant',
+              content: JSON.stringify({ ready: true }),
+              reasoning_content: '',
+              tool_calls: [],
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 50,
+          completion_tokens: 4,
+          total_tokens: 54,
+          completion_tokens_details: { reasoning_tokens: 0 },
+        },
+      });
+    },
+  });
+
+  try {
+    const crossed = await request(
+      broker.endpoint,
+      JSON.stringify(readiness.body),
+      'prefix-as-decision',
+    );
+    assert.equal(crossed.status, 400);
+    assert.equal(upstreamAttempts, 0);
+
+    const admitted = await request(
+      broker.endpoint,
+      JSON.stringify(readiness.body),
+      'exact-prefix',
+      'resident_prefix_readiness',
+      'auxiliary',
+    );
+    assert.equal(admitted.status, 200);
+    assert.equal(upstreamAttempts, 1);
+  } finally {
+    await broker.close();
+  }
+
+  const events = verifyCognitionBrokerJournal(journalFile).events as any[];
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === 'admitted' && event.request?.purpose === 'resident_prefix_readiness',
+    ),
+  );
+  const capture = verifyCognitionTransportCapture(transportCaptureDirectory, events);
+  assert.equal(capture.attempts, 1);
+  assert.equal(
+    capture.starts[0].lmStudioIdentity?.request.transportProtocol,
+    'behold.lmstudio-local-prefix-readiness.v1',
+  );
+  const ledger = fs.readFileSync(ledgerFile, 'utf8');
+  assert.match(ledger, /"purpose":"resident_decision"/);
+  assert.match(ledger, /"quotaPurpose":"resident_decision"/);
+  assert.match(ledger, /"purpose":"resident_prefix_readiness"/);
+});
+
 function localPolicy(): LmStudioLocalPolicy {
   return {
     protocol: 'behold.lmstudio-local-policy.v1',
@@ -315,7 +424,7 @@ function request(
   endpoint: string,
   body: string,
   requestId: string,
-  purpose: 'resident_decision' | 'loom_fold' = 'resident_decision',
+  purpose: 'resident_decision' | 'resident_prefix_readiness' | 'loom_fold' = 'resident_decision',
   priority: 'deliberative' | 'auxiliary' = 'deliberative',
 ) {
   return fetch(endpoint, {

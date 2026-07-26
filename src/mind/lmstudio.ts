@@ -10,13 +10,16 @@ import type { ResidentMind } from './interface';
 import {
   createLmStudioLocalJsonActionRequest,
   createLmStudioLocalLoomFoldRequest,
+  createLmStudioLocalPrefixReadinessRequest,
   inspectLmStudioLocalResponseIdentity,
   lmStudioLocalPolicy,
   lmStudioResidentInstanceId,
   parseLmStudioLocalJsonActionDecision,
   parseLmStudioLocalLoomFoldResponse,
+  parseLmStudioLocalPrefixReadinessResponse,
   type LmStudioLocalPolicy,
   type LmStudioLocalRequestIdentity,
+  type LmStudioLocalPrefixReadinessRequestIdentity,
 } from './lmstudio-local';
 import { residentMindRequestSha256 } from './request-artifact';
 import { attributeProviderRequestBody } from './request-attribution';
@@ -65,7 +68,17 @@ type LmStudioCallRequestEvidence = ModelCallEvidence['request'] &
     lmStudioPolicy: LmStudioLocalPolicy;
     lmStudioActionTransport: LmStudioLocalRequestIdentity;
     requestedModelInstance: string;
+    lmStudioPrefixReadiness: LmStudioPrefixReadinessEvidence;
   }>;
+
+export type LmStudioPrefixReadinessEvidence = Readonly<{
+  protocol: 'behold.lmstudio-resident-prefix-readiness.v1';
+  authority: 'none';
+  responseUsedAsResidentDecision: false;
+  request: LmStudioLocalPrefixReadinessRequestIdentity &
+    Readonly<{ bodySha256: string; bodyBytes: number }>;
+  call: ModelCallEvidence;
+}>;
 
 /**
  * Strict LM Studio resident-session adapter. It performs one authenticated
@@ -87,16 +100,28 @@ export function createLmStudioLocalResidentMind(
   if (!options.cognitionTransport || String(options.bearer || '').length < 32) {
     throw new Error('LM Studio resident mind requires the authenticated cognition broker');
   }
+  let prefixReadiness: Promise<LmStudioPrefixReadinessEvidence> | null = null;
 
   return {
     id: 'direct-lmstudio-local-json-action',
+    async prepare(request, { signal }) {
+      assertResidentModel(request);
+      return await ensurePrefixReadiness(request, signal);
+    },
     async decide(request, { signal }) {
-      if (request.model !== policy.modelKey) {
-        throw new Error(`LM Studio resident mind was not configured for model ${request.model}`);
-      }
+      assertResidentModel(request);
+      const readiness = await ensurePrefixReadiness(request, signal);
       const startedAt = now();
       const requestId = `lmstudio-${randomUUID()}`;
       const serialized = createLmStudioLocalJsonActionRequest(request, policy, modelInstanceId);
+      if (
+        readiness.request.actionContractSha256 !== serialized.identity.actionContractSha256 ||
+        readiness.request.stablePrefixSha256 !== serialized.identity.stablePrefixSha256
+      ) {
+        throw new Error(
+          'LM Studio resident action contract drifted after prefix readiness; refusing action inference',
+        );
+      }
       const body = serialized.body as Record<string, unknown>;
       const requestBody = JSON.stringify(body);
       const callRequest: LmStudioCallRequestEvidence = {
@@ -116,6 +141,7 @@ export function createLmStudioLocalResidentMind(
         lmStudioPolicy: policy,
         lmStudioActionTransport: serialized.identity,
         requestedModelInstance: modelInstanceId,
+        lmStudioPrefixReadiness: readiness,
         ...(options.recordModelIO ? { body: cloneJson(body) } : {}),
       };
       const priority = request.attention?.mode === 'urgent' ? 'urgent' : 'deliberative';
@@ -271,6 +297,180 @@ export function createLmStudioLocalResidentMind(
       }
     },
   };
+
+  function assertResidentModel(request: Parameters<ResidentMind['decide']>[0]) {
+    if (request.model !== policy.modelKey) {
+      throw new Error(`LM Studio resident mind was not configured for model ${request.model}`);
+    }
+  }
+
+  function ensurePrefixReadiness(
+    request: Parameters<ResidentMind['decide']>[0],
+    signal: AbortSignal,
+  ) {
+    prefixReadiness ??= warmResidentPrefix(request, signal).catch((error) => {
+      prefixReadiness = null;
+      throw error;
+    });
+    return prefixReadiness;
+  }
+
+  async function warmResidentPrefix(
+    request: Parameters<ResidentMind['decide']>[0],
+    signal: AbortSignal,
+  ): Promise<LmStudioPrefixReadinessEvidence> {
+    const serialized = createLmStudioLocalPrefixReadinessRequest(request, policy, modelInstanceId);
+    const body = serialized.body as Record<string, unknown>;
+    const requestBody = JSON.stringify(body);
+    const requestId = `lmstudio-prefix-${randomUUID()}`;
+    const startedAt = now();
+    let response: Response;
+    try {
+      response = await requestFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${options.bearer}`,
+          ...cognitionClientHeaders({
+            requestId,
+            priority: 'auxiliary',
+            purpose: 'resident_prefix_readiness',
+          }),
+        },
+        body: requestBody,
+        signal,
+      });
+    } catch (error: any) {
+      const completedAt = now();
+      throw new ResidentMindCallError(
+        `LM Studio resident prefix readiness transport error: ${error?.message || String(error)}`,
+        {
+          protocol: 'behold.model-call.v1',
+          adapter: { name: 'lmstudio-local-prefix-readiness', version: 'v1' },
+          requestId,
+          endpoint,
+          startedAt,
+          completedAt,
+          latencyMs: Math.max(0, completedAt - startedAt),
+          request: {
+            model: request.model,
+            messageCount: 3,
+            toolCount: 0,
+            toolChoice: null,
+            bodySha256: sha256(requestBody),
+            bodyBytes: Buffer.byteLength(requestBody),
+            messagesSha256: sha256(stableJson(body.messages)),
+            toolsSha256: sha256('[]'),
+            lmStudioPrefixReadinessTransport: serialized.identity,
+          },
+          response: {
+            terminal: signal.aborted ? 'cancelled' : 'transport_error',
+            status: null,
+            bodyPreview: null,
+          },
+        },
+      );
+    }
+    const text = await response.text();
+    const completedAt = now();
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      // The versioned parser below owns malformed output classification.
+    }
+    if (!response.ok) {
+      prefixReadiness = null;
+      throw new ResidentMindCallError(`LM Studio resident prefix readiness ${response.status}`, {
+        protocol: 'behold.model-call.v1',
+        adapter: { name: 'lmstudio-local-prefix-readiness', version: 'v1' },
+        requestId,
+        endpoint,
+        startedAt,
+        completedAt,
+        latencyMs: Math.max(0, completedAt - startedAt),
+        ...admissionEvidence(response),
+        request: {
+          model: request.model,
+          messageCount: 3,
+          toolCount: 0,
+          toolChoice: null,
+          bodySha256: sha256(requestBody),
+          bodyBytes: Buffer.byteLength(requestBody),
+          messagesSha256: sha256(stableJson(body.messages)),
+          toolsSha256: sha256('[]'),
+          lmStudioPrefixReadinessTransport: serialized.identity,
+          ...(options.recordModelIO ? { body: cloneJson(body) } : {}),
+        },
+        response: {
+          terminal: brokerFailureTerminal(text) as any,
+          status: response.status,
+          bodyPreview: text.slice(0, 200) || null,
+        },
+      });
+    }
+    const call: ModelCallEvidence = {
+      protocol: 'behold.model-call.v1',
+      adapter: { name: 'lmstudio-local-prefix-readiness', version: 'v1' },
+      requestId,
+      endpoint,
+      startedAt,
+      completedAt,
+      latencyMs: Math.max(0, completedAt - startedAt),
+      ...admissionEvidence(response),
+      request: {
+        model: request.model,
+        messageCount: 3,
+        toolCount: 0,
+        toolChoice: null,
+        bodySha256: sha256(requestBody),
+        bodyBytes: Buffer.byteLength(requestBody),
+        messagesSha256: sha256(stableJson(body.messages)),
+        toolsSha256: sha256('[]'),
+        kind: 'provider_request',
+        lmStudioPrefixReadinessTransport: serialized.identity,
+        ...(options.recordModelIO ? { body: cloneJson(body) } : {}),
+      },
+      response: {
+        terminal: 'success',
+        id: stringOrNull(data?.id),
+        model: stringOrNull(data?.model),
+        provider: null,
+        finishReason: stringOrNull(data?.choices?.[0]?.finish_reason),
+        nativeFinishReason: stringOrNull(data?.choices?.[0]?.finish_reason),
+        usage: lmStudioUsage(data),
+        ...(options.recordModelIO ? { raw: cloneJson(data) } : {}),
+      },
+    };
+    try {
+      parseLmStudioLocalPrefixReadinessResponse(data, policy, modelInstanceId);
+    } catch (error: any) {
+      prefixReadiness = null;
+      throw new ResidentMindCallError(
+        `LM Studio resident prefix readiness returned malformed output: ${error?.message || String(error)}`,
+        {
+          ...call,
+          response: {
+            terminal: 'malformed_output',
+            status: response.status,
+            bodyPreview: text.slice(0, 200) || null,
+            ...(options.recordModelIO ? { raw: cloneJson(data) } : {}),
+          },
+        },
+      );
+    }
+    return Object.freeze({
+      protocol: 'behold.lmstudio-resident-prefix-readiness.v1' as const,
+      authority: 'none' as const,
+      responseUsedAsResidentDecision: false as const,
+      request: Object.freeze({
+        ...serialized.identity,
+        bodySha256: sha256(requestBody),
+        bodyBytes: Buffer.byteLength(requestBody),
+      }),
+      call,
+    });
+  }
 }
 
 /**
@@ -479,10 +679,17 @@ function lmStudioUsage(data: any) {
     const value = nonnegativeNumber(usage[field]);
     if (value != null) result[field] = value;
   }
+  const reasoningTokens = nonnegativeNumber(
+    plainRecord(usage.completion_tokens_details)
+      ? usage.completion_tokens_details.reasoning_tokens
+      : null,
+  );
+  if (reasoningTokens != null) result.reasoning_tokens = reasoningTokens;
   return Object.keys(result).length > 0 ? result : null;
 }
 
 function nonnegativeNumber(value: unknown) {
+  if (value == null) return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
 }

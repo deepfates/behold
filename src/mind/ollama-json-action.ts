@@ -146,6 +146,11 @@ export type StrictLocalResidentSessionEnvelopeIdentity = Readonly<
   Omit<StrictLocalResidentSessionEnvelope, 'protocol' | 'messages' | 'responseSchema'>
 >;
 
+export type StrictLocalResidentSessionPrefixIdentity = Readonly<{
+  actionContractSha256: string;
+  stablePrefixSha256: string;
+}>;
+
 export function ollamaLocalJsonActionTransport(value: unknown): OllamaLocalJsonActionTransport {
   const record = exactRecord(
     value,
@@ -316,6 +321,56 @@ export function assertStrictLocalResidentSessionEnvelope(
     actionContractSha256: sha256(contractJson),
     responseSchemaSha256: sha256(stableJson(expectedSchema)),
     stablePrefixSha256: sha256(stableJson(messages.slice(0, 2))),
+  });
+}
+
+/**
+ * Verify only the stable charter/action-contract prefix used by a resident
+ * session. This is deliberately narrower than an action request: setup code
+ * may prefill these exact tokens without supplying an observation or granting
+ * action authority.
+ */
+export function assertStrictLocalResidentSessionPrefix(
+  messagesValue: unknown,
+): StrictLocalResidentSessionPrefixIdentity {
+  if (!Array.isArray(messagesValue) || messagesValue.length !== 2) {
+    throw new Error('Strict local resident session prefix requires exactly two messages');
+  }
+  const charter = exactRecord(messagesValue[0], ['role', 'content'], 'Resident session charter');
+  if (charter.role !== 'system' || typeof charter.content !== 'string' || !charter.content) {
+    throw new Error('Strict local resident session charter must be a nonempty system message');
+  }
+  const contractMessage = exactRecord(
+    messagesValue[1],
+    ['role', 'content'],
+    'Strict local resident action contract message',
+  );
+  const markers = contractMarkers(2);
+  if (
+    contractMessage.role !== 'system' ||
+    typeof contractMessage.content !== 'string' ||
+    !contractMessage.content.startsWith(`${markers.instruction}${markers.begin}`) ||
+    !contractMessage.content.endsWith(markers.end)
+  ) {
+    throw new Error('Strict local resident action contract markers are invalid');
+  }
+  const contractJson = contractMessage.content.slice(
+    markers.instruction.length + markers.begin.length,
+    contractMessage.content.length - markers.end.length,
+  );
+  let contractValue: unknown;
+  try {
+    contractValue = JSON.parse(contractJson);
+  } catch {
+    throw new Error('Strict local resident action contract is not valid JSON');
+  }
+  const contract = parseActionContract(contractValue, 2);
+  if (contractJson !== stableJson(contract)) {
+    throw new Error('Strict local resident action contract is not exact canonical JSON');
+  }
+  return deepFreeze({
+    actionContractSha256: sha256(contractJson),
+    stablePrefixSha256: sha256(stableJson(messagesValue)),
   });
 }
 

@@ -1165,10 +1165,11 @@ function normalizeManagedResidents(
       }
       if (
         decisionSchedule &&
-        providerQuotas?.residentDecisionAttempts !== FIXED_DECISION_PILOT_SLOT_COUNT
+        providerQuotas?.residentDecisionAttempts !==
+          FIXED_DECISION_PILOT_SLOT_COUNT + (lmStudioLocal ? 1 : 0)
       ) {
         throw new WorldRunnerError(
-          `Resident ${entityId} fixed decision pilot requires exactly four resident decision attempts`,
+          `Resident ${entityId} fixed decision pilot requires exactly ${FIXED_DECISION_PILOT_SLOT_COUNT + (lmStudioLocal ? 1 : 0)} resident decision attempts`,
           'resident_fixed_decision_quota_mismatch',
           { index, entityId, providerQuotas },
         );
@@ -1496,6 +1497,8 @@ function matchedReleaseAccounting(
   cognition: ManagedCognition,
   configured: ManagedProviderAccounting,
   residents: readonly NormalizedManagedResident[],
+  phase: 'initial' | 'prefix_ready' = 'initial',
+  baseline: NonNullable<ReturnType<CognitionBroker['snapshot']>['accounting']> | null = null,
 ): NonNullable<ReturnType<CognitionBroker['snapshot']>['accounting']> {
   const accounting = cognition.broker.snapshot().accounting;
   if (!accounting || accounting.accounts.length !== residents.length) {
@@ -1524,17 +1527,42 @@ function matchedReleaseAccounting(
         { entityId: resident.entityId, expected, actual: actual ?? null },
       );
     }
+    const expectedReadinessAttempts = phase === 'prefix_ready' && resident.lmStudioLocal ? 1 : 0;
+    const baselineAccount = baseline?.accounts.find(
+      (account) => account.accountId === expected.accountId,
+    );
+    if (phase === 'prefix_ready' && !baselineAccount) {
+      throw new WorldRunnerError(
+        `Pre-release cognition accounting has no baseline for ${resident.entityId}`,
+        'experiment_release_prefix_readiness_accounting_mismatch',
+        { entityId: resident.entityId, phase },
+      );
+    }
+    const expectedUsedDecision =
+      (phase === 'prefix_ready' ? baselineAccount!.used.resident_decision : 0) +
+      expectedReadinessAttempts;
+    const expectedUsedFold = phase === 'prefix_ready' ? baselineAccount!.used.loom_fold : 0;
+    const expectedRemainingDecision =
+      (phase === 'prefix_ready'
+        ? baselineAccount!.remaining.resident_decision
+        : actual.limits.resident_decision) - expectedReadinessAttempts;
+    const expectedRemainingFold =
+      phase === 'prefix_ready' ? baselineAccount!.remaining.loom_fold : actual.limits.loom_fold;
     if (
-      resident.decisionSchedule &&
-      (actual.used.resident_decision !== 0 ||
-        actual.used.loom_fold !== 0 ||
-        actual.remaining.resident_decision !== FIXED_DECISION_PILOT_SLOT_COUNT ||
-        actual.remaining.loom_fold !== actual.limits.loom_fold)
+      (phase === 'prefix_ready' || resident.decisionSchedule) &&
+      (actual.used.resident_decision !== expectedUsedDecision ||
+        actual.used.loom_fold !== expectedUsedFold ||
+        actual.remaining.resident_decision !== expectedRemainingDecision ||
+        actual.remaining.loom_fold !== expectedRemainingFold)
     ) {
       throw new WorldRunnerError(
-        `Fixed decision pilot quota account is not fresh for ${resident.entityId}`,
-        'experiment_fixed_decision_restart_refused',
-        { entityId: resident.entityId, account: actual },
+        phase === 'prefix_ready'
+          ? `Pre-release cognition accounting differs from exact LM Studio prefix readiness for ${resident.entityId}`
+          : `Fixed decision pilot quota account is not fresh for ${resident.entityId}`,
+        phase === 'prefix_ready'
+          ? 'experiment_release_prefix_readiness_accounting_mismatch'
+          : 'experiment_fixed_decision_restart_refused',
+        { entityId: resident.entityId, phase, account: actual },
       );
     }
   }
@@ -1545,13 +1573,6 @@ function residentWorldId(cognition: ManagedCognition, entityId: string) {
   const worldId = cognition.clients.get(entityId)?.accounting?.worldId;
   if (!worldId) throw new Error(`Cognition accounting world is missing for ${entityId}`);
   return worldId;
-}
-
-function sameAccountingSnapshot(
-  left: NonNullable<ReturnType<CognitionBroker['snapshot']>['accounting']>,
-  right: NonNullable<ReturnType<CognitionBroker['snapshot']>['accounting']>,
-) {
-  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function managedModelConcurrencyLimit(options: ManagedWorldRunOptions, residentCount: number) {
@@ -2537,35 +2558,37 @@ export async function startManagedWorld(
         }
       }
       const cognitionBeforeRelease = cognition!.broker.snapshot();
+      const expectedPrefixReadinessAttempts = residents.filter(
+        (resident) => resident.lmStudioLocal != null,
+      ).length;
       if (
-        cognitionBeforeRelease.accepted !== 0 ||
-        cognitionBeforeRelease.admitted !== 0 ||
+        cognitionBeforeRelease.accepted !== expectedPrefixReadinessAttempts ||
+        cognitionBeforeRelease.admitted !== expectedPrefixReadinessAttempts ||
         cognitionBeforeRelease.active !== 0 ||
         cognitionBeforeRelease.queued !== 0 ||
-        cognitionBeforeRelease.completed !== 0 ||
+        cognitionBeforeRelease.completed !== expectedPrefixReadinessAttempts ||
         cognitionBeforeRelease.failed !== 0 ||
         cognitionBeforeRelease.cancelled !== 0 ||
         cognitionBeforeRelease.rejected !== 0 ||
-        cognitionBeforeRelease.admissionOrdinal !== 0
+        cognitionBeforeRelease.admissionOrdinal !== expectedPrefixReadinessAttempts ||
+        cognitionBeforeRelease.acceptedByPurpose.resident_prefix_readiness !==
+          expectedPrefixReadinessAttempts ||
+        cognitionBeforeRelease.acceptedByPurpose.resident_decision !== 0 ||
+        cognitionBeforeRelease.acceptedByPurpose.loom_fold !== 0
       ) {
         throw new WorldRunnerError(
-          'Resident cognition reached the broker before the population release',
+          'Pre-release cognition differs from exact completed LM Studio prefix readiness',
           'experiment_release_early_cognition',
-          cognitionBeforeRelease,
+          { expectedPrefixReadinessAttempts, actual: cognitionBeforeRelease },
         );
       }
       const accountingBeforeRelease = matchedReleaseAccounting(
         cognition!,
         providerAccounting!,
         residents,
+        'prefix_ready',
+        experiment.initialAccounting,
       );
-      if (!sameAccountingSnapshot(experiment.initialAccounting, accountingBeforeRelease)) {
-        throw new WorldRunnerError(
-          'Resident quota accounting changed before the population release',
-          'experiment_release_early_quota_mutation',
-          { initial: experiment.initialAccounting, actual: accountingBeforeRelease },
-        );
-      }
 
       const releaseSaveAcknowledgement = await saveManagedServerWorld({
         server,
