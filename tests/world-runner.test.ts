@@ -46,6 +46,7 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
 } from '../src/mind/ollama-json-action';
+import { FIXED_DECISION_PILOT_SCHEDULE_PROTOCOL } from '../src/policy/fixed-decision-pilot';
 
 const CLEAR: OwnershipEvidence = { state: 'clear', probe: 'fixture', owners: [] };
 const ARTIFACTS_OK = { artifactIntegrityOk: true, artifacts: {} };
@@ -654,6 +655,68 @@ test('resident configuration rejects canonical identity collisions and process-b
         dependencies,
       ),
     (error: any) => error?.code === 'resident_limit_exceeded',
+  );
+  assert.equal(inspections, 0);
+  const fixedSchedule = (entityId: string, residentIndex: number) => ({
+    protocol: FIXED_DECISION_PILOT_SCHEDULE_PROTOCOL,
+    slots: Array.from({ length: 4 }, (_, slotIndex) => ({
+      slotId: `${entityId}-${slotIndex + 1}`,
+      order: slotIndex * 2 + residentIndex + 1,
+      offsetMs: (slotIndex * 2 + residentIndex + 1) * 1_000,
+    })),
+  });
+  const fixedResidents = ['FixedA', 'FixedB'].map((entityId, residentIndex) => ({
+    entityId,
+    model: 'fixture/model',
+    maxTurnSteps: 1,
+    resumeAfterBudget: false,
+    decisionSchedule: fixedSchedule(entityId, residentIndex),
+    providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
+  }));
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'fixed-incomplete',
+          residents: [{ ...fixedResidents[0], decisionSchedule: undefined }, fixedResidents[1]],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_fixed_decision_population_invalid',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'fixed-turn-drift',
+          residents: [{ ...fixedResidents[0], maxTurnSteps: 2 }, fixedResidents[1]],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_fixed_decision_turn_contract_invalid',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          accountingScopeId: 'fixed-quota-drift',
+          residents: [
+            {
+              ...fixedResidents[0],
+              providerQuotas: {
+                ...fixedResidents[0].providerQuotas,
+                residentDecisionAttempts: 5,
+              },
+            },
+            fixedResidents[1],
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_fixed_decision_quota_mismatch',
   );
   assert.equal(inspections, 0);
   await assert.rejects(

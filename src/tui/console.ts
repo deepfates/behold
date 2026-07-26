@@ -42,8 +42,15 @@ import {
 } from '../tasks/come-see-do-report';
 import {
   experimentReleaseGateFromEnvironment,
+  readExperimentRelease,
   type ExperimentReleaseReference,
 } from '../runtime/experiment-release';
+import {
+  fixedDecisionPilotSchedule,
+  runFixedDecisionPilotSchedule,
+  type FixedDecisionPilotSchedule,
+  type FixedDecisionPilotSlot,
+} from '../policy/fixed-decision-pilot';
 
 const INITIAL_WORLD_SYNC_SETTLE_MS = 4_000;
 
@@ -62,6 +69,8 @@ export type ConsoleOptions = {
   maxTurnSteps?: number;
   /** Whether a resident starts another burst after reaching maxTurnSteps. */
   resumeAfterBudget?: boolean;
+  /** Explicit four-slot experimental schedule; absent preserves ordinary event-driven cognition. */
+  decisionSchedule?: FixedDecisionPilotSchedule;
   paused?: boolean;
   policyProfile?: ResidentPolicyProfile;
   bodyProfile?: MinecraftBodyProfile;
@@ -140,6 +149,16 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   if (ollamaLocal && ollamaLocal.modelTag !== cfg.llm.model) {
     throw new Error('Ollama local model tag differs from LLM_MODEL');
   }
+  const maxTurnSteps = opts.maxTurnSteps ?? (opts.task ? 8 : 16);
+  const resumeAfterBudget = opts.resumeAfterBudget ?? opts.task == null;
+  const decisionSchedule = opts.decisionSchedule
+    ? fixedDecisionPilotSchedule(opts.decisionSchedule)
+    : null;
+  if (decisionSchedule && (maxTurnSteps !== 1 || resumeAfterBudget !== false)) {
+    throw new Error(
+      'fixed decision pilot schedule requires maxTurnSteps 1 and resumeAfterBudget false',
+    );
+  }
   const releaseGate = experimentReleaseGateFromEnvironment({
     entityId: name,
     bodyUsername,
@@ -148,6 +167,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     mind: mindAdapter,
     ...(providerRoute ? { providerRoute } : {}),
     ...(ollamaLocal ? { ollamaLocal } : {}),
+    ...(decisionSchedule ? { decisionSchedule } : {}),
     profiles: {
       policy: policyProfile,
       body: bodyProfile,
@@ -156,6 +176,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     },
     quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
   });
+  if (decisionSchedule && !releaseGate) {
+    throw new Error('fixed decision pilot schedule requires an admitted experiment release');
+  }
   let experimentRelease: ExperimentReleaseReference | null = null;
   let experimentActive = releaseGate == null;
   const managedBodyUsernames = new Set(
@@ -170,6 +193,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   let shutdownStarted = false;
   let shutdownPromise: Promise<void> | null = null;
   const releaseWaitAbort = new AbortController();
+  const fixedScheduleAbort = new AbortController();
   let requestShutdown: ((reason: string, terminalError?: Error | null) => Promise<void>) | null =
     null;
   const appendJournal: typeof journal.append = (type, data, source) => {
@@ -184,8 +208,6 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   };
   const taskTarget =
     opts.task === 'come-see-do-report' ? opts.target || 'importdf' : (opts.target ?? null);
-  const maxTurnSteps = opts.maxTurnSteps ?? (opts.task ? 8 : 16);
-  const resumeAfterBudget = opts.resumeAfterBudget ?? opts.task == null;
   appendJournal('run_started', {
     runId: process.env.BEHOLD_RUN_ID || journal.id,
     journalId: journal.id,
@@ -212,6 +234,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       tickMs: Number(process.env.AGENT_TICK_MS || 3000),
       maxTurnSteps,
       resumeAfterBudget,
+      decisionSchedule,
       paused: Boolean(opts.paused),
       allowTools: opts.allowTools ?? null,
       experimentRelease: releaseGate
@@ -231,6 +254,18 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     activeProjects: projects.snapshot(),
     knownPlaces: places.snapshot(),
   });
+  if (decisionSchedule && releaseGate) {
+    appendJournal('setup_fixed_decision_pilot_schedule', {
+      protocol: 'behold.fixed-decision-pilot-population.v1',
+      releaseId: releaseGate.prepared.plan.releaseId,
+      populationDigest: releaseGate.prepared.plan.populationDigest,
+      residents: releaseGate.prepared.plan.residents.map((resident) => ({
+        entityId: resident.entityId,
+        bodyUsername: resident.bodyUsername,
+        decisionSchedule: resident.decisionSchedule ?? null,
+      })),
+    });
+  }
   console.error(`[journal] ${journal.file}`);
   console.error(
     `[entity] ${entityLoom.file} (${entityLoom.turns().length} prior turns, ${entityLoom.backend})`,
@@ -247,6 +282,15 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       : null;
   const task = taskRuntime?.task ?? resolveTask(opts.task, opts.target);
   let policy: ReturnType<typeof startLLMPolicy> | null = null;
+  let fixedScheduleStarted = false;
+  let fixedSchedulePromise: Promise<unknown> | null = null;
+  let activeFixedSlot: {
+    slot: FixedDecisionPilotSlot;
+    opportunityId: string | null;
+    resolve: (terminal: unknown) => void;
+    reject: (error: Error) => void;
+    detachAbort: () => void;
+  } | null = null;
   let engine: ReturnType<typeof createEngine> | null = null;
   let localWorldReady = false;
   const experience = new InhabitantExperience(bot as any, {
@@ -272,10 +316,93 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         `[console] attention observer failed for ${event.type}: ${error instanceof Error ? error.message : String(error)}`,
       ),
   });
+  const settleFixedSlot = (terminal: unknown, error: Error | null = null) => {
+    const active = activeFixedSlot;
+    if (!active) return;
+    activeFixedSlot = null;
+    active.detachAbort();
+    if (error) active.reject(error);
+    else active.resolve(terminal);
+  };
+  const startFixedDecisionSchedule = () => {
+    if (!decisionSchedule || !releaseGate || !policy || fixedScheduleStarted) return;
+    fixedScheduleStarted = true;
+    const release = readExperimentRelease(releaseGate.prepared);
+    const execution = runFixedDecisionPilotSchedule({
+      schedule: decisionSchedule,
+      releasedAt: release.releasedAt,
+      signal: fixedScheduleAbort.signal,
+      onEvent: (event) => appendJournal('fixed_decision_pilot_schedule', event),
+      openOpportunity: (slot, signal) => {
+        if (!policy) throw new Error('fixed decision pilot policy is unavailable');
+        if (activeFixedSlot) {
+          throw new Error(`fixed decision pilot slot overlap at ${slot.slotId}`);
+        }
+        const state = policy.state();
+        if (
+          state.stopped ||
+          state.suspended ||
+          state.modelRequestActive ||
+          state.turnActive ||
+          state.pendingIntentId != null ||
+          state.loomMaintenanceActive ||
+          state.loomMaintenanceScheduled
+        ) {
+          throw new Error(
+            `fixed decision pilot slot ${slot.slotId} opened while policy was not idle`,
+          );
+        }
+        return new Promise<unknown>((resolve, reject) => {
+          const onAbort = () =>
+            settleFixedSlot(
+              null,
+              signal?.reason instanceof Error
+                ? signal.reason
+                : new Error(`fixed decision pilot slot ${slot.slotId} cancelled`),
+            );
+          signal?.addEventListener('abort', onAbort, { once: true });
+          activeFixedSlot = {
+            slot,
+            opportunityId: null,
+            resolve,
+            reject,
+            detachAbort: () => signal?.removeEventListener('abort', onAbort),
+          };
+          void policy!.tick().then(
+            () => {
+              if (activeFixedSlot?.slot.slotId === slot.slotId && !activeFixedSlot.opportunityId) {
+                settleFixedSlot(
+                  null,
+                  new Error(
+                    `fixed decision pilot slot ${slot.slotId} ended without a decision opportunity`,
+                  ),
+                );
+              }
+            },
+            (error: unknown) =>
+              settleFixedSlot(null, error instanceof Error ? error : new Error(String(error))),
+          );
+        });
+      },
+    });
+    fixedSchedulePromise = execution;
+    void execution
+      .then((result) => {
+        process.stderr.write(
+          `[bot] Fixed decision schedule ${String((result as any).status)}: ${name}\n`,
+        );
+      })
+      .catch((error: unknown) => {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        appendJournal('fixed_decision_pilot_schedule_failed', { error: failure.message });
+        void requestShutdown?.('fixed_decision_pilot_schedule_failed', failure);
+      });
+  };
   const startPolicyIfReady = () => {
     if (!localWorldReady || !experimentActive || !policy) return;
     policy.start();
-    policy.wake();
+    if (decisionSchedule) startFixedDecisionSchedule();
+    else policy.wake();
   };
 
   const recordTaskProgress = () => {
@@ -645,6 +772,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         tickMs: Number(process.env.AGENT_TICK_MS || 3000),
         maxTurnSteps,
         resumeAfterBudget,
+        decisionScheduling: decisionSchedule ? 'fixed-pilot-slots' : 'world-events',
         allowTools: opts.allowTools ?? null,
         // The complete loom stays authoritative. The adjacent fold is only a
         // validated, disposable prompt view over older turns.
@@ -658,7 +786,44 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         },
         onModelError: (failure) => appendJournal('model_call_failed', failure),
         onModelInterrupted: (interruption) => appendJournal('model_call_interrupted', interruption),
-        onDecisionOpportunity: (event) => appendJournal('resident_decision_opportunity', event),
+        authorizeDecisionOpportunity: decisionSchedule
+          ? (opportunity) => {
+              if (!activeFixedSlot || activeFixedSlot.opportunityId) {
+                throw new Error(
+                  `decision opportunity ${opportunity.opportunityId} was not opened by a fixed pilot slot`,
+                );
+              }
+              activeFixedSlot.opportunityId = opportunity.opportunityId;
+            }
+          : undefined,
+        onDecisionOpportunity: (event) => {
+          appendJournal('resident_decision_opportunity', event);
+          if (!decisionSchedule || shutdownStarted) return;
+          const active = activeFixedSlot;
+          if (!active || active.opportunityId !== event.opportunityId) {
+            const failure = new Error(
+              `fixed decision pilot opportunity ${event.opportunityId} does not match its active slot`,
+            );
+            appendJournal('fixed_decision_pilot_schedule_violation', {
+              error: failure.message,
+              activeSlot: active?.slot ?? null,
+              event,
+            });
+            void requestShutdown?.('fixed_decision_pilot_schedule_violation', failure);
+            return;
+          }
+          if (event.phase === 'scheduled') {
+            appendJournal('fixed_decision_pilot_slot_bound', {
+              protocol: 'behold.fixed-decision-pilot-slot-binding.v1',
+              slot: active.slot,
+              opportunityId: event.opportunityId,
+              requestSha256: event.requestSha256,
+              observationSequence: event.observationSequence,
+            });
+          } else {
+            settleFixedSlot(event);
+          }
+        },
         onAuxiliaryModelCall: (turn) => appendJournal('model_auxiliary_call', turn),
         onAuxiliaryModelError: (failure) => appendJournal('model_auxiliary_call_failed', failure),
         onContextIntervention: (intervention) =>
@@ -769,12 +934,14 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     if (shutdownStarted) return shutdownPromise ?? Promise.resolve();
     shutdownStarted = true;
     releaseWaitAbort.abort(new Error(`controller shutdown before release settled: ${reason}`));
+    fixedScheduleAbort.abort(new Error(`controller shutdown during fixed schedule: ${reason}`));
     shutdownPromise = Promise.resolve().then(async () => {
       try {
         appendJournal('run_stopping', { reason });
         if (displayTimer) clearInterval(displayTimer);
         displayTimer = null;
         await policy?.stop();
+        await fixedSchedulePromise?.catch(() => undefined);
         const drain = await engine!.shutdown(reason);
         if (!drain.drained) throw new Error('engine did not drain its active action');
         if (taskRuntime) {

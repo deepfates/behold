@@ -16,6 +16,7 @@ import {
   verifyExperimentReleaseArms,
   verifyExperimentReleaseClaims,
 } from '../src/runtime/experiment-release';
+import { FIXED_DECISION_PILOT_SCHEDULE_PROTOCOL } from '../src/policy/fixed-decision-pilot';
 
 const digest = (character: string) => character.repeat(64);
 
@@ -190,6 +191,98 @@ test('release plan binds exact resident body, profile, model, and quota identity
         },
       ),
     /configuration mismatch/,
+  );
+});
+
+test('fixed pilot release binds the complete schedule and refuses a reused quota account', (t) => {
+  const { root, prepared } = fixture(t);
+  const scheduledResidents = prepared.plan.residents.map((resident, residentIndex) => ({
+    ...resident,
+    decisionSchedule: {
+      protocol: FIXED_DECISION_PILOT_SCHEDULE_PROTOCOL,
+      slots: Array.from({ length: 4 }, (_, slotIndex) => ({
+        slotId: `${resident.entityId}-${slotIndex + 1}`,
+        order: slotIndex * 2 + residentIndex + 1,
+        offsetMs: (slotIndex * 2 + residentIndex + 1) * 1_000,
+      })),
+    },
+    quotaAccount: {
+      ...resident.quotaAccount,
+      limits: { resident_decision: 4, loom_fold: 1 },
+      used: { resident_decision: 0, loom_fold: 0 },
+      remaining: { resident_decision: 4, loom_fold: 1 },
+    },
+  }));
+  const plan = createExperimentReleasePlan({
+    createdAt: '2026-07-25T12:01:00.000Z',
+    world: prepared.plan.world,
+    runId: 'fixed-pilot-release',
+    ownerEpoch: prepared.plan.ownerEpoch,
+    worldBasis: prepared.plan.worldBasis,
+    accountingScope: prepared.plan.accountingScope,
+    residents: scheduledResidents,
+  });
+  const fixedPrepared = prepareExperimentRelease(path.join(root, 'fixed-gate'), plan);
+  const environment = {
+    BEHOLD_EXPERIMENT_RELEASE_PLAN: fixedPrepared.planFile,
+    BEHOLD_EXPERIMENT_RELEASE_PLAN_SHA256: fixedPrepared.planSha256,
+  };
+  assert.ok(
+    experimentReleaseGateFromEnvironment(
+      {
+        entityId: scheduledResidents[0].entityId,
+        bodyUsername: scheduledResidents[0].bodyUsername,
+        model: scheduledResidents[0].model,
+        urgentModel: null,
+        mind: 'direct',
+        ollamaLocal: scheduledResidents[0].ollamaLocal,
+        decisionSchedule: scheduledResidents[0].decisionSchedule,
+        profiles: scheduledResidents[0].profiles,
+        quotaAccountId: scheduledResidents[0].quotaAccount.accountId,
+      },
+      environment,
+    ),
+  );
+  assert.throws(
+    () =>
+      experimentReleaseGateFromEnvironment(
+        {
+          entityId: scheduledResidents[0].entityId,
+          bodyUsername: scheduledResidents[0].bodyUsername,
+          model: scheduledResidents[0].model,
+          urgentModel: null,
+          mind: 'direct',
+          ollamaLocal: scheduledResidents[0].ollamaLocal,
+          profiles: scheduledResidents[0].profiles,
+          quotaAccountId: scheduledResidents[0].quotaAccount.accountId,
+        },
+        environment,
+      ),
+    /configuration mismatch/,
+  );
+  assert.throws(
+    () =>
+      createExperimentReleasePlan({
+        createdAt: '2026-07-25T12:02:00.000Z',
+        world: prepared.plan.world,
+        runId: 'fixed-pilot-reused',
+        ownerEpoch: prepared.plan.ownerEpoch,
+        worldBasis: prepared.plan.worldBasis,
+        accountingScope: prepared.plan.accountingScope,
+        residents: scheduledResidents.map((resident, index) =>
+          index === 0
+            ? {
+                ...resident,
+                quotaAccount: {
+                  ...resident.quotaAccount,
+                  used: { resident_decision: 1, loom_fold: 0 },
+                  remaining: { resident_decision: 3, loom_fold: 1 },
+                },
+              }
+            : resident,
+        ),
+      }),
+    /fresh four-decision quota account/,
   );
 });
 

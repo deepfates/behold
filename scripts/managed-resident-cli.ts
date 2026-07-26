@@ -19,6 +19,7 @@ export const MANAGED_RESIDENT_CLI_OPTIONS = Object.freeze({
   tickMs: { type: 'string' },
   maxTurnSteps: { type: 'string' },
   resumeAfterBudget: { type: 'string' },
+  decisionSchedule: { type: 'string' },
   task: { type: 'string' },
   target: { type: 'string' },
   allowTools: { type: 'string' },

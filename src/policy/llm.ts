@@ -70,6 +70,8 @@ export type Options = {
   tickMs?: number;
   maxTurnSteps?: number;
   resumeAfterBudget?: boolean;
+  /** Opt-in pilot mode: only explicit tick() calls may open resident decisions. */
+  decisionScheduling?: 'world-events' | 'fixed-pilot-slots';
   allowTools?: string[] | null;
   history?: EntityTurn[];
   foldCacheFile?: string | null;
@@ -124,6 +126,16 @@ export type Options = {
     call: ModelCallFailureEvidence | ModelCallEvidence | null;
   }) => void;
   onModelInterrupted?: (interruption: ResidentAttentionInterruption & { model: string }) => void;
+  /** Fail-closed admission hook invoked before a decision opportunity is journaled or transported. */
+  authorizeDecisionOpportunity?: (opportunity: {
+    protocol: 'behold.resident-decision-opportunity.v1';
+    opportunityId: string;
+    entityId: string;
+    model: string;
+    mind: string;
+    observationSequence: number;
+    requestSha256: string;
+  }) => void;
   onDecisionOpportunity?: (event: {
     protocol: 'behold.resident-decision-opportunity.v1';
     opportunityId: string;
@@ -321,6 +333,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const history = opts.history || [];
   const tickMs = Math.max(500, Number(opts.tickMs ?? 3000));
   const maxTurnSteps = Math.max(1, Math.min(32, Number(opts.maxTurnSteps ?? 8)));
+  const fixedPilotSlots = opts.decisionScheduling === 'fixed-pilot-slots';
   const policyProfile = residentPolicyProfile(opts.policyProfile);
   const bodyProfile = minecraftBodyProfile(
     opts.bodyProfile ??
@@ -448,7 +461,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   async function wake(force = false) {
     if (stopped || suspended) return;
     if (deciding) {
-      wakeQueued = true;
+      if (!fixedPilotSlots || force) wakeQueued = true;
       const latest = observe();
       const decision = activeDecision;
       const triggers = urgentEventTriggers(latest, decision?.observationSequence ?? lastSequence);
@@ -481,7 +494,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         const latest = observe();
         const triggers = urgentEventTriggers(latest, lastSequence);
         if (force || hasDecisionRelevantEvent(latest, lastSequence)) {
-          wakeQueued = true;
+          if (!fixedPilotSlots || force) wakeQueued = true;
           activeModelRequest?.abort(
             abortError(
               triggers.length > 0
@@ -491,14 +504,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           );
         }
       } else {
-        wakeQueued = true;
+        if (!fixedPilotSlots || force) wakeQueued = true;
       }
       return;
     }
     if (pending) {
-      wakeQueued = true;
+      if (!fixedPilotSlots || force) wakeQueued = true;
       return;
     }
+    if (fixedPilotSlots && !force) return;
 
     let frame: any = null;
     if (!contextPrepared) {
@@ -697,6 +711,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             observationSequence: Number(currentObservation?.sequence) || lastSequence,
             requestSha256,
           };
+          opts.authorizeDecisionOpportunity?.(opportunity);
           opts.onDecisionOpportunity?.({
             ...opportunity,
             phase: 'scheduled',
@@ -1068,6 +1083,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function scheduleLoomMaintenance() {
     if (
+      fixedPilotSlots ||
       stopped ||
       suspended ||
       turnActive ||
@@ -1367,7 +1383,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function start() {
-    if (!stopped && !timer) timer = setInterval(() => void wake(), tickMs);
+    if (!fixedPilotSlots && !stopped && !timer) timer = setInterval(() => void wake(), tickMs);
   }
 
   function stop() {
@@ -1404,12 +1420,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     consecutiveCommunicationActions = 0;
     consecutiveProjectActions = 0;
     if (!suspended) {
-      void wake();
+      if (!fixedPilotSlots) void wake();
       return;
     }
     suspended = false;
     log('[policy] resumed by world interaction');
-    void wake(true);
+    if (!fixedPilotSlots) void wake(true);
   }
 
   async function withModelRequest<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {

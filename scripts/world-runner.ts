@@ -68,6 +68,13 @@ import {
 } from '../src/agent/action-profiles';
 import { residentPolicyProfile, type ResidentPolicyProfile } from '../src/policy/profile';
 import {
+  FIXED_DECISION_PILOT_SLOT_COUNT,
+  assertFixedDecisionPilotPopulation,
+  fixedDecisionPilotSchedule,
+  serializeFixedDecisionPilotSchedule,
+  type FixedDecisionPilotSchedule,
+} from '../src/policy/fixed-decision-pilot';
+import {
   minecraftBodyProfile,
   usesHumanSemanticBody,
   type MinecraftBodyProfile,
@@ -211,6 +218,8 @@ export type ManagedResidentSpec = Readonly<{
   providerRoute?: OpenRouterRoutePolicy;
   /** Exact loopback Ollama model/content/settings contract. */
   ollamaLocal?: OllamaLocalPolicy;
+  /** Explicit four-slot scored cognition treatment; absent keeps ordinary world-event scheduling. */
+  decisionSchedule?: FixedDecisionPilotSchedule;
   /** Explicit, non-authoritative variables for a specialized controller entrypoint. */
   environment?: Readonly<Record<string, string>>;
   /** Connect the body and preserve the life without starting cognition. */
@@ -238,6 +247,7 @@ const MANAGED_RESIDENT_SET_FIELDS = new Set([
   'providerQuotas',
   'providerRoute',
   'ollamaLocal',
+  'decisionSchedule',
   'paused',
 ]);
 
@@ -427,6 +437,16 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
         );
       }
     }
+    if (candidate.decisionSchedule !== undefined) {
+      try {
+        result.decisionSchedule = fixedDecisionPilotSchedule(candidate.decisionSchedule);
+      } catch (error: any) {
+        throw residentConfigInvalid(
+          file,
+          `wrong decisionSchedule for resident ${index}: ${error?.message || String(error)}`,
+        );
+      }
+    }
     if (result.target && !result.task) {
       throw residentConfigInvalid(file, `resident ${index} target requires task`);
     }
@@ -576,6 +596,7 @@ export type ManagedWorldRun = Readonly<{
     providerQuotas: ManagedResidentSpec['providerQuotas'] | null;
     providerRoute: OpenRouterRoutePolicy | null;
     ollamaLocal: OllamaLocalPolicy | null;
+    decisionSchedule: FixedDecisionPilotSchedule | null;
     paused: boolean;
     viewer: ManagedResidentViewerEndpoint | null;
     pid: number;
@@ -670,6 +691,7 @@ type NormalizedManagedResident = Readonly<{
   }>;
   providerRoute?: OpenRouterRoutePolicy;
   ollamaLocal?: OllamaLocalPolicy;
+  decisionSchedule?: FixedDecisionPilotSchedule;
   environment: Readonly<Record<string, string>>;
   paused: boolean;
   leasePath: string;
@@ -975,6 +997,36 @@ function normalizeManagedResidents(
           { index, entityId },
         );
       }
+      let decisionSchedule: FixedDecisionPilotSchedule | undefined;
+      try {
+        decisionSchedule =
+          candidate.decisionSchedule == null
+            ? undefined
+            : fixedDecisionPilotSchedule(candidate.decisionSchedule);
+      } catch (error: any) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} has an invalid fixed decision pilot schedule: ${error?.message || String(error)}`,
+          'resident_fixed_decision_schedule_invalid',
+          { index, entityId, decisionSchedule: candidate.decisionSchedule },
+        );
+      }
+      if (decisionSchedule && (maxTurnSteps !== 1 || candidate.resumeAfterBudget !== false)) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} fixed decision pilot requires maxTurnSteps 1 and resumeAfterBudget false`,
+          'resident_fixed_decision_turn_contract_invalid',
+          { index, entityId, maxTurnSteps, resumeAfterBudget: candidate.resumeAfterBudget },
+        );
+      }
+      if (
+        decisionSchedule &&
+        providerQuotas?.residentDecisionAttempts !== FIXED_DECISION_PILOT_SLOT_COUNT
+      ) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} fixed decision pilot requires exactly four resident decision attempts`,
+          'resident_fixed_decision_quota_mismatch',
+          { index, entityId, providerQuotas },
+        );
+      }
       if (candidate.target && !candidate.task) {
         throw new WorldRunnerError(
           `Resident ${entityId} has a target without a task`,
@@ -1018,6 +1070,7 @@ function normalizeManagedResidents(
         ...(providerQuotas ? { providerQuotas } : {}),
         ...(providerRoute ? { providerRoute } : {}),
         ...(ollamaLocal ? { ollamaLocal } : {}),
+        ...(decisionSchedule ? { decisionSchedule } : {}),
         environment,
         paused: candidate.paused === true,
         leasePath,
@@ -1025,6 +1078,24 @@ function normalizeManagedResidents(
     }),
   );
   const activeResidents = residents.filter((resident) => !resident.paused);
+  try {
+    assertFixedDecisionPilotPopulation(activeResidents);
+  } catch (error: any) {
+    throw new WorldRunnerError(
+      `Invalid fixed decision pilot population: ${error?.message || String(error)}`,
+      'resident_fixed_decision_population_invalid',
+      { residents: activeResidents.map((resident) => resident.entityId) },
+    );
+  }
+  const scheduledResidents = activeResidents.filter(
+    (resident) => resident.decisionSchedule != null,
+  );
+  if (scheduledResidents.length > 0 && scheduledResidents.length !== residents.length) {
+    throw new WorldRunnerError(
+      'Fixed decision pilot cannot include paused or unscheduled residents',
+      'resident_fixed_decision_population_incomplete',
+    );
+  }
   const routedResidents = activeResidents.filter((resident) => resident.providerRoute != null);
   if (routedResidents.length > 0 && routedResidents.length !== activeResidents.length) {
     throw new WorldRunnerError(
@@ -1261,6 +1332,19 @@ function matchedReleaseAccounting(
         { entityId: resident.entityId, expected, actual: actual ?? null },
       );
     }
+    if (
+      resident.decisionSchedule &&
+      (actual.used.resident_decision !== 0 ||
+        actual.used.loom_fold !== 0 ||
+        actual.remaining.resident_decision !== FIXED_DECISION_PILOT_SLOT_COUNT ||
+        actual.remaining.loom_fold !== actual.limits.loom_fold)
+    ) {
+      throw new WorldRunnerError(
+        `Fixed decision pilot quota account is not fresh for ${resident.entityId}`,
+        'experiment_fixed_decision_restart_refused',
+        { entityId: resident.entityId, account: actual },
+      );
+    }
     balances.add(
       JSON.stringify({ limits: actual.limits, used: actual.used, remaining: actual.remaining }),
     );
@@ -1327,6 +1411,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         providerQuotas: entry.resident.providerQuotas ?? null,
         providerRoute: entry.resident.providerRoute ?? null,
         ollamaLocal: entry.resident.ollamaLocal ?? null,
+        decisionSchedule: entry.resident.decisionSchedule ?? null,
         paused: entry.resident.paused,
         viewer: entry.viewer,
         pid: entry.child.pid!,
@@ -1685,6 +1770,7 @@ export async function startManagedWorld(
           allowTools: resident.allowTools ?? null,
           providerRoute: resident.providerRoute ?? null,
           ollamaLocal: resident.ollamaLocal ?? null,
+          decisionSchedule: resident.decisionSchedule ?? null,
           providerAccounting: providerAccounting
             ? {
                 accountId: providerAccounting.accounts.get(resident.entityId)!.accountId,
@@ -1878,6 +1964,7 @@ export async function startManagedWorld(
             mind: resident.mind,
             ...(resident.providerRoute ? { providerRoute: resident.providerRoute } : {}),
             ...(resident.ollamaLocal ? { ollamaLocal: resident.ollamaLocal } : {}),
+            ...(resident.decisionSchedule ? { decisionSchedule: resident.decisionSchedule } : {}),
             profiles: {
               policy: resident.policyProfile,
               body: resident.bodyProfile,
@@ -1917,6 +2004,10 @@ export async function startManagedWorld(
         populationDigest: plan.populationDigest,
         worldBasis: plan.worldBasis,
         accountingScope: plan.accountingScope,
+        decisionSchedule: plan.residents.map((resident) => ({
+          entityId: resident.entityId,
+          decisionSchedule: resident.decisionSchedule ?? null,
+        })),
         postReleaseObservationOrdering: 'resident_claim_ordinals_are_sequential',
       });
     }
@@ -1970,6 +2061,7 @@ export async function startManagedWorld(
         mind: resident.mind,
         providerRoute: resident.providerRoute ?? null,
         ollamaLocal: resident.ollamaLocal ?? null,
+        decisionSchedule: resident.decisionSchedule ?? null,
         tickMs: resident.tickMs,
         maxTurnSteps: resident.maxTurnSteps ?? null,
         resumeAfterBudget: resident.resumeAfterBudget ?? null,
@@ -2862,6 +2954,9 @@ function spawnDefaultController(
   }
   if (resident.resumeAfterBudget != null) {
     args.push('--resumeAfterBudget', String(resident.resumeAfterBudget));
+  }
+  if (resident.decisionSchedule) {
+    args.push('--decisionSchedule', serializeFixedDecisionPilotSchedule(resident.decisionSchedule));
   }
   if (resident.urgentModel) args.push('--urgentModel', resident.urgentModel);
   if (resident.task) args.push('--task', resident.task);

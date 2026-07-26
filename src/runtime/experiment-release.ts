@@ -3,6 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ollamaLocalPolicy, type OllamaLocalPolicy } from '../mind/ollama-local';
 import { openRouterRoutePolicy, type OpenRouterRoutePolicy } from '../mind/openrouter-route';
+import {
+  assertFixedDecisionPilotPopulation,
+  fixedDecisionPilotSchedule,
+  type FixedDecisionPilotSchedule,
+} from '../policy/fixed-decision-pilot';
 
 export const EXPERIMENT_RELEASE_PLAN_PROTOCOL = 'behold.experiment-release-plan.v1' as const;
 export const EXPERIMENT_RELEASE_ARM_PROTOCOL = 'behold.experiment-release-arm.v1' as const;
@@ -19,6 +24,7 @@ export type ExperimentReleaseResident = Readonly<{
   mind: 'direct' | 'ax';
   providerRoute?: OpenRouterRoutePolicy;
   ollamaLocal?: OllamaLocalPolicy;
+  decisionSchedule?: FixedDecisionPilotSchedule;
   profiles: Readonly<{
     policy: string;
     body: string;
@@ -160,6 +166,22 @@ export function createExperimentReleasePlan(input: {
     throw new Error('release plan requires 1 through 64 residents');
   }
   const residents = Object.freeze(input.residents.map(parseResident));
+  assertFixedDecisionPilotPopulation(residents);
+  for (const resident of residents) {
+    if (!resident.decisionSchedule) continue;
+    const account = resident.quotaAccount;
+    if (
+      account.limits.resident_decision !== 4 ||
+      account.used.resident_decision !== 0 ||
+      account.used.loom_fold !== 0 ||
+      account.remaining.resident_decision !== 4 ||
+      account.remaining.loom_fold !== account.limits.loom_fold
+    ) {
+      throw new Error(
+        `fixed decision pilot release requires a fresh four-decision quota account for ${resident.entityId}`,
+      );
+    }
+  }
   assertUnique(
     residents.map((resident) => resident.entityId),
     'release resident identity',
@@ -567,6 +589,11 @@ function parseResident(value: unknown): ExperimentReleaseResident {
     typeof value === 'object' &&
     !Array.isArray(value) &&
     Object.prototype.hasOwnProperty.call(value, 'ollamaLocal');
+  const hasDecisionSchedule =
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.prototype.hasOwnProperty.call(value, 'decisionSchedule');
   const record = exactRecord(
     value,
     [
@@ -577,6 +604,7 @@ function parseResident(value: unknown): ExperimentReleaseResident {
       'mind',
       ...(hasProviderRoute ? ['providerRoute'] : []),
       ...(hasOllamaLocal ? ['ollamaLocal'] : []),
+      ...(hasDecisionSchedule ? ['decisionSchedule'] : []),
       'profiles',
       'quotaAccount',
     ],
@@ -624,6 +652,9 @@ function parseResident(value: unknown): ExperimentReleaseResident {
     mind: record.mind,
     ...(hasProviderRoute ? { providerRoute: openRouterRoutePolicy(record.providerRoute) } : {}),
     ...(localPolicy ? { ollamaLocal: localPolicy } : {}),
+    ...(hasDecisionSchedule
+      ? { decisionSchedule: fixedDecisionPilotSchedule(record.decisionSchedule) }
+      : {}),
     profiles: {
       policy: boundedId(profiles.policy, 'release policy profile'),
       body: boundedId(profiles.body, 'release body profile'),
@@ -837,6 +868,7 @@ function sameResidentConfiguration(
     actual.mind === expected.mind &&
     stableJson(actual.providerRoute ?? null) === stableJson(expected.providerRoute ?? null) &&
     stableJson(actual.ollamaLocal ?? null) === stableJson(expected.ollamaLocal ?? null) &&
+    stableJson(actual.decisionSchedule ?? null) === stableJson(expected.decisionSchedule ?? null) &&
     stableJson(actual.profiles) === stableJson(expected.profiles) &&
     (expected.quotaAccountId == null || actual.quotaAccount.accountId === expected.quotaAccountId)
   );
