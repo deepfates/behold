@@ -63,6 +63,7 @@ export type LmStudioLocalPolicy = Readonly<{
     contextTokens: number;
     maxOutputTokens: number;
     temperature: number;
+    reasoningEffort?: 'none';
   }>;
 }>;
 
@@ -254,9 +255,16 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
   if (runtime.format !== 'mlx' && runtime.format !== 'gguf') {
     throw new Error('LM Studio resident session format must be mlx or gguf');
   }
+  const rawSettings = plainRecord(record.settings) ? record.settings : null;
+  const reasoningEffort = rawSettings?.reasoningEffort;
   const settings = exactRecord(
     record.settings,
-    ['contextTokens', 'maxOutputTokens', 'temperature'],
+    [
+      'contextTokens',
+      'maxOutputTokens',
+      'temperature',
+      ...(reasoningEffort == null ? [] : ['reasoningEffort']),
+    ],
     'LM Studio resident settings',
   );
   const contextTokens = boundedInteger(
@@ -277,6 +285,9 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
   const temperature = Number(settings.temperature);
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
     throw new Error('LM Studio temperature must be from 0 through 2');
+  }
+  if (reasoningEffort != null && reasoningEffort !== 'none') {
+    throw new Error('LM Studio reasoning effort must be explicitly disabled');
   }
   const modelKey = boundedIdentity(record.modelKey, 'LM Studio model key');
   const catalogKey = boundedIdentity(record.catalogKey, 'LM Studio catalog key');
@@ -320,7 +331,12 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
       engine: boundedIdentity(runtime.engine, 'LM Studio engine'),
       format,
     },
-    settings: { contextTokens, maxOutputTokens, temperature },
+    settings: {
+      contextTokens,
+      maxOutputTokens,
+      temperature,
+      ...(reasoningEffort == null ? {} : { reasoningEffort: 'none' as const }),
+    },
   });
 }
 
@@ -366,6 +382,9 @@ export function createLmStudioLocalJsonActionRequest(
     response_format: responseFormat,
     temperature: policy.settings.temperature,
     max_tokens: policy.settings.maxOutputTokens,
+    ...(policy.settings.reasoningEffort == null
+      ? {}
+      : { reasoning_effort: policy.settings.reasoningEffort }),
     stream: false as const,
   });
   const identity: LmStudioLocalRequestIdentity = deepFreeze({
@@ -419,6 +438,9 @@ export function createLmStudioLocalPrefixReadinessRequest(
     response_format: responseFormat,
     temperature: policy.settings.temperature,
     max_tokens: 16,
+    ...(policy.settings.reasoningEffort == null
+      ? {}
+      : { reasoning_effort: policy.settings.reasoningEffort }),
     stream: false as const,
   });
   const identity: LmStudioLocalPrefixReadinessRequestIdentity = deepFreeze({
@@ -448,14 +470,23 @@ export function assertLmStudioLocalPrefixReadinessWireRequest(
     modelInstanceId == null ? lmStudioResidentInstanceId(policy) : exactInstanceId(modelInstanceId);
   const record = exactRecord(
     value,
-    ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
+    [
+      'model',
+      'messages',
+      'response_format',
+      'temperature',
+      'max_tokens',
+      'stream',
+      ...(policy.settings.reasoningEffort == null ? [] : ['reasoning_effort']),
+    ],
     'LM Studio prefix readiness request',
   );
   if (
     record.model !== instanceId ||
     record.stream !== false ||
     record.temperature !== policy.settings.temperature ||
-    record.max_tokens !== 16
+    record.max_tokens !== 16 ||
+    record.reasoning_effort !== policy.settings.reasoningEffort
   ) {
     throw new Error('LM Studio prefix readiness generation settings differ from admission');
   }
@@ -561,20 +592,30 @@ export function assertLmStudioLocalWireRequest(
   value: unknown,
   policyValue: LmStudioLocalPolicy,
   modelInstanceId?: string,
+  residentIdentity?: string,
 ): LmStudioLocalRequestIdentity {
   const policy = lmStudioLocalPolicy(policyValue);
   const instanceId =
     modelInstanceId == null ? lmStudioResidentInstanceId(policy) : exactInstanceId(modelInstanceId);
   const record = exactRecord(
     value,
-    ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
+    [
+      'model',
+      'messages',
+      'response_format',
+      'temperature',
+      'max_tokens',
+      'stream',
+      ...(policy.settings.reasoningEffort == null ? [] : ['reasoning_effort']),
+    ],
     'LM Studio local resident request',
   );
   if (
     record.model !== instanceId ||
     record.stream !== false ||
     record.temperature !== policy.settings.temperature ||
-    record.max_tokens !== policy.settings.maxOutputTokens
+    record.max_tokens !== policy.settings.maxOutputTokens ||
+    record.reasoning_effort !== policy.settings.reasoningEffort
   ) {
     throw new Error('LM Studio wire model or generation settings differ from admission');
   }
@@ -596,6 +637,9 @@ export function assertLmStudioLocalWireRequest(
     throw new Error('LM Studio response format is not the exact strict resident schema wrapper');
   }
   const envelope = assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
+  if (residentIdentity != null) {
+    assertResidentWireOwner(record.messages, residentIdentity);
+  }
   return deepFreeze({
     protocol: LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL,
     transportProtocol: LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
@@ -643,6 +687,9 @@ export function createLmStudioLocalLoomFoldRequest(
     response_format: responseFormat,
     temperature: policy.settings.temperature,
     max_tokens: policy.settings.maxOutputTokens,
+    ...(policy.settings.reasoningEffort == null
+      ? {}
+      : { reasoning_effort: policy.settings.reasoningEffort }),
     stream: false as const,
   });
   return deepFreeze({ body, identity: loomFoldRequestIdentity(policy, instanceId, messages) });
@@ -653,20 +700,30 @@ export function assertLmStudioLocalLoomFoldWireRequest(
   value: unknown,
   policyValue: LmStudioLocalPolicy,
   modelInstanceId?: string,
+  residentIdentity?: string,
 ): LmStudioLocalLoomFoldRequestIdentity {
   const policy = lmStudioLocalPolicy(policyValue);
   const instanceId =
     modelInstanceId == null ? lmStudioResidentInstanceId(policy) : exactInstanceId(modelInstanceId);
   const record = exactRecord(
     value,
-    ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
+    [
+      'model',
+      'messages',
+      'response_format',
+      'temperature',
+      'max_tokens',
+      'stream',
+      ...(policy.settings.reasoningEffort == null ? [] : ['reasoning_effort']),
+    ],
     'LM Studio local loom-fold request',
   );
   if (
     record.model !== instanceId ||
     record.stream !== false ||
     record.temperature !== policy.settings.temperature ||
-    record.max_tokens !== policy.settings.maxOutputTokens
+    record.max_tokens !== policy.settings.maxOutputTokens ||
+    record.reasoning_effort !== policy.settings.reasoningEffort
   ) {
     throw new Error('LM Studio loom-fold model or generation settings differ from admission');
   }
@@ -708,6 +765,9 @@ export function assertLmStudioLocalLoomFoldWireRequest(
     throw new Error('LM Studio loom-fold source is not valid JSON');
   }
   const canonicalSource = parseLoomFoldSource(source);
+  if (residentIdentity != null && canonicalSource.entityId !== residentIdentity) {
+    throw new Error('LM Studio loom-fold source belongs to another resident');
+  }
   if (user.content !== stableJson(canonicalSource)) {
     throw new Error('LM Studio loom-fold source is not exact canonical JSON');
   }
@@ -832,6 +892,39 @@ function loomFoldSource(request: LoomFoldRequest) {
     previousFoldedView: request.previousSummary,
     newLoomEvidence: request.turns,
   });
+}
+
+function assertResidentWireOwner(messagesValue: unknown, residentIdentity: string) {
+  if (!Array.isArray(messagesValue) || messagesValue.length < 3) {
+    throw new Error('LM Studio resident request messages are incomplete');
+  }
+  const current = exactRecord(
+    messagesValue.at(-1),
+    ['role', 'content'],
+    'LM Studio resident current observation',
+  );
+  if (current.role !== 'user' || typeof current.content !== 'string') {
+    throw new Error('LM Studio resident current observation is malformed');
+  }
+  const jsonStart = current.content.indexOf('{');
+  const jsonEnd = current.content.lastIndexOf('\n\nRespond now with one JSON object');
+  if (jsonStart < 0 || jsonEnd <= jsonStart) {
+    throw new Error('LM Studio resident current observation is missing its exact body identity');
+  }
+  let observation: unknown;
+  try {
+    observation = JSON.parse(current.content.slice(jsonStart, jsonEnd));
+  } catch {
+    throw new Error('LM Studio resident current observation is not valid JSON');
+  }
+  const record = plainRecord(observation) ? observation : null;
+  const self = record && plainRecord(record.self) ? record.self : null;
+  if (
+    record?.protocol !== 'behold.minecraft-human-semantic-observation.v1' ||
+    self?.identity !== residentIdentity
+  ) {
+    throw new Error('LM Studio resident request belongs to another resident');
+  }
 }
 
 function parseLoomFoldSource(value: unknown) {
@@ -1410,7 +1503,7 @@ async function digestGgufTemplate(artifactRoot: string, policy: LmStudioLocalPol
   const artifactFile = path.join(artifactRoot, modelsRelative);
   assertInside(artifactRoot, artifactFile, 'LM Studio GGUF artifact');
   const stat = await fs.promises.lstat(artifactFile);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== policy.artifact.sizeBytes) {
+  if (!stat.isFile() || stat.isSymbolicLink()) {
     throw new Error(`LM Studio GGUF file identity differs for ${policy.modelKey}`);
   }
   const template = await readGgufStringMetadataBytes(artifactFile, 'tokenizer.chat_template');
@@ -1446,19 +1539,25 @@ function indexedIdentityNamesArtifact(
       indexedModelIdentifier === relativePath || indexedModelIdentifier.endsWith(`@${relativePath}`)
     );
   }
+  const artifactIdentity = indexedModelIdentifier.includes('@')
+    ? indexedModelIdentifier.slice(indexedModelIdentifier.indexOf('@') + 1)
+    : indexedModelIdentifier;
   return (
-    indexedModelIdentifier.startsWith(`${relativePath}/`) &&
-    exactRelativePath(indexedModelIdentifier) === indexedModelIdentifier
+    artifactIdentity.startsWith(`${relativePath}/`) &&
+    exactRelativePath(artifactIdentity) === artifactIdentity
   );
 }
 
 function ggufArtifactMember(policy: LmStudioLocalPolicy) {
   if (policy.runtime.format !== 'gguf') throw new Error('LM Studio policy is not GGUF');
+  const artifactIdentity = policy.indexedModelIdentifier.includes('@')
+    ? policy.indexedModelIdentifier.slice(policy.indexedModelIdentifier.indexOf('@') + 1)
+    : policy.indexedModelIdentifier;
   const prefix = `${policy.artifact.relativePath}/`;
-  if (!policy.indexedModelIdentifier.startsWith(prefix)) {
+  if (!artifactIdentity.startsWith(prefix)) {
     throw new Error('LM Studio GGUF index identity is outside its admitted artifact root');
   }
-  return exactRelativePath(policy.indexedModelIdentifier.slice(prefix.length));
+  return exactRelativePath(artifactIdentity.slice(prefix.length));
 }
 
 export function lmStudioResidentInstanceId(

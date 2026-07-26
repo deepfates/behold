@@ -29,7 +29,7 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
   const preflight = localPreflight(policy);
   const instanceId = lmStudioResidentInstanceId(policy, 'Aster');
   const serialized = createLmStudioLocalJsonActionRequest(
-    residentRequest(policy.modelKey) as any,
+    residentRequest(policy.modelKey, 'Aster') as any,
     policy,
     instanceId,
   );
@@ -44,6 +44,13 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
         model: policy.modelKey,
         lmStudioLocal: policy,
         lmStudioResidentIdentity: 'Aster',
+      },
+      {
+        bearer: token('birch'),
+        residentKey: cognitionResidentKey('lmstudio-fixture', 'Birch'),
+        model: policy.modelKey,
+        lmStudioLocal: policy,
+        lmStudioResidentIdentity: 'Birch',
       },
     ],
     maxConcurrent: 1,
@@ -90,6 +97,21 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
     assert.equal(calls, 0);
 
     assert.equal(lmStudioResidentInstanceId(policy, 'Birch'), instanceId);
+
+    const crossedResident = await request(
+      broker.endpoint,
+      JSON.stringify(serialized.body),
+      'crossed-resident',
+      'resident_decision',
+      'deliberative',
+      token('birch'),
+    );
+    assert.equal(crossedResident.status, 400);
+    assert.equal(
+      ((await crossedResident.json()) as any).error.code,
+      'request_lmstudio_policy_mismatch',
+    );
+    assert.equal(calls, 0);
 
     const admitted = await request(broker.endpoint, JSON.stringify(serialized.body), 'exact');
     assert.equal(admitted.status, 200);
@@ -388,10 +410,10 @@ function localPreflight(policy: LmStudioLocalPolicy): LmStudioLocalPreflight {
   return { ...base, digest: sha256(stableJson(base)) };
 }
 
-function residentRequest(model: string) {
+function residentRequest(model: string, entityId = 'Aster') {
   return {
     protocol: 'behold.mind-request.v1',
-    entityId: 'Aster',
+    entityId,
     model,
     policyProfile: 'legible-resident-v1',
     bodyProfile: 'minecraft-human-semantic-v1',
@@ -405,7 +427,13 @@ function residentRequest(model: string) {
         content:
           'Resident working continuity from your own entity loom.\n{"protocol":"behold.resident-working-continuity.v1","experiences":[]}',
       },
-      { role: 'user', content: 'Current perception: no immediate danger.' },
+      {
+        role: 'user',
+        content: `Current perception:\n${JSON.stringify({
+          protocol: 'behold.minecraft-human-semantic-observation.v1',
+          self: { identity: entityId },
+        })}`,
+      },
     ],
     actions: [
       {
@@ -429,12 +457,13 @@ function request(
   requestId: string,
   purpose: 'resident_decision' | 'resident_prefix_readiness' | 'loom_fold' = 'resident_decision',
   priority: 'deliberative' | 'auxiliary' = 'deliberative',
+  bearer = token(),
 ) {
   return fetch(endpoint, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      authorization: `Bearer ${token()}`,
+      authorization: `Bearer ${bearer}`,
       ...cognitionClientHeaders({
         requestId,
         priority,
@@ -446,8 +475,8 @@ function request(
   });
 }
 
-function token() {
-  return `local-lmstudio-${'x'.repeat(48)}`;
+function token(label = 'aster') {
+  return `local-lmstudio-${label}-${'x'.repeat(48)}`;
 }
 
 function jsonResponse(value: unknown) {

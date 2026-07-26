@@ -1599,12 +1599,17 @@ function assertLmStudioRequestForPurpose(
 ) {
   const instanceId = lmStudioResidentInstanceId(policy, residentIdentity ?? undefined);
   if (purpose === 'loom_fold') {
-    return assertLmStudioLocalLoomFoldWireRequest(value, policy, instanceId);
+    return assertLmStudioLocalLoomFoldWireRequest(
+      value,
+      policy,
+      instanceId,
+      residentIdentity ?? undefined,
+    );
   }
   if (purpose === 'resident_prefix_readiness') {
     return assertLmStudioLocalPrefixReadinessWireRequest(value, policy, instanceId);
   }
-  return assertLmStudioLocalWireRequest(value, policy, instanceId);
+  return assertLmStudioLocalWireRequest(value, policy, instanceId, residentIdentity ?? undefined);
 }
 
 function normalizeClients(values: CognitionBrokerOptions['clients']): readonly Client[] {

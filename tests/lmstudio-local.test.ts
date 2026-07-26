@@ -60,11 +60,23 @@ test('LM Studio policy admits only exact loopback resident sessions', async (t) 
       transport: { ...residentPolicy.transport, schemaSha256: 'f'.repeat(64) },
     }),
   );
+  assert.throws(() =>
+    lmStudioLocalPolicy({
+      ...residentPolicy,
+      settings: { ...residentPolicy.settings, reasoningEffort: 'low' },
+    }),
+  );
 });
 
 test('GGUF admission binds the exact artifact tree and embedded chat template through unload', async (t) => {
   const fixture = await ggufArtifactFixture(t);
-  const residentPolicy = ggufPolicy(fixture);
+  const basePolicy = ggufPolicy(fixture);
+  const residentPolicy = {
+    ...basePolicy,
+    modelKey: `${basePolicy.catalogKey}@q8_0`,
+    indexedModelIdentifier: `${basePolicy.catalogKey}@${fixture.indexedModelIdentifier}`,
+    settings: { ...basePolicy.settings, reasoningEffort: 'none' as const },
+  };
   assert.deepEqual(lmStudioLocalPolicy(residentPolicy), residentPolicy);
   const loaded = new Set<string>();
   const commands: string[][] = [];
@@ -72,7 +84,20 @@ test('GGUF admission binds the exact artifact tree and embedded chat template th
     commands.push([...args]);
     if (args[0] === '--version') return `CLI commit: ${CLI_COMMIT}\n`;
     if (args[0] === 'runtime') return `ENGINE SELECTED\n${GGUF_ENGINE} ✓ llama.cpp\n`;
-    if (args[0] === 'ls') return JSON.stringify([indexEntry(residentPolicy)]);
+    if (args[0] === 'ls' && args.length > 2) {
+      return JSON.stringify([{ ...indexEntry(residentPolicy), modelKey: residentPolicy.modelKey }]);
+    }
+    if (args[0] === 'ls') {
+      return JSON.stringify([
+        {
+          ...indexEntry(residentPolicy),
+          modelKey: residentPolicy.catalogKey,
+          indexedModelIdentifier: residentPolicy.catalogKey,
+          selectedVariant: residentPolicy.modelKey,
+          variants: [residentPolicy.modelKey],
+        },
+      ]);
+    }
     if (args[0] === 'ps') return '[]';
     if (args[0] === 'load') {
       loaded.add(String(args[args.indexOf('--identifier') + 1]));
@@ -123,8 +148,8 @@ test('GGUF admission binds the exact artifact tree and embedded chat template th
       ],
       modelsRoot: fixture.modelsRoot,
       readAppVersion: () => APP_VERSION,
-      runLms: preflightRunner(residentPolicy),
-      fetch: inventoryFetch(residentPolicy, []),
+      runLms,
+      fetch,
     }),
     /template bytes differ/,
   );
@@ -648,12 +673,14 @@ async function ggufArtifactFixture(t: test.TestContext) {
     file,
     minimalGguf({ 'general.architecture': 'qwen2', 'tokenizer.chat_template': TEMPLATE }),
   );
+  fs.writeFileSync(path.join(artifactRoot, 'mmproj-fixture.gguf'), 'fixture projector');
   return {
     modelsRoot,
     relativePath,
     indexedModelIdentifier: `${relativePath}/${fileName}`,
     treeSha256: await digestRegularFileTree(artifactRoot),
-    sizeBytes: fs.statSync(file).size,
+    sizeBytes:
+      fs.statSync(file).size + fs.statSync(path.join(artifactRoot, 'mmproj-fixture.gguf')).size,
   };
 }
 
@@ -808,7 +835,8 @@ function inventoryResponse(residentPolicy: LmStudioLocalPolicy, loaded: readonly
         format: residentPolicy.runtime.format,
         size_bytes: residentPolicy.artifact.sizeBytes,
         max_context_length: 65_536,
-        selected_variant: null,
+        selected_variant:
+          residentPolicy.modelKey === residentPolicy.catalogKey ? null : residentPolicy.modelKey,
         capabilities: { trained_for_tool_use: true },
         loaded_instances: loaded.map((id) => ({
           id,
