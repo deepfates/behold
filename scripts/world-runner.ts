@@ -112,6 +112,15 @@ import {
   verifyExperimentReleaseClaims,
   type PreparedExperimentRelease,
 } from '../src/runtime/experiment-release';
+import type {
+  ManagedExternalServerAuthority,
+  ManagedServerAuthorityExit,
+} from '../src/runtime/minecraft-server-authority';
+
+export type {
+  ManagedExternalServerAuthority,
+  ManagedServerAuthorityExit,
+} from '../src/runtime/minecraft-server-authority';
 
 export const COME_SEE_DO_REPORT_ALLOW_TOOLS = Object.freeze([
   'chat',
@@ -608,6 +617,8 @@ export type WorldRunnerDependencies = Readonly<{
   inspectRuntime?: () => Promise<RuntimeInspection>;
   verifyArtifacts?: () => Promise<{ artifactIntegrityOk: boolean; artifacts: unknown }>;
   spawnServer?: () => ChildProcessWithoutNullStreams;
+  /** Prestarted, frozen release server whose lifecycle remains externally owned. */
+  externalServerAuthority?: ManagedExternalServerAuthority;
   spawnController?: (context: {
     runId: string;
     resident: ManagedResidentSpec;
@@ -1738,11 +1749,87 @@ async function resetHeldManagedWorldInternal(
   }
 }
 
+function normalizeExternalServerAuthority(
+  value: ManagedExternalServerAuthority | undefined,
+  options: ManagedWorldRunOptions,
+) {
+  if (!value) return null;
+  if (
+    value.protocol !== 'behold.external-minecraft-server-authority.v1' ||
+    value.kind !== 'place-release-serve' ||
+    !Number.isSafeInteger(value.authorityPid) ||
+    value.authorityPid < 1 ||
+    !Number.isSafeInteger(value.serverPid) ||
+    value.serverPid < 1 ||
+    value.initialTickState !== 'frozen' ||
+    value.initialTickEvidence == null ||
+    typeof value.freeze !== 'function' ||
+    typeof value.save !== 'function' ||
+    typeof value.unfreeze !== 'function' ||
+    typeof value.stop !== 'function' ||
+    typeof (value.exit as any)?.then !== 'function'
+  ) {
+    throw new WorldRunnerError(
+      'External Minecraft server authority is incomplete',
+      'external_server_authority_invalid',
+    );
+  }
+  const runtimeWorldPath = fs.realpathSync.native(value.runtimeWorldPath);
+  if (runtimeWorldPath !== fs.realpathSync.native(options.world.runtime.worldPath)) {
+    throw new WorldRunnerError(
+      'External Minecraft authority names another runtime world',
+      'external_server_runtime_mismatch',
+      { expected: options.world.runtime.worldPath, actual: value.runtimeWorldPath },
+    );
+  }
+  const endpointHosts = new Set(['127.0.0.1', 'localhost', '::1']);
+  if (
+    !endpointHosts.has(value.host) ||
+    !endpointHosts.has(options.world.server.host) ||
+    value.port !== options.world.server.port
+  ) {
+    throw new WorldRunnerError(
+      'External Minecraft authority names another loopback endpoint',
+      'external_server_endpoint_mismatch',
+      { expected: options.world.server, actual: { host: value.host, port: value.port } },
+    );
+  }
+  if (value.minecraftServerSha256 !== options.expectedServerJarSha256.toLowerCase()) {
+    throw new WorldRunnerError(
+      'External Minecraft authority server identity differs from the admitted JAR',
+      'external_server_jar_mismatch',
+      {
+        expected: options.expectedServerJarSha256,
+        actual: value.minecraftServerSha256,
+      },
+    );
+  }
+  if (!value.identity || typeof value.identity !== 'object' || Array.isArray(value.identity)) {
+    throw new WorldRunnerError(
+      'External Minecraft authority has no exact release identity',
+      'external_server_identity_missing',
+    );
+  }
+  try {
+    JSON.stringify(value.identity);
+  } catch {
+    throw new WorldRunnerError(
+      'External Minecraft authority identity is not durable JSON',
+      'external_server_identity_invalid',
+    );
+  }
+  return value;
+}
+
 export async function startManagedWorld(
   options: ManagedWorldRunOptions,
   dependencies: WorldRunnerDependencies = {},
 ): Promise<ManagedWorldRun> {
   const residents = normalizeManagedResidents(options);
+  const externalServer = normalizeExternalServerAuthority(
+    dependencies.externalServerAuthority,
+    options,
+  );
   const residentViewers = managedResidentViewerEndpoints(options.residentViewers, residents);
   const activeOllamaPolicies = residents
     .filter((resident) => !resident.paused && resident.ollamaLocal != null)
@@ -1754,6 +1841,12 @@ export async function startManagedWorld(
     .filter((resident) => !resident.paused && resident.lmStudioLocal != null)
     .map((resident) => resident.lmStudioLocal!);
   const providerAccounting = managedProviderAccounting(options, residents);
+  if (externalServer && !providerAccounting) {
+    throw new WorldRunnerError(
+      'A frozen external server authority requires the all-ready release and quota gate',
+      'external_server_release_gate_required',
+    );
+  }
   if (activeOllamaPolicies.length > 0 && !providerAccounting) {
     throw new WorldRunnerError(
       'Local Ollama resident sessions require per-resident quotas and a durable experiment release',
@@ -1836,7 +1929,11 @@ export async function startManagedWorld(
     );
   }
   const before = await inspectRuntime();
-  assertStoppedEvidence(before, 'before_control_acquisition');
+  if (externalServer) {
+    assertExternalServerEvidence(before, externalServer, 'before_control_acquisition');
+  } else {
+    assertStoppedEvidence(before, 'before_control_acquisition');
+  }
   assertNoWorldControllerLeases(entityRoot, residents, circleIds, 'before_control_acquisition');
   if (providerAccounting && !options.world.preparedBaseline) {
     throw new WorldRunnerError(
@@ -1871,6 +1968,7 @@ export async function startManagedWorld(
   let server: ChildProcessWithoutNullStreams | null = null;
   let serverExit: Promise<ProcessExit> | null = null;
   let serverOutput: OutputCapture | null = null;
+  let ownedServerPid: number | null = null;
   const controllerProcesses: ManagedResidentProcess[] = [];
   let cognition: ManagedCognition | null = null;
   let ollamaResidentSession: OllamaResidentSession | null = null;
@@ -1882,7 +1980,11 @@ export async function startManagedWorld(
 
   try {
     const fenced = await inspectRuntime();
-    assertStoppedEvidence(fenced, 'after_control_acquisition');
+    if (externalServer) {
+      assertExternalServerEvidence(fenced, externalServer, 'after_control_acquisition');
+    } else {
+      assertStoppedEvidence(fenced, 'after_control_acquisition');
+    }
     assertNoWorldControllerLeases(entityRoot, residents, circleIds, 'after_control_acquisition');
     const launchJarSha256 = sha256File(options.serverJar);
     if (launchJarSha256 !== jarSha256) {
@@ -2065,6 +2167,14 @@ export async function startManagedWorld(
         runtime: control.record().runtime,
       },
       serverJarSha256: jarSha256,
+      serverAuthority: externalServer
+        ? {
+            kind: externalServer.kind,
+            authorityPid: externalServer.authorityPid,
+            serverPid: externalServer.serverPid,
+            identity: externalServer.identity,
+          }
+        : { kind: 'direct-minecraft-child' },
       sourceRevision,
       contracts: {
         observation: 'behold.inhabitant.v2',
@@ -2089,50 +2199,86 @@ export async function startManagedWorld(
     }
     control.update('starting', { server: null, controllers: [] });
 
-    server = dependencies.spawnServer?.() ?? spawnDefaultServer(options);
-    if (!server.pid) throw new WorldRunnerError('Server process has no PID', 'server_pid_missing');
-    serverExit = waitForExit(server, 'server');
-    serverOutput = captureOutput(server, stdout, stderr);
-    control.update('starting', { server: { pid: server.pid, jarSha256 }, controllers: [] });
-    control.append('server_started', { pid: server.pid });
+    if (externalServer) {
+      ownedServerPid = externalServer.serverPid;
+      serverExit = externalServer.exit;
+      control.update('starting', {
+        server: {
+          pid: externalServer.serverPid,
+          authorityPid: externalServer.authorityPid,
+          jarSha256,
+        },
+        controllers: [],
+      });
+      control.append('server_authority_adopted', {
+        kind: externalServer.kind,
+        authorityPid: externalServer.authorityPid,
+        serverPid: externalServer.serverPid,
+        initialTickState: externalServer.initialTickState,
+        identity: externalServer.identity,
+      });
+      assertExternalServerEvidence(
+        await inspectRuntime(),
+        externalServer,
+        'after_server_authority_adoption',
+      );
+      control.append('server_ready', {
+        pid: externalServer.serverPid,
+        authorityPid: externalServer.authorityPid,
+        authority: externalServer.kind,
+      });
+    } else {
+      server = dependencies.spawnServer?.() ?? spawnDefaultServer(options);
+      if (!server.pid)
+        throw new WorldRunnerError('Server process has no PID', 'server_pid_missing');
+      ownedServerPid = server.pid;
+      serverExit = waitForExit(server, 'server');
+      serverOutput = captureOutput(server, stdout, stderr);
+      control.update('starting', { server: { pid: server.pid, jarSha256 }, controllers: [] });
+      control.append('server_started', { pid: server.pid });
 
-    await raceProcessExits(
-      (signal) =>
-        waitForCondition(
-          'Minecraft server readiness',
-          startupTimeoutMs,
-          sleep,
-          async () => {
-            if (!serverOutput.lines().some(isMinecraftReadyLine)) return false;
-            const evidence = await inspectRuntime();
-            return (
-              evidenceOwnedBy(evidence.runtimeSessionLock, server!.pid!) &&
-              evidenceOwnedBy(evidence.serverPort, server!.pid!)
-            );
-          },
-          signal,
-        ),
-      [serverExit],
-    );
-    control.append('server_ready', { pid: server.pid });
+      await raceProcessExits(
+        (signal) =>
+          waitForCondition(
+            'Minecraft server readiness',
+            startupTimeoutMs,
+            sleep,
+            async () => {
+              if (!serverOutput!.lines().some(isMinecraftReadyLine)) return false;
+              const evidence = await inspectRuntime();
+              return (
+                evidenceOwnedBy(evidence.runtimeSessionLock, server!.pid!) &&
+                evidenceOwnedBy(evidence.serverPort, server!.pid!)
+              );
+            },
+            signal,
+          ),
+        [serverExit],
+      );
+      control.append('server_ready', { pid: server.pid });
+    }
 
     if (providerAccounting) {
-      const freezeAcknowledgement = await setMinecraftTickState({
-        server,
-        serverExit,
-        output: serverOutput,
-        timeoutMs: startupTimeoutMs,
-        sleep,
-        state: 'frozen',
-      });
+      const freezeAcknowledgement = externalServer
+        ? externalServer.initialTickEvidence
+        : await setManagedServerTickState({
+            server,
+            externalServer,
+            serverExit,
+            output: serverOutput,
+            timeoutMs: startupTimeoutMs,
+            sleep,
+            state: 'frozen',
+          });
       control.append('experiment_setup_operator_action', {
         phase: 'setup',
         action: 'minecraft_tick_freeze',
         command: 'tick freeze',
         acknowledgement: freezeAcknowledgement,
       });
-      const saveAcknowledgement = await saveMinecraftWorld({
+      const saveAcknowledgement = await saveManagedServerWorld({
         server,
+        externalServer,
         serverExit,
         output: serverOutput,
         timeoutMs: startupTimeoutMs,
@@ -2431,8 +2577,9 @@ export async function startManagedWorld(
         );
       }
 
-      const releaseSaveAcknowledgement = await saveMinecraftWorld({
+      const releaseSaveAcknowledgement = await saveManagedServerWorld({
         server,
+        externalServer,
         serverExit,
         output: serverOutput,
         timeoutMs: startupTimeoutMs,
@@ -2470,8 +2617,9 @@ export async function startManagedWorld(
           saveAcknowledged: true,
         },
       });
-      const unfreezeAcknowledgement = await setMinecraftTickState({
+      const unfreezeAcknowledgement = await setManagedServerTickState({
         server,
+        externalServer,
         serverExit,
         output: serverOutput,
         timeoutMs: startupTimeoutMs,
@@ -2559,7 +2707,7 @@ export async function startManagedWorld(
     }
     control.update('running');
     control.append('run_ready', {
-      serverPid: server.pid,
+      serverPid: ownedServerPid,
       residents: publicResidentRecords(controllerProcesses),
       experimentRelease: committedExperimentRelease,
       residentReleaseClaims: releaseClaims,
@@ -2615,10 +2763,11 @@ export async function startManagedWorld(
       stopping = true;
       stopPromise = stopManagedWorld({
         control,
-        server: server!,
+        server,
+        externalServer,
         serverExit: serverExit!,
         residents: controllerProcesses,
-        serverOutput: serverOutput!,
+        serverOutput,
         inspectRuntime,
         entityRoot,
         circleIds,
@@ -2641,7 +2790,7 @@ export async function startManagedWorld(
     return Object.freeze({
       runId: managedRunId,
       control,
-      serverPid: server.pid,
+      serverPid: ownedServerPid!,
       residents: publicResidentRecords(controllerProcesses),
       cognition: runningCognition
         ? Object.freeze({
@@ -2672,6 +2821,7 @@ export async function startManagedWorld(
     const cleaned = await cleanupFailedStart({
       control,
       server,
+      externalServer,
       serverExit,
       residents: controllerProcesses,
       serverOutput,
@@ -2692,7 +2842,13 @@ export async function startManagedWorld(
     if (!cleaned) {
       try {
         control.update('recovery_required', {
-          server: server?.pid ? { pid: server.pid, jarSha256 } : null,
+          server: ownedServerPid
+            ? {
+                pid: ownedServerPid,
+                ...(externalServer ? { authorityPid: externalServer.authorityPid } : {}),
+                jarSha256,
+              }
+            : null,
           controllers: controllerRecords(controllerProcesses),
         });
       } catch {}
@@ -2880,9 +3036,48 @@ async function quiesceManagedResidents(input: {
   input.control.append('residents_quiesced', { reason: input.reason, exits });
 }
 
+async function settleExternalServerAuthority(input: {
+  authority: ManagedExternalServerAuthority;
+  serverExit: Promise<ProcessExit>;
+  timeoutMs: number;
+  reason: string;
+}) {
+  const failures: Array<{ phase: 'save' | 'stop' | 'exit'; message: string }> = [];
+  let saveAcknowledgement: unknown = null;
+  let stopAcknowledgement: ManagedServerAuthorityExit | null = null;
+  let exit: ProcessExit | null = null;
+  try {
+    saveAcknowledgement = await input.authority.save(input.reason);
+  } catch (error: any) {
+    failures.push({ phase: 'save', message: error?.message || String(error) });
+  }
+  try {
+    stopAcknowledgement = await withTimeout(
+      input.authority.stop(input.reason),
+      input.timeoutMs,
+      'external server graceful shutdown',
+    );
+  } catch (error: any) {
+    failures.push({ phase: 'stop', message: error?.message || String(error) });
+  }
+  try {
+    exit = await withTimeout(input.serverExit, input.timeoutMs, 'external server authority exit');
+  } catch (error: any) {
+    failures.push({ phase: 'exit', message: error?.message || String(error) });
+  }
+  return Object.freeze({
+    protocol: 'behold.external-server-settlement.v1' as const,
+    saveAcknowledgement,
+    stopAcknowledgement,
+    exit,
+    failures: Object.freeze(failures),
+  });
+}
+
 async function cleanupFailedStart(input: {
   control: HeldWorldControl;
   server: ChildProcessWithoutNullStreams | null;
+  externalServer: ManagedExternalServerAuthority | null;
   serverExit: Promise<ProcessExit> | null;
   residents: readonly ManagedResidentProcess[];
   serverOutput: OutputCapture | null;
@@ -2974,7 +3169,21 @@ async function cleanupFailedStart(input: {
         lmStudioFailure = error instanceof Error ? error : new Error(String(error));
       }
     }
-    if (input.server && input.serverExit) {
+    if (input.externalServer && input.serverExit) {
+      const settlement = await settleExternalServerAuthority({
+        authority: input.externalServer,
+        serverExit: input.serverExit,
+        timeoutMs: input.timeoutMs,
+        reason: 'failed_start_cleanup',
+      });
+      if (settlement.failures.length > 0) {
+        throw new WorldRunnerError(
+          'External server authority did not save and stop cleanly after failed start',
+          'external_server_cleanup_failed',
+          settlement,
+        );
+      }
+    } else if (input.server && input.serverExit) {
       if (!processExited(input.server) && input.serverOutput?.lines().some(isMinecraftReadyLine)) {
         const marker = input.serverOutput.mark();
         input.server.stdin.write('save-all flush\n');
@@ -3013,10 +3222,11 @@ async function cleanupFailedStart(input: {
 
 async function stopManagedWorld(input: {
   control: HeldWorldControl;
-  server: ChildProcessWithoutNullStreams;
+  server: ChildProcessWithoutNullStreams | null;
+  externalServer: ManagedExternalServerAuthority | null;
   serverExit: Promise<ProcessExit>;
   residents: readonly ManagedResidentProcess[];
-  serverOutput: OutputCapture;
+  serverOutput: OutputCapture | null;
   inspectRuntime: () => Promise<RuntimeInspection>;
   entityRoot: string;
   circleIds: readonly string[];
@@ -3108,31 +3318,53 @@ async function stopManagedWorld(input: {
       }
     }
 
-    if (!processExited(server)) {
-      const outputMarker = input.serverOutput.mark();
+    let externalSettlement: Awaited<ReturnType<typeof settleExternalServerAuthority>> | null = null;
+    if (input.externalServer) {
+      externalSettlement = await settleExternalServerAuthority({
+        authority: input.externalServer,
+        serverExit: input.serverExit,
+        timeoutMs: input.timeoutMs,
+        reason: input.reason,
+      });
+      if (externalSettlement.saveAcknowledgement != null) {
+        control.append('server_save_acknowledged', {
+          authority: input.externalServer.kind,
+          acknowledgement: externalSettlement.saveAcknowledgement,
+        });
+      }
+    } else if (server && !processExited(server)) {
+      const outputMarker = input.serverOutput!.mark();
       server.stdin.write('save-all flush\n');
       await waitForCondition(
         'Minecraft save acknowledgement',
         input.timeoutMs,
         input.sleep,
         async () =>
-          input.serverOutput.linesAfter(outputMarker).some(isMinecraftSaveAcknowledgement),
+          input.serverOutput!.linesAfter(outputMarker).some(isMinecraftSaveAcknowledgement),
       );
       control.append('server_save_acknowledged');
       server.stdin.write('stop\n');
       server.stdin.end();
     }
-    const serverExit = await withTimeout(
-      input.serverExit,
-      input.timeoutMs,
-      'server graceful shutdown',
-    );
-    if (!cleanExit(serverExit)) abnormalExits.push(serverExit);
-    control.append('server_stopped', serverExit);
+    const serverExit = externalSettlement
+      ? externalSettlement.exit
+      : await withTimeout(input.serverExit, input.timeoutMs, 'server graceful shutdown');
+    if (serverExit) {
+      if (!cleanExit(serverExit)) abnormalExits.push(serverExit);
+      control.append('server_stopped', serverExit);
+    }
 
     const stopped = await input.inspectRuntime();
     assertStoppedEvidence(stopped, 'after_managed_shutdown');
     assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_managed_shutdown');
+    if (externalSettlement && (externalSettlement.failures.length > 0 || !serverExit)) {
+      control.update('stopping', { server: null, controllers: [] });
+      throw new WorldRunnerError(
+        'External server authority did not save and stop cleanly',
+        'external_server_shutdown_failed',
+        externalSettlement,
+      );
+    }
     if (cognitionFailure) {
       control.update('stopping', { server: null, controllers: [] });
       throw new WorldRunnerError(
@@ -3562,7 +3794,7 @@ function normalizeResidentEnvironment(
   return Object.freeze(normalized);
 }
 
-type ProcessExit = Readonly<{ name: string; code: number | null; signal: NodeJS.Signals | null }>;
+type ProcessExit = ManagedServerAuthorityExit;
 
 function waitForExit(child: ChildProcessWithoutNullStreams, name: string): Promise<ProcessExit> {
   return new Promise((resolve, reject) => {
@@ -3717,6 +3949,62 @@ export async function digestStableReleaseRuntime(
     'experiment_release_world_digest_unstable',
     { attempts },
   );
+}
+
+async function setManagedServerTickState(input: {
+  server: ChildProcessWithoutNullStreams | null;
+  externalServer: ManagedExternalServerAuthority | null;
+  serverExit: Promise<ProcessExit>;
+  output: OutputCapture | null;
+  timeoutMs: number;
+  sleep: (milliseconds: number) => Promise<void>;
+  state: 'frozen' | 'running';
+}) {
+  if (input.externalServer) {
+    return input.state === 'frozen'
+      ? input.externalServer.freeze()
+      : input.externalServer.unfreeze();
+  }
+  if (!input.server || !input.output) {
+    throw new WorldRunnerError(
+      'Direct Minecraft lifecycle has no server process or output',
+      'server_authority_missing',
+    );
+  }
+  return setMinecraftTickState({
+    server: input.server,
+    serverExit: input.serverExit,
+    output: input.output,
+    timeoutMs: input.timeoutMs,
+    sleep: input.sleep,
+    state: input.state,
+  });
+}
+
+async function saveManagedServerWorld(input: {
+  server: ChildProcessWithoutNullStreams | null;
+  externalServer: ManagedExternalServerAuthority | null;
+  serverExit: Promise<ProcessExit>;
+  output: OutputCapture | null;
+  timeoutMs: number;
+  sleep: (milliseconds: number) => Promise<void>;
+  reason: string;
+}) {
+  if (input.externalServer) return input.externalServer.save(input.reason);
+  if (!input.server || !input.output) {
+    throw new WorldRunnerError(
+      'Direct Minecraft lifecycle has no server process or output',
+      'server_authority_missing',
+    );
+  }
+  return saveMinecraftWorld({
+    server: input.server,
+    serverExit: input.serverExit,
+    output: input.output,
+    timeoutMs: input.timeoutMs,
+    sleep: input.sleep,
+    reason: input.reason,
+  });
 }
 
 async function setMinecraftTickState(input: {
@@ -3899,6 +4187,36 @@ function assertStoppedEvidence(evidence: RuntimeInspection, phase: string) {
   }
 }
 
+function assertExternalServerEvidence(
+  evidence: RuntimeInspection,
+  authority: ManagedExternalServerAuthority,
+  phase: string,
+) {
+  const blockers: string[] = [];
+  if (!evidence.runtimeExists) blockers.push('runtime_world_missing');
+  if (!evidence.topology.safe) blockers.push(...evidence.topology.blockers);
+  if (!evidenceOwnedBy(evidence.runtimeSessionLock, authority.serverPid)) {
+    blockers.push('runtime_session_lock_not_owned_by_external_server');
+  }
+  if (!evidenceOwnedBy(evidence.serverPort, authority.serverPid)) {
+    blockers.push('server_port_not_owned_by_external_server');
+  }
+  if (evidence.preparedBaselineSessionLock?.state !== 'clear') {
+    blockers.push(
+      `prepared_baseline_session_lock_${evidence.preparedBaselineSessionLock?.state ?? 'missing'}`,
+    );
+  }
+  if (blockers.length) {
+    throw new WorldRunnerError(
+      `External Minecraft authority is not exact during ${phase}: ${[...new Set(blockers)].join(
+        ', ',
+      )}`,
+      'external_server_ownership_mismatch',
+      { phase, blockers: [...new Set(blockers)], evidence, authority: authority.identity },
+    );
+  }
+}
+
 function worldCircleIds(worldId: string, world: WorldLabDefinition) {
   const hosts =
     world.server.host === '127.0.0.1' ||
@@ -4028,6 +4346,9 @@ function recoveryProcesses(owner: WorldOwnerRecord) {
   return [
     { role: 'manager', pid: owner.managerPid },
     ...(owner.server ? [{ role: 'server', pid: owner.server.pid }] : []),
+    ...(owner.server?.authorityPid && owner.server.authorityPid !== owner.server.pid
+      ? [{ role: 'server-authority', pid: owner.server.authorityPid }]
+      : []),
     ...owner.controllers.map((controller) => ({
       role: `controller:${controller.entityId}`,
       pid: controller.pid,

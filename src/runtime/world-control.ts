@@ -19,7 +19,13 @@ export type WorldOwnerRecord = Readonly<{
   createdAt: string;
   updatedAt: string;
   runtime: Readonly<{ path: string; device: number; inode: number }>;
-  server: Readonly<{ pid: number; jarSha256: string }> | null;
+  server: Readonly<{
+    /** Java process that owns Minecraft's listener and session.lock. */
+    pid: number;
+    jarSha256: string;
+    /** Optional lifecycle process that owns the Java child and command channel. */
+    authorityPid?: number;
+  }> | null;
   controllers: ReadonlyArray<Readonly<{ entityId: string; pid: number; leasePath: string }>>;
 }>;
 
@@ -931,7 +937,10 @@ function parseOwnerRecord(raw: string): WorldOwnerRecord {
     !Number.isSafeInteger(value.runtime?.device) ||
     !Number.isSafeInteger(value.runtime?.inode) ||
     (value.server !== null &&
-      (!Number.isSafeInteger(value.server?.pid) || typeof value.server?.jarSha256 !== 'string')) ||
+      (!Number.isSafeInteger(value.server?.pid) ||
+        typeof value.server?.jarSha256 !== 'string' ||
+        (value.server?.authorityPid !== undefined &&
+          (!Number.isSafeInteger(value.server.authorityPid) || value.server.authorityPid < 1)))) ||
     !Array.isArray(value.controllers) ||
     value.controllers.some(
       (controller: any) =>

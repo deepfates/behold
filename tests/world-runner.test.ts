@@ -1029,6 +1029,158 @@ test('managed LM Studio session binds its exact instance into release and contro
   );
 });
 
+test('managed release adopts an exact frozen external server authority without taking Java lifecycle', async (t) => {
+  const fixture = makeFixture(t);
+  const previousKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'fixture-external-authority-key';
+  t.after(() => {
+    if (previousKey == null) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousKey;
+  });
+  const controllerEntry = path.join(fixture.root, 'external-authority-controller.js');
+  fs.writeFileSync(
+    controllerEntry,
+    `
+      const fs = require('node:fs');
+      const os = require('node:os');
+      const path = require('node:path');
+      const { experimentReleaseGateFromEnvironment } = require(path.resolve('dist/src/runtime/experiment-release.js'));
+      const entityId = process.argv[2];
+      const model = process.argv[process.argv.indexOf('--model') + 1];
+      const lease = path.join(process.env.BEHOLD_ENTITY_DIR, entityId, 'runtime.lock');
+      const journalFile = path.join(process.env.BEHOLD_RUN_DIR, 'external-authority-fixture.jsonl');
+      fs.mkdirSync(path.dirname(lease), { recursive: true });
+      fs.mkdirSync(path.dirname(journalFile), { recursive: true });
+      fs.writeFileSync(lease, JSON.stringify({
+        protocol: 'behold.entity-runtime-lease.v1', entityId,
+        pid: process.pid, hostname: os.hostname(), managedRunId: process.env.BEHOLD_RUN_ID
+      }));
+      fs.writeFileSync(journalFile, JSON.stringify({ type: 'setup_local_world_ready' }) + '\\n');
+      const gate = experimentReleaseGateFromEnvironment({
+        entityId,
+        bodyUsername: process.env.MINECRAFT_USERNAME,
+        model,
+        urgentModel: null,
+        mind: process.env.BEHOLD_MIND,
+        profiles: {
+          policy: process.env.BEHOLD_POLICY_PROFILE,
+          body: process.env.BEHOLD_BODY_PROFILE,
+          actions: process.env.BEHOLD_ACTION_PROFILE,
+          safety: process.env.BEHOLD_SAFETY_PROFILE,
+        },
+        quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
+      });
+      gate.arm({ journalFile, setupObservation: { fixture: 'external-authority' } });
+      console.error('[bot] Local world loaded.');
+      console.error('[bot] Experiment release armed: ' + gate.prepared.plan.releaseId + ' ' + entityId);
+      gate.waitAndClaim().catch((error) => { console.error(error); process.exit(1); });
+      process.stdin.resume();
+      process.stdin.on('end', () => {
+        if (fs.existsSync(lease)) fs.unlinkSync(lease);
+        process.exit(0);
+      });
+    `,
+  );
+  const commands: Array<{ command: string; reason?: string }> = [];
+  let externalAlive = true;
+  let resolveExit!: (value: { name: string; code: number; signal: null }) => void;
+  const exit = new Promise<{ name: string; code: number; signal: null }>((resolve) => {
+    resolveExit = resolve;
+  });
+  const authority = {
+    protocol: 'behold.external-minecraft-server-authority.v1' as const,
+    kind: 'place-release-serve' as const,
+    authorityPid: 9001,
+    serverPid: 9002,
+    runtimeWorldPath: fixture.options.world.runtime.worldPath,
+    host: '127.0.0.1' as const,
+    port: fixture.options.world.server.port,
+    minecraftServerSha256: fixture.options.expectedServerJarSha256,
+    initialTickState: 'frozen' as const,
+    initialTickEvidence: { acknowledgedBy: 'minecraft', tickState: 'frozen' },
+    identity: Object.freeze({
+      protocol: 'place.serve-control.v1',
+      releaseManifestSha256: 'a'.repeat(64),
+      worldTreeSha256: 'b'.repeat(64),
+    }),
+    exit,
+    async freeze() {
+      commands.push({ command: 'freeze' });
+      return { acknowledgedBy: 'minecraft', tickState: 'frozen' };
+    },
+    async save(reason: string) {
+      commands.push({ command: 'save', reason });
+      return { acknowledgedBy: 'minecraft', saved: true };
+    },
+    async unfreeze() {
+      commands.push({ command: 'unfreeze' });
+      return { acknowledgedBy: 'minecraft', tickState: 'running' };
+    },
+    async stop(reason: string) {
+      commands.push({ command: 'stop', reason });
+      externalAlive = false;
+      const terminal = { name: 'place-release-serve', code: 0 as const, signal: null };
+      resolveExit(terminal);
+      return terminal;
+    },
+  };
+
+  const run = fixture.trackRun(
+    await startManagedWorld(
+      {
+        ...fixture.options,
+        controllerEntry,
+        accountingScopeId: 'external-authority-release-v1',
+        residents: [
+          {
+            entityId: 'PlaceLife',
+            bodyUsername: 'PlaceBody',
+            model: 'fixture/no-call',
+            mind: 'direct',
+            policyProfile: 'neutral-benchmark-v1',
+            bodyProfile: 'minecraft-human-semantic-v1',
+            actionProfile: 'minecraft-human-semantic-v1',
+            safetyProfile: 'vanilla-player-v1',
+            providerQuotas: { residentDecisionAttempts: 2, auxiliaryContextAttempts: 1 },
+          },
+        ],
+      },
+      {
+        externalServerAuthority: authority,
+        verifyArtifacts: async () => ARTIFACTS_OK,
+        inspectRuntime: async () => runtimeEvidence(externalAlive ? authority.serverPid : null),
+        cognitionFetch: async () => {
+          throw new Error('resident cognition must not start in the authority fixture');
+        },
+        stdout: () => {},
+        stderr: () => {},
+      },
+    ),
+  );
+  assert.equal(run.serverPid, authority.serverPid);
+  assert.deepEqual(run.control.record().server, {
+    pid: authority.serverPid,
+    authorityPid: authority.authorityPid,
+    jarSha256: fixture.options.expectedServerJarSha256,
+  });
+  assert.deepEqual(
+    commands.map(({ command }) => command),
+    ['save', 'save', 'unfreeze'],
+  );
+  const adopted = verifyWorldLifecycleJournal(run.control.journalFile).events.find(
+    (event) => event.type === 'server_authority_adopted',
+  );
+  assert.deepEqual((adopted?.data as any)?.identity, authority.identity);
+
+  await run.stop('external_authority_fixture_complete');
+  await run.finished;
+  assert.deepEqual(
+    commands.map(({ command }) => command),
+    ['save', 'save', 'unfreeze', 'save', 'stop'],
+  );
+  assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
+});
+
 test('managed route control covers every active resident with one output cap before world inspection', async (t) => {
   const fixture = makeFixture(t);
   let inspections = 0;
