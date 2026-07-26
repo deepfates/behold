@@ -40,13 +40,18 @@ export type PlaceServeIdentity = Readonly<{
 export type FrozenPlaceServeAuthority = ManagedExternalServerAuthority &
   Readonly<{
     placeIdentity: PlaceServeIdentity;
+    /**
+     * Stable compiler identity. Historical checkout authorities use the exact
+     * Git revision; installed authorities use npm:NAME@VERSION#DISTRIBUTION.
+     */
     placeCompilerRevision: string;
     minecraftServerJar: string;
     transcriptFile: string;
   }>;
 
 export type StartFrozenPlaceServeInput = Readonly<{
-  placeCompilerRoot: string;
+  placeCompilerRoot?: string;
+  placeCompilerBinary?: string;
   releaseRoot: string;
   runtimeRoot: string;
   profileId: string;
@@ -55,7 +60,12 @@ export type StartFrozenPlaceServeInput = Readonly<{
   serverJar?: string;
   port?: number;
   maxPlayers?: number;
-  expectedPlaceCompilerRevision: string;
+  expectedPlaceCompilerRevision?: string;
+  expectedPlaceCompilerPackage?: Readonly<{
+    name: string;
+    version: string;
+    distributionSha256: string;
+  }>;
   startupTimeoutMs?: number;
 }>;
 
@@ -94,28 +104,36 @@ export async function startFrozenPlaceServeAuthority(
       'place_serve_eula_required',
     );
   }
-  const placeCompilerRoot = plainDirectory(input.placeCompilerRoot, 'Place Compiler root');
+  const compiler = resolvePlaceCompilerInvocation(input);
   const releaseRoot = plainDirectory(input.releaseRoot, 'Place release');
   const runtimeRoot = path.resolve(input.runtimeRoot);
   const profileId = requiredText(input.profileId, 'Place runtime profile');
-  const checkout = (dependencies.inspectPlaceCheckout ?? inspectPlaceCheckout)(placeCompilerRoot);
-  if (!checkout.clean) {
-    throw new PlaceServeError(
-      'Place served-release control files differ from their recorded revision',
-      'place_serve_checkout_dirty',
-      checkout,
-    );
+  let compilerIdentity: string;
+  if (compiler.kind === 'checkout') {
+    const checkout = (dependencies.inspectPlaceCheckout ?? inspectPlaceCheckout)(compiler.root);
+    if (!checkout.clean) {
+      throw new PlaceServeError(
+        'Place served-release control files differ from their recorded revision',
+        'place_serve_checkout_dirty',
+        checkout,
+      );
+    }
+    if (checkout.revision !== compiler.expectedRevision) {
+      throw new PlaceServeError(
+        'Place Compiler revision differs from the admitted session',
+        'place_serve_revision_mismatch',
+        { expected: compiler.expectedRevision, actual: checkout.revision },
+      );
+    }
+    compilerIdentity = checkout.revision;
+  } else {
+    const installed = inspectInstalledPlaceCompiler(compiler.binary, compiler.expectedPackage);
+    compilerIdentity = `npm:${installed.name}@${installed.version}#${installed.distributionSha256}`;
   }
-  if (checkout.revision !== requiredRevision(input.expectedPlaceCompilerRevision)) {
-    throw new PlaceServeError(
-      'Place Compiler revision differs from the admitted session',
-      'place_serve_revision_mismatch',
-      { expected: input.expectedPlaceCompilerRevision, actual: checkout.revision },
-    );
-  }
-  const placeEntry = path.join(placeCompilerRoot, 'scripts', 'place-compiler', 'place.mjs');
-  plainFile(placeEntry, 'Place Compiler entrypoint');
-  const serverJar = resolvePlaceServerJar(placeCompilerRoot, input.serverJar);
+  const serverJar = resolvePlaceServerJar(
+    compiler.kind === 'checkout' ? compiler.root : null,
+    input.serverJar,
+  );
   const releaseManifestSha256 = sha256File(path.join(releaseRoot, 'release-manifest.json'));
   const releaseManifest = readJson(path.join(releaseRoot, 'release-manifest.json'));
   const declaredWorldTreeSha256 = sha256Value(releaseManifest?.source?.worldTreeSha256);
@@ -127,8 +145,7 @@ export async function startFrozenPlaceServeAuthority(
   }
   const serverJarSha256 = sha256File(serverJar);
   const transcript = createTranscript(input.transcriptFile, dependencies.now);
-  const argv = [
-    placeEntry,
+  const serveArgv = [
     'serve',
     releaseRoot,
     '--accept-eula',
@@ -142,9 +159,14 @@ export async function startFrozenPlaceServeAuthority(
     ...(input.port == null ? [] : ['--port', String(input.port)]),
     ...(input.maxPlayers == null ? [] : ['--max-players', String(input.maxPlayers)]),
   ];
+  const command = compiler.kind === 'checkout' ? process.execPath : compiler.binary;
+  const argv =
+    compiler.kind === 'checkout'
+      ? [path.join(compiler.root, 'scripts', 'place-compiler', 'place.mjs'), ...serveArgv]
+      : serveArgv;
   const spawnProcess = dependencies.spawn ?? spawn;
-  const child = spawnProcess(process.execPath, argv, {
-    cwd: placeCompilerRoot,
+  const child = spawnProcess(command, argv, {
+    cwd: compiler.kind === 'checkout' ? compiler.root : path.dirname(runtimeRoot),
     stdio: ['pipe', 'pipe', 'pipe'],
     // Keep terminal SIGINT on Behold so it can drain residents before asking
     // Place to save/stop. If Behold dies, its owned stdin still closes and
@@ -164,7 +186,7 @@ export async function startFrozenPlaceServeAuthority(
     releaseRoot,
     runtimeRoot,
     profileId,
-    placeCompilerRevision: checkout.revision,
+    placeCompilerRevision: compilerIdentity,
     expected: {
       sourceReleaseManifestSha256: releaseManifestSha256,
       sourceWorldTreeSha256: declaredWorldTreeSha256,
@@ -184,7 +206,7 @@ export async function startFrozenPlaceServeAuthority(
     }
     const durableIdentity = Object.freeze({
       protocol: PLACE_SERVE_CONTROL_PROTOCOL,
-      placeCompilerRevision: checkout.revision,
+      placeCompilerRevision: compilerIdentity,
       ...identity,
     });
     const runtimeWorldPath = resolvePlaceRuntimeWorld(identity);
@@ -202,7 +224,7 @@ export async function startFrozenPlaceServeAuthority(
       initialTickEvidence: freeze,
       identity: durableIdentity,
       placeIdentity: identity,
-      placeCompilerRevision: checkout.revision,
+      placeCompilerRevision: compilerIdentity,
       minecraftServerJar: serverJar,
       transcriptFile: transcript.file,
       exit: control.exit,
@@ -605,6 +627,102 @@ function inspectPlaceCheckout(root: string) {
   return Object.freeze({ revision: revision.stdout.trim(), clean: diff.status === 0 });
 }
 
+function resolvePlaceCompilerInvocation(input: StartFrozenPlaceServeInput) {
+  const hasCheckout = typeof input.placeCompilerRoot === 'string';
+  const hasInstalled = typeof input.placeCompilerBinary === 'string';
+  if (hasCheckout === hasInstalled) {
+    throw new PlaceServeError(
+      'Select exactly one Place Compiler checkout or installed binary',
+      'place_serve_compiler_source_required',
+    );
+  }
+  if (hasCheckout) {
+    const root = plainDirectory(input.placeCompilerRoot!, 'Place Compiler root');
+    plainFile(
+      path.join(root, 'scripts', 'place-compiler', 'place.mjs'),
+      'Place Compiler entrypoint',
+    );
+    return Object.freeze({
+      kind: 'checkout' as const,
+      root,
+      expectedRevision: requiredRevision(input.expectedPlaceCompilerRevision),
+    });
+  }
+  if (input.expectedPlaceCompilerRevision != null) {
+    throw new PlaceServeError(
+      'Installed Place Compiler selection cannot also pin a Git revision',
+      'place_serve_compiler_pin_conflict',
+    );
+  }
+  const expected = input.expectedPlaceCompilerPackage;
+  if (!expected) {
+    throw new PlaceServeError(
+      'Installed Place Compiler selection requires an exact package pin',
+      'place_serve_package_pin_required',
+    );
+  }
+  return Object.freeze({
+    kind: 'installed' as const,
+    binary: executableFile(input.placeCompilerBinary!, 'Place Compiler binary'),
+    expectedPackage: Object.freeze({
+      name: requiredText(expected.name, 'Place Compiler package name'),
+      version: requiredText(expected.version, 'Place Compiler package version'),
+      distributionSha256:
+        sha256Value(expected.distributionSha256) ??
+        (() => {
+          throw new PlaceServeError(
+            'Place Compiler distribution digest must be an exact SHA-256',
+            'place_serve_package_digest_required',
+          );
+        })(),
+    }),
+  });
+}
+
+function inspectInstalledPlaceCompiler(
+  binary: string,
+  expected: Readonly<{ name: string; version: string; distributionSha256: string }>,
+) {
+  const result = spawnSync(binary, ['version', '--json'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  if (result.status !== 0) {
+    throw new PlaceServeError(
+      'Installed Place Compiler version preflight failed',
+      'place_serve_package_preflight_failed',
+      { status: result.status, stderr: result.stderr },
+    );
+  }
+  let version: any;
+  try {
+    version = JSON.parse(result.stdout);
+  } catch {
+    throw new PlaceServeError(
+      'Installed Place Compiler version preflight was not JSON',
+      'place_serve_package_preflight_invalid',
+    );
+  }
+  if (
+    version?.name !== expected.name ||
+    version?.version !== expected.version ||
+    version?.distributionSha256 !== expected.distributionSha256 ||
+    version?.serveControlProtocol !== PLACE_SERVE_CONTROL_PROTOCOL ||
+    version?.releaseSchemaVersion !== 3
+  ) {
+    throw new PlaceServeError(
+      'Installed Place Compiler differs from the exact package/control pin',
+      'place_serve_package_identity_mismatch',
+      { expected, actual: version },
+    );
+  }
+  return Object.freeze({
+    name: version.name as string,
+    version: version.version as string,
+    distributionSha256: version.distributionSha256 as string,
+  });
+}
+
 function requiredRevision(value: unknown) {
   const revision = String(value || '').toLowerCase();
   if (!/^[a-f0-9]{40}$/.test(revision)) {
@@ -616,11 +734,25 @@ function requiredRevision(value: unknown) {
   return revision;
 }
 
-function resolvePlaceServerJar(root: string, explicit?: string) {
+function resolvePlaceServerJar(root: string | null, explicit?: string) {
   if (explicit) return plainFile(explicit, 'Minecraft server JAR');
+  if (!root) {
+    throw new PlaceServeError(
+      'Installed Place Compiler serving requires an explicit Minecraft server JAR',
+      'place_serve_server_jar_required',
+    );
+  }
   const lock = readJson(path.join(root, 'docs', 'sf-world', 'tool-lock.json'));
   const relative = requiredText(lock?.tools?.minecraftServer?.path, 'Place server lock path');
   return plainFile(path.join(root, relative), 'Minecraft server JAR');
+}
+
+function executableFile(value: string, label: string) {
+  const resolved = fs.realpathSync.native(path.resolve(value));
+  const stats = fs.statSync(resolved);
+  if (!stats.isFile()) throw new Error(`${label} must resolve to a regular file`);
+  fs.accessSync(resolved, fs.constants.R_OK | fs.constants.X_OK);
+  return resolved;
 }
 
 function createTranscript(fileValue: string, now: (() => Date) | undefined) {

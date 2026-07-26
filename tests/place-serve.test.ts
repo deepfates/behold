@@ -11,6 +11,8 @@ import {
 } from '../src/runtime/place-serve';
 
 const REVISION = '1'.repeat(40);
+const PACKAGE_VERSION = '0.1.0-alpha.0';
+const PACKAGE_DIGEST = '2'.repeat(64);
 
 test('Place served-release adapter binds exact identity and acknowledged lifecycle', async (t) => {
   const fixture = makePlaceServeFixture(t);
@@ -96,9 +98,49 @@ test('Place served-release adapter fails closed on ready identity drift', async 
   );
 });
 
+test('Place served-release adapter preflights and runs an exact installed binary', async (t) => {
+  const fixture = makePlaceServeFixture(t, { installed: true });
+  const authority = await startFrozenPlaceServeAuthority(fixture.input, fixture.dependencies);
+  t.after(async () => {
+    try {
+      await authority.stop('test_fixture_cleanup');
+    } catch {}
+  });
+  assert.equal(
+    authority.placeCompilerRevision,
+    `npm:place-compiler@${PACKAGE_VERSION}#${PACKAGE_DIGEST}`,
+  );
+  assert.equal(authority.placeIdentity.sourceWorldTreeSha256, fixture.worldTreeSha256);
+  const stopped = await authority.stop('installed_fixture_complete');
+  assert.equal(stopped.exit.code, 0);
+});
+
+test('Place served-release adapter rejects installed package identity drift before serving', async (t) => {
+  const fixture = makePlaceServeFixture(t, { installed: true });
+  await assert.rejects(
+    startFrozenPlaceServeAuthority(
+      {
+        ...fixture.input,
+        expectedPlaceCompilerPackage: {
+          name: 'place-compiler',
+          version: PACKAGE_VERSION,
+          distributionSha256: '3'.repeat(64),
+        },
+      },
+      fixture.dependencies,
+    ),
+    (error: any) => {
+      assert.equal(error.code, 'place_serve_package_identity_mismatch');
+      return true;
+    },
+  );
+  assert.equal(fs.existsSync(fixture.transcriptFile), false);
+  assert.equal(fs.existsSync(fixture.runtimeRoot), false);
+});
+
 function makePlaceServeFixture(
   t: test.TestContext,
-  options: { driftReadyWorldIdentity?: boolean } = {},
+  options: { driftReadyWorldIdentity?: boolean; installed?: boolean } = {},
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-place-serve-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -121,20 +163,33 @@ function makePlaceServeFixture(
     placeEntry,
     fixturePlaceServer({ driftReadyWorldIdentity: Boolean(options.driftReadyWorldIdentity) }),
   );
+  fs.chmodSync(placeEntry, 0o755);
+  const compilerInput = options.installed
+    ? {
+        placeCompilerBinary: placeEntry,
+        expectedPlaceCompilerPackage: {
+          name: 'place-compiler',
+          version: PACKAGE_VERSION,
+          distributionSha256: PACKAGE_DIGEST,
+        },
+      }
+    : {
+        placeCompilerRoot: placeRoot,
+        expectedPlaceCompilerRevision: REVISION,
+      };
   return {
     runtimeRoot,
     transcriptFile,
     serverJarSha256,
     worldTreeSha256,
     input: {
-      placeCompilerRoot: placeRoot,
+      ...compilerInput,
       releaseRoot,
       runtimeRoot,
       profileId: 'living',
       transcriptFile,
       acceptEula: true as const,
       serverJar,
-      expectedPlaceCompilerRevision: REVISION,
       startupTimeoutMs: 5_000,
     },
     dependencies: {
@@ -145,13 +200,23 @@ function makePlaceServeFixture(
 }
 
 function fixturePlaceServer(options: { driftReadyWorldIdentity: boolean }) {
-  return `
+  return `#!/usr/bin/env node
     import fs from 'node:fs';
     import path from 'node:path';
     import { createHash } from 'node:crypto';
     import { createInterface } from 'node:readline';
     const protocol = 'place-compiler-serve-control/v1';
     const args = process.argv.slice(2);
+    if (args[0] === 'version' && args[1] === '--json') {
+      process.stdout.write(JSON.stringify({
+        name: 'place-compiler',
+        version: '${PACKAGE_VERSION}',
+        distributionSha256: '${PACKAGE_DIGEST}',
+        serveControlProtocol: protocol,
+        releaseSchemaVersion: 3,
+      }) + '\\n');
+      process.exit(0);
+    }
     const value = (name) => args[args.indexOf(name) + 1];
     if (args[0] !== 'serve' || !args.includes('--accept-eula') || !args.includes('--control-jsonl')) process.exit(7);
     const releasePath = path.resolve(args[1]);

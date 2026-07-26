@@ -48,6 +48,9 @@ export async function runLiveCli(argv: string[]) {
       'viewer-base-port': { type: 'string' },
       'viewer-distance': { type: 'string' },
       'place-compiler': { type: 'string' },
+      'place-compiler-bin': { type: 'string' },
+      'place-compiler-version': { type: 'string' },
+      'place-compiler-distribution-sha256': { type: 'string' },
       'server-jar': { type: 'string' },
       'max-model-concurrency': { type: 'string' },
       'lmstudio-models-root': { type: 'string' },
@@ -128,14 +131,51 @@ export async function runLiveCli(argv: string[]) {
   const episodeId = nextEpisodeId(paths.episodes);
   const episodeRoot = path.join(paths.episodes, episodeId);
   fs.mkdirSync(episodeRoot, { mode: 0o700 });
-  const placeCompilerRoot = plainDirectory(
-    String(
-      parsed.values['place-compiler'] ??
-        process.env.BEHOLD_PLACE_COMPILER_ROOT ??
-        path.join(repositoryRoot, '..', 'place-compiler'),
-    ),
-    'Place Compiler root',
-  );
+  const placeCompilerBinaryValue =
+    parsed.values['place-compiler-bin'] ?? process.env.BEHOLD_PLACE_COMPILER_BIN;
+  const explicitPlaceCompilerRoot =
+    parsed.values['place-compiler'] ?? process.env.BEHOLD_PLACE_COMPILER_ROOT;
+  if (placeCompilerBinaryValue && explicitPlaceCompilerRoot) {
+    throw new Error('--place-compiler and --place-compiler-bin are mutually exclusive');
+  }
+  const installedVersion = placeCompilerBinaryValue
+    ? requiredCliText(
+        parsed.values['place-compiler-version'] ?? process.env.BEHOLD_PLACE_COMPILER_VERSION,
+        '--place-compiler-version',
+      )
+    : null;
+  const installedDistributionSha256 = placeCompilerBinaryValue
+    ? exactSha256(
+        parsed.values['place-compiler-distribution-sha256'] ??
+          process.env.BEHOLD_PLACE_COMPILER_DISTRIBUTION_SHA256,
+        '--place-compiler-distribution-sha256',
+      )
+    : null;
+  const placeCompilerInput = placeCompilerBinaryValue
+    ? {
+        placeCompilerBinary: executableFile(
+          String(placeCompilerBinaryValue),
+          'Place Compiler binary',
+        ),
+        expectedPlaceCompilerPackage: {
+          name: 'place-compiler',
+          version: installedVersion!,
+          distributionSha256: installedDistributionSha256!,
+        },
+      }
+    : {
+        placeCompilerRoot: plainDirectory(
+          String(explicitPlaceCompilerRoot ?? path.join(repositoryRoot, '..', 'place-compiler')),
+          'Place Compiler root',
+        ),
+        expectedPlaceCompilerRevision: existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION,
+      };
+  const requestedPlaceCompilerIdentity = placeCompilerBinaryValue
+    ? `npm:place-compiler@${installedVersion}#${installedDistributionSha256}`
+    : (existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION);
+  if (existingPlan && existingPlan.placeCompilerRevision !== requestedPlaceCompilerIdentity) {
+    throw new Error('live session Place Compiler identity differs from the requested compiler');
+  }
   const durationMs = managedSessionDurationMs(parsed.values.duration ?? '300')!;
   const requestedPort = optionalInteger(parsed.values.port, '--port', 1024, 65535);
   const viewerBasePort = optionalInteger(
@@ -167,14 +207,13 @@ export async function runLiveCli(argv: string[]) {
       throw new Error(`live session uses port ${admittedPort}; requested ${requestedPort}`);
     }
     authority = await startFrozenPlaceServeAuthority({
-      placeCompilerRoot,
+      ...placeCompilerInput,
       releaseRoot,
       runtimeRoot: paths.placeRuntime,
       profileId: 'living',
       transcriptFile: path.join(episodeRoot, 'place-control.jsonl'),
       acceptEula: true,
       port: admittedPort,
-      expectedPlaceCompilerRevision: existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION,
       serverJar,
     });
 
@@ -881,6 +920,28 @@ function minecraftUsername(value: unknown, label: string) {
   return username;
 }
 
+function requiredCliText(value: unknown, option: string) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) throw new Error(`${option} is required with --place-compiler-bin`);
+  return text;
+}
+
+function exactSha256(value: unknown, option: string) {
+  const digest = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!/^[a-f0-9]{64}$/.test(digest)) {
+    throw new Error(`${option} must be an exact SHA-256`);
+  }
+  return digest;
+}
+
+function executableFile(value: string, label: string) {
+  const resolved = fs.realpathSync.native(path.resolve(value));
+  const stats = fs.statSync(resolved);
+  if (!stats.isFile()) throw new Error(`${label} must resolve to a regular file`);
+  fs.accessSync(resolved, fs.constants.R_OK | fs.constants.X_OK);
+  return resolved;
+}
+
 function plainDirectory(value: string, label: string) {
   const resolved = path.resolve(value);
   const stats = fs.lstatSync(resolved);
@@ -957,6 +1018,10 @@ export function liveUsage() {
     '  --viewer-base-port PORT        First resident POV (default 3007)',
     '  --viewer-distance CHUNKS       POV view distance, 2-16 (default 6)',
     '  --place-compiler DIRECTORY     Exact Place Compiler checkout',
+    '  --place-compiler-bin FILE      Installed Place Compiler executable',
+    '  --place-compiler-version VER   Exact installed package version',
+    '  --place-compiler-distribution-sha256 SHA256',
+    '                                 Exact installed distribution identity',
     '  --server-jar FILE              Pinned server JAR (default Behold managed artifact)',
     '  --max-model-concurrency N      Concurrent local cognition (default min(2, residents))',
     '  --lmstudio-models-root DIR     Exact local LM Studio artifact root',
