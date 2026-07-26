@@ -90,7 +90,9 @@ async function runProof() {
   const priorKey = process.env.OPENROUTER_API_KEY;
   const priorBase = process.env.OPENROUTER_BASE_URL;
   process.env.OPENROUTER_API_KEY = 'provider-free-watchability-broker';
-  process.env.OPENROUTER_BASE_URL = 'https://provider.invalid/v1/chat/completions';
+  // The broker validates its admitted protocol route even though this proof's
+  // injected fetch rejects any attempt to use it.
+  process.env.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
   let upstreamCalls = 0;
   let run: Awaited<ReturnType<typeof startManagedWorld>> | null = null;
   try {
