@@ -47,6 +47,7 @@ import {
   inspectLmStudioLocalResponseIdentity,
   lmStudioAttemptIdentity,
   lmStudioLocalPolicy,
+  lmStudioResidentInstanceId,
   verifyLmStudioPreflight,
   type LmStudioLocalPolicy,
   type LmStudioLocalPreflight,
@@ -168,6 +169,8 @@ export type CognitionBrokerOptions = Readonly<{
     ollamaLocal?: OllamaLocalPolicy;
     /** Exact LM Studio runtime/artifact/instance/transport contract. */
     lmStudioLocal?: LmStudioLocalPolicy;
+    /** Stable resident identity that owns this client's local model instance. */
+    lmStudioResidentIdentity?: string;
     /** Durable per-purpose provider-attempt quota owned by this resident account. */
     accounting?: Readonly<{
       scopeId: string;
@@ -203,6 +206,7 @@ type Client = Readonly<{
   routePolicy: OpenRouterRoutePolicy | null;
   ollamaLocal: OllamaLocalPolicy | null;
   lmStudioLocal: LmStudioLocalPolicy | null;
+  lmStudioResidentIdentity: string | null;
   accounting: CognitionBrokerOptions['clients'][number]['accounting'] | null;
 }>;
 
@@ -557,7 +561,12 @@ export async function startCognitionBroker(
       }
       if (client.lmStudioLocal) {
         try {
-          assertLmStudioRequestForPurpose(requestValue, client.lmStudioLocal, purpose);
+          assertLmStudioRequestForPurpose(
+            requestValue,
+            client.lmStudioLocal,
+            purpose,
+            client.lmStudioResidentIdentity,
+          );
         } catch (error: any) {
           throw codedError(
             'request_lmstudio_policy_mismatch',
@@ -915,6 +924,7 @@ export async function startCognitionBroker(
                     parseJsonObject(job.body),
                     job.client.lmStudioLocal,
                     job.purpose,
+                    job.client.lmStudioResidentIdentity,
                   ),
                 ),
               }
@@ -977,6 +987,10 @@ export async function startCognitionBroker(
           ? inspectLmStudioLocalResponseIdentity(
               parseJsonObject(responseBody),
               job.client.lmStudioLocal,
+              lmStudioResidentInstanceId(
+                job.client.lmStudioLocal,
+                job.client.lmStudioResidentIdentity ?? undefined,
+              ),
             )
           : null;
       if (routeIdentity && !routeIdentity.ok) {
@@ -1581,12 +1595,16 @@ function assertLmStudioRequestForPurpose(
   value: unknown,
   policy: LmStudioLocalPolicy,
   purpose: CognitionPurpose,
+  residentIdentity: string | null,
 ) {
-  if (purpose === 'loom_fold') return assertLmStudioLocalLoomFoldWireRequest(value, policy);
-  if (purpose === 'resident_prefix_readiness') {
-    return assertLmStudioLocalPrefixReadinessWireRequest(value, policy);
+  const instanceId = lmStudioResidentInstanceId(policy, residentIdentity ?? undefined);
+  if (purpose === 'loom_fold') {
+    return assertLmStudioLocalLoomFoldWireRequest(value, policy, instanceId);
   }
-  return assertLmStudioLocalWireRequest(value, policy);
+  if (purpose === 'resident_prefix_readiness') {
+    return assertLmStudioLocalPrefixReadinessWireRequest(value, policy, instanceId);
+  }
+  return assertLmStudioLocalWireRequest(value, policy, instanceId);
 }
 
 function normalizeClients(values: CognitionBrokerOptions['clients']): readonly Client[] {
@@ -1630,6 +1648,10 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       } catch {
         throw new Error(`invalid cognition client LM Studio policy at index ${index}`);
       }
+      const lmStudioResidentIdentity =
+        lmStudioLocal && value.lmStudioResidentIdentity != null
+          ? String(value.lmStudioResidentIdentity).trim()
+          : null;
       if ([routePolicy, ollamaLocal, lmStudioLocal].filter(Boolean).length > 1) {
         throw new Error(
           `cognition client cannot combine OpenRouter, Ollama, and LM Studio policy at index ${index}`,
@@ -1649,6 +1671,9 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         model.length > 300 ||
         models.length > 16 ||
         models.some((item) => !item || item.length > 300) ||
+        (lmStudioResidentIdentity != null &&
+          (!lmStudioResidentIdentity || lmStudioResidentIdentity.length > 300)) ||
+        (lmStudioLocal == null && value.lmStudioResidentIdentity != null) ||
         (accounting != null &&
           (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(accounting.scopeId) ||
             !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(accounting.worldId) ||
@@ -1671,6 +1696,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         routePolicy,
         ollamaLocal,
         lmStudioLocal,
+        lmStudioResidentIdentity,
         accounting,
       });
     }),

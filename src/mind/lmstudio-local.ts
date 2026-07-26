@@ -149,10 +149,11 @@ export type LmStudioLocalResponseIdentity = Readonly<{
 export type LmStudioAttemptIdentity = ReturnType<typeof lmStudioAttemptIdentity>;
 
 export type LmStudioResidentSession = Readonly<{
-  protocol: 'behold.lmstudio-resident-session.v1';
+  protocol: 'behold.lmstudio-resident-session.v2';
   endpointOrigin: string;
   preflightDigest: string;
   models: readonly Readonly<{
+    residentId: string | null;
     modelKey: string;
     catalogKey: string;
     artifactTreeSha256: string;
@@ -440,9 +441,11 @@ export function createLmStudioLocalPrefixReadinessRequest(
 export function assertLmStudioLocalPrefixReadinessWireRequest(
   value: unknown,
   policyValue: LmStudioLocalPolicy,
+  modelInstanceId?: string,
 ): LmStudioLocalPrefixReadinessRequestIdentity {
   const policy = lmStudioLocalPolicy(policyValue);
-  const instanceId = lmStudioResidentInstanceId(policy);
+  const instanceId =
+    modelInstanceId == null ? lmStudioResidentInstanceId(policy) : exactInstanceId(modelInstanceId);
   const record = exactRecord(
     value,
     ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
@@ -505,7 +508,7 @@ export function parseLmStudioLocalPrefixReadinessResponse(
 ) {
   const policy = lmStudioLocalPolicy(policyValue);
   const instanceId = exactInstanceId(modelInstanceId);
-  const identity = inspectLmStudioLocalResponseIdentity(data, policy);
+  const identity = inspectLmStudioLocalResponseIdentity(data, policy, instanceId);
   if (!identity.ok || identity.returnedModel !== instanceId) {
     throw new Error('LM Studio prefix readiness response identity differs from admission');
   }
@@ -557,9 +560,11 @@ export function assertLmStudioLocalJsonActionRequest(
 export function assertLmStudioLocalWireRequest(
   value: unknown,
   policyValue: LmStudioLocalPolicy,
+  modelInstanceId?: string,
 ): LmStudioLocalRequestIdentity {
   const policy = lmStudioLocalPolicy(policyValue);
-  const instanceId = lmStudioResidentInstanceId(policy);
+  const instanceId =
+    modelInstanceId == null ? lmStudioResidentInstanceId(policy) : exactInstanceId(modelInstanceId);
   const record = exactRecord(
     value,
     ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
@@ -647,9 +652,11 @@ export function createLmStudioLocalLoomFoldRequest(
 export function assertLmStudioLocalLoomFoldWireRequest(
   value: unknown,
   policyValue: LmStudioLocalPolicy,
+  modelInstanceId?: string,
 ): LmStudioLocalLoomFoldRequestIdentity {
   const policy = lmStudioLocalPolicy(policyValue);
-  const instanceId = lmStudioResidentInstanceId(policy);
+  const instanceId =
+    modelInstanceId == null ? lmStudioResidentInstanceId(policy) : exactInstanceId(modelInstanceId);
   const record = exactRecord(
     value,
     ['model', 'messages', 'response_format', 'temperature', 'max_tokens', 'stream'],
@@ -760,9 +767,11 @@ export function parseLmStudioLocalLoomFoldResponse(
 export function inspectLmStudioLocalResponseIdentity(
   value: unknown,
   policyValue: LmStudioLocalPolicy,
+  modelInstanceId?: string,
 ): LmStudioLocalResponseIdentity {
   const policy = lmStudioLocalPolicy(policyValue);
-  const instanceId = lmStudioResidentInstanceId(policy);
+  const instanceId =
+    modelInstanceId == null ? lmStudioResidentInstanceId(policy) : exactInstanceId(modelInstanceId);
   const returnedModel = plainRecord(value) ? optionalText(value.model) : null;
   const returnedFingerprint = plainRecord(value) ? optionalText(value.system_fingerprint) : null;
   const reason: LmStudioLocalResponseIdentity['reason'] =
@@ -1104,6 +1113,8 @@ export function verifyLmStudioPreflight(
 
 export async function prepareLmStudioResidentSession(input: {
   policies: readonly LmStudioLocalPolicy[];
+  /** Stable entity identities make same-model resident instances independent. */
+  residentIds?: readonly string[];
   preflight: LmStudioLocalPreflight;
   runLms?: LmStudioCommandRunner;
   fetch?: typeof fetch;
@@ -1112,14 +1123,16 @@ export async function prepareLmStudioResidentSession(input: {
 }): Promise<LmStudioResidentSession> {
   const policies = uniquePolicies(input.policies);
   verifyLmStudioPreflight(input.preflight, policies);
+  const bindings = residentInstanceBindings(input.policies, input.residentIds);
   const runLms = input.runLms ?? defaultLmsRunner;
   const callFetch = input.fetch ?? globalThis.fetch;
   const origin = new URL(policies[0].endpoint).origin;
   const hostArgs = lmsHostArgs(origin);
-  const loadedByThisSession: LmStudioLocalPolicy[] = [];
+  const loadedByThisSession: typeof bindings = [];
   try {
-    for (const policy of policies) {
-      loadedByThisSession.push(policy);
+    for (const binding of bindings) {
+      const policy = binding.policy;
+      loadedByThisSession.push(binding);
       boundedCliOutput(
         runLms([
           'load',
@@ -1133,7 +1146,7 @@ export async function prepareLmStudioResidentSession(input: {
           '--parallel',
           '1',
           '--identifier',
-          lmStudioResidentInstanceId(policy),
+          binding.modelInstanceId,
           '--yes',
           ...hostArgs,
         ]),
@@ -1152,7 +1165,7 @@ export async function prepareLmStudioResidentSession(input: {
         const inventory = await readLocalJson(callFetch, `${origin}/api/v1/models`, {
           method: 'GET',
         });
-        assertLoadedLmStudioResidentInventory(inventory, policies);
+        assertLoadedLmStudioResidentInventory(inventory, bindings);
         stableReads += 1;
       } catch (error) {
         stableReads = 0;
@@ -1164,26 +1177,27 @@ export async function prepareLmStudioResidentSession(input: {
       throw lastError ?? new Error('LM Studio resident instances never became HTTP-stable');
     }
     const base = {
-      protocol: 'behold.lmstudio-resident-session.v1' as const,
+      protocol: 'behold.lmstudio-resident-session.v2' as const,
       endpointOrigin: origin,
       preflightDigest: input.preflight.digest,
       models: Object.freeze(
-        policies.map((policy) =>
+        bindings.map((binding) =>
           deepFreeze({
-            modelKey: policy.modelKey,
-            catalogKey: policy.catalogKey,
-            artifactTreeSha256: policy.artifact.treeSha256,
-            modelInstanceId: lmStudioResidentInstanceId(policy),
-            contextTokens: policy.settings.contextTokens,
+            residentId: binding.residentId,
+            modelKey: binding.policy.modelKey,
+            catalogKey: binding.policy.catalogKey,
+            artifactTreeSha256: binding.policy.artifact.treeSha256,
+            modelInstanceId: binding.modelInstanceId,
+            contextTokens: binding.policy.settings.contextTokens,
           }),
         ),
       ),
     };
     return deepFreeze({ ...base, digest: sha256(stableJson(base)) });
   } catch (error) {
-    for (const policy of [...loadedByThisSession].reverse()) {
+    for (const binding of [...loadedByThisSession].reverse()) {
       try {
-        runLms(['unload', lmStudioResidentInstanceId(policy), ...hostArgs]);
+        runLms(['unload', binding.modelInstanceId, ...hostArgs]);
       } catch {
         // The owning error remains primary; a caller must verify cleanup.
       }
@@ -1194,16 +1208,16 @@ export async function prepareLmStudioResidentSession(input: {
 
 function assertLoadedLmStudioResidentInventory(
   inventory: unknown,
-  policies: readonly LmStudioLocalPolicy[],
+  bindings: readonly LmStudioResidentInstanceBinding[],
 ) {
   const models = plainRecord(inventory) && Array.isArray(inventory.models) ? inventory.models : [];
-  for (const policy of policies) {
+  for (const binding of bindings) {
+    const policy = binding.policy;
     const catalog = models.find((entry) => plainRecord(entry) && entry.key === policy.catalogKey);
     const instance =
       plainRecord(catalog) && Array.isArray(catalog.loaded_instances)
         ? catalog.loaded_instances.find(
-            (entry: unknown) =>
-              plainRecord(entry) && entry.id === lmStudioResidentInstanceId(policy),
+            (entry: unknown) => plainRecord(entry) && entry.id === binding.modelInstanceId,
           )
         : null;
     const config = plainRecord(instance) && plainRecord(instance.config) ? instance.config : null;
@@ -1224,21 +1238,25 @@ function defaultDelay(milliseconds: number) {
 export async function releaseLmStudioResidentSession(input: {
   session: LmStudioResidentSession;
   policies: readonly LmStudioLocalPolicy[];
+  residentIds?: readonly string[];
   runLms?: LmStudioCommandRunner;
   fetch?: typeof fetch;
 }) {
   const policies = uniquePolicies(input.policies);
+  const bindings = residentInstanceBindings(input.policies, input.residentIds);
   const { digest, ...base } = input.session;
   if (
     digest !== sha256(stableJson(base)) ||
-    input.session.models.length !== policies.length ||
-    policies.some(
-      (policy) =>
+    input.session.protocol !== 'behold.lmstudio-resident-session.v2' ||
+    input.session.models.length !== bindings.length ||
+    bindings.some(
+      (binding) =>
         !input.session.models.some(
           (model) =>
-            model.modelKey === policy.modelKey &&
-            model.modelInstanceId === lmStudioResidentInstanceId(policy) &&
-            model.artifactTreeSha256 === policy.artifact.treeSha256,
+            model.residentId === binding.residentId &&
+            model.modelKey === binding.policy.modelKey &&
+            model.modelInstanceId === binding.modelInstanceId &&
+            model.artifactTreeSha256 === binding.policy.artifact.treeSha256,
         ),
     )
   ) {
@@ -1248,25 +1266,26 @@ export async function releaseLmStudioResidentSession(input: {
   const origin = new URL(policies[0].endpoint).origin;
   const hostArgs = lmsHostArgs(origin);
   const failures: string[] = [];
-  for (const policy of [...policies].reverse()) {
+  for (const binding of [...bindings].reverse()) {
     try {
-      boundedCliOutput(runLms(['unload', lmStudioResidentInstanceId(policy), ...hostArgs]));
+      boundedCliOutput(runLms(['unload', binding.modelInstanceId, ...hostArgs]));
     } catch (error: any) {
-      failures.push(`${policy.modelKey}: ${error?.message || String(error)}`);
+      failures.push(
+        `${binding.policy.modelKey}/${binding.residentId ?? 'unscoped'}: ${error?.message || String(error)}`,
+      );
     }
   }
   const callFetch = input.fetch ?? globalThis.fetch;
   const inventory = await readLocalJson(callFetch, `${origin}/api/v1/models`, { method: 'GET' });
   const models = plainRecord(inventory) && Array.isArray(inventory.models) ? inventory.models : [];
-  const survivors = policies.filter((policy) =>
+  const survivors = bindings.filter((binding) =>
     models.some(
       (entry) =>
         plainRecord(entry) &&
-        entry.key === policy.catalogKey &&
+        entry.key === binding.policy.catalogKey &&
         Array.isArray(entry.loaded_instances) &&
         entry.loaded_instances.some(
-          (instance: unknown) =>
-            plainRecord(instance) && instance.id === lmStudioResidentInstanceId(policy),
+          (instance: unknown) => plainRecord(instance) && instance.id === binding.modelInstanceId,
         ),
     ),
   );
@@ -1274,14 +1293,17 @@ export async function releaseLmStudioResidentSession(input: {
     throw new Error(
       `LM Studio resident session unload failed: ${[
         ...failures,
-        ...survivors.map((policy) => `${policy.modelKey}: instance remained loaded`),
+        ...survivors.map(
+          (binding) =>
+            `${binding.policy.modelKey}/${binding.residentId ?? 'unscoped'}: instance remained loaded`,
+        ),
       ].join('; ')}`,
     );
   }
   return deepFreeze({
     protocol: 'behold.lmstudio-resident-session-release.v1' as const,
     sessionDigest: input.session.digest,
-    unloadedInstances: Object.freeze(policies.map(lmStudioResidentInstanceId)),
+    unloadedInstances: Object.freeze(bindings.map((binding) => binding.modelInstanceId)),
   });
 }
 
@@ -1380,15 +1402,58 @@ function uniquePolicies(values: readonly LmStudioLocalPolicy[]) {
   return [...unique.values()];
 }
 
-export function lmStudioResidentInstanceId(policyValue: LmStudioLocalPolicy) {
+export function lmStudioResidentInstanceId(
+  policyValue: LmStudioLocalPolicy,
+  residentIdentity?: string,
+) {
   const policy = lmStudioLocalPolicy(policyValue);
+  const residentId =
+    residentIdentity == null
+      ? null
+      : boundedIdentity(residentIdentity, 'LM Studio resident instance owner');
   return `behold-${sha256(
     stableJson({
       modelKey: policy.modelKey,
       artifactTreeSha256: policy.artifact.treeSha256,
       contextTokens: policy.settings.contextTokens,
+      ...(residentId == null ? {} : { residentId }),
     }),
   ).slice(0, 24)}`;
+}
+
+type LmStudioResidentInstanceBinding = Readonly<{
+  residentId: string | null;
+  policy: LmStudioLocalPolicy;
+  modelInstanceId: string;
+}>;
+
+function residentInstanceBindings(
+  policyValues: readonly LmStudioLocalPolicy[],
+  residentIds?: readonly string[],
+): LmStudioResidentInstanceBinding[] {
+  if (residentIds == null) {
+    return uniquePolicies(policyValues).map((policy) => ({
+      residentId: null,
+      policy,
+      modelInstanceId: lmStudioResidentInstanceId(policy),
+    }));
+  }
+  if (residentIds.length !== policyValues.length || residentIds.length < 1) {
+    throw new Error('LM Studio resident identities must align one-to-one with policies');
+  }
+  const seenResidents = new Set<string>();
+  const seenInstances = new Set<string>();
+  return policyValues.map((policyValue, index) => {
+    const policy = lmStudioLocalPolicy(policyValue);
+    const residentId = boundedIdentity(residentIds[index], 'LM Studio resident instance owner');
+    const modelInstanceId = lmStudioResidentInstanceId(policy, residentId);
+    if (seenResidents.has(residentId) || seenInstances.has(modelInstanceId)) {
+      throw new Error('LM Studio resident identities and model instances must be unique');
+    }
+    seenResidents.add(residentId);
+    seenInstances.add(modelInstanceId);
+    return { residentId, policy, modelInstanceId };
+  });
 }
 
 function exactInstanceId(value: unknown) {

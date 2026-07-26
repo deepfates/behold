@@ -94,9 +94,6 @@ export function createLmStudioLocalResidentMind(
   const policy = lmStudioLocalPolicy(options.policy);
   const endpoint = exactCognitionEndpoint(options.endpoint);
   const modelInstanceId = exactModelInstanceId(options.modelInstanceId);
-  if (modelInstanceId !== lmStudioResidentInstanceId(policy)) {
-    throw new Error('LM Studio resident mind instance differs from its admitted model policy');
-  }
   if (!options.cognitionTransport || String(options.bearer || '').length < 32) {
     throw new Error('LM Studio resident mind requires the authenticated cognition broker');
   }
@@ -231,7 +228,7 @@ export function createLmStudioLocalResidentMind(
       }
 
       const completedAt = now();
-      const localIdentity = inspectLmStudioLocalResponseIdentity(data, policy);
+      const localIdentity = inspectLmStudioLocalResponseIdentity(data, policy, modelInstanceId);
       if (!localIdentity.ok) {
         throw new ResidentMindCallError(
           'LM Studio resident decision returned an unadmitted model instance',
@@ -299,6 +296,12 @@ export function createLmStudioLocalResidentMind(
   function assertResidentModel(request: Parameters<ResidentMind['decide']>[0]) {
     if (request.model !== policy.modelKey) {
       throw new Error(`LM Studio resident mind was not configured for model ${request.model}`);
+    }
+    if (
+      modelInstanceId !== lmStudioResidentInstanceId(policy) &&
+      modelInstanceId !== lmStudioResidentInstanceId(policy, request.entityId)
+    ) {
+      throw new Error('LM Studio resident mind instance differs from its entity-bound policy');
     }
   }
 
@@ -500,14 +503,17 @@ export function createLmStudioLocalLoomSummarizer(
   const policy = lmStudioLocalPolicy(options.policy);
   const endpoint = exactCognitionEndpoint(options.endpoint);
   const modelInstanceId = exactModelInstanceId(options.modelInstanceId);
-  if (modelInstanceId !== lmStudioResidentInstanceId(policy)) {
-    throw new Error('LM Studio loom summarizer instance differs from its admitted model policy');
-  }
   if (!options.cognitionTransport || String(options.bearer || '').length < 32) {
     throw new Error('LM Studio loom summarizer requires the authenticated cognition broker');
   }
 
   return async (request, signal = new AbortController().signal) => {
+    if (
+      modelInstanceId !== lmStudioResidentInstanceId(policy) &&
+      modelInstanceId !== lmStudioResidentInstanceId(policy, request.entityId)
+    ) {
+      throw new Error('LM Studio loom summarizer instance differs from its entity-bound policy');
+    }
     const startedAt = now();
     const requestId = `lmstudio-fold-${randomUUID()}`;
     const serialized = createLmStudioLocalLoomFoldRequest(request, policy, modelInstanceId);
@@ -615,7 +621,7 @@ export function createLmStudioLocalLoomSummarizer(
         admissionEvidence(response),
       );
     }
-    const localIdentity = inspectLmStudioLocalResponseIdentity(data, policy);
+    const localIdentity = inspectLmStudioLocalResponseIdentity(data, policy, modelInstanceId);
     if (!localIdentity.ok) {
       throw failure(
         'LM Studio loom-fold response returned an unadmitted model instance',

@@ -15,6 +15,7 @@ import {
   createLmStudioLocalPrefixReadinessRequest,
   digestRegularFileTree,
   lmStudioLocalPolicy,
+  lmStudioResidentInstanceId,
   parseLmStudioLocalJsonActionDecision,
   parseLmStudioLocalLoomFoldResponse,
   parseLmStudioLocalPrefixReadinessResponse,
@@ -429,6 +430,72 @@ test('LM Studio resident session owns exact custom instances and releases them a
     fetch,
   });
   assert.deepEqual(release.unloadedInstances, [instanceId]);
+  assert.equal(loaded.size, 0);
+});
+
+test('same-model residents own distinct entity-bound LM Studio instances', async (t) => {
+  const fixture = await artifactFixture(t);
+  const residentPolicy = policy(fixture);
+  const residentIds = ['OxfordAster', 'OxfordBirch'];
+  const instanceIds = residentIds.map((residentId) =>
+    lmStudioResidentInstanceId(residentPolicy, residentId),
+  );
+  const commands: string[][] = [];
+  const loaded = new Set<string>();
+  const runLms = (args: readonly string[]) => {
+    commands.push([...args]);
+    if (args[0] === '--version') return `CLI commit: ${CLI_COMMIT}\n`;
+    if (args[0] === 'runtime') return `ENGINE SELECTED\n${ENGINE} ✓ MLX\n`;
+    if (args[0] === 'ls') return JSON.stringify([indexEntry(residentPolicy)]);
+    if (args[0] === 'ps') return '[]';
+    if (args[0] === 'load') {
+      loaded.add(String(args[args.indexOf('--identifier') + 1]));
+      return 'loaded\n';
+    }
+    if (args[0] === 'unload') {
+      loaded.delete(String(args[1]));
+      return 'unloaded\n';
+    }
+    throw new Error(`unexpected lms command ${args.join(' ')}`);
+  };
+  const fetch: typeof globalThis.fetch = async () => inventoryResponse(residentPolicy, [...loaded]);
+  const preflight = await preflightLmStudioLocal({
+    policies: [residentPolicy, residentPolicy],
+    modelsRoot: fixture.modelsRoot,
+    readAppVersion: () => APP_VERSION,
+    runLms,
+    fetch,
+  });
+  const session = await prepareLmStudioResidentSession({
+    policies: [residentPolicy, residentPolicy],
+    residentIds,
+    preflight,
+    runLms,
+    fetch,
+  });
+
+  assert.equal(session.protocol, 'behold.lmstudio-resident-session.v2');
+  assert.deepEqual(
+    session.models.map((model) => ({
+      residentId: model.residentId,
+      modelInstanceId: model.modelInstanceId,
+    })),
+    residentIds.map((residentId, index) => ({
+      residentId,
+      modelInstanceId: instanceIds[index],
+    })),
+  );
+  assert.deepEqual([...loaded].sort(), [...instanceIds].sort());
+  assert.equal(commands.filter((args) => args[0] === 'load').length, 2);
+
+  const release = await releaseLmStudioResidentSession({
+    session,
+    policies: [residentPolicy, residentPolicy],
+    residentIds,
+    runLms,
+    fetch,
+  });
+  assert.deepEqual([...release.unloadedInstances].sort(), [...instanceIds].sort());
   assert.equal(loaded.size, 0);
 });
 

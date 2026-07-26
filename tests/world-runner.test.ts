@@ -830,7 +830,7 @@ test('managed LM Studio session binds its exact instance into release and contro
     },
     settings: { contextTokens: 16_384, maxOutputTokens: 512, temperature: 0.2 },
   };
-  const instanceId = lmStudioResidentInstanceId(lmStudioLocal);
+  const instanceId = lmStudioResidentInstanceId(lmStudioLocal, 'StudioLife');
   const controllerEntry = path.join(fixture.root, 'lmstudio-session-controller.js');
   fs.writeFileSync(
     controllerEntry,

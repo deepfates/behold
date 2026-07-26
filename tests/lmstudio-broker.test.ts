@@ -27,7 +27,7 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
   const transportCaptureDirectory = path.join(root, 'transport');
   const policy = localPolicy();
   const preflight = localPreflight(policy);
-  const instanceId = lmStudioResidentInstanceId(policy);
+  const instanceId = lmStudioResidentInstanceId(policy, 'Aster');
   const serialized = createLmStudioLocalJsonActionRequest(
     residentRequest(policy.modelKey) as any,
     policy,
@@ -43,6 +43,7 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
         residentKey: cognitionResidentKey('lmstudio-fixture', 'Aster'),
         model: policy.modelKey,
         lmStudioLocal: policy,
+        lmStudioResidentIdentity: 'Aster',
       },
     ],
     maxConcurrent: 1,
@@ -86,6 +87,23 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
     const refused = await request(broker.endpoint, JSON.stringify(driftedWire), 'wire-drift');
     assert.equal(refused.status, 400);
     assert.equal(((await refused.json()) as any).error.code, 'request_lmstudio_policy_mismatch');
+    assert.equal(calls, 0);
+
+    const foreignResidentWire = createLmStudioLocalJsonActionRequest(
+      residentRequest(policy.modelKey) as any,
+      policy,
+      lmStudioResidentInstanceId(policy, 'Birch'),
+    );
+    const foreignResident = await request(
+      broker.endpoint,
+      JSON.stringify(foreignResidentWire.body),
+      'foreign-resident-instance',
+    );
+    assert.equal(foreignResident.status, 400);
+    assert.equal(
+      ((await foreignResident.json()) as any).error.code,
+      'request_lmstudio_policy_mismatch',
+    );
     assert.equal(calls, 0);
 
     const admitted = await request(broker.endpoint, JSON.stringify(serialized.body), 'exact');

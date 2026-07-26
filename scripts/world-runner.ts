@@ -1847,9 +1847,11 @@ export async function startManagedWorld(
   const requiresOllamaResidentSession = activeOllamaPolicies.some(
     usesOllamaResidentSessionTransport,
   );
-  const activeLmStudioPolicies = residents
-    .filter((resident) => !resident.paused && resident.lmStudioLocal != null)
-    .map((resident) => resident.lmStudioLocal!);
+  const activeLmStudioResidents = residents.filter(
+    (resident) => !resident.paused && resident.lmStudioLocal != null,
+  );
+  const activeLmStudioPolicies = activeLmStudioResidents.map((resident) => resident.lmStudioLocal!);
+  const activeLmStudioResidentIds = activeLmStudioResidents.map((resident) => resident.entityId);
   const providerAccounting = managedProviderAccounting(options, residents);
   if (externalServer && !providerAccounting) {
     throw new WorldRunnerError(
@@ -2030,7 +2032,12 @@ export async function startManagedWorld(
                 ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
                 ...(resident.providerRoute ? { routePolicy: resident.providerRoute } : {}),
                 ...(resident.ollamaLocal ? { ollamaLocal: resident.ollamaLocal } : {}),
-                ...(resident.lmStudioLocal ? { lmStudioLocal: resident.lmStudioLocal } : {}),
+                ...(resident.lmStudioLocal
+                  ? {
+                      lmStudioLocal: resident.lmStudioLocal,
+                      lmStudioResidentIdentity: resident.entityId,
+                    }
+                  : {}),
                 ...(accounting
                   ? {
                       accounting: Object.freeze({
@@ -2319,6 +2326,7 @@ export async function startManagedWorld(
       if (activeLmStudioPolicies.length > 0) {
         lmStudioResidentSession = await prepareLmStudioResidentSession({
           policies: activeLmStudioPolicies,
+          residentIds: activeLmStudioResidentIds,
           preflight: lmStudioPreflight!,
           ...(dependencies.lmStudioRunLms ? { runLms: dependencies.lmStudioRunLms } : {}),
           ...(dependencies.lmStudioSessionFetch
@@ -2793,6 +2801,7 @@ export async function startManagedWorld(
         ollamaSessionFetch: dependencies.ollamaSessionFetch,
         lmStudioResidentSession,
         lmStudioPolicies: activeLmStudioPolicies,
+        lmStudioResidentIds: activeLmStudioResidentIds,
         lmStudioRunLms: dependencies.lmStudioRunLms,
         lmStudioSessionFetch: dependencies.lmStudioSessionFetch,
       });
@@ -2849,6 +2858,7 @@ export async function startManagedWorld(
       ollamaSessionFetch: dependencies.ollamaSessionFetch,
       lmStudioResidentSession,
       lmStudioPolicies: activeLmStudioPolicies,
+      lmStudioResidentIds: activeLmStudioResidentIds,
       lmStudioRunLms: dependencies.lmStudioRunLms,
       lmStudioSessionFetch: dependencies.lmStudioSessionFetch,
     });
@@ -3100,6 +3110,7 @@ async function cleanupFailedStart(input: {
   ollamaSessionFetch?: typeof fetch;
   lmStudioResidentSession: LmStudioResidentSession | null;
   lmStudioPolicies: readonly LmStudioLocalPolicy[];
+  lmStudioResidentIds: readonly string[];
   lmStudioRunLms?: LmStudioCommandRunner;
   lmStudioSessionFetch?: typeof fetch;
 }) {
@@ -3169,6 +3180,7 @@ async function cleanupFailedStart(input: {
           input.control,
           input.lmStudioResidentSession,
           input.lmStudioPolicies,
+          input.lmStudioResidentIds,
           input.lmStudioRunLms,
           input.lmStudioSessionFetch,
           'failed_start',
@@ -3251,6 +3263,7 @@ async function stopManagedWorld(input: {
   ollamaSessionFetch?: typeof fetch;
   lmStudioResidentSession: LmStudioResidentSession | null;
   lmStudioPolicies: readonly LmStudioLocalPolicy[];
+  lmStudioResidentIds: readonly string[];
   lmStudioRunLms?: LmStudioCommandRunner;
   lmStudioSessionFetch?: typeof fetch;
 }) {
@@ -3321,6 +3334,7 @@ async function stopManagedWorld(input: {
           control,
           input.lmStudioResidentSession,
           input.lmStudioPolicies,
+          input.lmStudioResidentIds,
           input.lmStudioRunLms,
           input.lmStudioSessionFetch,
           'managed_stop',
@@ -3577,6 +3591,7 @@ async function releaseManagedLmStudioResidentSession(
   control: HeldWorldControl,
   session: LmStudioResidentSession,
   policies: readonly LmStudioLocalPolicy[],
+  residentIds: readonly string[],
   runLms: LmStudioCommandRunner | undefined,
   callFetch: typeof fetch | undefined,
   phase: string,
@@ -3593,6 +3608,7 @@ async function releaseManagedLmStudioResidentSession(
     const evidence = await releaseLmStudioResidentSession({
       session,
       policies,
+      residentIds,
       ...(runLms ? { runLms } : {}),
       ...(callFetch ? { fetch: callFetch } : {}),
     });
@@ -3722,7 +3738,10 @@ function managedControllerEnvironment(
       env.BEHOLD_COGNITION_BEARER = client.bearer;
       env.BEHOLD_COGNITION_ENDPOINT = cognition.broker.endpoint;
       env.BEHOLD_LMSTUDIO_LOCAL_POLICY = serializeLmStudioLocalPolicy(resident.lmStudioLocal);
-      env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID = lmStudioResidentInstanceId(resident.lmStudioLocal);
+      env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID = lmStudioResidentInstanceId(
+        resident.lmStudioLocal,
+        resident.entityId,
+      );
     } else {
       env.OPENROUTER_API_KEY = client.bearer;
       env.OPENROUTER_BASE_URL = cognition.broker.endpoint;
