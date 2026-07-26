@@ -63,6 +63,14 @@ export async function runLiveCli(argv: string[]) {
   }
   const repositoryRoot = findRepositoryRoot();
   assertCleanCheckout(repositoryRoot, 'Behold');
+  const serverJar = plainFile(
+    String(
+      parsed.values['server-jar'] ??
+        process.env.BEHOLD_SERVER_JAR ??
+        path.join(repositoryRoot, '.behold-runtime', 'server', 'server.jar'),
+    ),
+    'Minecraft server JAR',
+  );
   const releaseRoot = plainDirectory(parsed.positionals[0], 'Place release');
   const residentFile = plainFile(String(parsed.values.residents), 'resident set');
   const residents = loadManagedResidentSet(residentFile);
@@ -152,9 +160,7 @@ export async function runLiveCli(argv: string[]) {
       acceptEula: true,
       port: admittedPort,
       expectedPlaceCompilerRevision: existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION,
-      ...(parsed.values['server-jar']
-        ? { serverJar: plainFile(String(parsed.values['server-jar']), 'Minecraft server JAR') }
-        : {}),
+      serverJar,
     });
 
     let established;
@@ -575,7 +581,7 @@ export function liveUsage() {
     '  --viewer-base-port PORT        First resident POV (default 3007)',
     '  --viewer-distance CHUNKS       POV view distance, 2-16 (default 6)',
     '  --place-compiler DIRECTORY     Exact Place Compiler checkout',
-    '  --server-jar FILE              Pinned Minecraft server JAR for Place serve',
+    '  --server-jar FILE              Pinned server JAR (default Behold managed artifact)',
     '  --max-model-concurrency N      Concurrent local cognition (default min(2, residents))',
     '  --lmstudio-models-root DIR     Exact local LM Studio artifact root',
     '',
