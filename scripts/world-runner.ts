@@ -51,11 +51,17 @@ import {
 import {
   ollamaLocalPolicy,
   preflightOllamaLocal,
+  prepareOllamaResidentSession,
+  releaseOllamaResidentSession,
   serializeOllamaLocalPolicy,
   type OllamaLocalPolicy,
   type OllamaLocalPreflight,
+  type OllamaResidentSession,
 } from '../src/mind/ollama-local';
-import { assertOllamaLocalJsonActionTreatment } from '../src/mind/ollama-json-action';
+import {
+  assertOllamaLocalJsonActionTreatment,
+  usesOllamaResidentSessionTransport,
+} from '../src/mind/ollama-json-action';
 import {
   COGNITION_TRANSPORT_PROTOCOL,
   cognitionAccountId,
@@ -575,6 +581,8 @@ export type WorldRunnerDependencies = Readonly<{
   cognitionFetch?: typeof fetch;
   /** Read-only local Ollama version/tags/show/ps preflight fixture. */
   ollamaPreflightFetch?: typeof fetch;
+  /** Model-load/unload fixture for the versioned local resident session. */
+  ollamaSessionFetch?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
   stdout?: (text: string) => void;
@@ -618,6 +626,7 @@ export type ManagedWorldRun = Readonly<{
     admissionLimitReached: CognitionBroker['admissionLimitReached'];
     admissionLimitSettled: CognitionBroker['admissionLimitSettled'];
     ollamaPreflight: OllamaLocalPreflight | null;
+    ollamaResidentSession: OllamaResidentSession | null;
   }> | null;
   experimentRelease: Readonly<{
     releaseId: string;
@@ -1589,6 +1598,9 @@ export async function startManagedWorld(
   const activeOllamaPolicies = residents
     .filter((resident) => !resident.paused && resident.ollamaLocal != null)
     .map((resident) => resident.ollamaLocal!);
+  const requiresOllamaResidentSession = activeOllamaPolicies.some(
+    usesOllamaResidentSessionTransport,
+  );
   const providerAccounting = managedProviderAccounting(options, residents);
   if (activeOllamaPolicies.length > 0 && !providerAccounting) {
     throw new WorldRunnerError(
@@ -1687,6 +1699,7 @@ export async function startManagedWorld(
   let serverOutput: OutputCapture | null = null;
   const controllerProcesses: ManagedResidentProcess[] = [];
   let cognition: ManagedCognition | null = null;
+  let ollamaResidentSession: OllamaResidentSession | null = null;
   let experiment: ManagedExperimentRelease | null = null;
   let committedExperimentRelease: ManagedWorldRun['experimentRelease'] = null;
   let stopping = false;
@@ -1944,6 +1957,20 @@ export async function startManagedWorld(
         command: 'save-all flush',
         acknowledgement: saveAcknowledgement,
       });
+
+      if (requiresOllamaResidentSession) {
+        ollamaResidentSession = await prepareOllamaResidentSession({
+          policies: activeOllamaPolicies,
+          preflight: ollamaPreflight!,
+          ...(dependencies.ollamaSessionFetch ? { fetch: dependencies.ollamaSessionFetch } : {}),
+        });
+        control.append('experiment_setup_ollama_resident_session_ready', {
+          phase: 'setup',
+          residentCognitionAdmitted: false,
+          worldTicks: 'frozen',
+          session: ollamaResidentSession,
+        });
+      }
 
       const initialAccounting = matchedReleaseAccounting(cognition!, providerAccounting, residents);
       const accounts = new Map(
@@ -2228,6 +2255,7 @@ export async function startManagedWorld(
         arms,
         cognition: cognitionBeforeRelease,
         accounting: accountingBeforeRelease,
+        ollamaResidentSession,
         worldState: {
           runtimeDigestProfile: 'behold-tree-v2',
           runtimeDigest: releaseRuntimeDigest,
@@ -2391,6 +2419,9 @@ export async function startManagedWorld(
         sleep,
         reason,
         cognition,
+        ollamaResidentSession,
+        ollamaPolicies: activeOllamaPolicies,
+        ollamaSessionFetch: dependencies.ollamaSessionFetch,
       });
       return stopPromise;
     };
@@ -2412,6 +2443,7 @@ export async function startManagedWorld(
             admissionLimitReached: runningCognition.broker.admissionLimitReached,
             admissionLimitSettled: runningCognition.broker.admissionLimitSettled,
             ollamaPreflight: runningCognition.ollamaPreflight,
+            ollamaResidentSession,
           })
         : null,
       experimentRelease: committedExperimentRelease,
@@ -2436,6 +2468,9 @@ export async function startManagedWorld(
       timeoutMs: shutdownTimeoutMs,
       sleep,
       cognition,
+      ollamaResidentSession,
+      ollamaPolicies: activeOllamaPolicies,
+      ollamaSessionFetch: dependencies.ollamaSessionFetch,
     });
     if (!cleaned) {
       try {
@@ -2640,9 +2675,13 @@ async function cleanupFailedStart(input: {
   timeoutMs: number;
   sleep: (milliseconds: number) => Promise<void>;
   cognition: ManagedCognition | null;
+  ollamaResidentSession: OllamaResidentSession | null;
+  ollamaPolicies: readonly OllamaLocalPolicy[];
+  ollamaSessionFetch?: typeof fetch;
 }) {
   try {
     let cognitionFailure: Error | null = null;
+    let ollamaFailure: Error | null = null;
     input.control.update('stopping');
     input.control.append('failed_start_cleanup_started');
     if (input.residents.length > 0) {
@@ -2686,6 +2725,19 @@ async function cleanupFailedStart(input: {
         });
       }
     }
+    if (input.ollamaResidentSession) {
+      try {
+        await releaseManagedOllamaResidentSession(
+          input.control,
+          input.ollamaResidentSession,
+          input.ollamaPolicies,
+          input.ollamaSessionFetch,
+          'failed_start',
+        );
+      } catch (error: any) {
+        ollamaFailure = error instanceof Error ? error : new Error(String(error));
+      }
+    }
     if (input.server && input.serverExit) {
       if (!processExited(input.server) && input.serverOutput?.lines().some(isMinecraftReadyLine)) {
         const marker = input.serverOutput.mark();
@@ -2707,6 +2759,7 @@ async function cleanupFailedStart(input: {
     assertStoppedEvidence(stopped, 'after_failed_start_cleanup');
     assertNoControllerLeasesAtRoot(input.entityRoot, input.circleIds, 'after_failed_start_cleanup');
     if (cognitionFailure) throw cognitionFailure;
+    if (ollamaFailure) throw ollamaFailure;
     input.control.update('stopped_verified', { server: null, controllers: [] });
     input.control.append('failed_start_cleanup_completed');
     input.control.release();
@@ -2734,6 +2787,9 @@ async function stopManagedWorld(input: {
   sleep: (milliseconds: number) => Promise<void>;
   reason: string;
   cognition: ManagedCognition | null;
+  ollamaResidentSession: OllamaResidentSession | null;
+  ollamaPolicies: readonly OllamaLocalPolicy[];
+  ollamaSessionFetch?: typeof fetch;
 }) {
   const { control, server } = input;
   control.update('stopping');
@@ -2770,6 +2826,7 @@ async function stopManagedWorld(input: {
     });
 
     let cognitionFailure: Error | null = null;
+    let ollamaFailure: Error | null = null;
     if (input.cognition) {
       try {
         await drainManagedCognition(control, input.cognition, input.timeoutMs, 'managed_stop');
@@ -2779,6 +2836,19 @@ async function stopManagedWorld(input: {
           phase: 'managed_stop',
           error: cognitionFailure.message,
         });
+      }
+    }
+    if (input.ollamaResidentSession) {
+      try {
+        await releaseManagedOllamaResidentSession(
+          control,
+          input.ollamaResidentSession,
+          input.ollamaPolicies,
+          input.ollamaSessionFetch,
+          'managed_stop',
+        );
+      } catch (error: any) {
+        ollamaFailure = error instanceof Error ? error : new Error(String(error));
       }
     }
 
@@ -2813,6 +2883,14 @@ async function stopManagedWorld(input: {
         'Cognition broker did not drain cleanly',
         'cognition_broker_shutdown_failed',
         { error: cognitionFailure.message, snapshot: input.cognition?.broker.snapshot() ?? null },
+      );
+    }
+    if (ollamaFailure) {
+      control.update('stopping', { server: null, controllers: [] });
+      throw new WorldRunnerError(
+        'Ollama resident session did not release cleanly',
+        'ollama_resident_session_shutdown_failed',
+        { error: ollamaFailure.message },
       );
     }
     if (abnormalExits.length) {
@@ -2928,6 +3006,36 @@ async function drainManagedCognition(
       quotaAccounts: quotaVerification,
     },
   });
+}
+
+async function releaseManagedOllamaResidentSession(
+  control: HeldWorldControl,
+  session: OllamaResidentSession,
+  policies: readonly OllamaLocalPolicy[],
+  callFetch: typeof fetch | undefined,
+  phase: string,
+) {
+  control.append('ollama_resident_session_releasing', {
+    phase,
+    sessionDigest: session.digest,
+    models: session.models.map((model) => model.modelTag),
+  });
+  try {
+    const evidence = await releaseOllamaResidentSession({
+      session,
+      policies,
+      ...(callFetch ? { fetch: callFetch } : {}),
+    });
+    control.append('ollama_resident_session_released', { phase, evidence });
+    return evidence;
+  } catch (error: any) {
+    control.append('ollama_resident_session_release_failed', {
+      phase,
+      sessionDigest: session.digest,
+      error: error?.message || String(error),
+    });
+    throw error;
+  }
 }
 
 function spawnDefaultServer(options: ManagedWorldRunOptions) {

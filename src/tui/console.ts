@@ -35,7 +35,10 @@ import { isCognitionTransportEnabled } from '../mind/cognition';
 import { openRouterRoutePolicyFromEnvironment } from '../mind/openrouter-route';
 import { ollamaLocalPolicyFromEnvironment } from '../mind/ollama-local';
 import { createOllamaLocalResidentMind } from '../mind/ollama';
-import { assertOllamaLocalJsonActionTreatment } from '../mind/ollama-json-action';
+import {
+  assertOllamaLocalJsonActionTreatment,
+  usesOllamaResidentSessionTransport,
+} from '../mind/ollama-json-action';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
 import { createProjectMemory } from '../entity/projects';
@@ -756,6 +759,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
         bodyProfile,
         actionProfile,
         safetyProfile,
+        workingContinuity:
+          ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)
+            ? 'resident-session-v1'
+            : 'recent-action-v1',
         ...(releaseGate ? { experimentRelease: () => experimentRelease } : {}),
         endpoint: cognitionEndpoint || undefined,
         mind:

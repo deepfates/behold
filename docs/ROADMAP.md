@@ -49,6 +49,15 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   responses, and the turn-only aftermath omitted most deaths. This is a failed
   behavioral acceptance, not evidence that the treatment improves conduct. See
   [Legible resident treatment v1](LEGIBLE_RESIDENT_TREATMENT.md).
+- A separately versioned local resident-session boundary now keeps the standing
+  charter and exact action contract ahead of changing life, projects recent
+  history as human-scale commitment/action/consequence/perception tuples, and
+  loads all exact resident models before the shared world release. It removed
+  repeated cold weight loading and a controller-shaped memory projection, but a
+  no-world probe still measured 14.5-24.5 second decisions for the installed
+  Llama 3.2 3B and Phi-4 artifacts. This is a supported session mechanic and a
+  negative runtime result, not a successful resident-life claim. See
+  [Local resident sessions](reports/2026-07-26-local-resident-session-runtime.md).
 - A versioned neutral evaluation configuration now crosses the CLI, managed
   runner, run journal, mind request, affordance projection, and interpreter:
   `neutral-benchmark-v1` emits only protocol guidance, does not force project
@@ -275,34 +284,27 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ## Immediate priorities
 
-1. Finish the neutral request boundary: keep protocol, action semantics, safety
-   policy, and resident coaching independently versioned; distinguish exact
-   request replay from current-code reconstruction by hash. See
-   [the neutral benchmark design](MINECRAFT_BENCHMARK.md).
-2. Use the now-proved direct/Ax exact-input sampler and sibling-rollout path to
-   build lineage-safe training and held-out episode families. Score only
-   independently witnessed Minecraft outcomes, then select program or model
-   changes by held-out results rather than one proposal or prompt-shaped pass.
-3. Compose the accepted San Francisco place, ordinary ecology, multiple
-   independently configured residents, native human entry, persistent
-   consequences, and Lync history into one bounded repeatable living-world run.
-   Do not treat a paused companion or a scripted exchange as this acceptance.
-4. Extend the player-grain conformance gate across representative movement,
-   interaction, self-care, and interruption semantics without creating one
-   runner per story.
-5. Compress and measure the ordinary recent-turn frontier without mutating its
-   authoritative Lync source. Keep exact per-episode and population budgets for
-   latency, prompt bytes, tokens, cost, and provider admissions. The first
-   durable per-resident/per-purpose provider-attempt layer is specified in
-   [Experiment accounting v1](EXPERIMENT_ACCOUNTING.md); admitted decisions and
-   physical action attempts remain separately evidenced rather than conflated.
-6. Treat survival, ordinary place learning, continuing construction, and social
-   life as Minecraft competence suites with outcome-only scoring. Promote a
-   result into foundation work only when it exposes a reusable missing boundary.
-7. Run a minimally scripted household and a multi-hour soak after the
-   single-life conformance and budget gates pass.
-8. Add explicit crossing receipts and authorized life crossing/copy semantics
-   to the working Minecraft checkpoint, fork, re-entry, and continuation path.
+1. Establish a local cognition path with measured body-relevant latency while
+   preserving the exact charter, human-semantic body/action contract, strict
+   public response, stale-body rejection, and independent resident sessions.
+   Investigate already-installed Apple-Silicon runtimes and real prefix/KV reuse
+   before changing the treatment or slowing Minecraft to accommodate a model.
+2. When that gate passes, run one bounded ordinary-ecology Oxford life with two
+   independently configured residents and judge persistent, adaptive world or
+   social conduct—not call count. Preserve failures without retries, hidden
+   reflexes, forced schedules, or catch-up normalization.
+3. Compose the proven pieces behind one foreground operator path: exact Place V3
+   verification, named start/resume, resident viewers, optional native human
+   entry, clean drain/save/stop, and a session manifest pointing to readable
+   resident and authoritative ecology aftermath. Do not substitute a dashboard
+   or a bespoke ignored harness for this entry.
+4. Pass the ticket acceptance from that ordinary path: a non-scripted persistent
+   resident consequence, independent witness, native co-presence, restart
+   continuity, and understandable Textile/Lync history with exact identities.
+5. Only after the composed living-world experience is honest, return to broader
+   evaluation families, crossing semantics, competence suites, and long soaks.
+   Neutral benchmark work remains a separately named research treatment, not the
+   product controller for sustained resident life.
 
 Contrasting-world integration remains useful research after the Minecraft
 product composition is honest; it is not the current product definition or an

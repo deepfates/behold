@@ -13,11 +13,15 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
+  OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL,
+  OLLAMA_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
 } from '../src/mind/ollama-json-action';
 import {
   assertOllamaLocalRequest,
   ollamaLocalPolicy,
   preflightOllamaLocal,
+  prepareOllamaResidentSession,
+  releaseOllamaResidentSession,
 } from '../src/mind/ollama-local';
 import { ResidentMindCallError } from '../src/mind/evidence';
 import { buildInterpreter } from '../src/agent/interpreter';
@@ -187,6 +191,107 @@ test('legible-resident v2 exposes one exact action plus two bounded public commi
   );
 });
 
+test('resident session keeps learned controls in a stable prefix and dynamic life after it', () => {
+  const residentRequest = canonicalLegibleRequest();
+  const continuity = {
+    protocol: 'behold.resident-working-continuity.v1',
+    source: { entityId: 'Scout' },
+    experiences: [
+      {
+        turn: 3,
+        action: 'move_controls',
+        arguments: { direction: 'forward', durationMs: 500 },
+        actualConsequence: 'Minecraft confirmed that the action succeeded.',
+      },
+    ],
+  };
+  const withLife = {
+    ...residentRequest,
+    conversation: [
+      residentRequest.conversation[0],
+      {
+        role: 'system' as const,
+        content: `Resident working continuity from your own entity loom.\n${JSON.stringify(continuity)}`,
+      },
+      residentRequest.conversation.at(-1)!,
+    ],
+  };
+  const localPolicy = residentSessionPolicy('test/model', DIGEST_3B, TEMPLATE_3B);
+  const first = createOllamaLocalJsonActionRequest(withLife as any, localPolicy);
+  const body: any = first.body;
+
+  assert.equal(body.keep_alive, '30m');
+  assert.equal(body.messages[0].role, 'system');
+  assert.equal(body.messages[1].role, 'system');
+  assert.match(body.messages[1].content, /BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V2_BEGIN/);
+  assert.match(body.messages[2].content, /behold\.resident-working-continuity\.v1/);
+  assert.equal(body.messages[3].role, 'user');
+  assert.match(body.messages[3].content, /Respond now with one JSON object/);
+  assert.equal(first.identity.protocol, 'behold.ollama-local-resident-session-request-identity.v1');
+  assert.equal(
+    first.identity.messageLayoutProtocol,
+    OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL,
+  );
+  assert.equal(first.identity.workingContinuityProtocol, 'behold.resident-working-continuity.v1');
+  assert.match(first.identity.stablePrefixSha256!, /^[a-f0-9]{64}$/);
+  assert.deepEqual(
+    assertOllamaLocalRequest(body, residentRequest.model, localPolicy),
+    first.identity,
+  );
+
+  const second = createOllamaLocalJsonActionRequest(
+    {
+      ...withLife,
+      conversation: [
+        withLife.conversation[0],
+        {
+          role: 'system',
+          content: `Resident working continuity from your own entity loom.\n${JSON.stringify({ ...continuity, experiences: [...continuity.experiences, { turn: 4, action: 'chat', arguments: { text: 'hello' }, actualConsequence: 'Minecraft confirmed that the action succeeded.' }] })}`,
+        },
+        { role: 'user', content: 'New world experience: the other resident replied.' },
+      ],
+    } as any,
+    localPolicy,
+  );
+  assert.deepEqual((second.body as any).messages.slice(0, 2), body.messages.slice(0, 2));
+  assert.equal(second.identity.stablePrefixSha256, first.identity.stablePrefixSha256);
+  assert.notEqual((second.body as any).messages.at(-1).content, body.messages.at(-1).content);
+
+  const reminderDrift = structuredClone(body);
+  reminderDrift.messages.at(-1).content += ' choose look_direction';
+  assert.throws(
+    () => assertOllamaLocalRequest(reminderDrift, residentRequest.model, localPolicy),
+    /response reminder is missing or drifted/,
+  );
+  assert.throws(
+    () =>
+      createOllamaLocalJsonActionRequest(
+        {
+          ...withLife,
+          conversation: [
+            withLife.conversation[0],
+            {
+              role: 'system',
+              content:
+                'Recent lived action continuity from your own entity loom. behold.recent-action-continuity.v1',
+            },
+            withLife.conversation.at(-1)!,
+          ],
+        } as any,
+        localPolicy,
+      ),
+    /not repeated full-camera continuity/,
+  );
+  assert.throws(
+    () =>
+      ollamaLocalPolicy({
+        ...localPolicy,
+        settings: { ...localPolicy.settings, keepAlive: '0s' },
+      }),
+    /requires nonzero keepAlive/,
+  );
+});
+
 test('strict local transport and policy treatment identities cannot be crossed', () => {
   assert.throws(
     () =>
@@ -324,6 +429,116 @@ test('read-only Ollama preflight binds cloud, model, completion, context, and ex
   assert.equal(
     calls.some((call) => call.path === '/api/chat'),
     false,
+  );
+});
+
+test('resident session owns exact model readiness and releases every loaded model', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-ollama-session-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cloudConfigFile = path.join(root, 'server.json');
+  fs.writeFileSync(cloudConfigFile, JSON.stringify({ disable_ollama_cloud: true }));
+  const policies = [
+    residentSessionPolicy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
+    residentSessionPolicy('phi4:latest', DIGEST_70B, TEMPLATE_70B),
+  ];
+  const loaded = new Map<string, (typeof policies)[number]>();
+  let lingeringLlamaReads = 0;
+  const calls: Array<{ path: string; body: any }> = [];
+  const localFetch: typeof fetch = async (url, init) => {
+    const pathName = new URL(String(url)).pathname;
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ path: pathName, body });
+    if (pathName === '/api/version') return json({ version: '0.23.2' });
+    if (pathName === '/api/tags') {
+      return json({
+        models: policies.map((policy) => ({
+          model: policy.modelTag,
+          digest: policy.modelDigest,
+        })),
+      });
+    }
+    if (pathName === '/api/show') {
+      const policy = policies.find((candidate) => candidate.modelTag === body.model)!;
+      return json({
+        capabilities: ['completion'],
+        template: policy.modelTag === 'llama3.2:3b' ? TEMPLATE_3B : TEMPLATE_70B,
+        details: { family: 'fixture', parameter_size: 'fixture', quantization_level: 'Q4' },
+        model_info: { 'fixture.context_length': 32_768 },
+      });
+    }
+    if (pathName === '/api/ps') {
+      const visible = [...loaded.values()];
+      if (lingeringLlamaReads > 0) {
+        lingeringLlamaReads -= 1;
+        visible.push(policies[0]);
+      }
+      return json({
+        models: visible.map((policy) => ({
+          model: policy.modelTag,
+          digest: policy.modelDigest,
+          context_length: policy.settings.contextTokens,
+          size: 1_000,
+          size_vram: 800,
+        })),
+      });
+    }
+    if (pathName === '/api/chat') {
+      assert.deepEqual(body.messages, []);
+      assert.equal(body.stream, false);
+      const policy = policies.find((candidate) => candidate.modelTag === body.model)!;
+      if (body.keep_alive === 0) {
+        loaded.delete(policy.modelTag);
+        if (policy.modelTag === 'llama3.2:3b') lingeringLlamaReads = 1;
+        return json({ model: policy.modelTag, done: true, done_reason: 'unload' });
+      }
+      assert.equal(body.keep_alive, '30m');
+      assert.deepEqual(body.options, {
+        num_ctx: policy.settings.contextTokens,
+        num_predict: policy.settings.maxOutputTokens,
+        temperature: policy.settings.temperature,
+      });
+      loaded.set(policy.modelTag, policy);
+      return json({
+        model: policy.modelTag,
+        message: { role: 'assistant', content: '' },
+        done: true,
+        done_reason: 'load',
+        load_duration: policy.modelTag === 'llama3.2:3b' ? 10 : 20,
+        total_duration: policy.modelTag === 'llama3.2:3b' ? 11 : 21,
+      });
+    }
+    throw new Error(`unexpected local route ${pathName}`);
+  };
+  const preflight = await preflightOllamaLocal({ policies, cloudConfigFile, fetch: localFetch });
+  const session = await prepareOllamaResidentSession({ policies, preflight, fetch: localFetch });
+  assert.deepEqual(
+    session.models.map((model) => [model.modelTag, model.modelDigest, model.loadDurationNs]),
+    [
+      ['llama3.2:3b', DIGEST_3B, 10],
+      ['phi4:latest', DIGEST_70B, 20],
+    ],
+  );
+  assert.deepEqual(
+    session.loaded.map((model) => model.modelTag),
+    ['llama3.2:3b', 'phi4:latest'],
+  );
+  const release = await releaseOllamaResidentSession({
+    session,
+    policies,
+    fetch: localFetch,
+  });
+  assert.deepEqual(release.unloadedModels, ['llama3.2:3b', 'phi4:latest']);
+  assert.equal(loaded.size, 0);
+  assert.deepEqual(
+    calls
+      .filter((call) => call.path === '/api/chat')
+      .map((call) => [call.body.model, call.body.keep_alive]),
+    [
+      ['llama3.2:3b', '30m'],
+      ['phi4:latest', '30m'],
+      ['phi4:latest', 0],
+      ['llama3.2:3b', 0],
+    ],
   );
 });
 
@@ -560,6 +775,22 @@ export function legiblePolicy(modelTag: string, modelDigest: string, template: s
       schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
       schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
       templateSha256: sha256(template),
+    },
+  } as const;
+}
+
+export function residentSessionPolicy(modelTag: string, modelDigest: string, template: string) {
+  return {
+    ...legiblePolicy(modelTag, modelDigest, template),
+    transport: {
+      protocol: OLLAMA_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+      templateSha256: sha256(template),
+    },
+    settings: {
+      ...legiblePolicy(modelTag, modelDigest, template).settings,
+      keepAlive: '30m',
     },
   } as const;
 }

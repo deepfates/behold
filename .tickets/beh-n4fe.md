@@ -402,3 +402,30 @@ are in `docs/reports/2026-07-26-legible-oxford-acceptance.md`. `beh-n4fe`
 remains open: there is still no resident-authored persistent consequence,
 adaptive social/world conduct, or native-human co-presence in the useful
 living experience.
+
+**2026-07-26T09:53:45Z**
+
+The next supported mechanics checkpoint removes two false explanations for the
+failed acceptance without claiming resident-life success. A versioned local
+resident session now places the standing charter and exact admitted action
+contract ahead of changing experience, projects recent own-life history as
+public commitment/action/plain consequence/coarse-perception tuples instead of
+controller-shaped wire objects or replayed camera grids, and keeps every exact
+resident model loaded across decisions. Managed startup freezes Minecraft,
+loads all admitted model artifacts with the exact context/output/temperature
+envelope, proves simultaneous residency before the all-ready release, and
+unloads only those owned loads after cognition drains.
+
+A retained no-world two-horizon probe removed repeated cold-weight loading but
+still measured 14.5-24.5 second concurrent decisions from the installed Llama
+3.2 3B and Phi-4 pair against the five-second urgent body deadline. Llama copied
+the original controller-shaped memory into malformed public fields; Phi
+continued the supplied alternating camera history. No tolerant repair was
+added; the owning memory projection was corrected and the repetitive conduct
+remains visible. The real probe also exposed an oversized 131k Llama preload;
+the runner now sends and requires the admitted 16k context, though that exact
+host correction has only fixture evidence so far. Full tests pass, but no new
+Minecraft/model session was launched. `beh-n4fe` remains open. The next owning
+risk is a credible local runtime/model path with body-relevant latency, followed
+by the ordinary composed start/watch/join/resume/aftermath experience—not more
+fixed opportunities or controller coaching.

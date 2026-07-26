@@ -10,6 +10,7 @@ import {
 import {
   createOllamaLocalJsonActionRequest,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
+  OLLAMA_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
   parseOllamaLocalJsonActionDecision,
 } from './ollama-json-action';
 import { residentMindRequestSha256 } from './request-artifact';
@@ -35,7 +36,11 @@ export function createOllamaLocalResidentMind(
   const policy = ollamaLocalPolicy(options.policy);
   const endpoint = safeEndpoint(options.endpoint);
   const adapterVersion =
-    policy.transport.protocol === OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL ? 'v2' : 'v1';
+    policy.transport.protocol === OLLAMA_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL
+      ? 'resident-session-v1'
+      : policy.transport.protocol === OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL
+        ? 'v2'
+        : 'v1';
   if (!options.cognitionTransport || String(options.bearer || '').length < 32) {
     throw new Error('Ollama local resident mind requires the authenticated cognition broker');
   }

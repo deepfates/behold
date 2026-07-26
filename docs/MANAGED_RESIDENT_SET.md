@@ -59,6 +59,17 @@ same endpoint, transport/schema, and settings; per-model tag, content digest,
 and template digest remain exact resident identities. Its configured `model`
 must equal the exact Ollama tag.
 
+For sustained `legible-resident-v1` life, use the separately versioned
+`behold.ollama-local-resident-session.v1` transport. It keeps a nonzero
+`keepAlive`, places the charter and exact admitted action contract ahead of
+changing lived context, and uses the v2 public-commitment schema. During an
+all-ready start, the runner loads every exact admitted model while Minecraft
+ticks are frozen and proves they are simultaneously resident before releasing
+the population. On stop it drains cognition, unloads only those owned loads,
+and verifies they disappeared before saving and releasing the world. The
+older one-shot transports remain distinct and are not silently promoted to a
+session.
+
 For example, one local resident entry has this shape (use the digest from the
 local `/api/tags` inventory, not this placeholder):
 
@@ -67,22 +78,26 @@ local `/api/tags` inventory, not this placeholder):
   "entityId": "LocalLife",
   "model": "llama3.2:3b",
   "mind": "direct",
+  "policyProfile": "legible-resident-v1",
+  "bodyProfile": "minecraft-human-semantic-v1",
+  "actionProfile": "minecraft-human-semantic-v1",
+  "safetyProfile": "vanilla-player-v1",
   "ollamaLocal": {
     "protocol": "behold.ollama-local-policy.v2",
     "endpoint": "http://127.0.0.1:11434/api/chat",
     "modelTag": "llama3.2:3b",
     "modelDigest": "<64-lowercase-hex>",
     "transport": {
-      "protocol": "behold.ollama-local-json-action.v1",
-      "schemaProtocol": "behold.ollama-local-json-action-schema.v1",
-      "schemaSha256": "92be985cd94f981e79c70b4c59551d090440c17094815b7fcd73015e80441998",
+      "protocol": "behold.ollama-local-resident-session.v1",
+      "schemaProtocol": "behold.ollama-local-json-action-schema.v2",
+      "schemaSha256": "1a0c46d7467e7df2aee3483f54b6ffb2f6497bfc52ff42001d0f03dc4c07325e",
       "templateSha256": "<64-lowercase-hex>"
     },
     "settings": {
       "contextTokens": 16384,
       "maxOutputTokens": 512,
       "temperature": 0.2,
-      "keepAlive": "0s"
+      "keepAlive": "30m"
     }
   },
   "providerQuotas": {
@@ -135,8 +150,10 @@ runner reads the plain Ollama server config (default
 `~/.ollama/server.json`, override with `BEHOLD_OLLAMA_SERVER_CONFIG`), requires
 `disable_ollama_cloud: true`, and checks only the loopback version, tags, show,
 and loaded-model endpoints. It rejects an absent tag, content-digest drift,
-missing tool capability, or insufficient model context. This preflight neither
-calls `/api/chat` nor loads model weights.
+missing completion capability, template drift, or insufficient model context.
+This preflight neither calls `/api/chat` nor loads model weights. A separately
+logged resident-session setup calls `/api/chat` with an empty message list only
+after world-time freeze; those model-load calls are never resident cognition.
 
 A legacy set whose every entry has `"paused": true` can connect its bodies
 without cognition credentials. Remote upstream credentials remain in the

@@ -5,8 +5,10 @@ import {
   projectCurrentModelObservation,
   projectHistoricalModelObservation,
   projectRecentActionContinuity,
+  projectResidentWorkingContinuity,
 } from '../src/policy/context';
 import { residentTurnMayReplay } from '../src/mind/resident-visibility';
+import { projectHumanSemanticValue } from '../src/mind/minecraft-body';
 
 test('model context suppresses only duplicated own-success lifecycle events without skipping them', () => {
   const frame = observation();
@@ -439,6 +441,109 @@ test('recent action continuity is byte bounded and rejects mixed inhabitant hist
   assert.throws(
     () => projectRecentActionContinuity([...turns, foreign]),
     /cannot mix inhabitant identities/,
+  );
+});
+
+test('resident working continuity preserves lived public tuples without replaying controller results, cameras, or targets', () => {
+  const turns = Array.from({ length: 9 }, (_, index) => {
+    const turn = continuityTurn(
+      index + 1,
+      'Scout',
+      index % 2 === 0 ? 'look_direction' : 'move_controls',
+      index % 2 === 0
+        ? { horizontal: 'right', vertical: 'same' }
+        : { direction: 'forward', durationMs: 500 },
+      {
+        ok: true,
+        position: { x: 100 + index, y: 64, z: -30 },
+        confirmation: 'mineflayer:body_controls',
+      },
+    );
+    turn.profiles = {
+      policy: 'legible-resident-v1',
+      body: 'minecraft-human-semantic-v1',
+      actions: 'minecraft-human-semantic-v1',
+      safety: 'vanilla-player-v1',
+    };
+    turn.utterance.publicCommitment = {
+      protocol: 'behold.resident-public-action-commitment.v1',
+      policyProfile: 'legible-resident-v1',
+      intention: `Continue my own exploration step ${index + 1}`,
+      expectedObservableConsequence: 'My body or view should change in Minecraft',
+    };
+    turn.nextObservation = {
+      self: {
+        pose: { yaw: Math.PI / 2, pitch: 0 },
+        condition: { health: 18, food: 19, isDay: false },
+      },
+      scene: {
+        social: { playersOnline: ['Wren'] },
+        focus: {
+          id: `block:overworld:${index}:64:8`,
+          kind: 'block',
+          name: 'oak_planks',
+          distance: 2.5,
+        },
+        entities: [{ id: 'entity:99', kind: 'player', name: 'Wren', distance: 7 }],
+        terrain: {
+          visualField: {
+            protocol: 'behold.visual-field.v1',
+            available: true,
+            dimensions: { rows: 5, columns: 9 },
+            rowOrder: 'top_to_bottom',
+            columnOrder: 'left_to_right',
+            materialRows: Array(5).fill('aaaaaaaaa'),
+            depthRows: Array(5).fill('111111111'),
+            materialLegend: [
+              { symbol: 'a', name: 'oak_planks' },
+              { symbol: 'b', name: 'grass_block' },
+            ],
+            depthLegend: [{ symbol: '1', label: 'interaction' }],
+            noHitSymbol: '.',
+            unavailableSymbol: '?',
+            center: { row: 2, column: 4 },
+          },
+        },
+      },
+    };
+    return turn;
+  });
+
+  const projected = projectResidentWorkingContinuity(
+    turns,
+    6,
+    6_000,
+    residentTurnMayReplay,
+    projectHumanSemanticValue,
+  );
+  assert.equal(projected?.protocol, 'behold.resident-working-continuity.v1');
+  assert.equal(projected?.source.includedTurns, 6);
+  assert.equal(projected?.source.omittedOlderTurns, 3);
+  assert.equal(projected?.experiences.at(-1)?.intention, 'Continue my own exploration step 9');
+  assert.equal(projected?.experiences.at(-1)?.action, 'look_direction');
+  assert.deepEqual(projected?.experiences.at(-1)?.arguments, {
+    horizontal: 'right',
+    vertical: 'same',
+  });
+  assert.equal(
+    projected?.experiences.at(-1)?.actualConsequence,
+    'Minecraft confirmed that the action succeeded.',
+  );
+  assert.deepEqual(projected?.experiences.at(-1)?.perceptionAfter, {
+    orientation: { facing: 'west', vertical: 'level' },
+    condition: { health: 18, food: 19, daylight: 'night' },
+    focus: { kind: 'block', name: 'oak_planks', proximity: 'interaction' },
+    visibleMaterials: ['oak_planks', 'grass_block'],
+    visibleEntities: [{ kind: 'player', name: 'Wren', proximity: 'nearby' }],
+    playersOnline: ['Wren'],
+    provenance: 'historical_next_observation',
+    currency: 'historical_current_observation_wins',
+  });
+  const serialized = JSON.stringify(projected);
+  assert.ok(Buffer.byteLength(serialized, 'utf8') <= 6_000);
+  assert.doesNotMatch(
+    serialized,
+    /materialRows|depthRows|block:overworld|entity:99|"x"|"y"|"z"|"input"|"result"|eventType|mineflayer:/,
   );
 });
 

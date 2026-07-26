@@ -18,12 +18,15 @@ changes remain Minecraft-authoritative and resident/world histories remain
 portable Lync that can be inspected with tools such as Textile.
 
 The pieces are substantial but not yet one finished product flow. Accepted
-Place Compiler releases, managed multi-resident epochs, human native play,
-per-resident models in the programmatic runner, persistent bodies, and Lync
-histories all exist. The CLI still applies one `--model` to every named
-resident; open-ended multi-model life in the accepted San Francisco place,
-human drop-in, and a legible lore-reading handoff have not yet been exercised
-together as one repeatable experience.
+Place Compiler releases, managed heterogeneous resident sets, human native
+play, symmetric read-only resident viewers, persistent bodies, and readable
+Lync/Textile histories all exist. The versioned resident-set path can assign a
+different mind to each life, but the ordinary operator entry still does not
+compose place verification, named resident continuation, viewer discovery,
+human drop-in, clean stop/resume, and aftermath into one command. More
+importantly, the current installed local-model pair has not yet produced
+sustained adaptive Minecraft conduct at body-relevant latency. Passing the
+mechanics stack is therefore not presented as a finished living world.
 
 Build and run Minecraft agents on your own server in minutes. Behold gives you:
 

@@ -48,6 +48,7 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
+  OLLAMA_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
 } from '../src/mind/ollama-json-action';
 import { FIXED_DECISION_PILOT_SCHEDULE_PROTOCOL } from '../src/policy/fixed-decision-pilot';
 
@@ -66,6 +67,15 @@ function fixtureOllamaTransport(templateDigest = 'c'.repeat(64)) {
 function fixtureOllamaTransportV2(templateDigest = 'c'.repeat(64)) {
   return {
     protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
+    schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+    schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+    templateSha256: templateDigest,
+  } as const;
+}
+
+function fixtureOllamaResidentSessionTransport(templateDigest = 'c'.repeat(64)) {
+  return {
+    protocol: OLLAMA_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
     schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
     schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
     templateSha256: templateDigest,
@@ -561,6 +571,230 @@ test('managed admission binds legible-resident-v1 to strict local JSON v2 before
     (error: any) => error?.code === 'resident_ollama_treatment_mismatch',
   );
   assert.equal(inspections, 0);
+});
+
+test('managed resident session loads while ticks are frozen and unloads after cognition drains', async (t) => {
+  const fixture = makeFixture(t);
+  const modelTag = 'test/resident-session';
+  const modelDigest = 'a'.repeat(64);
+  const template = '{{ .System }} {{ .Prompt }}';
+  const templateSha256 = createHash('sha256').update(template).digest('hex');
+  const cloudConfigFile = path.join(fixture.root, 'ollama-server.json');
+  fs.writeFileSync(cloudConfigFile, JSON.stringify({ disable_ollama_cloud: true }));
+  const ollamaLocal = {
+    protocol: 'behold.ollama-local-policy.v2' as const,
+    endpoint: 'http://127.0.0.1:11434/api/chat' as const,
+    modelTag,
+    modelDigest,
+    transport: fixtureOllamaResidentSessionTransport(templateSha256),
+    settings: {
+      contextTokens: 16_384,
+      maxOutputTokens: 512,
+      temperature: 0.2,
+      keepAlive: '5m',
+    },
+  };
+  const accountingScopeId = 'resident-session-lifecycle-v1';
+  const controllerEntry = path.join(fixture.root, 'resident-session-controller.js');
+  fs.writeFileSync(
+    controllerEntry,
+    `
+      const fs = require('node:fs');
+      const os = require('node:os');
+      const path = require('node:path');
+      const { experimentReleaseGateFromEnvironment } = require(path.resolve('dist/src/runtime/experiment-release.js'));
+      const entityId = process.argv[2];
+      const model = process.argv[process.argv.indexOf('--model') + 1];
+      const lease = path.join(process.env.BEHOLD_ENTITY_DIR, entityId, 'runtime.lock');
+      const journalFile = path.join(process.env.BEHOLD_RUN_DIR, 'resident-session-fixture.jsonl');
+      fs.mkdirSync(path.dirname(lease), { recursive: true });
+      fs.mkdirSync(path.dirname(journalFile), { recursive: true });
+      fs.writeFileSync(lease, JSON.stringify({
+        protocol: 'behold.entity-runtime-lease.v1', entityId,
+        pid: process.pid, hostname: os.hostname(), managedRunId: process.env.BEHOLD_RUN_ID
+      }));
+      fs.writeFileSync(journalFile, JSON.stringify({ type: 'setup_local_world_ready' }) + '\\n');
+      const gate = experimentReleaseGateFromEnvironment({
+        entityId,
+        bodyUsername: process.env.MINECRAFT_USERNAME,
+        model,
+        urgentModel: null,
+        mind: process.env.BEHOLD_MIND,
+        ollamaLocal: JSON.parse(process.env.BEHOLD_OLLAMA_LOCAL_POLICY),
+        profiles: {
+          policy: process.env.BEHOLD_POLICY_PROFILE,
+          body: process.env.BEHOLD_BODY_PROFILE,
+          actions: process.env.BEHOLD_ACTION_PROFILE,
+          safety: process.env.BEHOLD_SAFETY_PROFILE,
+        },
+        quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
+      });
+      gate.arm({ journalFile, setupObservation: { fixture: 'resident-session' } });
+      console.error('[bot] Local world loaded.');
+      console.error('[bot] Experiment release armed: ' + gate.prepared.plan.releaseId + ' ' + entityId);
+      gate.waitAndClaim().catch((error) => { console.error(error); process.exit(1); });
+      process.stdin.resume();
+      process.stdin.on('end', () => {
+        if (fs.existsSync(lease)) fs.unlinkSync(lease);
+        process.exit(0);
+      });
+    `,
+  );
+
+  let serverPid: number | null = null;
+  let serverAlive = false;
+  const spawnServer = () => {
+    const child = spawn(
+      process.execPath,
+      [
+        '-e',
+        `
+          const readline = require('node:readline');
+          console.log('[Server thread/INFO]: Done (0.1s)! For help, type "help"');
+          const rl = readline.createInterface({ input: process.stdin });
+          rl.on('line', (line) => {
+            if (line === 'tick freeze') console.log('[Server thread/INFO]: The game is frozen');
+            if (line === 'tick unfreeze') console.log('[Server thread/INFO]: The game is running normally');
+            if (line === 'save-all flush') console.log('[Server thread/INFO]: Saved the game');
+            if (line === 'stop') process.exit(0);
+          });
+        `,
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    ) as ChildProcessWithoutNullStreams;
+    serverPid = child.pid!;
+    serverAlive = true;
+    child.once('exit', () => {
+      serverAlive = false;
+    });
+    return child;
+  };
+
+  const loaded = new Set<string>();
+  const chatCalls: Array<{ model: string; keepAlive: unknown }> = [];
+  const localFetch: typeof fetch = async (url, init) => {
+    const route = new URL(String(url)).pathname;
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    if (route === '/api/version') return new Response(JSON.stringify({ version: '0.23.2' }));
+    if (route === '/api/tags') {
+      return new Response(JSON.stringify({ models: [{ model: modelTag, digest: modelDigest }] }));
+    }
+    if (route === '/api/show') {
+      return new Response(
+        JSON.stringify({
+          capabilities: ['completion'],
+          template,
+          details: { family: 'fixture', parameter_size: 'fixture', quantization_level: 'Q4' },
+          model_info: { 'fixture.context_length': 32_768 },
+        }),
+      );
+    }
+    if (route === '/api/ps') {
+      return new Response(
+        JSON.stringify({
+          models: [...loaded].map((model) => ({
+            model,
+            digest: modelDigest,
+            context_length: 16_384,
+            size: 1_000,
+            size_vram: 800,
+          })),
+        }),
+      );
+    }
+    if (route === '/api/chat') {
+      chatCalls.push({ model: body.model, keepAlive: body.keep_alive });
+      if (body.keep_alive === 0) loaded.delete(body.model);
+      else {
+        assert.deepEqual(body.options, {
+          num_ctx: 16_384,
+          num_predict: 512,
+          temperature: 0.2,
+        });
+        loaded.add(body.model);
+      }
+      return new Response(
+        JSON.stringify({
+          model: body.model,
+          message: { role: 'assistant', content: '' },
+          done: true,
+          done_reason: body.keep_alive === 0 ? 'unload' : 'load',
+          load_duration: 10,
+          total_duration: 11,
+        }),
+      );
+    }
+    throw new Error(`unexpected fixture Ollama route ${route}`);
+  };
+
+  const run = fixture.trackRun(
+    await startManagedWorld(
+      {
+        ...fixture.options,
+        controllerEntry,
+        accountingScopeId,
+        ollamaServerConfigFile: cloudConfigFile,
+        residents: [
+          {
+            entityId: 'SessionLife',
+            bodyUsername: 'SessionBody',
+            model: modelTag,
+            mind: 'direct',
+            policyProfile: 'legible-resident-v1',
+            bodyProfile: 'minecraft-human-semantic-v1',
+            actionProfile: 'minecraft-human-semantic-v1',
+            safetyProfile: 'vanilla-player-v1',
+            maxTurnSteps: 1,
+            resumeAfterBudget: false,
+            providerQuotas: { residentDecisionAttempts: 2, auxiliaryContextAttempts: 1 },
+            ollamaLocal,
+          },
+        ],
+      },
+      {
+        spawnServer,
+        verifyArtifacts: async () => ARTIFACTS_OK,
+        inspectRuntime: async () => runtimeEvidence(serverAlive && serverPid ? serverPid : null),
+        ollamaPreflightFetch: localFetch,
+        ollamaSessionFetch: localFetch,
+        stdout: () => {},
+        stderr: () => {},
+      },
+    ),
+  );
+  assert.deepEqual([...loaded], [modelTag]);
+  assert.equal(run.cognition?.ollamaResidentSession?.models[0]?.modelTag, modelTag);
+  const beforeStop = verifyWorldLifecycleJournal(run.control.journalFile).events;
+  const frozen = beforeStop.findIndex(
+    (event) =>
+      event.type === 'experiment_setup_operator_action' &&
+      (event.data as any)?.action === 'minecraft_tick_freeze',
+  );
+  const sessionReady = beforeStop.findIndex(
+    (event) => event.type === 'experiment_setup_ollama_resident_session_ready',
+  );
+  const released = beforeStop.findIndex((event) => event.type === 'experiment_released');
+  assert.ok(frozen >= 0 && sessionReady > frozen && released > sessionReady);
+
+  await run.stop('resident_session_fixture_complete');
+  await run.finished;
+  assert.deepEqual([...loaded], []);
+  assert.deepEqual(chatCalls, [
+    { model: modelTag, keepAlive: '5m' },
+    { model: modelTag, keepAlive: 0 },
+  ]);
+  const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile).events;
+  const drained = lifecycle.findIndex((event) => event.type === 'cognition_broker_drained');
+  const releasing = lifecycle.findIndex(
+    (event) => event.type === 'ollama_resident_session_releasing',
+  );
+  const sessionReleased = lifecycle.findIndex(
+    (event) => event.type === 'ollama_resident_session_released',
+  );
+  const saved = lifecycle.findIndex((event) => event.type === 'server_save_acknowledged');
+  assert.ok(
+    drained >= 0 && releasing > drained && sessionReleased > releasing && saved > sessionReleased,
+  );
 });
 
 test('managed route control covers every active resident with one output cap before world inspection', async (t) => {

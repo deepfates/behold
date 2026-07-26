@@ -6,6 +6,9 @@ const MODEL_EVENT_BATCH = 12;
 const RECENT_ACTION_TURN_LIMIT = 6;
 const RECENT_ACTION_BYTE_LIMIT = 12_000;
 const RECENT_ACTION_TURN_BYTE_LIMIT = 4_000;
+const RESIDENT_WORKING_TURN_LIMIT = 6;
+const RESIDENT_WORKING_BYTE_LIMIT = 6_000;
+const RESIDENT_WORKING_TURN_BYTE_LIMIT = 1_600;
 const REDUNDANT_OWN_LIFECYCLE_EVENTS = new Set([
   'intent_enqueued',
   'intent_selected',
@@ -58,6 +61,48 @@ export type RecentActionContinuity = {
         reachable: boolean | null;
       } | null;
       visualField: HistoricalFirstPersonVisualField;
+      provenance: 'historical_next_observation';
+      currency: 'historical_current_observation_wins';
+    };
+  }>;
+};
+
+export const RESIDENT_WORKING_CONTINUITY_PROTOCOL =
+  'behold.resident-working-continuity.v1' as const;
+
+export type ResidentWorkingContinuity = {
+  protocol: typeof RESIDENT_WORKING_CONTINUITY_PROTOCOL;
+  source: {
+    entityId: string;
+    fromTurn: number;
+    throughTurn: number;
+    includedTurns: number;
+    omittedOlderTurns: number;
+    turnLimit: number;
+    byteLimit: number;
+    authority: 'entity_loom';
+    currency: 'historical_current_observation_wins';
+    perceptualDetail: 'coarse_human_memory_not_current_scene';
+  };
+  experiences: Array<{
+    turn: number;
+    intention?: string;
+    expectedObservableConsequence?: string;
+    action?: string;
+    arguments?: any;
+    actionDetailsUnavailable?: true;
+    actualConsequence: string;
+    perceptionAfter?: {
+      orientation: { facing: string; vertical: string } | null;
+      condition: {
+        health: number | null;
+        food: number | null;
+        daylight: 'day' | 'night' | 'unknown';
+      } | null;
+      focus: { kind: string; name: string; proximity: string | null } | null;
+      visibleMaterials: string[];
+      visibleEntities: Array<{ kind: string; name: string; proximity: string | null }>;
+      playersOnline: string[];
       provenance: 'historical_next_observation';
       currency: 'historical_current_observation_wins';
     };
@@ -129,6 +174,225 @@ export function projectRecentActionContinuity(
   }
 
   return continuityEnvelope(entityId, selected, boundedTurns, boundedBytes);
+}
+
+/**
+ * Human-scale working continuity for a persistent local resident session.
+ *
+ * The complete Lync and exact safe observation presentations remain the
+ * historical record. This view is intentionally closer to ordinary memory:
+ * recent public commitments, acts, consequences, body state, and coarse
+ * perceptual categories. It never replays camera grids or historical target
+ * identifiers as if they were a current scene.
+ */
+export function projectResidentWorkingContinuity(
+  turns: readonly EntityTurn[],
+  turnLimit = RESIDENT_WORKING_TURN_LIMIT,
+  byteLimit = RESIDENT_WORKING_BYTE_LIMIT,
+  mayReplayTurn: (turn: EntityTurn) => boolean = () => true,
+  projectValue: (value: any) => any = (value) => value,
+): ResidentWorkingContinuity | null {
+  if (!turns.length) return null;
+  const boundedTurns = integerInRange(turnLimit, 1, 8, RESIDENT_WORKING_TURN_LIMIT);
+  const boundedBytes = integerInRange(byteLimit, 1_000, 12_000, RESIDENT_WORKING_BYTE_LIMIT);
+  const entityId = String(turns.at(-1)?.entityId || '').trim();
+  if (!entityId || turns.some((turn) => turn.entityId !== entityId)) {
+    throw new Error('resident working continuity cannot mix inhabitant identities');
+  }
+
+  const candidates = turns
+    .slice(-boundedTurns)
+    .map((turn) =>
+      workingContinuityTurn(turn, mayReplayTurn(turn), (value) =>
+        compactContinuityValue(projectValue(projectResidentVisibleValue(value))),
+      ),
+    );
+  let selected: ResidentWorkingContinuity['experiences'] = [];
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index];
+    const proposed = [candidate, ...selected];
+    if (
+      Buffer.byteLength(
+        JSON.stringify(workingContinuityEnvelope(entityId, proposed, boundedTurns, boundedBytes)),
+        'utf8',
+      ) > boundedBytes
+    ) {
+      break;
+    }
+    selected = proposed;
+  }
+  if (selected.length === 0) {
+    selected = [minimalWorkingContinuityTurn(turns.at(-1)!)];
+  }
+  return workingContinuityEnvelope(entityId, selected, boundedTurns, boundedBytes);
+}
+
+function workingContinuityEnvelope(
+  entityId: string,
+  experiences: ResidentWorkingContinuity['experiences'],
+  turnLimit: number,
+  byteLimit: number,
+): ResidentWorkingContinuity {
+  return {
+    protocol: RESIDENT_WORKING_CONTINUITY_PROTOCOL,
+    source: {
+      entityId,
+      fromTurn: experiences[0].turn,
+      throughTurn: experiences.at(-1)!.turn,
+      includedTurns: experiences.length,
+      omittedOlderTurns: Math.max(0, experiences[0].turn - 1),
+      turnLimit,
+      byteLimit,
+      authority: 'entity_loom',
+      currency: 'historical_current_observation_wins',
+      perceptualDetail: 'coarse_human_memory_not_current_scene',
+    },
+    experiences,
+  };
+}
+
+function workingContinuityTurn(
+  turn: EntityTurn,
+  mayReplay: boolean,
+  projectValue: (value: any) => any,
+): ResidentWorkingContinuity['experiences'][number] {
+  const commitment = turn.utterance?.publicCommitment;
+  const projected: ResidentWorkingContinuity['experiences'][number] = {
+    turn: turn.sequence,
+    ...(commitment &&
+    typeof commitment.intention === 'string' &&
+    typeof commitment.expectedObservableConsequence === 'string'
+      ? {
+          intention: boundedContinuityText(commitment.intention, 240),
+          expectedObservableConsequence: boundedContinuityText(
+            commitment.expectedObservableConsequence,
+            240,
+          ),
+        }
+      : {}),
+    ...(mayReplay
+      ? {
+          action: boundedContinuityText(turn.action.name, 80),
+          arguments: projectValue(turn.action.input),
+        }
+      : { actionDetailsUnavailable: true as const }),
+    actualConsequence: workingActualConsequence(turn),
+    ...rememberedPerception(turn.nextObservation),
+  };
+  if (Buffer.byteLength(JSON.stringify(projected), 'utf8') <= RESIDENT_WORKING_TURN_BYTE_LIMIT) {
+    return projected;
+  }
+  return {
+    turn: projected.turn,
+    ...(projected.intention ? { intention: projected.intention } : {}),
+    ...(projected.expectedObservableConsequence
+      ? { expectedObservableConsequence: projected.expectedObservableConsequence }
+      : {}),
+    ...(projected.action ? { action: projected.action } : {}),
+    actionDetailsUnavailable: true,
+    actualConsequence: projected.actualConsequence,
+    ...(projected.perceptionAfter ? { perceptionAfter: projected.perceptionAfter } : {}),
+  };
+}
+
+function minimalWorkingContinuityTurn(
+  turn: EntityTurn,
+): ResidentWorkingContinuity['experiences'][number] {
+  return {
+    turn: turn.sequence,
+    action: boundedContinuityText(turn.action.name, 80),
+    actionDetailsUnavailable: true,
+    actualConsequence: workingActualConsequence(turn),
+  };
+}
+
+function workingActualConsequence(turn: EntityTurn) {
+  const eventType = String(turn.outcome.eventType || '');
+  const code = /^[a-z0-9_:-]{1,80}$/i.test(String(turn.outcome.error || ''))
+    ? ` (${String(turn.outcome.error)})`
+    : '';
+  if (eventType === 'wait_for_event') {
+    return 'The resident yielded; no Minecraft action was attempted.';
+  }
+  if (eventType === 'intent_blocked') {
+    return `The controller rejected the action before Minecraft${code}.`;
+  }
+  if (turn.outcome.ok === true) {
+    return 'Minecraft confirmed that the action succeeded.';
+  }
+  return `Minecraft reported that the action failed${code}.`;
+}
+
+function rememberedPerception(observation: any) {
+  if (!observation || typeof observation !== 'object') return {};
+  const visualField = observation?.scene?.terrain?.visualField;
+  const orientation = observationOrientation(observation?.self?.pose);
+  const condition = observation?.self?.condition;
+  const focus = observation?.scene?.focus;
+  const entities = Array.isArray(observation?.scene?.entities)
+    ? observation.scene.entities.slice(0, 8)
+    : [];
+  const playersOnline = Array.isArray(observation?.scene?.social?.playersOnline)
+    ? observation.scene.social.playersOnline.slice(0, 16)
+    : [];
+  const visibleMaterials = Array.isArray(visualField?.materialLegend)
+    ? [
+        ...new Set<string>(
+          visualField.materialLegend.map((entry: any) => boundedContinuityText(entry?.name, 80)),
+        ),
+      ]
+        .filter(Boolean)
+        .slice(0, 16)
+    : [];
+  return {
+    perceptionAfter: {
+      orientation:
+        typeof orientation?.facing === 'string' && typeof orientation?.vertical === 'string'
+          ? {
+              facing: boundedContinuityText(orientation.facing, 32),
+              vertical: boundedContinuityText(orientation.vertical, 32),
+            }
+          : null,
+      condition:
+        condition && typeof condition === 'object'
+          ? {
+              health: finiteOrNull(condition.health),
+              food: finiteOrNull(condition.food),
+              daylight:
+                typeof condition.isDay === 'boolean'
+                  ? condition.isDay
+                    ? ('day' as const)
+                    : ('night' as const)
+                  : ('unknown' as const),
+            }
+          : null,
+      focus:
+        focus && typeof focus === 'object'
+          ? {
+              kind: boundedContinuityText(focus.kind, 40),
+              name: boundedContinuityText(focus.name, 120),
+              proximity: semanticProximity(focus.distance),
+            }
+          : null,
+      visibleMaterials,
+      visibleEntities: entities.map((entity: any) => ({
+        kind: boundedContinuityText(entity?.kind ?? entity?.type, 40),
+        name: boundedContinuityText(entity?.name ?? entity?.username, 120),
+        proximity: semanticProximity(entity?.distance),
+      })),
+      playersOnline: playersOnline.map((name: any) => boundedContinuityText(name, 64)),
+      provenance: 'historical_next_observation' as const,
+      currency: 'historical_current_observation_wins' as const,
+    },
+  };
+}
+
+function semanticProximity(value: unknown) {
+  const distance = finiteOrNull(value);
+  if (distance == null) return null;
+  if (distance <= 4) return 'interaction';
+  if (distance <= 12) return 'nearby';
+  return 'distant';
 }
 
 function continuityEnvelope(

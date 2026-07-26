@@ -8,7 +8,12 @@ import { createEntityTurnObservationPresentation } from '../entity/turn-observat
 import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
-import { projectRecentActionContinuity, type RecentActionContinuity } from './context';
+import {
+  projectRecentActionContinuity,
+  projectResidentWorkingContinuity,
+  type RecentActionContinuity,
+  type ResidentWorkingContinuity,
+} from './context';
 import {
   createLoomContextView,
   foldMessage,
@@ -103,6 +108,8 @@ export type Options = {
   routePolicy?: OpenRouterRoutePolicy;
   /** Alternate bounded decision implementation. Behold still owns the resident loop. */
   mind?: ResidentMind;
+  /** Versioned working-memory projection selected by an admitted cognition transport. */
+  workingContinuity?: 'recent-action-v1' | 'resident-session-v1';
   /** Versioned controller behavior; neutral mode does not coach or repair model choices. */
   policyProfile?: ResidentPolicyProfile;
   /** Versioned observation/body contract selected outside the generic policy loop. */
@@ -450,6 +457,33 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             : opts.summarizeLoom!(request)
       : (request, signal) => summarizeLoom(request, opts, signal ?? new AbortController().signal),
   });
+  const projectWorkingContinuity = (
+    turnLimit: number,
+    byteLimit: number,
+  ): RecentActionContinuity | ResidentWorkingContinuity | null =>
+    opts.workingContinuity === 'resident-session-v1'
+      ? projectResidentWorkingContinuity(
+          loomContext.view().turns,
+          Math.min(turnLimit, 6),
+          Math.min(byteLimit, 6_000),
+          mayReplayTurn,
+          usesHumanSemanticBody(bodyProfile) ? projectHumanSemanticValue : (value) => value,
+        )
+      : usesHumanSemanticBody(bodyProfile)
+        ? projectHumanSemanticValue(
+            projectRecentActionContinuity(
+              loomContext.view().turns,
+              turnLimit,
+              byteLimit,
+              mayReplayTurn,
+            ),
+          )
+        : projectRecentActionContinuity(
+            loomContext.view().turns,
+            turnLimit,
+            byteLimit,
+            mayReplayTurn,
+          );
   const messages: any[] = [
     { role: 'system', content: controllerSystemPrompt(modelTools, policyProfile) },
   ];
@@ -682,29 +716,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               messages,
               attention,
               availableTools,
-              usesHumanSemanticBody(bodyProfile)
-                ? projectHumanSemanticValue(
-                    projectRecentActionContinuity(
-                      loomContext.view().turns,
-                      attention.context === 'bounded_loom'
-                        ? DELIBERATIVE_CONTINUITY_TURNS
-                        : URGENT_CONTINUITY_TURNS,
-                      attention.context === 'bounded_loom'
-                        ? DELIBERATIVE_CONTINUITY_BYTES
-                        : URGENT_CONTINUITY_BYTES,
-                      mayReplayTurn,
-                    ),
-                  )
-                : projectRecentActionContinuity(
-                    loomContext.view().turns,
-                    attention.context === 'bounded_loom'
-                      ? DELIBERATIVE_CONTINUITY_TURNS
-                      : URGENT_CONTINUITY_TURNS,
-                    attention.context === 'bounded_loom'
-                      ? DELIBERATIVE_CONTINUITY_BYTES
-                      : URGENT_CONTINUITY_BYTES,
-                    mayReplayTurn,
-                  ),
+              projectWorkingContinuity(
+                attention.context === 'bounded_loom'
+                  ? DELIBERATIVE_CONTINUITY_TURNS
+                  : URGENT_CONTINUITY_TURNS,
+                attention.context === 'bounded_loom'
+                  ? DELIBERATIVE_CONTINUITY_BYTES
+                  : URGENT_CONTINUITY_BYTES,
+              ),
               policyProfile,
             ),
           ),
@@ -1320,7 +1339,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
     messages.push({
       role: 'user',
-      content: `${label}:\n${JSON.stringify(projected)}\nPrevious action: ${lastTool ?? 'none'}`,
+      content: [
+        `${label}:\n${JSON.stringify(projected)}`,
+        ...(opts.workingContinuity === 'resident-session-v1'
+          ? []
+          : [`Previous action: ${lastTool ?? 'none'}`]),
+      ].join('\n'),
     });
   }
 
@@ -2020,7 +2044,7 @@ function conversationForAttention(
   messages: readonly any[],
   attention: ResidentAttention,
   availableTools?: readonly ToolSpec[],
-  recentActionContinuity?: RecentActionContinuity | null,
+  recentActionContinuity?: RecentActionContinuity | ResidentWorkingContinuity | null,
   profile: ResidentPolicyProfile = 'resident-v1',
 ) {
   const bodilyUrgency = hasBodilyUrgency(attention);
@@ -2091,8 +2115,12 @@ function conversationForAttention(
     ? {
         role: 'system',
         content: [
-          'Recent lived action continuity from your own entity loom. This is bounded historical evidence; the current observation wins whenever state has changed.',
-          'Any first-person glimpses are past camera views retained as perceptual working memory. Compare their orientations, but do not treat them as current geometry, a panorama, or proof of safety.',
+          recentActionContinuity.protocol === 'behold.resident-working-continuity.v1'
+            ? 'Resident working continuity from your own entity loom. These are your prior public commitments, chosen actions, Minecraft-confirmed success or failure, and coarse perceptions afterward—not examples or recommendations. The current observation always wins.'
+            : 'Recent lived action continuity from your own entity loom. This is bounded historical evidence; the current observation wins whenever state has changed.',
+          recentActionContinuity.protocol === 'behold.resident-working-continuity.v1'
+            ? 'Historical perception is deliberately not a replayed camera or current target. Re-observe before relying on changed state.'
+            : 'Any first-person glimpses are past camera views retained as perceptual working memory. Compare their orientations, but do not treat them as current geometry, a panorama, or proof of safety.',
           JSON.stringify(recentActionContinuity),
         ].join('\n'),
       }

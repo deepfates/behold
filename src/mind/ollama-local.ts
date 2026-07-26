@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   assertOllamaLocalJsonActionRequest,
   ollamaLocalJsonActionTransport,
+  usesOllamaResidentSessionTransport,
   type OllamaLocalJsonActionRequestIdentity,
   type OllamaLocalJsonActionTransport,
 } from './ollama-json-action';
@@ -71,6 +72,21 @@ export type OllamaAttemptIdentity = Readonly<{
   serverVersion: string;
 }>;
 
+export type OllamaResidentSession = Readonly<{
+  protocol: 'behold.ollama-resident-session.v1';
+  endpoint: string;
+  keepAlive: string;
+  preflightDigest: string;
+  models: readonly Readonly<{
+    modelTag: string;
+    modelDigest: string;
+    loadDurationNs: number | null;
+    totalDurationNs: number | null;
+  }>[];
+  loaded: OllamaLocalPreflight['loaded'];
+  digest: string;
+}>;
+
 const MAX_CONTEXT_TOKENS = 262_144;
 const MAX_OUTPUT_TOKENS = 32_768;
 const MAX_PREFLIGHT_BYTES = 8 * 1024 * 1024;
@@ -112,12 +128,16 @@ export function ollamaLocalPolicy(value: unknown): OllamaLocalPolicy {
   if (!/^(?:0|[1-9][0-9]{0,5})(?:ms|s|m|h)$/.test(keepAlive)) {
     throw new Error('Ollama keepAlive must be an explicit bounded duration such as 0s or 5m');
   }
+  const transport = ollamaLocalJsonActionTransport(record.transport);
+  if (usesOllamaResidentSessionTransport({ transport }) && /^0(?:ms|s|m|h)$/.test(keepAlive)) {
+    throw new Error('Ollama resident session requires nonzero keepAlive');
+  }
   return deepFreeze({
     protocol: OLLAMA_LOCAL_POLICY_PROTOCOL,
     endpoint: exactOllamaChatEndpoint(record.endpoint),
     modelTag: boundedText(record.modelTag, 'Ollama model tag', 300),
     modelDigest: sha256Digest(record.modelDigest, 'Ollama model digest'),
-    transport: ollamaLocalJsonActionTransport(record.transport),
+    transport,
     settings: { contextTokens, maxOutputTokens, temperature, keepAlive },
   });
 }
@@ -337,6 +357,140 @@ export async function preflightOllamaLocal(input: {
   return deepFreeze({ ...base, digest: sha256(stableJson(base)) });
 }
 
+/**
+ * Load every admitted local resident model before world release, then prove
+ * that all exact content digests are simultaneously resident. Empty-message
+ * Ollama chat requests perform model loading only; they are setup operations,
+ * not resident decisions and never enter a resident quota account.
+ */
+export async function prepareOllamaResidentSession(input: {
+  policies: readonly OllamaLocalPolicy[];
+  preflight: OllamaLocalPreflight;
+  fetch?: typeof fetch;
+}): Promise<OllamaResidentSession> {
+  const policies = uniqueOllamaPolicies(input.policies);
+  verifyOllamaPreflight(input.preflight, policies);
+  if (policies.some((policy) => !usesOllamaResidentSessionTransport(policy))) {
+    throw new Error('Ollama resident session setup requires the resident-session transport');
+  }
+  const keepAlive = policies[0].settings.keepAlive;
+  if (/^0(?:ms|s|m|h)$/.test(keepAlive)) {
+    throw new Error('Ollama resident session requires nonzero model residency');
+  }
+  if (
+    input.preflight.loaded.some((loaded) =>
+      policies.some((policy) => policy.modelTag === loaded.modelTag),
+    )
+  ) {
+    throw new Error('Ollama resident session will not claim ownership of an already loaded model');
+  }
+
+  const callFetch = input.fetch ?? globalThis.fetch;
+  const loadedByThisSetup: OllamaLocalPolicy[] = [];
+  const modelEvidence: Array<OllamaResidentSession['models'][number]> = [];
+  try {
+    for (const policy of policies) {
+      // The load request must establish the same runtime envelope later used
+      // by resident attempts. Omitting num_ctx lets Ollama select a model-wide
+      // default and can reserve radically more KV memory than the admitted
+      // session identity says it owns.
+      loadedByThisSetup.push(policy);
+      const response = await readLocalJson(callFetch, policy.endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: policy.modelTag,
+          messages: [],
+          stream: false,
+          options: {
+            num_ctx: policy.settings.contextTokens,
+            num_predict: policy.settings.maxOutputTokens,
+            temperature: policy.settings.temperature,
+          },
+          keep_alive: keepAlive,
+        }),
+      });
+      if (
+        !plainRecord(response) ||
+        response.model !== policy.modelTag ||
+        response.done !== true ||
+        response.done_reason !== 'load' ||
+        !plainRecord(response.message) ||
+        response.message.role !== 'assistant' ||
+        response.message.content !== ''
+      ) {
+        throw new Error(`Ollama load response identity is invalid for ${policy.modelTag}`);
+      }
+      modelEvidence.push(
+        deepFreeze({
+          modelTag: policy.modelTag,
+          modelDigest: policy.modelDigest,
+          loadDurationNs: optionalNonnegativeInteger(response.load_duration),
+          totalDurationNs: optionalNonnegativeInteger(response.total_duration),
+        }),
+      );
+    }
+    const loaded = await readLoadedOllamaModels(callFetch, policies[0].endpoint);
+    for (const policy of policies) {
+      const active = loaded.find((model) => model.modelTag === policy.modelTag);
+      if (
+        !active ||
+        active.modelDigest !== policy.modelDigest ||
+        active.contextLength == null ||
+        active.contextLength !== policy.settings.contextTokens
+      ) {
+        throw new Error(`Ollama did not retain the admitted resident model ${policy.modelTag}`);
+      }
+    }
+    const base = {
+      protocol: 'behold.ollama-resident-session.v1' as const,
+      endpoint: policies[0].endpoint,
+      keepAlive,
+      preflightDigest: input.preflight.digest,
+      models: Object.freeze(modelEvidence),
+      loaded,
+    };
+    return deepFreeze({ ...base, digest: sha256(stableJson(base)) });
+  } catch (error) {
+    await unloadOllamaPolicies(callFetch, loadedByThisSetup).catch(() => undefined);
+    throw error;
+  }
+}
+
+/** Release only model loads created by prepareOllamaResidentSession. */
+export async function releaseOllamaResidentSession(input: {
+  session: OllamaResidentSession;
+  policies: readonly OllamaLocalPolicy[];
+  fetch?: typeof fetch;
+}) {
+  const policies = uniqueOllamaPolicies(input.policies);
+  const { digest, ...base } = input.session;
+  if (
+    input.session.protocol !== 'behold.ollama-resident-session.v1' ||
+    sha256Digest(digest, 'Ollama resident session digest') !== sha256(stableJson(base)) ||
+    input.session.endpoint !== policies[0].endpoint ||
+    input.session.models.length !== policies.length ||
+    policies.some(
+      (policy) =>
+        !usesOllamaResidentSessionTransport(policy) ||
+        !input.session.models.some(
+          (model) => model.modelTag === policy.modelTag && model.modelDigest === policy.modelDigest,
+        ),
+    )
+  ) {
+    throw new Error('Ollama resident session release identity is invalid');
+  }
+  const callFetch = input.fetch ?? globalThis.fetch;
+  await unloadOllamaPolicies(callFetch, [...policies].reverse());
+  const loaded = await waitForOllamaModelsUnloaded(callFetch, policies[0].endpoint, policies);
+  return deepFreeze({
+    protocol: 'behold.ollama-resident-session-release.v1' as const,
+    sessionDigest: input.session.digest,
+    unloadedModels: Object.freeze(policies.map((policy) => policy.modelTag)),
+    loadedAfter: loaded,
+  });
+}
+
 export function ollamaAttemptIdentity(
   policyValue: OllamaLocalPolicy,
   preflight: OllamaLocalPreflight,
@@ -384,6 +538,101 @@ export function verifyOllamaPreflight(
     }
   }
   return value;
+}
+
+function uniqueOllamaPolicies(values: readonly OllamaLocalPolicy[]) {
+  if (!Array.isArray(values) || values.length < 1) {
+    throw new Error('Ollama resident session requires at least one policy');
+  }
+  const policies = values.map(ollamaLocalPolicy);
+  const unique = new Map<string, OllamaLocalPolicy>();
+  for (const policy of policies) {
+    const prior = unique.get(policy.modelTag);
+    if (prior && stableJson(prior) !== stableJson(policy)) {
+      throw new Error(`Ollama resident session policies disagree for ${policy.modelTag}`);
+    }
+    unique.set(policy.modelTag, policy);
+  }
+  return [...unique.values()];
+}
+
+async function unloadOllamaPolicies(
+  callFetch: typeof fetch,
+  policies: readonly OllamaLocalPolicy[],
+) {
+  const failures: string[] = [];
+  for (const policy of policies) {
+    try {
+      const response = await readLocalJson(callFetch, policy.endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: policy.modelTag,
+          messages: [],
+          stream: false,
+          keep_alive: 0,
+        }),
+      });
+      if (
+        !plainRecord(response) ||
+        response.model !== policy.modelTag ||
+        response.done !== true ||
+        !['unload', 'load'].includes(String(response.done_reason || ''))
+      ) {
+        throw new Error('unload response identity is invalid');
+      }
+    } catch (error: any) {
+      failures.push(`${policy.modelTag}: ${error?.message || String(error)}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`Ollama resident session unload failed: ${failures.join('; ')}`);
+  }
+}
+
+async function readLoadedOllamaModels(
+  callFetch: typeof fetch,
+  endpoint: string,
+): Promise<OllamaLocalPreflight['loaded']> {
+  const value = await readLocalJson(callFetch, `${new URL(endpoint).origin}/api/ps`, {
+    method: 'GET',
+  });
+  const models = plainRecord(value) && Array.isArray(value.models) ? value.models : [];
+  return Object.freeze(
+    models.map((entry: unknown) => {
+      const record = plainRecord(entry) ? entry : {};
+      return deepFreeze({
+        modelTag: boundedText(record.model ?? record.name, 'loaded Ollama model tag', 300),
+        modelDigest:
+          record.digest == null ? null : sha256Digest(record.digest, 'loaded Ollama digest'),
+        contextLength: optionalNonnegativeInteger(record.context_length),
+        sizeBytes: optionalNonnegativeInteger(record.size),
+        sizeVramBytes: optionalNonnegativeInteger(record.size_vram),
+      });
+    }),
+  );
+}
+
+async function waitForOllamaModelsUnloaded(
+  callFetch: typeof fetch,
+  endpoint: string,
+  policies: readonly OllamaLocalPolicy[],
+) {
+  const deadline = Date.now() + 10_000;
+  let loaded: OllamaLocalPreflight['loaded'] = Object.freeze([]);
+  do {
+    loaded = await readLoadedOllamaModels(callFetch, endpoint);
+    const survivors = loaded.filter((model) =>
+      policies.some((policy) => policy.modelTag === model.modelTag),
+    );
+    if (survivors.length === 0) return loaded;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Ollama resident session models remained loaded: ${survivors.map((model) => model.modelTag).join(', ')}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } while (true);
 }
 
 async function readLocalJson(callFetch: typeof fetch, endpoint: string, init: RequestInit) {
