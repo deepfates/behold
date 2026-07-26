@@ -4,8 +4,10 @@ import { compareResidentMinds } from '../src/evaluation/mind-comparison';
 import { runResidentMindTrials } from '../src/evaluation/mind-trials';
 import { createAxResidentMind } from '../src/mind/ax';
 import { createDirectResidentMind } from '../src/mind/direct';
+import { directOpenRouterRequestBody } from '../src/mind/direct-wire';
 import { ResidentMindCallError } from '../src/mind/evidence';
 import type { ResidentMind } from '../src/mind/interface';
+import { assertOpenRouterRouteRequest } from '../src/mind/openrouter-route';
 import {
   createResidentMindRequestArtifact,
   parseResidentMindRequestArtifact,
@@ -184,11 +186,120 @@ test('a direct resident request emits its exact admitted OpenRouter route and ou
       parallel_tool_calls: false,
       temperature: 0.2,
       max_tokens: 512,
-      provider: { order: ['Fixture Primary', 'Fixture Secondary'], allow_fallbacks: false },
+      provider: {
+        order: ['Fixture Primary', 'Fixture Secondary'],
+        allow_fallbacks: false,
+        require_parameters: true,
+      },
     },
   ]);
   assert.equal(decision.call.response.model, 'test/model');
   assert.equal(decision.call.response.provider, 'Fixture Primary');
+});
+
+test('a legible provider resident uses the strict session schema and distinct route identities', async () => {
+  const bodies: any[] = [];
+  const mind = createDirectResidentMind({
+    apiKey: 'test-key',
+    model: 'test/model',
+    routePolicy: {
+      protocol: 'behold.openrouter-route-policy.v2',
+      routes: [{ requestTag: 'fixture-primary', responseProvider: 'Fixture Primary' }],
+      allowFallbacks: false,
+      maxOutputTokens: 512,
+    },
+    recordModelIO: true,
+    endpoint: 'https://models.example.test/v1/chat/completions',
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          id: 'strict-route-bound-generation',
+          model: 'test/model',
+          provider: 'Fixture Primary',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  intention: 'Step forward once',
+                  expectedObservableConsequence: 'My body position should change',
+                  action: 'move_direction',
+                  arguments: { direction: 'forward', distance: 2 },
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+  });
+  const legible = {
+    ...request(),
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+  } as any;
+
+  const decision = await mind.decide(legible, { signal: new AbortController().signal });
+
+  assert.equal(bodies[0].tools, undefined);
+  assert.equal(bodies[0].tool_choice, undefined);
+  assert.equal(bodies[0].parallel_tool_calls, undefined);
+  assert.deepEqual(bodies[0].reasoning, { effort: 'minimal', exclude: true });
+  assert.deepEqual(bodies[0].provider, {
+    order: ['fixture-primary'],
+    allow_fallbacks: false,
+    require_parameters: true,
+  });
+  assert.equal(bodies[0].response_format.type, 'json_schema');
+  assert.equal(bodies[0].response_format.json_schema.strict, true);
+  assert.equal(decision.action?.name, 'move_direction');
+  assert.equal(decision.publicCommitment?.intention, 'Step forward once');
+  assert.equal(
+    (decision.call.request as any).providerResidentSession.protocol,
+    'behold.openrouter-resident-session.v1',
+  );
+});
+
+test('the provider resident-session transport refuses another resident identity', () => {
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v2',
+    routes: [{ requestTag: 'fixture-primary', responseProvider: 'Fixture Primary' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+  } as const;
+  const residentRequest = {
+    ...request(),
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+    observation: {
+      ...request().observation,
+      protocol: 'behold.minecraft-human-semantic-observation.v1',
+      self: {
+        ...request().observation.self,
+        identity: 'Scout',
+      },
+    },
+  } as any;
+  residentRequest.conversation = [
+    residentRequest.conversation[0],
+    {
+      role: 'user',
+      content: JSON.stringify(residentRequest.observation),
+    },
+  ];
+  const body = directOpenRouterRequestBody(residentRequest, routePolicy);
+
+  assert.doesNotThrow(() => assertOpenRouterRouteRequest(body, 'test/model', routePolicy, 'Scout'));
+  assert.throws(
+    () => assertOpenRouterRouteRequest(body, 'test/model', routePolicy, 'AnotherResident'),
+    /belongs to another resident/,
+  );
 });
 
 test('a direct resident rejects returned provider or model identity drift', async () => {

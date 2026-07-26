@@ -682,6 +682,7 @@ test('the transport gate admits only the resident exact OpenRouter route policy'
       assert.deepEqual(body.provider, {
         order: ['Fixture Primary', 'Fixture Secondary'],
         allow_fallbacks: false,
+        require_parameters: true,
       });
       assert.equal(body.max_tokens, 512);
       return jsonResponse({
@@ -738,6 +739,7 @@ test('the transport gate admits only the resident exact OpenRouter route policy'
         provider: {
           order: ['Fixture Primary', 'Fixture Secondary'],
           allow_fallbacks: false,
+          require_parameters: true,
         },
       }),
       'auxiliary',
@@ -759,6 +761,7 @@ test('the transport gate admits only the resident exact OpenRouter route policy'
         provider: {
           order: ['Fixture Primary', 'Fixture Secondary'],
           allow_fallbacks: false,
+          require_parameters: true,
         },
       }),
       'deliberative',
@@ -807,7 +810,11 @@ test('the transport gate retains and refuses successful upstream route identity 
         model: 'fixture/model',
         messages: [],
         max_tokens: 512,
-        provider: { order: ['Fixture Primary'], allow_fallbacks: false },
+        provider: {
+          order: ['Fixture Primary'],
+          allow_fallbacks: false,
+          require_parameters: true,
+        },
       }),
       'deliberative',
       'returned-route-drift',

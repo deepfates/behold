@@ -156,8 +156,13 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const lmStudioLocal = lmStudioLocalPolicyFromEnvironment(
     process.env.BEHOLD_LMSTUDIO_LOCAL_POLICY,
   );
-  if (policyProfile === 'legible-resident-v1' && !ollamaLocal && !lmStudioLocal) {
-    throw new Error('legible-resident-v1 requires the strict local JSON v2 transport');
+  if (
+    policyProfile === 'legible-resident-v1' &&
+    providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
+    !ollamaLocal &&
+    !lmStudioLocal
+  ) {
+    throw new Error('legible-resident-v1 requires a strict resident-session transport');
   }
   if (ollamaLocal) assertOllamaLocalJsonActionTreatment({ policyProfile }, ollamaLocal);
   if (providerRoute && mindAdapter !== 'direct') {

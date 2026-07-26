@@ -10,6 +10,10 @@ import {
 } from './openrouter-route';
 import { residentMindRequestSha256 } from './request-artifact';
 import { attributeProviderRequestBody } from './request-attribution';
+import {
+  createStrictLocalResidentSessionEnvelope,
+  parseStrictLocalJsonActionDecisionContent,
+} from './ollama-json-action';
 
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 const WAIT_TOOL = 'wait_for_event';
@@ -43,20 +47,41 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
       const startedAt = now();
       const requestId = `direct-${randomUUID()}`;
       const body = directOpenRouterRequestBody(request, routePolicy) as Record<string, any>;
+      const residentSession =
+        request.policyProfile === 'legible-resident-v1'
+          ? createStrictLocalResidentSessionEnvelope(request)
+          : null;
       const requestBody = JSON.stringify(body);
       const mindRequestSha256 = residentMindRequestSha256(request);
       const callRequest = {
         model: request.model,
         mindRequestSha256,
         ...(options.recordModelIO ? { mindRequest: cloneJson(request) } : {}),
-        messageCount: request.conversation.length,
-        toolCount: request.actions.length,
+        messageCount: Array.isArray(body.messages) ? body.messages.length : 0,
+        toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
         toolChoice: body.tool_choice ?? null,
         bodySha256: sha256(requestBody),
         bodyBytes: Buffer.byteLength(requestBody, 'utf8'),
         byteAttribution: attributeProviderRequestBody(body),
         messagesSha256: sha256(stableJson(body.messages)),
-        toolsSha256: sha256(stableJson(body.tools)),
+        toolsSha256: sha256(stableJson(body.tools ?? [])),
+        ...(residentSession
+          ? {
+              formatSha256: sha256(stableJson(body.response_format)),
+              providerResidentSession: {
+                protocol: 'behold.openrouter-resident-session.v1',
+                schemaProtocol: residentSession.schemaProtocol,
+                schemaSha256: residentSession.schemaSha256,
+                messageLayoutProtocol: residentSession.messageLayoutProtocol,
+                workingContinuityProtocol: residentSession.workingContinuityProtocol,
+                actionContractSha256: residentSession.actionContractSha256,
+                responseSchemaSha256: residentSession.responseSchemaSha256,
+                stablePrefixSha256: residentSession.stablePrefixSha256,
+                reasoningEffort: 'minimal',
+                reasoningExcluded: true,
+              },
+            }
+          : {}),
         kind: 'provider_request' as const,
         ...(routePolicy ? { routePolicy } : {}),
         ...(options.recordModelIO ? { body: JSON.parse(requestBody) } : {}),
@@ -210,6 +235,22 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
         },
       };
       try {
+        if (residentSession) {
+          const message = data?.choices?.[0]?.message;
+          if (!message || typeof message.content !== 'string') {
+            throw new Error('provider resident-session response contained no assistant content');
+          }
+          if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+            throw new Error('provider resident-session response used forbidden native tool calls');
+          }
+          return parseStrictLocalJsonActionDecisionContent(
+            message.content,
+            message,
+            request,
+            call,
+            2,
+          );
+        }
         return responseDecision(data, request, call);
       } catch (error: any) {
         throw new ResidentMindCallError(

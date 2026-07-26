@@ -169,6 +169,8 @@ export type CognitionBrokerOptions = Readonly<{
     ollamaLocal?: OllamaLocalPolicy;
     /** Exact LM Studio runtime/artifact/instance/transport contract. */
     lmStudioLocal?: LmStudioLocalPolicy;
+    /** Stable resident identity that owns every request authenticated by this client. */
+    residentIdentity?: string;
     /** Stable resident identity that owns this client's local model instance. */
     lmStudioResidentIdentity?: string;
     /** Durable per-purpose provider-attempt quota owned by this resident account. */
@@ -206,6 +208,7 @@ type Client = Readonly<{
   routePolicy: OpenRouterRoutePolicy | null;
   ollamaLocal: OllamaLocalPolicy | null;
   lmStudioLocal: LmStudioLocalPolicy | null;
+  residentIdentity: string | null;
   lmStudioResidentIdentity: string | null;
   accounting: CognitionBrokerOptions['clients'][number]['accounting'] | null;
 }>;
@@ -535,7 +538,12 @@ export async function startCognitionBroker(
           );
         }
         try {
-          assertOpenRouterRouteRequest(requestValue, model, client.routePolicy);
+          assertOpenRouterRouteRequest(
+            requestValue,
+            model,
+            client.routePolicy,
+            client.residentIdentity,
+          );
         } catch (error: any) {
           throw codedError(
             'request_route_policy_mismatch',
@@ -1657,6 +1665,8 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         lmStudioLocal && value.lmStudioResidentIdentity != null
           ? String(value.lmStudioResidentIdentity).trim()
           : null;
+      const residentIdentity =
+        value.residentIdentity == null ? null : String(value.residentIdentity).trim();
       if ([routePolicy, ollamaLocal, lmStudioLocal].filter(Boolean).length > 1) {
         throw new Error(
           `cognition client cannot combine OpenRouter, Ollama, and LM Studio policy at index ${index}`,
@@ -1676,6 +1686,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         model.length > 300 ||
         models.length > 16 ||
         models.some((item) => !item || item.length > 300) ||
+        (residentIdentity != null && (!residentIdentity || residentIdentity.length > 300)) ||
         (lmStudioResidentIdentity != null &&
           (!lmStudioResidentIdentity || lmStudioResidentIdentity.length > 300)) ||
         (lmStudioLocal == null && value.lmStudioResidentIdentity != null) ||
@@ -1701,6 +1712,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         routePolicy,
         ollamaLocal,
         lmStudioLocal,
+        residentIdentity,
         lmStudioResidentIdentity,
         accounting,
       });

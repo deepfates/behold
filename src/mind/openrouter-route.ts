@@ -1,6 +1,9 @@
-export const OPENROUTER_ROUTE_POLICY_PROTOCOL = 'behold.openrouter-route-policy.v1' as const;
+import { assertStrictLocalResidentSessionEnvelope } from './ollama-json-action';
 
-export type OpenRouterRoutePolicy = Readonly<{
+export const OPENROUTER_ROUTE_POLICY_PROTOCOL = 'behold.openrouter-route-policy.v1' as const;
+export const OPENROUTER_ROUTE_POLICY_V2_PROTOCOL = 'behold.openrouter-route-policy.v2' as const;
+
+export type OpenRouterRoutePolicyV1 = Readonly<{
   protocol: typeof OPENROUTER_ROUTE_POLICY_PROTOCOL;
   /** Exact OpenRouter provider names/slugs in the order they may be attempted. */
   order: readonly string[];
@@ -9,6 +12,16 @@ export type OpenRouterRoutePolicy = Readonly<{
   /** Exact provider output ceiling rendered as `max_tokens`. */
   maxOutputTokens: number;
 }>;
+
+export type OpenRouterRoutePolicyV2 = Readonly<{
+  protocol: typeof OPENROUTER_ROUTE_POLICY_V2_PROTOCOL;
+  /** Request endpoint slugs and the distinct provider names returned by OpenRouter. */
+  routes: readonly Readonly<{ requestTag: string; responseProvider: string }>[];
+  allowFallbacks: false;
+  maxOutputTokens: number;
+}>;
+
+export type OpenRouterRoutePolicy = OpenRouterRoutePolicyV1 | OpenRouterRoutePolicyV2;
 
 export type OpenRouterResponseIdentity = Readonly<{
   ok: boolean;
@@ -26,36 +39,26 @@ const MAX_OUTPUT_TOKENS = 32_768;
 export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
   if (!plainRecord(value)) throw new Error('OpenRouter route policy must be an object');
   const keys = Object.keys(value).sort();
-  const expected = ['allowFallbacks', 'maxOutputTokens', 'order', 'protocol'];
+  const v2 = value.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL;
+  const expected = v2
+    ? ['allowFallbacks', 'maxOutputTokens', 'protocol', 'routes']
+    : ['allowFallbacks', 'maxOutputTokens', 'order', 'protocol'];
   if (JSON.stringify(keys) !== JSON.stringify(expected)) {
     throw new Error('OpenRouter route policy fields do not match the versioned contract');
   }
-  if (value.protocol !== OPENROUTER_ROUTE_POLICY_PROTOCOL) {
-    throw new Error(`OpenRouter route policy protocol must be ${OPENROUTER_ROUTE_POLICY_PROTOCOL}`);
+  if (
+    value.protocol !== OPENROUTER_ROUTE_POLICY_PROTOCOL &&
+    value.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL
+  ) {
+    throw new Error(
+      `OpenRouter route policy protocol must be ${OPENROUTER_ROUTE_POLICY_PROTOCOL} or ${OPENROUTER_ROUTE_POLICY_V2_PROTOCOL}`,
+    );
   }
   if (value.allowFallbacks !== false) {
     throw new Error('OpenRouter route policy allowFallbacks must be exactly false');
   }
-  if (!Array.isArray(value.order) || value.order.length < 1 || value.order.length > MAX_PROVIDERS) {
-    throw new Error(
-      `OpenRouter route policy order must contain 1 through ${MAX_PROVIDERS} providers`,
-    );
-  }
-  const order = value.order.map((provider, index) => {
-    if (typeof provider !== 'string') {
-      throw new Error(`OpenRouter route policy provider ${index} must be text`);
-    }
-    const normalized = provider.trim();
-    if (!normalized || normalized.length > MAX_PROVIDER_LENGTH || normalized !== provider) {
-      throw new Error(
-        `OpenRouter route policy provider ${index} must be nonempty trimmed text no longer than ${MAX_PROVIDER_LENGTH}`,
-      );
-    }
-    return normalized;
-  });
-  if (new Set(order).size !== order.length) {
-    throw new Error('OpenRouter route policy order contains a duplicate provider');
-  }
+  const order = v2 ? null : providerNames(value.order, 'order');
+  const routes = v2 ? parseRoutes(value.routes) : null;
   if (
     !Number.isSafeInteger(value.maxOutputTokens) ||
     Number(value.maxOutputTokens) < 1 ||
@@ -65,12 +68,19 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
       `OpenRouter route policy maxOutputTokens must be an integer from 1 through ${MAX_OUTPUT_TOKENS}`,
     );
   }
-  return deepFreeze({
-    protocol: OPENROUTER_ROUTE_POLICY_PROTOCOL,
-    order,
-    allowFallbacks: false,
-    maxOutputTokens: Number(value.maxOutputTokens),
-  });
+  return v2
+    ? deepFreeze({
+        protocol: OPENROUTER_ROUTE_POLICY_V2_PROTOCOL,
+        routes: routes!,
+        allowFallbacks: false as const,
+        maxOutputTokens: Number(value.maxOutputTokens),
+      })
+    : deepFreeze({
+        protocol: OPENROUTER_ROUTE_POLICY_PROTOCOL,
+        order: order!,
+        allowFallbacks: false as const,
+        maxOutputTokens: Number(value.maxOutputTokens),
+      });
 }
 
 export function openRouterRoutePolicyFromEnvironment(value: unknown) {
@@ -92,9 +102,17 @@ export function serializeOpenRouterRoutePolicy(value: OpenRouterRoutePolicy) {
 
 export function openRouterWirePolicy(value: OpenRouterRoutePolicy) {
   const policy = openRouterRoutePolicy(value);
+  const order =
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL
+      ? policy.routes.map((route) => route.requestTag)
+      : policy.order;
   return deepFreeze({
     max_tokens: policy.maxOutputTokens,
-    provider: deepFreeze({ order: policy.order, allow_fallbacks: false as const }),
+    provider: deepFreeze({
+      order,
+      allow_fallbacks: false as const,
+      require_parameters: true as const,
+    }),
   });
 }
 
@@ -102,9 +120,56 @@ export function assertOpenRouterRouteRequest(
   value: unknown,
   expectedModel: string,
   expectedPolicy: OpenRouterRoutePolicy,
+  residentIdentity?: string | null,
 ) {
   const policy = openRouterRoutePolicy(expectedPolicy);
   if (!plainRecord(value)) throw new Error('request body must be an object');
+  if (policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL) {
+    const record = exactRecord(
+      value,
+      [
+        'model',
+        'messages',
+        'response_format',
+        'reasoning',
+        'temperature',
+        'stream',
+        'max_tokens',
+        'provider',
+      ],
+      'OpenRouter resident-session request',
+    );
+    if (record.temperature !== 0.2 || record.stream !== false) {
+      throw new Error('OpenRouter resident-session generation settings differ');
+    }
+    const reasoning = exactRecord(
+      record.reasoning,
+      ['effort', 'exclude'],
+      'OpenRouter resident-session reasoning',
+    );
+    if (reasoning.effort !== 'minimal' || reasoning.exclude !== true) {
+      throw new Error('OpenRouter resident-session reasoning differs');
+    }
+    const responseFormat = exactRecord(
+      record.response_format,
+      ['type', 'json_schema'],
+      'OpenRouter resident-session response format',
+    );
+    const jsonSchema = exactRecord(
+      responseFormat.json_schema,
+      ['name', 'strict', 'schema'],
+      'OpenRouter resident-session JSON schema',
+    );
+    if (
+      responseFormat.type !== 'json_schema' ||
+      jsonSchema.name !== 'behold_resident_action_v2' ||
+      jsonSchema.strict !== true
+    ) {
+      throw new Error('OpenRouter resident-session schema wrapper differs');
+    }
+    assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
+    if (residentIdentity != null) assertResidentWireOwner(record.messages, residentIdentity);
+  }
   if (value.model !== expectedModel) throw new Error('request model differs from admitted model');
   if (value.max_tokens !== policy.maxOutputTokens || value.max_completion_tokens !== undefined) {
     throw new Error('request output cap differs from admitted max_tokens');
@@ -113,18 +178,57 @@ export function assertOpenRouterRouteRequest(
     throw new Error('request provider policy is missing');
   }
   const providerKeys = Object.keys(value.provider).sort();
-  if (JSON.stringify(providerKeys) !== JSON.stringify(['allow_fallbacks', 'order'])) {
+  if (
+    JSON.stringify(providerKeys) !==
+    JSON.stringify(['allow_fallbacks', 'order', 'require_parameters'])
+  ) {
     throw new Error('request provider fields differ from admitted route contract');
   }
   if (value.provider.allow_fallbacks !== false) {
     throw new Error('request provider fallbacks are not disabled');
   }
+  if (value.provider.require_parameters !== true) {
+    throw new Error('request provider parameter support is not required');
+  }
   if (
     !Array.isArray(value.provider.order) ||
-    value.provider.order.length !== policy.order.length ||
-    value.provider.order.some((provider, index) => provider !== policy.order[index])
+    value.provider.order.length !== expectedRequestTags(policy).length ||
+    value.provider.order.some((provider, index) => provider !== expectedRequestTags(policy)[index])
   ) {
     throw new Error('request provider order differs from admitted order');
+  }
+}
+
+function assertResidentWireOwner(messagesValue: unknown, residentIdentity: string) {
+  if (!Array.isArray(messagesValue) || messagesValue.length < 3) {
+    throw new Error('OpenRouter resident-session messages are incomplete');
+  }
+  const current = exactRecord(
+    messagesValue.at(-1),
+    ['role', 'content'],
+    'OpenRouter resident current observation',
+  );
+  if (current.role !== 'user' || typeof current.content !== 'string') {
+    throw new Error('OpenRouter resident current observation is malformed');
+  }
+  const jsonStart = current.content.indexOf('{');
+  const jsonEnd = current.content.lastIndexOf('\n\nRespond now with one JSON object');
+  if (jsonStart < 0 || jsonEnd <= jsonStart) {
+    throw new Error('OpenRouter resident current observation is missing its body identity');
+  }
+  let observation: unknown;
+  try {
+    observation = JSON.parse(current.content.slice(jsonStart, jsonEnd));
+  } catch {
+    throw new Error('OpenRouter resident current observation is not valid JSON');
+  }
+  const record = plainRecord(observation) ? observation : null;
+  const self = record && plainRecord(record.self) ? record.self : null;
+  if (
+    record?.protocol !== 'behold.minecraft-human-semantic-observation.v1' ||
+    self?.identity !== residentIdentity
+  ) {
+    throw new Error('OpenRouter resident request belongs to another resident');
   }
 }
 
@@ -136,23 +240,96 @@ export function inspectOpenRouterResponseIdentity(
   const policy = openRouterRoutePolicy(expectedPolicy);
   const returnedModel = plainRecord(value) ? optionalText(value.model) : null;
   const returnedProvider = plainRecord(value) ? optionalText(value.provider) : null;
+  const admittedProviders =
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL
+      ? policy.routes.map((route) => route.responseProvider)
+      : policy.order;
   let reason: OpenRouterResponseIdentity['reason'] = 'matched';
   if (returnedModel == null) reason = 'model_missing';
   else if (returnedModel !== requestedModel) reason = 'model_mismatch';
   else if (returnedProvider == null) reason = 'provider_missing';
-  else if (!policy.order.includes(returnedProvider)) reason = 'provider_mismatch';
+  else if (!admittedProviders.includes(returnedProvider)) reason = 'provider_mismatch';
   return deepFreeze({
     ok: reason === 'matched',
     requestedModel,
     returnedModel,
     returnedProvider,
-    admittedProviders: policy.order,
+    admittedProviders,
     reason,
   });
 }
 
+function expectedRequestTags(policy: OpenRouterRoutePolicy) {
+  return policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL
+    ? policy.routes.map((route) => route.requestTag)
+    : policy.order;
+}
+
+function providerNames(value: unknown, field: string) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_PROVIDERS) {
+    throw new Error(
+      `OpenRouter route policy ${field} must contain 1 through ${MAX_PROVIDERS} providers`,
+    );
+  }
+  const names = value.map((provider, index) => {
+    if (typeof provider !== 'string') {
+      throw new Error(`OpenRouter route policy ${field} ${index} must be text`);
+    }
+    const normalized = provider.trim();
+    if (!normalized || normalized.length > MAX_PROVIDER_LENGTH || normalized !== provider) {
+      throw new Error(
+        `OpenRouter route policy ${field} ${index} must be nonempty trimmed text no longer than ${MAX_PROVIDER_LENGTH}`,
+      );
+    }
+    return normalized;
+  });
+  if (new Set(names).size !== names.length) {
+    throw new Error(`OpenRouter route policy ${field} contains a duplicate provider`);
+  }
+  return names;
+}
+
+function parseRoutes(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error('OpenRouter route policy routes must be an array');
+  }
+  if (value.length < 1 || value.length > MAX_PROVIDERS) {
+    throw new Error(
+      `OpenRouter route policy routes must contain 1 through ${MAX_PROVIDERS} routes`,
+    );
+  }
+  const routes = value.map((candidate, index) => {
+    if (!plainRecord(candidate)) {
+      throw new Error(`OpenRouter route policy route ${index} must be an object`);
+    }
+    const keys = Object.keys(candidate).sort();
+    if (JSON.stringify(keys) !== JSON.stringify(['requestTag', 'responseProvider'])) {
+      throw new Error(`OpenRouter route policy route ${index} fields differ`);
+    }
+    return deepFreeze({
+      requestTag: providerNames([candidate.requestTag], `route ${index} requestTag`)[0],
+      responseProvider: providerNames(
+        [candidate.responseProvider],
+        `route ${index} responseProvider`,
+      )[0],
+    });
+  });
+  if (new Set(routes.map((route) => route.requestTag)).size !== routes.length) {
+    throw new Error('OpenRouter route policy routes contain a duplicate request tag');
+  }
+  return routes;
+}
+
 function plainRecord(value: unknown): value is Record<string, any> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function exactRecord(value: unknown, keys: readonly string[], label: string) {
+  if (!plainRecord(value)) throw new Error(`${label} must be an object`);
+  if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort())) {
+    throw new Error(`${label} fields differ`);
+  }
+  return value;
 }
 
 function optionalText(value: unknown) {

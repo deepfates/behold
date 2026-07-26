@@ -1125,9 +1125,14 @@ function normalizeManagedResidents(
           { index, entityId, policyProfile },
         );
       }
-      if (policyProfile === 'legible-resident-v1' && !ollamaLocal && !lmStudioLocal) {
+      if (
+        policyProfile === 'legible-resident-v1' &&
+        providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
+        !ollamaLocal &&
+        !lmStudioLocal
+      ) {
         throw new WorldRunnerError(
-          `Resident ${entityId} legible-resident-v1 requires the strict local JSON v2 transport`,
+          `Resident ${entityId} legible-resident-v1 requires a strict resident-session transport`,
           'resident_legible_transport_missing',
           { index, entityId, policyProfile },
         );
@@ -2028,6 +2033,7 @@ export async function startManagedWorld(
               Object.freeze({
                 bearer: randomBytes(32).toString('base64url'),
                 residentKey: cognitionResidentKey(managedRunId, resident.entityId),
+                residentIdentity: resident.entityId,
                 model: resident.model,
                 ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
                 ...(resident.providerRoute ? { routePolicy: resident.providerRoute } : {}),
