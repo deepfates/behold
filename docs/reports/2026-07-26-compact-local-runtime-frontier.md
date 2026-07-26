@@ -3,15 +3,21 @@
 ## Verdict
 
 Of the installed compact candidates inspected under loopback-only, provider-free
-conditions, only `qwen/qwen3-vl-4b@4bit` remains plausible for an embodied
-Oxford treatment. A stable-prefix readiness call outside world release reduced
-two fresh decisions to 2.27 and 3.32 seconds, produced grounded original chat,
-reported zero reasoning tokens, and passed the unchanged strict schema. The
-production broker and resident-mind path then reproduced the addressed-chat
-decision in 3.42 seconds after a 2.27-second authority-free setup call.
+conditions, only `qwen/qwen3-vl-4b@4bit` passed the narrow pre-live screen for
+an embodied Oxford treatment. A stable-prefix readiness call outside world
+release reduced two fresh decisions to 2.27 and 3.32 seconds, produced grounded
+original chat, reported zero reasoning tokens, and passed the unchanged strict
+schema. The production broker and resident-mind path then reproduced the
+addressed-chat decision in 3.42 seconds after a 2.27-second authority-free setup
+call.
 
-This admits Qwen to a new live treatment; it is not evidence of sustained
-conduct. Bonsai 1.7B was fast but copied perception and another resident's
+This admitted Qwen to a live treatment; it was not evidence of sustained
+conduct. The subsequent two-episode live/resume treatment recovered correctly
+after exposing one prefix-readiness defect, but every one of 47 completed Qwen
+actions was the same camera sweep and shared live latency degraded materially.
+That negative result is recorded in
+[Qwen Oxford live and resume treatment](2026-07-26-qwen-oxford-live-resume.md).
+Bonsai 1.7B was fast but copied perception and another resident's
 speech into its own chat. Bonsai 8B was incompatible with the installed MLX
 engine. SmolLM3's installed template defaults to explicit reasoning, which the
 unchanged resident charter does not disable. None of those three was admitted
@@ -159,15 +165,19 @@ runtime families without treating setup failure as inference evidence.
 
 ## What remains unknown
 
-No compact candidate in this report has yet demonstrated sustained adaptive
-Minecraft conduct, consequence-sensitive continuation, world change, or clean
-resume. Prefix readiness establishes latency and exact request identity, not a
-cache-hit claim: LM Studio did not report cached prompt tokens.
+No compact candidate in this report has demonstrated sustained adaptive
+Minecraft conduct, consequence-sensitive continuation, resident-authored world
+change, or useful social behavior. Qwen has now exercised clean resume, but its
+47 completed live actions across the initial episode and resume were all the
+same look-around camera action. Prefix readiness establishes latency and exact
+request identity, not a cache-hit claim: LM Studio did not report cached prompt
+tokens.
 
 The policy binds context length, output cap, temperature, runtime, template, and
 artifact identity. It does not yet bind every possible LM Studio/model default
 such as seed, top-p, top-k, min-p, or repetition controls. Those defaults must
-not be described as measured or fixed. A new Oxford live treatment must also
-test whether two residents sharing one parallel-one Qwen instance remain within
-the bodily horizon under simultaneous ecology. Native human co-presence remains
-an explicit owner-held treatment and is outside this frontier.
+not be described as measured or fixed. The Oxford resume tested two residents
+sharing one Qwen instance with cognition concurrency two: 25 of 27 decisions
+exceeded five seconds, so the narrow fresh-wire timing did not survive that
+workload. Native human co-presence remains an explicit owner-held treatment and
+is outside this frontier.
