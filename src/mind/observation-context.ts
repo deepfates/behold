@@ -318,7 +318,21 @@ function workingActualConsequence(turn: EntityTurn) {
     return `The controller rejected the action before Minecraft${code}.`;
   }
   if (turn.outcome.ok === true) {
-    return 'Minecraft confirmed that the action succeeded.';
+    const result =
+      turn.outcome.result && typeof turn.outcome.result === 'object'
+        ? (turn.outcome.result as Record<string, unknown>)
+        : null;
+    if (result?.bodyMoved === true) {
+      return 'Minecraft confirmed that the resident body moved.';
+    }
+    if (result?.bodyMoved === false) {
+      return 'Minecraft completed the movement input but confirmed no body movement.';
+    }
+    const status = String(result?.status || '');
+    if (/_input_dispatched$/.test(status)) {
+      return `Minecraft accepted the ${boundedContinuityText(status, 80)} input; no world consequence was confirmed.`;
+    }
+    return 'Minecraft reported that the action completed successfully.';
   }
   return `Minecraft reported that the action failed${code}.`;
 }

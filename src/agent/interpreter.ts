@@ -923,7 +923,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['target'],
     },
-    run: async ({ target, x, y, z }, execution) => {
+    run: async ({ target, x, y, z, admittedCursorFocus }, execution) => {
       const targetReference = typeof target === 'string' ? target.trim() : '';
       let selectedTarget: ReturnType<typeof currentVisibleBlockTarget> = null;
       if (targetReference) {
@@ -990,7 +990,11 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         };
       }
       const visible =
-        typeof (bot as any).canSeeBlock === 'function' ? !!(bot as any).canSeeBlock(b) : null;
+        admittedCursorFocus === true
+          ? true
+          : typeof (bot as any).canSeeBlock === 'function'
+            ? !!(bot as any).canSeeBlock(b)
+            : null;
       let navigation: any = null;
       if ((distanceBefore != null && distanceBefore > 4.5) || visible === false) {
         if (!(bot as any).pathfinder || !(bot as any).world) {
@@ -2575,13 +2579,14 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     run: async (_args, execution) => {
       const focused = focusedBlockAtAdmission(bot, execution?.observation, 4.5);
       if (!focused.ok) return focused;
-      if (
-        typeof (bot as any).canSeeBlock === 'function' &&
-        !(bot as any).canSeeBlock(focused.block)
-      ) {
-        return { ok: false, error: 'focused_block_not_currently_visible' };
-      }
-      return runExistingCommand('dig_block', focused.position, execution);
+      // The fresh exact eye-ray match above is the canonical visibility and
+      // reach admission for this cursor action. Do not contradict it with
+      // Mineflayer's different canSeeBlock heuristic inside generic digging.
+      return runExistingCommand(
+        'dig_block',
+        { ...focused.position, admittedCursorFocus: true },
+        execution,
+      );
     },
     category: 'world',
     effects: { blockMutation: 'dig' },

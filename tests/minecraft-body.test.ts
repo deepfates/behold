@@ -81,6 +81,16 @@ test('human-semantic projection contains only JSON values when perception fields
   assertNoUndefinedValues(projected);
 });
 
+test('ground contact wins over Mineflayer resting velocity in semantic motion', () => {
+  const grounded = rawObservation();
+  grounded.self.pose.velocity = { x: 0, y: -0.1, z: 0 };
+  grounded.self.pose.onGround = true;
+  assert.equal(projectHumanSemanticObservation(grounded).self.pose.motion, 'still');
+
+  grounded.self.pose.onGround = false;
+  assert.equal(projectHumanSemanticObservation(grounded).self.pose.motion, 'falling');
+});
+
 test('human-semantic action profile is a frozen cursor and key-control surface', () => {
   const candidates = [
     'chat',

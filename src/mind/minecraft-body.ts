@@ -288,8 +288,14 @@ function semanticMotion(pose: any) {
   const y = Number(velocity?.y);
   const z = Number(velocity?.z);
   if (![x, y, z].every(Number.isFinite)) return 'unknown';
-  if (y < -0.08) return 'falling';
-  if (y > 0.08) return 'rising';
+  // Mineflayer commonly reports a small negative resting velocity while the
+  // server also authoritatively reports that the body is on the ground.
+  // Ground contact wins; otherwise residents are told they are perpetually
+  // falling and rationally loop on landing/orientation actions.
+  if (pose?.onGround !== true) {
+    if (y < -0.08) return 'falling';
+    if (y > 0.08) return 'rising';
+  }
   return Math.hypot(x, z) >= 0.03 ? 'moving' : 'still';
 }
 

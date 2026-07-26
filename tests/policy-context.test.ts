@@ -527,7 +527,7 @@ test('resident working continuity preserves lived public tuples without replayin
   });
   assert.equal(
     projected?.experiences.at(-1)?.actualConsequence,
-    'Minecraft confirmed that the action succeeded.',
+    'Minecraft reported that the action completed successfully.',
   );
   assert.deepEqual(projected?.experiences.at(-1)?.perceptionAfter, {
     orientation: { facing: 'west', vertical: 'level' },
@@ -544,6 +544,53 @@ test('resident working continuity preserves lived public tuples without replayin
   assert.doesNotMatch(
     serialized,
     /materialRows|depthRows|block:overworld|entity:99|"x"|"y"|"z"|"input"|"result"|eventType|mineflayer:/,
+  );
+});
+
+test('resident continuity distinguishes dispatched input and movement without consequence', () => {
+  const dispatched = continuityTurn(
+    1,
+    'Scout',
+    'use_focused_block',
+    {},
+    {
+      ok: true,
+      status: 'use_input_dispatched',
+    },
+  );
+  const stationary = continuityTurn(
+    2,
+    'Scout',
+    'move_controls',
+    { direction: 'forward' },
+    {
+      ok: true,
+      bodyMoved: false,
+    },
+  );
+  for (const turn of [dispatched, stationary]) {
+    turn.profiles = {
+      policy: 'legible-resident-v1',
+      body: 'minecraft-human-semantic-v1',
+      actions: 'minecraft-human-semantic-v1',
+      safety: 'vanilla-player-v1',
+    };
+  }
+  const projected = projectResidentWorkingContinuity(
+    [dispatched, stationary],
+    6,
+    6_000,
+    residentTurnMayReplay,
+    projectHumanSemanticValue,
+  );
+
+  assert.equal(
+    projected?.experiences[0].actualConsequence,
+    'Minecraft accepted the use_input_dispatched input; no world consequence was confirmed.',
+  );
+  assert.equal(
+    projected?.experiences[1].actualConsequence,
+    'Minecraft completed the movement input but confirmed no body movement.',
   );
 });
 

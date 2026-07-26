@@ -250,6 +250,59 @@ test('a focused human action fails closed when the crosshair target changed afte
   assert.equal(digs, 0);
 });
 
+test('an exact current cursor block is not rejected by a disagreeing visibility heuristic', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  const position = new Vec3(1, 64, 0);
+  let block: any = {
+    name: 'dirt',
+    type: 3,
+    stateId: 3,
+    boundingBox: 'block',
+    position,
+    face: 5,
+    intersect: new Vec3(1, 64.5, 0.5),
+  };
+  bot.world = { raycast: () => block };
+  bot.blockAt = () => block;
+  bot.canSeeBlock = () => false;
+  bot.dig = async (target: any) => {
+    const previous = target;
+    block = {
+      name: 'air',
+      type: 0,
+      stateId: 0,
+      boundingBox: 'empty',
+      position,
+    };
+    bot.emit('blockUpdate', previous, block);
+  };
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:1:64:0',
+        kind: 'block',
+        name: 'dirt',
+        source: 'cursor',
+        position: { x: 1, y: 64, z: 0 },
+        distance: 1,
+        reachable: true,
+        face: 'east',
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot, {
+    safetyProfile: 'vanilla-player-v1',
+    changeStabilityWindowMs: 1,
+  }).run('dig_focused_block', {}, { observation: admitted });
+
+  assert.equal(result.ok, true);
+  assert.equal(block.name, 'air');
+});
+
 test('look_direction exposes bounded relative player orientation without raw angles', async () => {
   const bot = baseBot();
   bot.entity.yaw = 0;
