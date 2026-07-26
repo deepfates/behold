@@ -16,7 +16,7 @@ Compose the already-working Place Compiler artifact, Behold resident, ordinary M
 
 ## Acceptance Criteria
 
-From a documented clean operator path, select and verify an existing accepted San Francisco place/epoch; start ordinary Minecraft ecology and at least two independently configured named residents; allow a human to join through the native client while the life is running; observe at least one non-scripted, persistent, independently witnessed world consequence involving resident activity; stop and resume cleanly; and produce a readable Lync/Textile aftermath that preserves resident, world, epoch, and causal identity. State the exact models/minds used and distinguish same-model controls from heterogeneous-model comparison. A rehearsed pause, scripted exchange, packaging receipt, or isolated subsystem test does not satisfy this ticket.
+From the ordinary documented `behold live` path, select and verify the accepted Place-served Oxford world; start ordinary Minecraft ecology and at least two independently configured named residents; allow a human to join through the native client while the life is running; observe sustained adaptive conduct and at least one non-scripted, persistent, independently witnessed world consequence involving resident activity; stop and resume cleanly; and produce a readable Lync/Textile aftermath that preserves resident, world, epoch, ecology, and causal identity. State the exact models/minds used and distinguish same-model controls from heterogeneous-model comparison. A rehearsed pause, scripted exchange, packaging receipt, hidden reflex, action steering, scheduler parity treatment, or isolated subsystem test does not satisfy this ticket.
 
 ## Notes
 
@@ -466,3 +466,14 @@ and old ledgers remain unchanged; only the new episode receives its declared
 hard ceiling. Actual use is neither equalized nor scheduled for parity. A pure
 fixture proves stable separation between episode scopes. No resident or world
 was run, and behavioral acceptance remains open.
+
+**2026-07-26T14:05:00Z**
+
+The owner-selected central endpoint is now the ordinary persistent Place-served
+Oxford experience, not the earlier San Francisco wording retained from this
+ticket's first draft. The acceptance criteria now name `behold live`, Oxford,
+sustained adaptive conduct, authoritative ecology aftermath, and the explicit
+exclusions on hidden reflexes, action steering, and scheduler-parity treatments.
+Earlier SF runs remain historical evidence for heterogeneous configuration and
+lifecycle mechanics; they are not relabeled as acceptance of the Oxford
+endpoint. No implementation or evidence changed in this clarification.
