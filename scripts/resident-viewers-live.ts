@@ -197,7 +197,13 @@ async function runProof() {
     );
     if (parsed.values.hold) {
       process.stdout.write('[resident-viewers-live] HOLD: press Return after viewing both tabs\n');
-      await new Promise<void>((resolve) => process.stdin.once('data', () => resolve()));
+      try {
+        await new Promise<void>((resolve) => process.stdin.once('data', () => resolve()));
+      } finally {
+        // Reading from a TTY starts its libuv handle. Pause it again so this
+        // optional operator witness cannot keep a completed proof alive.
+        process.stdin.pause();
+      }
     }
 
     const endpoints = run.residents.map((resident) => resident.viewer!.endpoint);

@@ -2,6 +2,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(process.cwd(), 'node_modules', 'prismarine-viewer');
+const viewerVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+if (viewerVersion !== '1.33.0') {
+  throw new Error(`Unsupported prismarine-viewer version: ${viewerVersion}`);
+}
 
 patch(path.join(root, 'viewer/lib/worldrenderer.js'), [
   [
@@ -39,11 +43,30 @@ patch(path.join(root, 'viewer/lib/worldrenderer.js'), [
 ]);
 
 patch(path.join(root, 'viewer/lib/worker.js'), [
-  ['chunk && chunk.sections[Math.floor(y / 16)]', 'chunk && chunk.getSection(Math.floor(y / 16))'],
-  ['chunk && chunk.sections[Math.floor(y / 16)]', 'chunk && chunk.getSection(Math.floor(y / 16))'],
+  [
+    'chunk && chunk.sections[Math.floor(y / 16)]',
+    'chunk && chunk.getSectionAtIndex(Math.floor(y / 16))',
+  ],
+  [
+    'chunk && chunk.sections[Math.floor(y / 16)]',
+    'chunk && chunk.getSectionAtIndex(Math.floor(y / 16))',
+  ],
   [
     'if (chunk && chunk.sections[Math.floor(y / 16)]) {\n      delete dirtySections[key]',
-    'if (chunk && chunk.getSection(Math.floor(y / 16))) {\n      delete dirtySections[key]',
+    'if (chunk && chunk.getSectionAtIndex(Math.floor(y / 16))) {\n      delete dirtySections[key]',
+  ],
+]);
+
+// Modern Java worlds extend below Y=0. Prismarine Viewer's renderer otherwise
+// suppresses every culled face there, producing zero-vertex terrain meshes.
+patch(path.join(root, 'viewer/lib/models.js'), [
+  [
+    '    if (neighbor.position.y < 0) continue\n',
+    '    // Negative Y is ordinary visible terrain in modern world-height chunks.\n',
+  ],
+  [
+    '      if (neighbor.position.y < 0) continue\n',
+    '      // Negative Y is ordinary visible terrain in modern world-height chunks.\n',
   ],
 ]);
 
@@ -94,8 +117,10 @@ patch(path.join(root, 'public/index.js'), [
 ]);
 
 patch(path.join(root, 'public/worker.js'), [
-  ['i&&i.sections[Math.floor(a/16)]', 'i&&i.getSection(Math.floor(a/16))'],
-  ['l&&l.sections[Math.floor(n/16)]', 'l&&l.getSection(Math.floor(n/16))'],
+  ['i&&i.sections[Math.floor(a/16)]', 'i&&i.getSectionAtIndex(Math.floor(a/16))'],
+  ['l&&l.sections[Math.floor(n/16)]', 'l&&l.getSectionAtIndex(Math.floor(n/16))'],
+  ['if(g.position.y<0)continue;', 'if(!1&&g.position.y<0)continue;'],
+  ['if(n.position.y<0)continue', 'if(!1&&n.position.y<0)continue'],
 ]);
 
 console.log('[viewer:patch] World-height rendering and cockpit-friendly entities enabled.');
@@ -107,9 +132,9 @@ function patch(file, replacements) {
   for (const [before, after] of replacements) {
     if (source.includes(after)) continue;
     const index = source.indexOf(before);
-    if (index === -1) {
-      throw new Error(`Unsupported prismarine-viewer layout in ${path.relative(root, file)}`);
-    }
+    // A later replacement in the same pinned file can subsume an earlier one;
+    // this makes the patch safe to re-run without weakening the version gate.
+    if (index === -1) continue;
     source = source.slice(0, index) + after + source.slice(index + before.length);
     changed = true;
   }

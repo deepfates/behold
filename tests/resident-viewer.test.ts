@@ -105,6 +105,32 @@ test('two read-only resident viewers stream independently and close every listen
   await assert.rejects(fetch(second.endpoint), /fetch failed/);
 });
 
+test('patched Prismarine renderer retains visible terrain below Y=0', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Chunk = require('prismarine-chunk')('1.21.4');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { World } = require('prismarine-viewer/viewer/lib/world');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getSectionGeometry } = require('prismarine-viewer/viewer/lib/models');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const blockStates = require('prismarine-viewer/public/blocksStates/1.21.4.json');
+  const column = new Chunk();
+  for (let x = 0; x < 16; x++) {
+    for (let z = 0; z < 16; z++) {
+      column.setBlockStateId(new Vec3(x, -64, z), 85); // bedrock
+      column.setBlockStateId(new Vec3(x, -63, z), 10); // dirt
+      column.setBlockStateId(new Vec3(x, -62, z), 10); // dirt
+      column.setBlockStateId(new Vec3(x, -61, z), 9); // grass_block
+    }
+  }
+  const world = new World('1.21.4');
+  world.addColumn(0, 0, column.toJson());
+
+  const geometry = getSectionGeometry(0, -64, 0, world, blockStates);
+  assert.ok(geometry.positions.length > 0, 'negative-Y terrain produced no visible vertices');
+  assert.ok(geometry.indices.length > 0, 'negative-Y terrain produced no visible faces');
+});
+
 function socketOnce(socket: ReturnType<typeof connectViewer>, event: string): Promise<any> {
   return new Promise((resolve) => socket.once(event, resolve));
 }

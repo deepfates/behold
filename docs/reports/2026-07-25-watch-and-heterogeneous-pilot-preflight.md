@@ -35,8 +35,26 @@ Prismarine Viewer 1.33.0 and Mineflayer 4.37.1 are installed. The viewer's
 Mineflayer adapter creates one HTTP/WebSocket server for one bot, follows that
 bot's loaded world/position, and supplies first- and third-person controls.
 Multiple browsers can watch one endpoint, but multiple residents require
-distinct ports/endpoints; it has no built-in resident switcher. The managed
-runner has not yet exercised lifecycle-safe viewer startup/shutdown.
+distinct ports/endpoints; it has no built-in resident switcher.
+
+The managed two-tab path is now exercised in a disposable vanilla 1.21.4 flat
+world. `WatchAster` and `WatchBirch` joined through the same human-semantic body,
+waited on the same all-ready release, then made one scripted provider-free turn
+each: a left look and a 300 ms forward control interval. Separate loopback tabs
+at ports 30170 and 30171 showed their actual first-person views. During visual
+inspection an inherited Prismarine patch was falsified: it discarded all block
+faces below Y=0 and addressed sections through the wrong API, leaving only sky
+and tiny entity meshes. The corrected pinned patch produced full grass terrain
+from both cameras and is now an automatic build prerequisite.
+
+Both HTTP/WebSocket endpoints disappeared on managed stop, both residents and
+the Java server exited cleanly, and the optional terminal hold no longer keeps
+the proof process alive. Viewer connections made no provider call and did not
+change either durable quota account. Exact endpoint/protocol strings were
+absent from both mind requests, Lync/run histories, and the release plan; only
+the operator lifecycle records the presentation profile. The retained report
+is `.behold-runtime/owned-world-proofs/watchability-2026-07-25b/evidence/resident-viewers-live.json`
+(SHA-256 `741a10185d88c0f5d9198239e7c324aefc7181c9375adf317f9d6a1774805393`).
 
 Both retained Oxford `.lync` files verify, but current generic Lync transcript
 and tree views expose nested JSON. Textile's current raw importer rejects the
