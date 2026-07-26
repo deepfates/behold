@@ -429,3 +429,27 @@ Minecraft/model session was launched. `beh-n4fe` remains open. The next owning
 risk is a credible local runtime/model path with body-relevant latency, followed
 by the ordinary composed start/watch/join/resume/aftermath experience—not more
 fixed opportunities or controller coaching.
+
+**2026-07-26T13:36:01Z**
+
+Recovered the retained GPT-OSS/llama.cpp frontier at clean Behold `8d5616a`
+without rerunning it. The unchanged resident-session request completed twice in
+14.495 and 22.748 seconds and failed strict JSON both times (concatenated
+objects, then a length-terminated object with an extra closing brace). A second
+diagnostic run with explicit `reasoning_effort: low` returned validator-clean
+objects in 5.687 and 3.553 seconds, but that field is not admitted by
+resident-session v1, the transformed LM Studio prompt log labels both requests
+`Reasoning: medium`, and the first horizon still missed the exact five-second
+urgent body deadline. Both runs unloaded cleanly with no Minecraft authority.
+This treatment is rejected for the body path; the preserved result is
+documented in `docs/reports/2026-07-26-llamacpp-gptoss-runtime-frontier.md`.
+
+Separately, the ordinary `behold live` aftermath now preserves the exactly one
+new Place-owned Minecraft server log as a byte-identical episode snapshot and
+binds authenticated per-life controller/body journals beside each original
+Lync source. This closes the known omission where action turns alone could hide
+deaths and other authoritative ecology, without synthesizing those events into
+resident causality or duplicating Textile's presenter. Focused provider-free
+fixtures cover exact preservation and ambiguous/missing-log refusal. The v2
+aftermath has not yet been exercised on a new live episode, native human
+co-presence and Textile presentation remain open, and `beh-n4fe` remains open.

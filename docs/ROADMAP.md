@@ -58,6 +58,20 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   Llama 3.2 3B and Phi-4 artifacts. This is a supported session mechanic and a
   negative runtime result, not a successful resident-life claim. See
   [Local resident sessions](reports/2026-07-26-local-resident-session-runtime.md).
+- The ordinary `behold live` entry now serves an accepted Place release behind
+  one persistent named world, starts independently configured local resident
+  sessions and symmetric viewers, prints the native-client endpoint, drains and
+  saves on time or Ctrl-C, and resumes the exact world and lives. Its v2
+  aftermath preserves the Place-owned Minecraft server log byte-for-byte and
+  authenticates each resident's body journals beside the original Lync sources.
+  This is composition and history mechanics, not evidence of adaptive conduct
+  or native human co-presence.
+- The retained installed GPT-OSS/llama.cpp frontier did not clear the cognition
+  gate. The unchanged resident request took 14.495 and 22.748 seconds and failed
+  strict JSON both times. Explicit diagnostic low reasoning produced valid
+  objects at 5.687 and 3.553 seconds, but that field is not in the admitted
+  session and the first request still missed the five-second body horizon. See
+  [llama.cpp GPT-OSS runtime frontier](reports/2026-07-26-llamacpp-gptoss-runtime-frontier.md).
 - A versioned neutral evaluation configuration now crosses the CLI, managed
   runner, run journal, mind request, affordance projection, and interpreter:
   `neutral-benchmark-v1` emits only protocol guidance, does not force project
@@ -293,11 +307,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
    independently configured residents and judge persistent, adaptive world or
    social conduct—not call count. Preserve failures without retries, hidden
    reflexes, forced schedules, or catch-up normalization.
-3. Compose the proven pieces behind one foreground operator path: exact Place V3
-   verification, named start/resume, resident viewers, optional native human
-   entry, clean drain/save/stop, and a session manifest pointing to readable
-   resident and authoritative ecology aftermath. Do not substitute a dashboard
-   or a bespoke ignored harness for this entry.
+3. Finish the ordinary foreground operator path now established by `behold
+live`: exercise its v2 authoritative ecology aftermath, add an explicit
+   native-human entry treatment, and complete the Textile presentation seam.
+   Do not substitute a dashboard or a bespoke ignored harness for this entry.
 4. Pass the ticket acceptance from that ordinary path: a non-scripted persistent
    resident consequence, independent witness, native co-presence, restart
    continuity, and understandable Textile/Lync history with exact identities.

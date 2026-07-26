@@ -29,7 +29,8 @@ import {
 
 const PLACE_SERVE_REVISION = '103deac629d8f784ea22d956c890de77334d730a' as const;
 const LIVE_SESSION_PROTOCOL = 'behold.live-session.v1' as const;
-const LIVE_AFTERMATH_PROTOCOL = 'behold.live-aftermath.v1' as const;
+const LIVE_AFTERMATH_PROTOCOL = 'behold.live-aftermath.v2' as const;
+const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
 
 export async function runLiveCli(argv: string[]) {
   const parsed = parseArgs({
@@ -146,6 +147,7 @@ export async function runLiveCli(argv: string[]) {
   let run: ManagedWorldRun | null = null;
   let cleanStop = false;
   const startedAt = new Date().toISOString();
+  const placeServerLogsBefore = new Set(listPlaceServerLogs(paths.placeRuntime));
   try {
     const admittedPort = existingPlan?.endpoint.port ?? requestedPort ?? 25565;
     if (requestedPort != null && requestedPort !== admittedPort) {
@@ -266,6 +268,11 @@ export async function runLiveCli(argv: string[]) {
       lifecycleFile: run.control.journalFile,
       headFile: paths.head,
     });
+    const ecologyLog = preservePlaceServerLog({
+      runtimeRoot: authority.placeIdentity.runtimePath,
+      filesBefore: placeServerLogsBefore,
+      destination: path.join(episodeRoot, 'minecraft-server.log'),
+    });
     const transcript = verifyPlaceServeTranscript(authority.transcriptFile);
     const aftermath = writeAftermath({
       file: path.join(episodeRoot, 'aftermath.json'),
@@ -278,6 +285,7 @@ export async function runLiveCli(argv: string[]) {
       head,
       transcriptTipDigest: transcript.tipDigest,
       entityRoot: paths.entities,
+      ecologyLog,
     });
     process.stdout.write(`\n[behold live] stopped cleanly\n`);
     process.stdout.write(`[behold live] aftermath: ${aftermath.file}\n`);
@@ -420,6 +428,7 @@ function writeAftermath(input: {
   head: any;
   transcriptTipDigest: string | null;
   entityRoot: string;
+  ecologyLog: ReturnType<typeof preservePlaceServerLog>;
 }) {
   const lives = input.run.residents.map((resident) => {
     const directory = path.join(input.entityRoot, sanitizeName(resident.entityId), 'lync');
@@ -431,6 +440,7 @@ function writeAftermath(input: {
       manifestFile: path.join(directory, 'manifest.json'),
       sourceFiles: listLyncFiles(directory),
       runJournalDirectory: resident.journalDirectory,
+      runJournalFiles: listFiles(resident.journalDirectory, '.jsonl'),
     };
   });
   const base = {
@@ -450,6 +460,11 @@ function writeAftermath(input: {
       transcriptFile: input.authority.transcriptFile,
       transcriptTipDigest: input.transcriptTipDigest,
       identity: input.authority.identity,
+    },
+    ecology: {
+      authority: 'minecraft_server',
+      relation: 'authoritative world event log; resident turns remain separate causal records',
+      log: input.ecologyLog,
     },
     cognition: input.run.cognition
       ? {
@@ -476,17 +491,76 @@ function writeAftermath(input: {
 }
 
 function listLyncFiles(directory: string) {
+  return listFiles(directory, '.lync');
+}
+
+function listFiles(directory: string, suffix: string) {
   if (!fs.existsSync(directory)) return Object.freeze([]);
   return Object.freeze(
     fs
       .readdirSync(directory, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.lync'))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(suffix))
       .map((entry) => {
         const file = path.join(directory, entry.name);
         return Object.freeze({ file, sha256: sha256File(file), sizeBytes: fs.statSync(file).size });
       })
       .sort((left, right) => left.file.localeCompare(right.file)),
   );
+}
+
+export function listPlaceServerLogs(runtimeRootValue: string) {
+  const logRoot = path.join(path.resolve(runtimeRootValue), 'logs');
+  if (!fs.existsSync(logRoot)) return Object.freeze([] as string[]);
+  const stats = fs.lstatSync(logRoot);
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error('Place server log root must be a plain directory');
+  }
+  return Object.freeze(
+    fs
+      .readdirSync(logRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /^server-[0-9]{8}T[0-9]{6}Z\.log$/.test(entry.name))
+      .map((entry) => path.join(logRoot, entry.name))
+      .sort(),
+  );
+}
+
+export function preservePlaceServerLog(input: {
+  runtimeRoot: string;
+  filesBefore: ReadonlySet<string>;
+  destination: string;
+}) {
+  const added = listPlaceServerLogs(input.runtimeRoot).filter(
+    (file) => !input.filesBefore.has(file),
+  );
+  if (added.length !== 1) {
+    throw new Error(
+      `live episode requires exactly one new Place server log; found ${added.length}`,
+    );
+  }
+  const sourceFile = plainFile(added[0], 'Place server log');
+  const file = path.resolve(input.destination);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.copyFileSync(sourceFile, file, fs.constants.COPYFILE_EXCL);
+  fs.chmodSync(file, 0o600);
+  const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  const sourceSha256 = sha256File(sourceFile);
+  const preservedSha256 = sha256File(file);
+  if (sourceSha256 !== preservedSha256) {
+    throw new Error('preserved Place server log differs from its authoritative source');
+  }
+  return deepFreeze({
+    protocol: LIVE_ECOLOGY_LOG_PROTOCOL,
+    sourceFile,
+    file,
+    sha256: preservedSha256,
+    sizeBytes: fs.statSync(file).size,
+    preservation: 'byte_identical_episode_snapshot',
+  });
 }
 
 function nextEpisodeId(episodesRoot: string) {

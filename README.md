@@ -17,16 +17,35 @@ client. Each resident may use a different model or mind program, while world
 changes remain Minecraft-authoritative and resident/world histories remain
 portable Lync that can be inspected with tools such as Textile.
 
-The pieces are substantial but not yet one finished product flow. Accepted
-Place Compiler releases, managed heterogeneous resident sets, human native
-play, symmetric read-only resident viewers, persistent bodies, and readable
-Lync/Textile histories all exist. The versioned resident-set path can assign a
-different mind to each life, but the ordinary operator entry still does not
-compose place verification, named resident continuation, viewer discovery,
-human drop-in, clean stop/resume, and aftermath into one command. More
-importantly, the current installed local-model pair has not yet produced
-sustained adaptive Minecraft conduct at body-relevant latency. Passing the
-mechanics stack is therefore not presented as a finished living world.
+The pieces are substantial but not yet a successful living-world treatment.
+`behold live` now composes an accepted Place release, persistent named lives,
+independently configured resident sessions, viewer discovery, a native-client
+endpoint, clean stop/resume, and an authenticated aftermath in one foreground
+operator entry. It does not launch a human client or run Textile on the
+operator's behalf. More importantly, the installed local-model treatments have
+not yet produced sustained adaptive Minecraft conduct at body-relevant latency.
+Passing the mechanics stack is therefore not presented as a finished living
+world.
+
+Persistent living Place
+
+- `behold live RELEASE --residents FILE --accept-eula --session NAME` verifies
+  and serves one Place release, then either creates or resumes the named world
+  and exact resident population. Use `--duration SECONDS` for a bounded episode;
+  Ctrl-C requests the same clean drain, save, and stop path.
+- The foreground output prints the loopback native Minecraft endpoint and one
+  read-only first-person viewer URL per resident. Joining with a compatible
+  native client is optional and does not transfer world ownership away from the
+  foreground command.
+- A clean stop records the new persistent world head and an episode aftermath.
+  The aftermath binds the Place control transcript, byte-identical Place-owned
+  Minecraft server log, cognition/accounting evidence, per-life body journals,
+  exact Lync sources, and closed viewer endpoints. Textile reads the original
+  Lync sources using profile `org.behold.inhabitant.v1`; Behold does not rewrite
+  them into a second history.
+- Repeating the exact command and session name resumes the same stopped world,
+  bodies, life looms, accounting scope, and resident configuration. Changing
+  the release or population under an existing name fails closed.
 
 Build and run Minecraft agents on your own server in minutes. Behold gives you:
 
