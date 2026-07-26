@@ -77,7 +77,7 @@ export async function runLiveCli(argv: string[]) {
     'session id',
   );
   const stateRoot = path.resolve(
-    String(parsed.values.state ?? path.join(repositoryRoot, '.behold-runtime', 'live')),
+    String(parsed.values.state ?? path.join(repositoryRoot, 'data', 'live')),
   );
   fs.mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
   const sessionRoot = path.join(resolveManagedDataRoot(stateRoot, 'live state root'), sessionId);
