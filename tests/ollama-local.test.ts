@@ -9,7 +9,10 @@ import {
   createOllamaLocalJsonActionRequest,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
 } from '../src/mind/ollama-json-action';
 import {
   assertOllamaLocalRequest,
@@ -17,6 +20,8 @@ import {
   preflightOllamaLocal,
 } from '../src/mind/ollama-local';
 import { ResidentMindCallError } from '../src/mind/evidence';
+import { buildInterpreter } from '../src/agent/interpreter';
+import { minecraftActionsForProfile } from '../src/agent/action-profiles';
 
 const DIGEST_3B = 'a'.repeat(64);
 const DIGEST_70B = 'b'.repeat(64);
@@ -118,6 +123,145 @@ test('strict JSON action request has no native tools and preserves the exact act
     assertOllamaLocalRequest(required.body, residentRequest.model, localPolicy),
     required.identity,
   );
+});
+
+test('legible-resident v2 exposes one exact action plus two bounded public commitments', () => {
+  const residentRequest = canonicalLegibleRequest();
+  const localPolicy = legiblePolicy('test/model', DIGEST_3B, TEMPLATE_3B);
+  const serialized = createOllamaLocalJsonActionRequest(residentRequest as any, localPolicy);
+  const body: any = serialized.body;
+
+  assert.equal(Object.hasOwn(body, 'tools'), false);
+  assert.equal(residentRequest.actions.length, 18);
+  assert.equal(body.format.oneOf.length, residentRequest.actions.length);
+  residentRequest.actions.forEach((action, index) => {
+    const variant = body.format.oneOf[index];
+    assert.deepEqual(variant.required, [
+      'intention',
+      'expectedObservableConsequence',
+      'action',
+      'arguments',
+    ]);
+    assert.equal(variant.additionalProperties, false);
+    assert.deepEqual(variant.properties.action, { const: action.name });
+    assert.deepEqual(variant.properties.arguments, action.inputSchema);
+    assert.deepEqual(
+      {
+        type: variant.properties.intention.type,
+        minLength: variant.properties.intention.minLength,
+        maxLength: variant.properties.intention.maxLength,
+        pattern: variant.properties.intention.pattern,
+      },
+      { type: 'string', minLength: 1, maxLength: 240, pattern: '^[^\\r\\n]+$' },
+    );
+    assert.deepEqual(
+      {
+        type: variant.properties.expectedObservableConsequence.type,
+        minLength: variant.properties.expectedObservableConsequence.minLength,
+        maxLength: variant.properties.expectedObservableConsequence.maxLength,
+        pattern: variant.properties.expectedObservableConsequence.pattern,
+      },
+      { type: 'string', minLength: 1, maxLength: 240, pattern: '^[^\\r\\n]+$' },
+    );
+  });
+  const contractMessage = body.messages.at(-1).content;
+  assert.match(contractMessage, /BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V2_BEGIN/);
+  assert.match(contractMessage, /"policyProfile":"legible-resident-v1"/);
+  assert.match(contractMessage, /public commitments, not private reasoning/i);
+  assert.equal(serialized.identity.protocol, 'behold.ollama-local-json-action-request-identity.v2');
+  assert.equal(
+    serialized.identity.transportProtocol,
+    OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
+  );
+  assert.equal(serialized.identity.schemaProtocol, OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL);
+  assert.deepEqual(
+    assertOllamaLocalRequest(body, residentRequest.model, localPolicy),
+    serialized.identity,
+  );
+
+  const drifted = structuredClone(body);
+  drifted.format.oneOf[0].properties.intention.maxLength = 241;
+  assert.throws(
+    () => assertOllamaLocalRequest(drifted, residentRequest.model, localPolicy),
+    /response format differs from the exact action contract/,
+  );
+});
+
+test('strict local transport and policy treatment identities cannot be crossed', () => {
+  assert.throws(
+    () =>
+      createOllamaLocalJsonActionRequest(
+        request() as any,
+        legiblePolicy('test/model', DIGEST_3B, TEMPLATE_3B),
+      ),
+    /v2 requires policyProfile legible-resident-v1/,
+  );
+  assert.throws(
+    () =>
+      createOllamaLocalJsonActionRequest(
+        legibleRequest() as any,
+        policy('test/model', DIGEST_3B, TEMPLATE_3B),
+      ),
+    /legible-resident-v1 requires Ollama local JSON action v2/,
+  );
+});
+
+test('legible-resident v2 retains one public commitment and rejects malformed commitment output without correction', async () => {
+  const outputs = [
+    {
+      intention: 'Inspect the visible player',
+      expectedObservableConsequence: 'The next view will show whether they remain ahead',
+      action: 'move_controls',
+      arguments: { direction: 'forward', durationMs: 500 },
+    },
+    {
+      intention: ' leading whitespace is not silently normalized',
+      expectedObservableConsequence: 'The action has an observable result',
+      action: 'move_controls',
+      arguments: { direction: 'forward', durationMs: 500 },
+    },
+  ];
+  let calls = 0;
+  const mind = createOllamaLocalResidentMind({
+    bearer: 'resident-broker-bearer-that-is-long-enough',
+    endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
+    policy: legiblePolicy('test/model', DIGEST_3B, TEMPLATE_3B),
+    cognitionTransport: true,
+    fetch: async () => {
+      const output = outputs[calls++];
+      return json({
+        model: 'test/model',
+        message: { role: 'assistant', content: JSON.stringify(output) },
+        done: true,
+        done_reason: 'stop',
+      });
+    },
+  });
+  const decision = await mind.decide(legibleRequest() as any, {
+    signal: new AbortController().signal,
+  });
+  assert.equal(decision.call.adapter?.version, 'v2');
+  assert.deepEqual(decision.publicCommitment, {
+    protocol: 'behold.resident-public-action-commitment.v1',
+    policyProfile: 'legible-resident-v1',
+    intention: 'Inspect the visible player',
+    expectedObservableConsequence: 'The next view will show whether they remain ahead',
+  });
+  assert.equal(
+    decision.utterance,
+    'Intention: Inspect the visible player\nExpected observable consequence: The next view will show whether they remain ahead',
+  );
+
+  await assert.rejects(
+    mind.decide(legibleRequest() as any, { signal: new AbortController().signal }),
+    (error: any) => {
+      assert.ok(error instanceof ResidentMindCallError);
+      assert.equal(error.call.response.terminal, 'malformed_output');
+      assert.match(error.message, /exact trimmed line/);
+      return true;
+    },
+  );
+  assert.equal(calls, 2);
 });
 
 test('read-only Ollama preflight binds cloud, model, completion, context, and exact per-model templates', async (t) => {
@@ -408,6 +552,18 @@ export function policy(modelTag: string, modelDigest: string, template: string) 
   } as const;
 }
 
+export function legiblePolicy(modelTag: string, modelDigest: string, template: string) {
+  return {
+    ...policy(modelTag, modelDigest, template),
+    transport: {
+      protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+      templateSha256: sha256(template),
+    },
+  } as const;
+}
+
 export function request() {
   return {
     protocol: 'behold.mind-request.v1',
@@ -448,6 +604,40 @@ export function request() {
     requiredAction: null,
     attention: { mode: 'deliberative', context: 'bounded_loom', triggers: [] },
   } as const;
+}
+
+export function legibleRequest() {
+  return { ...request(), policyProfile: 'legible-resident-v1' as const };
+}
+
+function canonicalLegibleRequest() {
+  const actions = minecraftActionsForProfile(
+    buildInterpreter({} as any)
+      .list('inhabitant')
+      .map((spec) => ({
+        type: 'function' as const,
+        function: {
+          name: spec.name,
+          description: spec.description,
+          parameters: spec.parameters,
+        },
+      })),
+    'minecraft-human-semantic-v1',
+  ).map((action) => ({
+    name: action.function.name,
+    description: action.function.description,
+    inputSchema: action.function.parameters,
+  }));
+  actions.push({
+    name: 'wait_for_event',
+    description: 'Yield without proposing a Minecraft action until a later world event.',
+    inputSchema: {
+      type: 'object',
+      properties: { reason: { type: 'string' } },
+      required: ['reason'],
+    },
+  });
+  return { ...legibleRequest(), actions };
 }
 
 function json(value: unknown, status = 200) {

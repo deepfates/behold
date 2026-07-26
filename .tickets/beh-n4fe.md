@@ -323,3 +323,43 @@ A narrow Lync history repair now persists the exact admitted minecraft-human-sem
 **2026-07-26T08:09:48Z**
 
 A four-minute ordinary event-driven Oxford continuation at Behold 1e988d8 falsified fixed slots as the main cause but still did not approach the living-world endpoint. Llama3.2:3b completed 7 turns, all look_direction right; Phi-4 completed 6 turns alternating look_direction right/left, and its seventh admitted attempt was retained as cancellation at the wall-clock stop. Both stayed at their spawn positions through nightfall, nearby Slime activity, and repeated mutual visibility; no movement, speech, inventory use, combat, block change, social exchange, or persistent resident consequence occurred. All 13 returned JSON actions exactly matched the admitted intent, passed the unchanged validator, and completed in Minecraft; all 18 human-semantic actions were present with descriptions and constraints, so neither adapter nor body blocked an expressed action. The request audit instead exposed a treatment mismatch: the session used neutral-benchmark-v1, a prior evaluation profile with only the three-sentence embodied/choose/no-unobserved-consequence prompt, despite the declared purpose of sustained resident conduct. Both declarations say comparisonClaim none; no owner direction selected that benchmark prompt for the product endpoint. It was inherited from the earlier transport/integration pilot, while the first natural request also replayed four prior successful look turns and later prompts accumulated up to nine such action/outcome/glimpse examples. Llama additionally carried incomplete event windows on its final five calls, with 18-28 newer events omitted, and concurrency-1 queue/load made frozen opportunity-to-action age reach 30-43 seconds after the first Llama turn. These facts preclude blaming model capability from this run; they show these local models produced camera-turn behavior under a minimal benchmark controller, seeded look continuity, event backlog, and sequential latency. Switching to existing resident-v1 with explicit human-semantic body/action overrides is the smallest product-treatment correction, but the strict JSON transport currently forbids the public intention prose that resident-v1 requests, so that conflict must be resolved narrowly before any rerun. The original run and Lync lives remain unchanged. Non-mutating derived Textile copies made all 11 Llama and 10 Phi turns readable with zero unsupported events/observation-protocol diagnostics, no coordinate/private-frame prose, and byte-preserved source reconstruction. Viewers, Minecraft, models, Textile server, and listeners all stopped cleanly. beh-n4fe remains open: there is still no non-scripted persistent resident consequence, native human entry, or resumed useful living session.
+
+**2026-07-26T09:32:00Z**
+
+The inherited benchmark treatment now has a narrow versioned alternative rather
+than silently promoting the detailed `resident-v1` policy. `legible-resident-v1`
+uses the ratified human-semantic body/action surface and a five-line standing
+charter for persistent identity, self-direction, attention to body, environment,
+and other independent residents, and adaptation to authoritative outcomes. It
+inherits none of `resident-v1`'s survival/project/action coaching, forced
+project work, or repetition, communication, and project loop guards.
+
+The separately versioned `behold.ollama-local-json-action.v2` response carries
+exactly one admitted action/arguments object plus a 1-240 character public
+intention and expected observable consequence. The two public fields admit no
+whitespace repair or normalization, are never private reasoning, and persist as
+`behold.resident-public-action-commitment.v1` with the exact deterministic
+public rendering in the authoritative EntityTurn. Restart context replays that
+public rendering with the action and outcome. Missing commitment, treatment
+crossing, structure/rendering drift, and malformed output fail closed before
+world intent; there is no correction or retry. Managed admission binds this
+treatment to v2 and rejects both v1-under-legible and v2-under-benchmark before
+world or model inspection.
+
+Model-free schema proof covered all 17 canonical human-semantic actions plus
+`wait_for_event`; their original argument schemas survive unchanged beside the
+two bounded public fields. Focused schema/policy/Lync/managed-runner tests passed
+121/121, lint/typecheck passed, and the full provider-free suite passed 526 with
+one skipped mounted-artifact test. A disposable exact Lync turn passed the
+existing Textile Behold presenter without a code change: the output showed the
+safe perceptions, both public commitment lines, action, and outcome with zero
+unsupported-observation diagnostics. No model, Ollama load, Minecraft server,
+provider, retry, or world mutation ran.
+
+This is a deterministic treatment/persistence checkpoint, not behavioral
+evidence and not acceptance of `beh-n4fe`. The smallest later acceptance is one
+separately authorized bounded natural Oxford session using the same exact v2
+treatment for both local residents, existing viewers and Textile aftermath, no
+task/project injection or retry/correction, and observation of whether public
+commitments actually support sustained adaptive conduct. The ticket remains
+open until the original living-world acceptance criteria pass.

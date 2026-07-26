@@ -5,6 +5,11 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IntentSource } from '../loop/arbiter';
 import type { ResidentAttention } from '../mind/interface';
+import {
+  renderResidentPublicActionCommitment,
+  residentPublicActionCommitment,
+  type ResidentPublicActionCommitment,
+} from '../mind/public-commitment';
 import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import { projectResidentVisibleValue } from '../mind/resident-visibility';
 import { sanitizeName } from '../observability/journal';
@@ -45,7 +50,11 @@ export type EntityTurn = {
   observation: any;
   /** Exact safe mind-facing observation pair retained for Lync presentation. */
   observationPresentation?: EntityTurnObservationPresentation;
-  utterance: { assistant: any };
+  utterance: {
+    assistant: any;
+    /** Public action-level continuity; present only for legible-resident-v1 model turns. */
+    publicCommitment?: ResidentPublicActionCommitment;
+  };
   action: {
     id: string;
     name: string;
@@ -993,6 +1002,25 @@ function validateNextTurn(stored: EntityTurn[], turn: EntityTurn, entityId: stri
   if (turn.id !== `${entityId}:turn:${turn.sequence}`) {
     throw new Error(`entity turn id ${turn.id} does not match its entity and sequence`);
   }
+  assertEntityTurnPublicCommitment(turn);
+}
+
+export function assertEntityTurnPublicCommitment(turn: EntityTurn) {
+  const policyProfile = turn.profiles?.policy;
+  const commitment = turn.utterance?.publicCommitment;
+  const requiresCommitment =
+    policyProfile === 'legible-resident-v1' && turn.action?.source === 'llm';
+  if (!requiresCommitment) {
+    if (commitment != null) {
+      throw new Error('entity turn carries a legible-resident commitment under another treatment');
+    }
+    return null;
+  }
+  const parsed = residentPublicActionCommitment(commitment);
+  if (turn.utterance?.assistant?.content !== renderResidentPublicActionCommitment(parsed)) {
+    throw new Error('entity turn public commitment does not match its replayable utterance');
+  }
+  return parsed;
 }
 
 function validateEntityTrajectory(turns: EntityTurn[], entityId: string, source: string) {
@@ -1047,6 +1075,7 @@ export function historyMessages(
   const messages: any[] = [];
   for (let index = 0; index < turns.length; index += 1) {
     const turn = turns[index];
+    assertEntityTurnPublicCommitment(turn);
     const previousTurn = turns[index - 1] ?? null;
     if (!mayReplayAction(turn)) {
       messages.push({

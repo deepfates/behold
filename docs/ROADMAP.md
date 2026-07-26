@@ -37,6 +37,14 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Working
 
+- A separately named `legible-resident-v1` treatment now combines the ratified
+  human-semantic body with a small identity/self-direction/adaptation charter
+  and a strict public intention plus expected-observable-consequence response.
+  The exact public commitment persists and replays with its causal EntityTurn;
+  profile or content tamper fails closed. It does not inherit `resident-v1`
+  survival/project coaching or loop-shaping guards, and no live run yet shows
+  that it improves behavior. See
+  [Legible resident treatment v1](LEGIBLE_RESIDENT_TREATMENT.md).
 - A versioned neutral evaluation configuration now crosses the CLI, managed
   runner, run journal, mind request, affordance projection, and interpreter:
   `neutral-benchmark-v1` emits only protocol guidance, does not force project

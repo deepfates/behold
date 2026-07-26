@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto';
 import type { ModelCallEvidence } from './evidence';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
 import type { OllamaLocalPolicy } from './ollama-local';
+import {
+  RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+  RESIDENT_PUBLIC_ACTION_COMMITMENT_PROTOCOL,
+  renderResidentPublicActionCommitment,
+  residentPublicActionCommitment,
+} from './public-commitment';
 import { parseResidentMindRequest } from './request-artifact';
 
 export const OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL =
@@ -12,11 +18,23 @@ export const OLLAMA_LOCAL_JSON_ACTION_CONTRACT_PROTOCOL =
   'behold.ollama-local-json-action-contract.v1' as const;
 export const OLLAMA_LOCAL_JSON_ACTION_REQUEST_IDENTITY_PROTOCOL =
   'behold.ollama-local-json-action-request-identity.v1' as const;
+export const OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL =
+  'behold.ollama-local-json-action.v2' as const;
+export const OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL =
+  'behold.ollama-local-json-action-schema.v2' as const;
+export const OLLAMA_LOCAL_JSON_ACTION_CONTRACT_V2_PROTOCOL =
+  'behold.ollama-local-json-action-contract.v2' as const;
+export const OLLAMA_LOCAL_JSON_ACTION_REQUEST_IDENTITY_V2_PROTOCOL =
+  'behold.ollama-local-json-action-request-identity.v2' as const;
 
-const CONTRACT_BEGIN = 'BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_BEGIN\n';
-const CONTRACT_END = '\nBEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_END';
-const CONTRACT_INSTRUCTION =
+const V1_CONTRACT_BEGIN = 'BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_BEGIN\n';
+const V1_CONTRACT_END = '\nBEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_END';
+const V1_CONTRACT_INSTRUCTION =
   'Choose exactly one admitted action. Return only one JSON object with exactly the fields "action" and "arguments". Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
+const V2_CONTRACT_BEGIN = 'BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V2_BEGIN\n';
+const V2_CONTRACT_END = '\nBEHOLD_LOCAL_JSON_ACTION_CONTRACT_V2_END';
+const V2_CONTRACT_INSTRUCTION =
+  'Choose exactly one admitted action. Return only one JSON object with exactly the fields "intention", "expectedObservableConsequence", "action", and "arguments". The first two fields are short public commitments, not private reasoning or claims of success. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
 
 const schemaDescriptor = deepFreeze({
   protocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
@@ -32,18 +50,57 @@ const schemaDescriptor = deepFreeze({
 
 export const OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256 = sha256(stableJson(schemaDescriptor));
 
+const schemaV2Descriptor = deepFreeze({
+  protocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+  output: {
+    type: 'object',
+    alternatives: 'oneOf',
+    publicCommitment: {
+      protocol: RESIDENT_PUBLIC_ACTION_COMMITMENT_PROTOCOL,
+      intention: {
+        type: 'string',
+        minLength: 1,
+        maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+        pattern: '^[^\\r\\n]+$',
+      },
+      expectedObservableConsequence: {
+        type: 'string',
+        minLength: 1,
+        maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+        pattern: '^[^\\r\\n]+$',
+      },
+    },
+    discriminator: { field: 'action', value: 'exact admitted action name' },
+    arguments: { field: 'arguments', schema: 'exact admitted action inputSchema' },
+    required: ['intention', 'expectedObservableConsequence', 'action', 'arguments'],
+    additionalProperties: false,
+  },
+});
+
+export const OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256 = sha256(stableJson(schemaV2Descriptor));
+
 export type OllamaLocalJsonActionTransport = Readonly<{
-  protocol: typeof OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL;
-  schemaProtocol: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL;
+  protocol:
+    | typeof OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL
+    | typeof OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL;
+  schemaProtocol:
+    | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL
+    | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
   schemaSha256: string;
   /** Exact UTF-8 digest of the installed model template returned by `/api/show`. */
   templateSha256: string;
 }>;
 
 export type OllamaLocalJsonActionRequestIdentity = Readonly<{
-  protocol: typeof OLLAMA_LOCAL_JSON_ACTION_REQUEST_IDENTITY_PROTOCOL;
-  transportProtocol: typeof OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL;
-  schemaProtocol: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL;
+  protocol:
+    | typeof OLLAMA_LOCAL_JSON_ACTION_REQUEST_IDENTITY_PROTOCOL
+    | typeof OLLAMA_LOCAL_JSON_ACTION_REQUEST_IDENTITY_V2_PROTOCOL;
+  transportProtocol:
+    | typeof OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL
+    | typeof OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL;
+  schemaProtocol:
+    | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL
+    | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
   schemaSha256: string;
   modelTag: string;
   modelDigest: string;
@@ -58,22 +115,33 @@ export function ollamaLocalJsonActionTransport(value: unknown): OllamaLocalJsonA
     ['protocol', 'schemaProtocol', 'schemaSha256', 'templateSha256'],
     'Ollama local JSON action transport',
   );
-  if (record.protocol !== OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL) {
+  if (
+    record.protocol !== OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL &&
+    record.protocol !== OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL
+  ) {
     throw new Error(
-      `Ollama local action transport protocol must be ${OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL}`,
+      `Ollama local action transport protocol must be ${OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL} or ${OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL}`,
     );
   }
-  if (record.schemaProtocol !== OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL) {
+  const expectedSchemaProtocol =
+    record.protocol === OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL
+      ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL
+      : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL;
+  const expectedSchemaSha256 =
+    record.protocol === OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL
+      ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256
+      : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256;
+  if (record.schemaProtocol !== expectedSchemaProtocol) {
     throw new Error(
-      `Ollama local action schema protocol must be ${OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL}`,
+      `Ollama local action schema protocol must be ${expectedSchemaProtocol} for ${record.protocol}`,
     );
   }
-  if (record.schemaSha256 !== OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256) {
+  if (record.schemaSha256 !== expectedSchemaSha256) {
     throw new Error('Ollama local action schema digest differs from this transport implementation');
   }
   return deepFreeze({
-    protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
-    schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+    protocol: record.protocol,
+    schemaProtocol: expectedSchemaProtocol,
     schemaSha256: sha256Digest(record.schemaSha256, 'Ollama local action schema'),
     templateSha256: sha256Digest(record.templateSha256, 'Ollama installed template'),
   });
@@ -88,14 +156,17 @@ export function createOllamaLocalJsonActionRequest(
     throw new Error('Ollama request model differs from the admitted local model tag');
   }
   assertHumanSemanticProfiles(request);
-  const contract = actionContract(request);
+  assertTransportTreatment(request, policy);
+  const version = transportVersion(policy);
+  const contract = actionContract(request, version);
   const contractJson = stableJson(contract);
-  const format = responseFormat(contract.actions, contract.requiredAction);
+  const format = responseFormat(contract.actions, contract.requiredAction, version);
+  const markers = contractMarkers(version);
   const messages = [
     ...cloneJson(request.conversation),
     {
       role: 'user' as const,
-      content: `${CONTRACT_INSTRUCTION}${CONTRACT_BEGIN}${contractJson}${CONTRACT_END}`,
+      content: `${markers.instruction}${markers.begin}${contractJson}${markers.end}`,
     },
   ];
   const body = deepFreeze({
@@ -119,6 +190,7 @@ export function assertOllamaLocalJsonActionRequest(
   expectedModel: string,
   policy: OllamaLocalPolicy,
 ): OllamaLocalJsonActionRequestIdentity {
+  const version = transportVersion(policy);
   const record = exactRecord(
     value,
     ['model', 'messages', 'format', 'stream', 'options', 'keep_alive'],
@@ -156,15 +228,16 @@ export function assertOllamaLocalJsonActionRequest(
     throw new Error('Ollama local action contract message is invalid');
   }
   const content = contractMessage.content;
+  const markers = contractMarkers(version);
   if (
-    !content.startsWith(`${CONTRACT_INSTRUCTION}${CONTRACT_BEGIN}`) ||
-    !content.endsWith(CONTRACT_END)
+    !content.startsWith(`${markers.instruction}${markers.begin}`) ||
+    !content.endsWith(markers.end)
   ) {
     throw new Error('Ollama local action contract markers are invalid');
   }
   const contractJson = content.slice(
-    CONTRACT_INSTRUCTION.length + CONTRACT_BEGIN.length,
-    content.length - CONTRACT_END.length,
+    markers.instruction.length + markers.begin.length,
+    content.length - markers.end.length,
   );
   let contractValue: unknown;
   try {
@@ -172,11 +245,11 @@ export function assertOllamaLocalJsonActionRequest(
   } catch {
     throw new Error('Ollama local action contract is not valid JSON');
   }
-  const contract = parseActionContract(contractValue);
+  const contract = parseActionContract(contractValue, version);
   if (contractJson !== stableJson(contract)) {
     throw new Error('Ollama local action contract is not exact canonical JSON');
   }
-  const format = responseFormat(contract.actions, contract.requiredAction);
+  const format = responseFormat(contract.actions, contract.requiredAction, version);
   if (stableJson(record.format) !== stableJson(format)) {
     throw new Error('Ollama response format differs from the exact action contract');
   }
@@ -187,8 +260,11 @@ export function parseOllamaLocalJsonActionDecision(
   data: unknown,
   requestValue: ResidentMindRequest,
   call: ModelCallEvidence,
+  policy: OllamaLocalPolicy,
 ): ResidentMindDecision {
   const request = parseResidentMindRequest(requestValue);
+  assertTransportTreatment(request, policy);
+  const version = transportVersion(policy);
   const response = plainRecord(data) ? data : null;
   const message = plainRecord(response?.message) ? response!.message : null;
   if (!message) throw new Error('Ollama response contained no assistant message');
@@ -204,7 +280,13 @@ export function parseOllamaLocalJsonActionDecision(
   } catch {
     throw new Error('Ollama local JSON action response content was not valid JSON');
   }
-  const decision = exactRecord(output, ['action', 'arguments'], 'Ollama local JSON action output');
+  const decision = exactRecord(
+    output,
+    version === 2
+      ? ['intention', 'expectedObservableConsequence', 'action', 'arguments']
+      : ['action', 'arguments'],
+    'Ollama local JSON action output',
+  );
   if (typeof decision.action !== 'string' || !decision.action) {
     throw new Error('Ollama local JSON action output action was not nonempty text');
   }
@@ -221,10 +303,20 @@ export function parseOllamaLocalJsonActionDecision(
       `Ollama local JSON action output selected ${decision.action} while ${request.requiredAction} was required`,
     );
   }
+  const publicCommitment =
+    version === 2
+      ? residentPublicActionCommitment({
+          protocol: RESIDENT_PUBLIC_ACTION_COMMITMENT_PROTOCOL,
+          policyProfile: 'legible-resident-v1',
+          intention: decision.intention,
+          expectedObservableConsequence: decision.expectedObservableConsequence,
+        })
+      : null;
   return deepFreeze({
     protocol: 'behold.mind-decision.v1',
     disposition: decision.action === 'wait_for_event' ? 'wait' : 'act',
-    utterance: null,
+    utterance: publicCommitment ? renderResidentPublicActionCommitment(publicCommitment) : null,
+    ...(publicCommitment ? { publicCommitment } : {}),
     action: {
       name: decision.action,
       input: cloneJson(decision.arguments),
@@ -235,38 +327,67 @@ export function parseOllamaLocalJsonActionDecision(
   });
 }
 
-function actionContract(request: Readonly<ResidentMindRequest>) {
+function actionContract(request: Readonly<ResidentMindRequest>, version: 1 | 2) {
   if (request.actions.length < 1) throw new Error('Ollama local action contract is empty');
   return deepFreeze({
-    protocol: OLLAMA_LOCAL_JSON_ACTION_CONTRACT_PROTOCOL,
+    protocol:
+      version === 2
+        ? OLLAMA_LOCAL_JSON_ACTION_CONTRACT_V2_PROTOCOL
+        : OLLAMA_LOCAL_JSON_ACTION_CONTRACT_PROTOCOL,
+    ...(version === 2 ? { policyProfile: request.policyProfile } : {}),
     bodyProfile: request.bodyProfile,
     actionProfile: request.actionProfile,
     safetyProfile: request.safetyProfile,
     actions: cloneJson(request.actions),
     requiredAction: request.requiredAction,
-    responseProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+    responseProtocol:
+      version === 2
+        ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL
+        : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
   });
 }
 
-function parseActionContract(value: unknown): ReturnType<typeof actionContract> {
+function parseActionContract(value: unknown, version: 1 | 2): ReturnType<typeof actionContract> {
   const record = exactRecord(
     value,
-    [
-      'protocol',
-      'bodyProfile',
-      'actionProfile',
-      'safetyProfile',
-      'actions',
-      'requiredAction',
-      'responseProtocol',
-    ],
+    version === 2
+      ? [
+          'protocol',
+          'policyProfile',
+          'bodyProfile',
+          'actionProfile',
+          'safetyProfile',
+          'actions',
+          'requiredAction',
+          'responseProtocol',
+        ]
+      : [
+          'protocol',
+          'bodyProfile',
+          'actionProfile',
+          'safetyProfile',
+          'actions',
+          'requiredAction',
+          'responseProtocol',
+        ],
     'Ollama local action contract',
   );
-  if (record.protocol !== OLLAMA_LOCAL_JSON_ACTION_CONTRACT_PROTOCOL) {
+  const expectedContractProtocol =
+    version === 2
+      ? OLLAMA_LOCAL_JSON_ACTION_CONTRACT_V2_PROTOCOL
+      : OLLAMA_LOCAL_JSON_ACTION_CONTRACT_PROTOCOL;
+  const expectedResponseProtocol =
+    version === 2
+      ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL
+      : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL;
+  if (record.protocol !== expectedContractProtocol) {
     throw new Error('Ollama local action contract protocol is invalid');
   }
-  if (record.responseProtocol !== OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL) {
+  if (record.responseProtocol !== expectedResponseProtocol) {
     throw new Error('Ollama local action response schema protocol is invalid');
+  }
+  if (version === 2 && record.policyProfile !== 'legible-resident-v1') {
+    throw new Error('Ollama local action contract policy treatment is invalid');
   }
   if (
     record.bodyProfile !== 'minecraft-human-semantic-v1' ||
@@ -312,21 +433,29 @@ function parseActionContract(value: unknown): ReturnType<typeof actionContract> 
   ) {
     throw new Error('Ollama local action contract required action is invalid');
   }
-  return actionContract({
-    protocol: 'behold.mind-request.v1',
-    entityId: 'transport-contract',
-    model: 'transport-contract',
-    bodyProfile: record.bodyProfile,
-    actionProfile: record.actionProfile,
-    safetyProfile: record.safetyProfile,
-    observation: null,
-    conversation: [],
-    actions,
-    requiredAction: record.requiredAction,
-  });
+  return actionContract(
+    {
+      protocol: 'behold.mind-request.v1',
+      entityId: 'transport-contract',
+      model: 'transport-contract',
+      ...(version === 2 ? { policyProfile: record.policyProfile } : {}),
+      bodyProfile: record.bodyProfile,
+      actionProfile: record.actionProfile,
+      safetyProfile: record.safetyProfile,
+      observation: null,
+      conversation: [],
+      actions,
+      requiredAction: record.requiredAction,
+    },
+    version,
+  );
 }
 
-function responseFormat(actions: ResidentMindRequest['actions'], requiredAction: string | null) {
+function responseFormat(
+  actions: ResidentMindRequest['actions'],
+  requiredAction: string | null,
+  version: 1 | 2,
+) {
   const selected = requiredAction
     ? actions.filter((action) => action.name === requiredAction)
     : actions;
@@ -336,10 +465,33 @@ function responseFormat(actions: ResidentMindRequest['actions'], requiredAction:
       ...(action.description == null ? {} : { description: action.description }),
       type: 'object',
       properties: {
+        ...(version === 2
+          ? {
+              intention: {
+                type: 'string',
+                minLength: 1,
+                maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+                pattern: '^[^\\r\\n]+$',
+                description:
+                  'One short public statement of what this action is for; never private reasoning.',
+              },
+              expectedObservableConsequence: {
+                type: 'string',
+                minLength: 1,
+                maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+                pattern: '^[^\\r\\n]+$',
+                description:
+                  'One short public description of what the resident expects to observe if the action succeeds; never a claim that it already happened.',
+              },
+            }
+          : {}),
         action: { const: action.name },
         arguments: cloneJson(action.inputSchema),
       },
-      required: ['action', 'arguments'],
+      required:
+        version === 2
+          ? ['intention', 'expectedObservableConsequence', 'action', 'arguments']
+          : ['action', 'arguments'],
       additionalProperties: false,
     })),
   });
@@ -351,7 +503,10 @@ function requestIdentity(
   format: unknown,
 ): OllamaLocalJsonActionRequestIdentity {
   return deepFreeze({
-    protocol: OLLAMA_LOCAL_JSON_ACTION_REQUEST_IDENTITY_PROTOCOL,
+    protocol:
+      policy.transport.protocol === OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL
+        ? OLLAMA_LOCAL_JSON_ACTION_REQUEST_IDENTITY_V2_PROTOCOL
+        : OLLAMA_LOCAL_JSON_ACTION_REQUEST_IDENTITY_PROTOCOL,
     transportProtocol: policy.transport.protocol,
     schemaProtocol: policy.transport.schemaProtocol,
     schemaSha256: policy.transport.schemaSha256,
@@ -361,6 +516,44 @@ function requestIdentity(
     actionContractSha256: sha256(contractJson),
     responseFormatSha256: sha256(stableJson(format)),
   });
+}
+
+function transportVersion(policy: OllamaLocalPolicy): 1 | 2 {
+  return policy.transport.protocol === OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL ? 2 : 1;
+}
+
+function contractMarkers(version: 1 | 2) {
+  return version === 2
+    ? {
+        instruction: V2_CONTRACT_INSTRUCTION,
+        begin: V2_CONTRACT_BEGIN,
+        end: V2_CONTRACT_END,
+      }
+    : {
+        instruction: V1_CONTRACT_INSTRUCTION,
+        begin: V1_CONTRACT_BEGIN,
+        end: V1_CONTRACT_END,
+      };
+}
+
+export function assertOllamaLocalJsonActionTreatment(
+  request: Pick<ResidentMindRequest, 'policyProfile'>,
+  policy: OllamaLocalPolicy,
+) {
+  assertTransportTreatment(request, policy);
+}
+
+function assertTransportTreatment(
+  request: Pick<ResidentMindRequest, 'policyProfile'>,
+  policy: OllamaLocalPolicy,
+) {
+  const version = transportVersion(policy);
+  if (version === 2 && request.policyProfile !== 'legible-resident-v1') {
+    throw new Error('Ollama local JSON action v2 requires policyProfile legible-resident-v1');
+  }
+  if (version === 1 && request.policyProfile === 'legible-resident-v1') {
+    throw new Error('policyProfile legible-resident-v1 requires Ollama local JSON action v2');
+  }
 }
 
 function assertHumanSemanticProfiles(request: Readonly<ResidentMindRequest>) {

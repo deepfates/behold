@@ -3216,6 +3216,85 @@ test('the neutral policy prompt states protocol only and contains no Minecraft s
   );
 });
 
+test('legible-resident-v1 is a narrow charter without resident-v1 goals or action coaching', () => {
+  const system = controllerSystemPrompt(
+    [tool('manage_project'), tool('dig_block'), tool('chat'), tool('wait_for_event')],
+    'legible-resident-v1',
+  );
+
+  assert.match(system, /persistent embodied Minecraft resident/i);
+  assert.match(system, /own lived trajectory and public commitments.*continuing identity/i);
+  assert.match(system, /body, the surrounding environment, and other residents as independent/i);
+  assert.match(system, /adapt to what actually happens/i);
+  assert.match(system, /one short intention and one expected observable consequence/i);
+  assert.match(system, /never private reasoning/i);
+  assert.doesNotMatch(
+    system,
+    /manage_project|shelter|food|materials|\bcraft(?:ing)?\b|survival|inspect first|move_direction|wait_for_event|repeat no failed action/i,
+  );
+});
+
+test('legible-resident policy persists its exact public commitment with the causal turn', async () => {
+  const turns: EntityTurn[] = [];
+  const mind: ResidentMind = {
+    id: 'legible-model-free',
+    decide: async (request) => {
+      assert.equal(request.policyProfile, 'legible-resident-v1');
+      assert.equal(request.bodyProfile, 'minecraft-human-semantic-v1');
+      assert.equal(request.actionProfile, 'minecraft-human-semantic-v1');
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance:
+          'Intention: Pause until the world presents new evidence\nExpected observable consequence: A later observation should contain a newly lived event',
+        publicCommitment: {
+          protocol: 'behold.resident-public-action-commitment.v1',
+          policyProfile: 'legible-resident-v1',
+          intention: 'Pause until the world presents new evidence',
+          expectedObservableConsequence: 'A later observation should contain a newly lived event',
+        },
+        action: { name: 'wait_for_event', input: { reason: 'awaiting new evidence' } },
+        call: modelCallEvidence('legible-model-free'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'LegibleScout',
+      actions: [tool('look_direction')],
+      attempt: () => true,
+      observe: () => experience(1, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'legible-resident-v1',
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].profiles?.policy, 'legible-resident-v1');
+    assert.equal(turns[0].profiles?.body, 'minecraft-human-semantic-v1');
+    assert.deepEqual(turns[0].utterance.publicCommitment, {
+      protocol: 'behold.resident-public-action-commitment.v1',
+      policyProfile: 'legible-resident-v1',
+      intention: 'Pause until the world presents new evidence',
+      expectedObservableConsequence: 'A later observation should contain a newly lived event',
+    });
+    assert.equal(
+      turns[0].utterance.assistant.content,
+      'Intention: Pause until the world presents new evidence\nExpected observable consequence: A later observation should contain a newly lived event',
+    );
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('a neutral request uses the real interpreter catalog without coached or hidden composite actions', async () => {
   const requests: ResidentMindRequest[] = [];
   const catalog = minecraftActionsForProfile(

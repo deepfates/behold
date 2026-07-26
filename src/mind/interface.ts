@@ -1,5 +1,6 @@
 import type { ModelCallEvidence, ModelCallFailureEvidence } from './evidence';
 import type { ExperimentReleaseReference } from '../runtime/experiment-release';
+import type { ResidentPublicActionCommitment } from './public-commitment';
 
 export type ResidentMindAction = {
   name: string;
@@ -69,6 +70,8 @@ export type ResidentMindDecision = {
   disposition: 'act' | 'wait' | 'no_action';
   /** Short public intention retained in the entity loom; never provider-private reasoning. */
   utterance: string | null;
+  /** Structured public commitment required only by the legible-resident-v1 treatment. */
+  publicCommitment?: ResidentPublicActionCommitment | null;
   action: {
     name: string;
     input: unknown;

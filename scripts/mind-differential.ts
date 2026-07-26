@@ -21,7 +21,11 @@ import { profileDirectResidentRequest } from '../src/mind/request-profile';
 import { createResidentMindRequestArtifact } from '../src/mind/request-artifact';
 import { minecraftBodyProfile, type MinecraftBodyProfile } from '../src/mind/minecraft-body';
 import { startLLMPolicy } from '../src/policy/llm';
-import { residentPolicyProfile, type ResidentPolicyProfile } from '../src/policy/profile';
+import {
+  residentPolicyProfile,
+  usesHumanSemanticPolicySurface,
+  type ResidentPolicyProfile,
+} from '../src/policy/profile';
 
 type CandidateAdapter = 'ax' | 'direct';
 type Args = {
@@ -85,7 +89,7 @@ async function main() {
       runStarted?.data?.controller?.actionProfile ??
       (bodyProfile === 'minecraft-human-semantic-v1'
         ? 'minecraft-human-semantic-v1'
-        : policyProfile === 'neutral-benchmark-v1'
+        : usesHumanSemanticPolicySurface(policyProfile)
           ? 'minecraft-player-v1'
           : 'resident-v1'),
   );
@@ -93,7 +97,7 @@ async function main() {
     args.safetyProfile ??
       baselineRecord.data.safetyProfile ??
       runStarted?.data?.controller?.safetyProfile ??
-      (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+      (usesHumanSemanticPolicySurface(policyProfile) ? 'vanilla-player-v1' : 'resident-safe-v1'),
   );
   const allowTools = Array.isArray(runStarted?.data?.controller?.allowTools)
     ? runStarted.data.controller.allowTools.map(String)

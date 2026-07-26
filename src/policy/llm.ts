@@ -24,6 +24,11 @@ import type {
   ResidentMindDecision,
   ResidentMindRequest,
 } from '../mind/interface';
+import {
+  renderResidentPublicActionCommitment,
+  residentPublicActionCommitment,
+  type ResidentPublicActionCommitment,
+} from '../mind/public-commitment';
 import { createDirectResidentMind } from '../mind/direct';
 import { residentMindRequestSha256 } from '../mind/request-artifact';
 import { attributeProviderRequestBody } from '../mind/request-attribution';
@@ -44,7 +49,13 @@ import {
   type MinecraftActionProfile,
   type MinecraftSafetyProfile,
 } from '../agent/action-profiles';
-import { isNeutralPolicy, residentPolicyProfile, type ResidentPolicyProfile } from './profile';
+import {
+  isNeutralPolicy,
+  residentPolicyProfile,
+  usesHumanSemanticPolicySurface,
+  usesResidentV1Behavior,
+  type ResidentPolicyProfile,
+} from './profile';
 import {
   minecraftBodyProfile,
   projectHumanSemanticValue,
@@ -181,6 +192,7 @@ type TurnDraft = {
   modelObservation: any;
   requestSha256: string;
   assistant: any;
+  publicCommitment: ResidentPublicActionCommitment | null;
   attention: ResidentAttention;
   experimentRelease: ExperimentReleaseReference | null;
 };
@@ -190,6 +202,7 @@ type ValidatedModelDecision = {
   intent: Intent | null;
   toolCallId: string | null;
   wait: boolean;
+  publicCommitment: ResidentPublicActionCommitment | null;
   call: ModelCallEvidence;
 };
 
@@ -344,17 +357,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const policyProfile = residentPolicyProfile(opts.policyProfile);
   const bodyProfile = minecraftBodyProfile(
     opts.bodyProfile ??
-      (policyProfile === 'neutral-benchmark-v1'
+      (usesHumanSemanticPolicySurface(policyProfile)
         ? 'minecraft-human-semantic-v1'
         : 'minecraft-resident-v1'),
   );
   const actionProfile = minecraftActionProfile(
     opts.actionProfile ??
-      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-human-semantic-v1' : 'resident-v1'),
+      (usesHumanSemanticPolicySurface(policyProfile)
+        ? 'minecraft-human-semantic-v1'
+        : 'resident-v1'),
   );
   const safetyProfile = minecraftSafetyProfile(
     opts.safetyProfile ??
-      (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+      (usesHumanSemanticPolicySurface(policyProfile) ? 'vanilla-player-v1' : 'resident-safe-v1'),
   );
   if (usesHumanSemanticBody(bodyProfile) !== (actionProfile === 'minecraft-human-semantic-v1')) {
     throw new Error(
@@ -386,7 +401,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const executableTools = allow
     ? profiledTools.filter((spec) => allow.has(spec.function.name))
     : profiledTools;
-  const waitToolSpec = isNeutralPolicy(policyProfile) ? NEUTRAL_WAIT_TOOL_SPEC : WAIT_TOOL_SPEC;
+  const waitToolSpec = usesResidentV1Behavior(policyProfile)
+    ? WAIT_TOOL_SPEC
+    : NEUTRAL_WAIT_TOOL_SPEC;
   const modelTools = executableTools.some((spec) => spec.function.name === WAIT_TOOL)
     ? executableTools
     : [...executableTools, waitToolSpec];
@@ -635,9 +652,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         attention,
         policyProfile,
       );
-      const requiredTool = isNeutralPolicy(policyProfile)
-        ? null
-        : requiredSelfDirectionTool(currentObservation, availableTools, allow);
+      const requiredTool = usesResidentV1Behavior(policyProfile)
+        ? requiredSelfDirectionTool(currentObservation, availableTools, allow)
+        : null;
       const experimentRelease = opts.experimentRelease?.() ?? null;
       if (opts.experimentRelease && !experimentRelease) {
         throw new Error('resident cognition cannot begin before experiment release');
@@ -736,6 +753,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               requiredTool,
               decisionModel,
               requestSha256,
+              policyProfile,
             );
           } catch (error: any) {
             const call = modelCallFromError(error);
@@ -781,6 +799,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         modelObservation: cloneJson(modelObservation),
         requestSha256: decision.requestSha256,
         assistant,
+        publicCommitment: decision.publicCommitment,
         attention,
         experimentRelease,
       };
@@ -888,7 +907,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         repeatedActionCount = 1;
       }
       if (
-        !isNeutralPolicy(policyProfile) &&
+        usesResidentV1Behavior(policyProfile) &&
         intent.tool !== 'attack_entity' &&
         repeatedActionCount >= 3
       ) {
@@ -912,7 +931,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       if (
-        !isNeutralPolicy(policyProfile) &&
+        usesResidentV1Behavior(policyProfile) &&
         EMBODIED_ACTION_TOOLS.has(intent.tool) &&
         intent.tool === failedEmbodiedTool &&
         failedEmbodiedCount >= 3
@@ -936,7 +955,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       if (
-        !isNeutralPolicy(policyProfile) &&
+        usesResidentV1Behavior(policyProfile) &&
         intent.tool === MANAGE_PROJECT_TOOL &&
         consecutiveProjectActions >= 1
       ) {
@@ -960,7 +979,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       if (
-        !isNeutralPolicy(policyProfile) &&
+        usesResidentV1Behavior(policyProfile) &&
         COMMUNICATION_TOOLS.has(intent.tool) &&
         consecutiveCommunicationActions >= 2
       ) {
@@ -1341,7 +1360,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             }),
           }
         : {}),
-      utterance: { assistant: draft.assistant },
+      utterance: {
+        assistant: draft.assistant,
+        ...(draft.publicCommitment ? { publicCommitment: draft.publicCommitment } : {}),
+      },
       action: { ...action, source: 'llm' },
       outcome,
       nextObservation,
@@ -1509,6 +1531,15 @@ export function controllerSystemPrompt(
       'You are embodied in Minecraft and receive only this body’s bounded lived observation.',
       'Choose exactly one currently admitted action, or explicitly yield when you choose not to act.',
       'An action is only a proposal until Minecraft returns its terminal result; do not claim an unobserved consequence.',
+    ].join('\n');
+  }
+  if (profile === 'legible-resident-v1') {
+    return [
+      'You are a persistent embodied Minecraft resident. Your own lived trajectory and public commitments are your continuing identity.',
+      'Direct your own conduct from what this body currently perceives and remembers; no task, project, or next goal is supplied by this charter.',
+      'Attend to your body, the surrounding environment, and other residents as independent beings with their own lives.',
+      'Minecraft outcomes are authoritative. Adapt to what actually happens, and never turn an expectation or unobserved consequence into fact.',
+      'For exactly one currently admitted action, publish one short intention and one expected observable consequence. They are public commitments for later continuity, never private reasoning.',
     ].join('\n');
   }
   const tools = new Set(specs.map((spec) => spec.function.name));
@@ -1702,7 +1733,7 @@ function availableModelTools(
     // urgent attention, but defer bookkeeping until the body is no longer
     // demanding an immediate choice.
     if (
-      !isNeutralPolicy(profile) &&
+      usesResidentV1Behavior(profile) &&
       (hasBodilyUrgency(attention) || isCriticalBodyCondition(frame?.self?.condition)) &&
       spec.function.name === MANAGE_PROJECT_TOOL
     ) {
@@ -2039,8 +2070,9 @@ function conversationForAttention(
             ]),
     ].join('\n'),
   };
-  const urgentHandoff = isNeutralPolicy(profile)
-    ? {
+  const urgentHandoff = usesResidentV1Behavior(profile)
+    ? residentUrgentHandoff
+    : {
         role: 'system',
         content: [
           'A newer lived observation superseded unfinished model work. No interrupted proposal executed unless a terminal result says it did.',
@@ -2054,8 +2086,7 @@ function conversationForAttention(
             : []),
           'The admitted action surface is unchanged by this notice, and no response has been selected or recommended.',
         ].join('\n'),
-      }
-    : residentUrgentHandoff;
+      };
   const recentActions = recentActionContinuity
     ? {
         role: 'system',
@@ -2392,6 +2423,7 @@ function validateMindDecision(
   requiredAction: string | null,
   expectedModel: string,
   expectedMindRequestSha256: string,
+  policyProfile: ResidentPolicyProfile,
 ): ValidatedModelDecision {
   if (decision?.protocol !== 'behold.mind-decision.v1') {
     throw new Error('mind returned an unsupported decision protocol');
@@ -2426,6 +2458,22 @@ function validateMindDecision(
     );
   }
   const content = typeof decision.utterance === 'string' ? decision.utterance : null;
+  let publicCommitment: ResidentPublicActionCommitment | null = null;
+  if (policyProfile === 'legible-resident-v1') {
+    try {
+      publicCommitment = residentPublicActionCommitment(decision.publicCommitment);
+    } catch (error: any) {
+      fail(`mind returned no valid legible-resident public commitment: ${error?.message}`);
+    }
+    if (content !== renderResidentPublicActionCommitment(publicCommitment)) {
+      fail('mind public commitment does not match its replayable utterance');
+    }
+    if (decision.disposition === 'no_action' || !decision.action) {
+      fail('legible-resident decision must carry exactly one admitted action');
+    }
+  } else if (decision.publicCommitment != null) {
+    fail('mind returned a legible-resident public commitment under another policy treatment');
+  }
 
   if (decision.disposition === 'no_action') {
     if (requiredAction) fail(`mind yielded no action while ${requiredAction} was required`);
@@ -2435,6 +2483,7 @@ function validateMindDecision(
       intent: null,
       toolCallId: null,
       wait: false,
+      publicCommitment,
       call,
     };
   }
@@ -2480,6 +2529,7 @@ function validateMindDecision(
       intent: null,
       toolCallId,
       wait: true,
+      publicCommitment,
       call,
     };
   }
@@ -2488,6 +2538,7 @@ function validateMindDecision(
     intent: toIntent(name, input),
     toolCallId,
     wait: false,
+    publicCommitment,
     call,
   };
 }

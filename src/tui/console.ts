@@ -20,7 +20,11 @@ import {
   isImmediateAttentionEvent,
   startLLMPolicy,
 } from '../policy/llm';
-import { residentPolicyProfile, type ResidentPolicyProfile } from '../policy/profile';
+import {
+  residentPolicyProfile,
+  usesHumanSemanticPolicySurface,
+  type ResidentPolicyProfile,
+} from '../policy/profile';
 import { createAxResidentMind } from '../mind/ax';
 import {
   minecraftBodyProfile,
@@ -31,6 +35,7 @@ import { isCognitionTransportEnabled } from '../mind/cognition';
 import { openRouterRoutePolicyFromEnvironment } from '../mind/openrouter-route';
 import { ollamaLocalPolicyFromEnvironment } from '../mind/ollama-local';
 import { createOllamaLocalResidentMind } from '../mind/ollama';
+import { assertOllamaLocalJsonActionTreatment } from '../mind/ollama-json-action';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
 import { createProjectMemory } from '../entity/projects';
@@ -109,14 +114,16 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const bodyProfile = minecraftBodyProfile(
     opts.bodyProfile ??
       process.env.BEHOLD_BODY_PROFILE ??
-      (policyProfile === 'neutral-benchmark-v1'
+      (usesHumanSemanticPolicySurface(policyProfile)
         ? 'minecraft-human-semantic-v1'
         : 'minecraft-resident-v1'),
   );
   const actionProfile = minecraftActionProfile(
     opts.actionProfile ??
       process.env.BEHOLD_ACTION_PROFILE ??
-      (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-human-semantic-v1' : 'resident-v1'),
+      (usesHumanSemanticPolicySurface(policyProfile)
+        ? 'minecraft-human-semantic-v1'
+        : 'resident-v1'),
   );
   if (usesHumanSemanticBody(bodyProfile) !== (actionProfile === 'minecraft-human-semantic-v1')) {
     throw new Error(
@@ -126,7 +133,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const safetyProfile = minecraftSafetyProfile(
     opts.safetyProfile ??
       process.env.BEHOLD_SAFETY_PROFILE ??
-      (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+      (usesHumanSemanticPolicySurface(policyProfile) ? 'vanilla-player-v1' : 'resident-safe-v1'),
   );
   const mindAdapter = residentMindAdapter(process.env.BEHOLD_MIND);
   const cognitionTransport = isCognitionTransportEnabled(process.env.BEHOLD_COGNITION_TRANSPORT);
@@ -134,6 +141,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     process.env.BEHOLD_OPENROUTER_ROUTE_POLICY,
   );
   const ollamaLocal = ollamaLocalPolicyFromEnvironment(process.env.BEHOLD_OLLAMA_LOCAL_POLICY);
+  if (policyProfile === 'legible-resident-v1' && !ollamaLocal) {
+    throw new Error('legible-resident-v1 requires the strict local JSON v2 transport');
+  }
+  if (ollamaLocal) assertOllamaLocalJsonActionTreatment({ policyProfile }, ollamaLocal);
   if (providerRoute && mindAdapter !== 'direct') {
     throw new Error('OpenRouter route policy requires the direct resident mind adapter');
   }

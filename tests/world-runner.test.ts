@@ -44,7 +44,10 @@ import { readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom'
 import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
 } from '../src/mind/ollama-json-action';
 import { FIXED_DECISION_PILOT_SCHEDULE_PROTOCOL } from '../src/policy/fixed-decision-pilot';
 
@@ -56,6 +59,15 @@ function fixtureOllamaTransport(templateDigest = 'c'.repeat(64)) {
     protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
     schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
     schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+    templateSha256: templateDigest,
+  } as const;
+}
+
+function fixtureOllamaTransportV2(templateDigest = 'c'.repeat(64)) {
+  return {
+    protocol: OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
+    schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
+    schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
     templateSha256: templateDigest,
   } as const;
 }
@@ -482,6 +494,71 @@ test('managed Ollama population settings fail before world or daemon inspection'
         },
       ),
     (error: any) => error?.code === 'resident_ollama_common_settings_mismatch',
+  );
+  assert.equal(inspections, 0);
+});
+
+test('managed admission binds legible-resident-v1 to strict local JSON v2 before inspection', async (t) => {
+  const fixture = makeFixture(t);
+  let inspections = 0;
+  const dependencies = {
+    inspectRuntime: async () => {
+      inspections += 1;
+      return runtimeEvidence(null);
+    },
+    verifyArtifacts: async () => ARTIFACTS_OK,
+  };
+  const localPolicy = (transport: ReturnType<typeof fixtureOllamaTransport>) => ({
+    protocol: 'behold.ollama-local-policy.v2' as const,
+    endpoint: 'http://127.0.0.1:11434/api/chat',
+    modelTag: 'test/model',
+    modelDigest: 'a'.repeat(64),
+    transport,
+    settings: {
+      contextTokens: 16_384,
+      maxOutputTokens: 512,
+      temperature: 0.2,
+      keepAlive: '5m',
+    },
+  });
+  const baseResident = {
+    entityId: 'LegibleLife',
+    model: 'test/model',
+    mind: 'direct' as const,
+    policyProfile: 'legible-resident-v1' as const,
+  };
+
+  await assert.rejects(
+    () => startManagedWorld({ ...fixture.options, residents: [baseResident] }, dependencies),
+    (error: any) => error?.code === 'resident_legible_transport_missing',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          residents: [{ ...baseResident, ollamaLocal: localPolicy(fixtureOllamaTransport()) }],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_ollama_treatment_mismatch',
+  );
+  await assert.rejects(
+    () =>
+      startManagedWorld(
+        {
+          ...fixture.options,
+          residents: [
+            {
+              ...baseResident,
+              policyProfile: 'neutral-benchmark-v1' as const,
+              ollamaLocal: localPolicy(fixtureOllamaTransportV2() as any),
+            },
+          ],
+        },
+        dependencies,
+      ),
+    (error: any) => error?.code === 'resident_ollama_treatment_mismatch',
   );
   assert.equal(inspections, 0);
 });

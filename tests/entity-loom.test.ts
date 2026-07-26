@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  assertEntityTurnPublicCommitment,
   assertEntityConnectionCapability,
   historyMessages,
   openEntityLoom,
@@ -54,6 +55,32 @@ function turn(sequence: number, parentId: string | null, entityId = 'Scout'): En
     outcome: { ok: true, eventType: 'action_completed', result: { ok: true } },
     nextObservation: { sequence: sequence + 1 },
   };
+}
+
+function legibleTurn(): EntityTurn {
+  const publicCommitment = {
+    protocol: 'behold.resident-public-action-commitment.v1' as const,
+    policyProfile: 'legible-resident-v1' as const,
+    intention: 'Approach the visible tree to continue learning this place',
+    expectedObservableConsequence: 'The tree should appear nearer in the next view',
+  };
+  const value = turn(1, null, 'LegibleScout');
+  value.profiles = {
+    policy: 'legible-resident-v1',
+    body: 'minecraft-human-semantic-v1',
+    actions: 'minecraft-human-semantic-v1',
+    safety: 'vanilla-player-v1',
+  };
+  value.utterance = {
+    assistant: {
+      role: 'assistant',
+      content:
+        'Intention: Approach the visible tree to continue learning this place\nExpected observable consequence: The tree should appear nearer in the next view',
+      tool_calls: value.utterance.assistant.tool_calls,
+    },
+    publicCommitment,
+  };
+  return value;
 }
 
 function oxfordPilotShapedTurn(): EntityTurn {
@@ -280,6 +307,40 @@ test('model replay keeps the visible decision but not provider-private reasoning
   assert.equal(assistant.tool_calls[0].function.name, 'status');
   assert.equal(JSON.stringify(assistant).includes('provider-private'), false);
   assert.equal(JSON.stringify(assistant).includes('duplicate hidden chain'), false);
+});
+
+test('legible-resident public commitments persist and replay exactly while tamper fails closed', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-legible-commitment-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const expected = legibleTurn();
+  const life = await openEntityLoom(expected.entityId, root);
+  await life.append(expected);
+  await life.close();
+
+  const reopened = await openEntityLoom(expected.entityId, root);
+  const stored = reopened.turns()[0];
+  assert.deepEqual(stored?.utterance.publicCommitment, expected.utterance.publicCommitment);
+  assert.deepEqual(assertEntityTurnPublicCommitment(stored!), expected.utterance.publicCommitment);
+  const replay = historyMessages([stored!]);
+  assert.equal(replay[1]?.role, 'assistant');
+  assert.equal(replay[1]?.content, expected.utterance.assistant.content);
+  assert.match(replay[2]?.content, /action_completed/);
+  await reopened.close();
+
+  const contentTamper = structuredClone(expected);
+  contentTamper.utterance.assistant.content = 'Intention: something else';
+  assert.throws(() => historyMessages([contentTamper]), /does not match its replayable utterance/);
+
+  const commitmentTamper = structuredClone(expected);
+  (commitmentTamper.utterance.publicCommitment as any).intention = 'Something else';
+  assert.throws(
+    () => historyMessages([commitmentTamper]),
+    /does not match its replayable utterance/,
+  );
+
+  const treatmentTamper = structuredClone(expected);
+  treatmentTamper.profiles!.policy = 'neutral-benchmark-v1';
+  assert.throws(() => historyMessages([treatmentTamper]), /commitment under another treatment/);
 });
 
 test('human-semantic Lync turns bind a safe readable projection to unchanged private pilot frames', async () => {

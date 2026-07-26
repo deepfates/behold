@@ -168,7 +168,7 @@ Environment Variables
 - `LLM_MODEL` — exact OpenRouter model slug (default `google/gemini-3.5-flash`)
 - `LLM_URGENT_MODEL` — optional separately authorized model for newly urgent bodily attention
 - `BEHOLD_MIND` — bounded decision adapter: `direct` (default) or `ax`
-- `BEHOLD_POLICY_PROFILE` — `resident-v1` (default) or strategy-neutral `neutral-benchmark-v1`
+- `BEHOLD_POLICY_PROFILE` — `resident-v1` (default), strategy-minimal `neutral-benchmark-v1`, or the narrow chartered `legible-resident-v1`
 - `BEHOLD_BODY_PROFILE` — `minecraft-resident-v1` or the human-comparable semantic contract `minecraft-human-semantic-v1`
 - `BEHOLD_ACTION_PROFILE` — `resident-v1`, legacy `minecraft-player-v1`, or the cursor/key-like `minecraft-human-semantic-v1` surface
 - `BEHOLD_SAFETY_PROFILE` — `resident-safe-v1` or `vanilla-player-v1`; the latter exposes risky actions that ordinary Minecraft permits
@@ -181,6 +181,7 @@ LLM Autopilot (optional)
 - The console starts a resident policy that proposes one admitted action at a time using the same command registry you use as a human. `BEHOLD_MIND=ax` uses Ax structured generation; Behold still validates and executes every proposal.
 - For a new neutral evaluation, set `BEHOLD_POLICY_PROFILE=neutral-benchmark-v1`. Unless explicitly overridden, that selects the matching `minecraft-human-semantic-v1` body and action contracts plus `vanilla-player-v1` risk. Every managed run journals all four profile identities. The older `minecraft-player-v1` action benchmark must now be selected explicitly with `minecraft-resident-v1`.
 - The exact v1 human-comparable contract, exclusions, unchanged causal kernel, and conformance plan live in [Human-comparable semantic Minecraft body](docs/HUMAN_SEMANTIC_BODY.md).
+- The exact charter, strict public-commitment response, persistence boundary, and comparison with the two older policy profiles live in [Legible resident treatment v1](docs/LEGIBLE_RESIDENT_TREATMENT.md).
 
 Trajectory counterfactuals
 

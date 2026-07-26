@@ -9,6 +9,7 @@ import {
 } from './ollama-local';
 import {
   createOllamaLocalJsonActionRequest,
+  OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
   parseOllamaLocalJsonActionDecision,
 } from './ollama-json-action';
 import { residentMindRequestSha256 } from './request-artifact';
@@ -33,6 +34,8 @@ export function createOllamaLocalResidentMind(
   const requestFetch = options.fetch ?? fetch;
   const policy = ollamaLocalPolicy(options.policy);
   const endpoint = safeEndpoint(options.endpoint);
+  const adapterVersion =
+    policy.transport.protocol === OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL ? 'v2' : 'v1';
   if (!options.cognitionTransport || String(options.bearer || '').length < 32) {
     throw new Error('Ollama local resident mind requires the authenticated cognition broker');
   }
@@ -94,7 +97,7 @@ export function createOllamaLocalResidentMind(
           `Ollama local decision transport error: ${error?.message || String(error)}`,
           {
             protocol: 'behold.model-call.v1',
-            adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
+            adapter: { name: 'direct-ollama-local-json-action', version: adapterVersion },
             requestId,
             endpoint,
             startedAt,
@@ -115,7 +118,7 @@ export function createOllamaLocalResidentMind(
         const completedAt = now();
         throw new ResidentMindCallError(`Ollama local decision ${response.status}`, {
           protocol: 'behold.model-call.v1',
-          adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
+          adapter: { name: 'direct-ollama-local-json-action', version: adapterVersion },
           requestId,
           endpoint,
           startedAt,
@@ -138,7 +141,7 @@ export function createOllamaLocalResidentMind(
         const completedAt = now();
         throw new ResidentMindCallError('Ollama local decision returned malformed JSON', {
           protocol: 'behold.model-call.v1',
-          adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
+          adapter: { name: 'direct-ollama-local-json-action', version: adapterVersion },
           requestId,
           endpoint,
           startedAt,
@@ -161,7 +164,7 @@ export function createOllamaLocalResidentMind(
           'Ollama local decision returned unadmitted model identity',
           {
             protocol: 'behold.model-call.v1',
-            adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
+            adapter: { name: 'direct-ollama-local-json-action', version: adapterVersion },
             requestId,
             endpoint,
             startedAt,
@@ -181,7 +184,7 @@ export function createOllamaLocalResidentMind(
       const usage = ollamaUsage(data);
       const call: ModelCallEvidence = {
         protocol: 'behold.model-call.v1',
-        adapter: { name: 'direct-ollama-local-json-action', version: 'v1' },
+        adapter: { name: 'direct-ollama-local-json-action', version: adapterVersion },
         requestId,
         endpoint,
         startedAt,
@@ -201,7 +204,7 @@ export function createOllamaLocalResidentMind(
         },
       };
       try {
-        return parseOllamaLocalJsonActionDecision(data, request, call);
+        return parseOllamaLocalJsonActionDecision(data, request, call, policy);
       } catch (error: any) {
         throw new ResidentMindCallError(
           `Ollama local decision returned malformed output: ${error?.message || String(error)}`,

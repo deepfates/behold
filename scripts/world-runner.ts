@@ -55,6 +55,7 @@ import {
   type OllamaLocalPolicy,
   type OllamaLocalPreflight,
 } from '../src/mind/ollama-local';
+import { assertOllamaLocalJsonActionTreatment } from '../src/mind/ollama-json-action';
 import {
   COGNITION_TRANSPORT_PROTOCOL,
   cognitionAccountId,
@@ -66,7 +67,11 @@ import {
   type MinecraftActionProfile,
   type MinecraftSafetyProfile,
 } from '../src/agent/action-profiles';
-import { residentPolicyProfile, type ResidentPolicyProfile } from '../src/policy/profile';
+import {
+  residentPolicyProfile,
+  usesHumanSemanticPolicySurface,
+  type ResidentPolicyProfile,
+} from '../src/policy/profile';
 import {
   FIXED_DECISION_PILOT_SLOT_COUNT,
   assertFixedDecisionPilotPopulation,
@@ -863,13 +868,13 @@ function normalizeManagedResidents(
         policyProfile = residentPolicyProfile(candidate.policyProfile);
         bodyProfile = minecraftBodyProfile(
           candidate.bodyProfile ??
-            (policyProfile === 'neutral-benchmark-v1'
+            (usesHumanSemanticPolicySurface(policyProfile)
               ? 'minecraft-human-semantic-v1'
               : 'minecraft-resident-v1'),
         );
         actionProfile = minecraftActionProfile(
           candidate.actionProfile ??
-            (policyProfile === 'neutral-benchmark-v1'
+            (usesHumanSemanticPolicySurface(policyProfile)
               ? 'minecraft-human-semantic-v1'
               : 'resident-v1'),
         );
@@ -883,7 +888,9 @@ function normalizeManagedResidents(
         }
         safetyProfile = minecraftSafetyProfile(
           candidate.safetyProfile ??
-            (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+            (usesHumanSemanticPolicySurface(policyProfile)
+              ? 'vanilla-player-v1'
+              : 'resident-safe-v1'),
         );
       } catch (error: any) {
         throw new WorldRunnerError(
@@ -996,6 +1003,24 @@ function normalizeManagedResidents(
           'resident_transport_policy_conflict',
           { index, entityId },
         );
+      }
+      if (policyProfile === 'legible-resident-v1' && !ollamaLocal) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} legible-resident-v1 requires the strict local JSON v2 transport`,
+          'resident_legible_transport_missing',
+          { index, entityId, policyProfile },
+        );
+      }
+      if (ollamaLocal) {
+        try {
+          assertOllamaLocalJsonActionTreatment({ policyProfile }, ollamaLocal);
+        } catch (error: any) {
+          throw new WorldRunnerError(
+            `Resident ${entityId} policy and Ollama transport differ: ${error?.message || String(error)}`,
+            'resident_ollama_treatment_mismatch',
+            { index, entityId, policyProfile, transport: ollamaLocal.transport.protocol },
+          );
+        }
       }
       let decisionSchedule: FixedDecisionPilotSchedule | undefined;
       try {
@@ -3959,19 +3984,21 @@ export async function runCli(argv = process.argv.slice(2)) {
     const bodyProfile = minecraftBodyProfile(
       parsed.values.bodyProfile ||
         process.env.BEHOLD_BODY_PROFILE ||
-        (policyProfile === 'neutral-benchmark-v1'
+        (usesHumanSemanticPolicySurface(policyProfile)
           ? 'minecraft-human-semantic-v1'
           : 'minecraft-resident-v1'),
     );
     const actionProfile = minecraftActionProfile(
       parsed.values.actionProfile ||
         process.env.BEHOLD_ACTION_PROFILE ||
-        (policyProfile === 'neutral-benchmark-v1' ? 'minecraft-human-semantic-v1' : 'resident-v1'),
+        (usesHumanSemanticPolicySurface(policyProfile)
+          ? 'minecraft-human-semantic-v1'
+          : 'resident-v1'),
     );
     const safetyProfile = minecraftSafetyProfile(
       parsed.values.safetyProfile ||
         process.env.BEHOLD_SAFETY_PROFILE ||
-        (policyProfile === 'neutral-benchmark-v1' ? 'vanilla-player-v1' : 'resident-safe-v1'),
+        (usesHumanSemanticPolicySurface(policyProfile) ? 'vanilla-player-v1' : 'resident-safe-v1'),
     );
     const tickMs = Number(parsed.values.tickMs || process.env.AGENT_TICK_MS || 4000);
     residents = controllerEntityIds.map((entityId, index) => ({
@@ -4097,12 +4124,12 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1|legible-resident-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Repeat --body in the same order only when a life ID differs from its Minecraft username.',
     '--residents accepts a behold.managed-resident-set.v1 JSON document and cannot be mixed with resident-level flags.',
-    'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 defaults to the matching minecraft-human-semantic-v1 body/action surface and vanilla-player-v1 risk policy.',
+    'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 and legible-resident-v1 default to the matching minecraft-human-semantic-v1 body/action surface and vanilla-player-v1 risk policy; legible-resident-v1 additionally requires the strict local JSON v2 transport.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'With --viewerBasePort, each resident gets one loopback-only, first-person, read-only Prismarine Viewer endpoint on consecutive ports; --viewerDistance defaults to 6.',
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',
