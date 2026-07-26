@@ -114,6 +114,12 @@ attempt quotas survive owner epochs and recovery. See
 [Experiment accounting v1](EXPERIMENT_ACCOUNTING.md) for exact counter meanings
 and the evidence boundary.
 
+The ordinary `behold live` entry treats each stopped/resumed episode as a new
+bounded accounting scope under the stable live-session namespace. This lets a
+continuing life receive a new declared episode budget without rewriting or
+refilling any prior ledger. It does not equalize actual calls between residents,
+change cognition concurrency, or imply a fair model comparison.
+
 Quota-controlled mode also enables the all-ready experiment release barrier.
 Every resident must use the same body, action, and safety profile, and none may
 be `paused`: the bodies connect and synchronize with their normal policies and

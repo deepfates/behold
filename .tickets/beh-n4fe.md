@@ -453,3 +453,16 @@ resident causality or duplicating Textile's presenter. Focused provider-free
 fixtures cover exact preservation and ambiguous/missing-log refusal. The v2
 aftermath has not yet been exercised on a new live episode, native human
 co-presence and Textile presentation remain open, and `beh-n4fe` remains open.
+
+**2026-07-26T13:52:00Z**
+
+The retained ordinary live state exposed a continuation defect: its session-wide
+accounting scope had accumulated 58/64 Qwen attempts and 32/64 Gemma attempts.
+An exact resume would soon leave Qwen permanently out of cognition budget even
+though the operator had begun a separately bounded episode. `behold live` now
+derives one authenticated provider-attempt scope per six-digit episode beneath
+the persistent session namespace. World, body, life loom, population, model,
+and old ledgers remain unchanged; only the new episode receives its declared
+hard ceiling. Actual use is neither equalized nor scheduled for parity. A pure
+fixture proves stable separation between episode scopes. No resident or world
+was run, and behavioral acceptance remains open.

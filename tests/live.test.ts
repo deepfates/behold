@@ -3,7 +3,26 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { listPlaceServerLogs, preservePlaceServerLog } from '../src/cli/live';
+import {
+  listPlaceServerLogs,
+  liveEpisodeAccountingScope,
+  preservePlaceServerLog,
+} from '../src/cli/live';
+
+test('live resumes durable lives with a fresh bounded accounting scope per episode', () => {
+  assert.equal(
+    liveEpisodeAccountingScope('oxford-living:living', '000003'),
+    'oxford-living:living:episode:000003',
+  );
+  assert.notEqual(
+    liveEpisodeAccountingScope('oxford-living:living', '000003'),
+    liveEpisodeAccountingScope('oxford-living:living', '000004'),
+  );
+  assert.throws(
+    () => liveEpisodeAccountingScope('oxford-living:living', '3'),
+    /six-digit episode id/,
+  );
+});
 
 test('live aftermath preserves the one new Place server log byte-for-byte', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-ecology-'));

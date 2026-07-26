@@ -64,8 +64,9 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   saves on time or Ctrl-C, and resumes the exact world and lives. Its v2
   aftermath preserves the Place-owned Minecraft server log byte-for-byte and
   authenticates each resident's body journals beside the original Lync sources.
-  This is composition and history mechanics, not evidence of adaptive conduct
-  or native human co-presence.
+  Each episode receives a fresh declared attempt scope without refilling an old
+  ledger or balancing unequal resident use. This is composition and history
+  mechanics, not evidence of adaptive conduct or native human co-presence.
 - The retained installed GPT-OSS/llama.cpp frontier did not clear the cognition
   gate. The unchanged resident request took 14.495 and 22.748 seconds and failed
   strict JSON both times. Explicit diagnostic low reasoning produced valid

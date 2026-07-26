@@ -192,6 +192,7 @@ export async function runLiveCli(argv: string[]) {
       }
       assertPlaceServedAuthority(established.descriptor, authority);
     }
+    const accountingScopeId = liveEpisodeAccountingScope(plan.accountingScopeId, episodeId);
 
     const lifecycleFilesBefore = new Set(liveLifecycleFiles(paths.control, plan.worldId));
     try {
@@ -215,7 +216,7 @@ export async function runLiveCli(argv: string[]) {
           },
           maxResidents: residents.length,
           maxConcurrentModelCalls,
-          accountingScopeId: plan.accountingScopeId,
+          accountingScopeId,
           ...(residents.some((resident) => resident.ollamaLocal != null)
             ? {
                 ollamaServerConfigFile:
@@ -286,6 +287,7 @@ export async function runLiveCli(argv: string[]) {
       transcriptTipDigest: transcript.tipDigest,
       entityRoot: paths.entities,
       ecologyLog,
+      accountingScopeId,
     });
     process.stdout.write(`\n[behold live] stopped cleanly\n`);
     process.stdout.write(`[behold live] aftermath: ${aftermath.file}\n`);
@@ -429,6 +431,7 @@ function writeAftermath(input: {
   transcriptTipDigest: string | null;
   entityRoot: string;
   ecologyLog: ReturnType<typeof preservePlaceServerLog>;
+  accountingScopeId: string;
 }) {
   const lives = input.run.residents.map((resident) => {
     const directory = path.join(input.entityRoot, sanitizeName(resident.entityId), 'lync');
@@ -451,6 +454,7 @@ function writeAftermath(input: {
     completedAt: input.completedAt,
     worldId: input.head.worldId,
     terminalWorldDigest: input.head.runtimeDigest,
+    accountingScopeId: input.accountingScopeId,
     experimentRelease: input.run.experimentRelease,
     lifecycle: {
       file: input.run.control.journalFile,
@@ -573,6 +577,17 @@ function nextEpisodeId(episodesRoot: string) {
         .map((entry) => Number(entry.name)),
     ) + 1;
   return String(ordinal).padStart(6, '0');
+}
+
+export function liveEpisodeAccountingScope(sessionScopeId: string, episodeId: string) {
+  const scope = typeof sessionScopeId === 'string' ? sessionScopeId.trim() : '';
+  if (!scope || scope.length > 512 || /[\r\n\0]/.test(scope)) {
+    throw new Error('live session accounting namespace is invalid');
+  }
+  if (!/^[0-9]{6}$/.test(episodeId)) {
+    throw new Error('live episode accounting scope requires a six-digit episode id');
+  }
+  return `${scope}:episode:${episodeId}`;
 }
 
 function findRepositoryRoot() {

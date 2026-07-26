@@ -44,8 +44,11 @@ Persistent living Place
   Lync sources using profile `org.behold.inhabitant.v1`; Behold does not rewrite
   them into a second history.
 - Repeating the exact command and session name resumes the same stopped world,
-  bodies, life looms, accounting scope, and resident configuration. Changing
-  the release or population under an existing name fails closed.
+  bodies, life looms, and resident configuration. Each new episode receives a
+  fresh, explicitly bounded provider-attempt scope under the persistent session
+  namespace; prior usage remains in its original ledger and is never balanced
+  between residents. Changing the release or population under an existing name
+  fails closed.
 
 Build and run Minecraft agents on your own server in minutes. Behold gives you:
 
