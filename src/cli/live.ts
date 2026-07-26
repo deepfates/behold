@@ -218,7 +218,7 @@ export async function runLiveCli(argv: string[]) {
               lmStudioModelsRoot: path.resolve(
                 String(
                   parsed.values['lmstudio-models-root'] ??
-                    path.join(os.homedir(), '.cache', 'lm-studio', 'models'),
+                    path.join(os.homedir(), '.lmstudio', 'models'),
                 ),
               ),
             }
