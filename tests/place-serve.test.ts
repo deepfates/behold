@@ -32,12 +32,15 @@ test('Place served-release adapter binds exact identity and acknowledged lifecyc
     fs.realpathSync.native(path.join(fixture.runtimeRoot, 'world')),
   );
 
+  const status: any = await authority.status();
+  assert.deepEqual(status.state, { lifecycle: 'ready', ticks: 'frozen' });
   const save: any = await authority.save('fixture_basis');
   assert.match(save.acknowledgement, /Saved the game/);
   await authority.unfreeze();
   await authority.freeze();
   const stopped = await authority.stop('fixture_complete');
-  assert.equal(stopped.code, 0);
+  assert.equal(stopped.exit.code, 0);
+  assert.match(String(stopped.saveAcknowledgement), /Saved the game/);
 
   const transcript = verifyPlaceServeTranscript(fixture.transcriptFile);
   const sent = transcript.events
@@ -45,10 +48,14 @@ test('Place served-release adapter binds exact identity and acknowledged lifecyc
     .map((event: any) => JSON.parse(event.line));
   assert.deepEqual(
     sent.map((request: any) => request.command),
-    ['freeze', 'save', 'unfreeze', 'freeze', 'stop'],
+    ['freeze', 'status', 'save', 'unfreeze', 'freeze', 'stop'],
   );
   for (const request of sent) {
     assert.equal(request.protocol, PLACE_SERVE_CONTROL_PROTOCOL);
+    if (request.command === 'status') {
+      assert.equal('expect' in request, false);
+      continue;
+    }
     assert.deepEqual(Object.keys(request.expect).sort(), [
       'minecraftServerSha256',
       'runtimeManifestSha256',

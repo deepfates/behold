@@ -3032,15 +3032,10 @@ async function settleExternalServerAuthority(input: {
   timeoutMs: number;
   reason: string;
 }) {
-  const failures: Array<{ phase: 'save' | 'stop' | 'exit'; message: string }> = [];
-  let saveAcknowledgement: unknown = null;
-  let stopAcknowledgement: ManagedServerAuthorityExit | null = null;
+  const failures: Array<{ phase: 'stop' | 'exit'; message: string }> = [];
+  let stopAcknowledgement: Awaited<ReturnType<ManagedExternalServerAuthority['stop']>> | null =
+    null;
   let exit: ProcessExit | null = null;
-  try {
-    saveAcknowledgement = await input.authority.save(input.reason);
-  } catch (error: any) {
-    failures.push({ phase: 'save', message: error?.message || String(error) });
-  }
   try {
     stopAcknowledgement = await withTimeout(
       input.authority.stop(input.reason),
@@ -3057,7 +3052,7 @@ async function settleExternalServerAuthority(input: {
   }
   return Object.freeze({
     protocol: 'behold.external-server-settlement.v1' as const,
-    saveAcknowledgement,
+    saveAcknowledgement: stopAcknowledgement?.saveAcknowledgement ?? null,
     stopAcknowledgement,
     exit,
     failures: Object.freeze(failures),

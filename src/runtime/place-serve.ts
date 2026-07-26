@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline';
 import type {
   ManagedExternalServerAuthority,
   ManagedServerAuthorityExit,
+  ManagedServerAuthorityStop,
 } from './minecraft-server-authority';
 
 export const PLACE_SERVE_CONTROL_PROTOCOL = 'place-compiler-serve-control/v1' as const;
@@ -54,7 +55,7 @@ export type StartFrozenPlaceServeInput = Readonly<{
   serverJar?: string;
   port?: number;
   maxPlayers?: number;
-  expectedPlaceCompilerRevision?: string;
+  expectedPlaceCompilerRevision: string;
   startupTimeoutMs?: number;
 }>;
 
@@ -105,10 +106,7 @@ export async function startFrozenPlaceServeAuthority(
       checkout,
     );
   }
-  if (
-    input.expectedPlaceCompilerRevision &&
-    checkout.revision !== input.expectedPlaceCompilerRevision.toLowerCase()
-  ) {
+  if (checkout.revision !== requiredRevision(input.expectedPlaceCompilerRevision)) {
     throw new PlaceServeError(
       'Place Compiler revision differs from the admitted session',
       'place_serve_revision_mismatch',
@@ -190,7 +188,7 @@ export async function startFrozenPlaceServeAuthority(
       ...identity,
     });
     const runtimeWorldPath = resolvePlaceRuntimeWorld(identity);
-    let stopPromise: Promise<ManagedServerAuthorityExit> | null = null;
+    let stopPromise: Promise<ManagedServerAuthorityStop> | null = null;
     const authority: FrozenPlaceServeAuthority = Object.freeze({
       protocol: 'behold.external-minecraft-server-authority.v1' as const,
       kind: 'place-release-serve' as const,
@@ -208,6 +206,17 @@ export async function startFrozenPlaceServeAuthority(
       minecraftServerJar: serverJar,
       transcriptFile: transcript.file,
       exit: control.exit,
+      async status() {
+        const terminal = await control.command('status');
+        if (terminal.state?.lifecycle !== 'ready') {
+          throw new PlaceServeError(
+            'Place status did not report the admitted ready lifecycle',
+            'place_serve_status_unproven',
+            terminal,
+          );
+        }
+        return terminal;
+      },
       async freeze() {
         const terminal = await control.command('freeze');
         assertCommandState(terminal, 'freeze', 'frozen');
@@ -257,7 +266,13 @@ export async function startFrozenPlaceServeAuthority(
                 { stopped, exit },
               );
             }
-            return exit;
+            return Object.freeze({
+              protocol: 'behold.external-minecraft-server-stop.v1' as const,
+              saveAcknowledgement: terminal.acknowledgement,
+              commandTerminal: terminal,
+              stopped,
+              exit,
+            });
           })();
         }
         return stopPromise;
@@ -297,6 +312,7 @@ function createPlaceServeControl(input: {
   let ordinal = 0;
   let commandTail = Promise.resolve<unknown>(null);
   let terminalFailure: Error | null = null;
+  let stoppedRecord: any = null;
   const pending = new Map<
     string,
     { command: PlaceServeCommand; resolve(value: any): void; reject(error: Error): void }
@@ -323,7 +339,7 @@ function createPlaceServeControl(input: {
   void stopped.catch(() => {});
   const exit = new Promise<ManagedServerAuthorityExit>((resolve, reject) => {
     input.child.once('error', (error) => reject(error));
-    input.child.once('exit', (code, signal) => {
+    input.child.once('close', (code, signal) => {
       input.transcript.close();
       resolve({ name: 'place-release-serve', code, signal });
     });
@@ -352,6 +368,9 @@ function createPlaceServeControl(input: {
       if (event.event === 'prepared') {
         if (prepared || readyIdentity) throw new Error('duplicate or late prepared event');
         prepared = parsePlaceIdentity(event.identity, false, input);
+        if (event.state?.lifecycle !== 'prepared' || event.state?.ticks !== 'unknown') {
+          throw new Error('prepared event has the wrong lifecycle state');
+        }
         return;
       }
       if (event.event === 'ready') {
@@ -392,6 +411,17 @@ function createPlaceServeControl(input: {
         if (!readyIdentity || !samePlaceIdentity(event.identity, readyIdentity)) {
           throw new Error('stopped identity drifted');
         }
+        if (
+          stoppedRecord ||
+          event.state?.lifecycle !== 'stopped' ||
+          !event.java ||
+          event.java.pid !== readyIdentity.processes.javaPid ||
+          typeof event.java.cleanExit !== 'boolean' ||
+          !Number.isInteger(event.java.exitCode)
+        ) {
+          throw new Error('stopped event has invalid lifecycle or Java evidence');
+        }
+        stoppedRecord = event;
         resolveStopped(event);
         return;
       }
@@ -417,10 +447,12 @@ function createPlaceServeControl(input: {
     }
   });
   void exit.then((result) => {
-    if (result.code !== 0 && !terminalFailure) {
+    if (!terminalFailure && (result.code !== 0 || !stoppedRecord)) {
       fail(
         new PlaceServeError(
-          `Place serve process exited ${String(result.code ?? result.signal)}`,
+          !stoppedRecord
+            ? 'Place serve process closed without a final stopped record'
+            : `Place serve process exited ${String(result.code ?? result.signal)}`,
           'place_serve_process_exited',
           result,
         ),
@@ -571,6 +603,17 @@ function inspectPlaceCheckout(root: string) {
   }
   const diff = spawnSync('git', ['-C', root, 'diff', '--quiet', 'HEAD', '--', '.']);
   return Object.freeze({ revision: revision.stdout.trim(), clean: diff.status === 0 });
+}
+
+function requiredRevision(value: unknown) {
+  const revision = String(value || '').toLowerCase();
+  if (!/^[a-f0-9]{40}$/.test(revision)) {
+    throw new PlaceServeError(
+      'Place Compiler expected revision must be an exact commit',
+      'place_serve_revision_required',
+    );
+  }
+  return revision;
 }
 
 function resolvePlaceServerJar(root: string, explicit?: string) {

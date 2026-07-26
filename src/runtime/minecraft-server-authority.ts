@@ -4,6 +4,15 @@ export type ManagedServerAuthorityExit = Readonly<{
   signal: NodeJS.Signals | null;
 }>;
 
+export type ManagedServerAuthorityStop = Readonly<{
+  protocol: 'behold.external-minecraft-server-stop.v1';
+  /** The authority-owned final save acknowledgement, not a Behold console write. */
+  saveAcknowledgement: unknown;
+  commandTerminal: unknown;
+  stopped: unknown;
+  exit: ManagedServerAuthorityExit;
+}>;
+
 /**
  * An already-started Minecraft server whose process lifecycle belongs to an
  * exact external authority. Behold owns inhabitants and its world epoch after
@@ -24,8 +33,9 @@ export type ManagedExternalServerAuthority = Readonly<{
   initialTickEvidence: unknown;
   identity: Readonly<Record<string, unknown>>;
   exit: Promise<ManagedServerAuthorityExit>;
+  status(): Promise<unknown>;
   freeze(): Promise<unknown>;
   save(reason: string): Promise<unknown>;
   unfreeze(): Promise<unknown>;
-  stop(reason: string): Promise<ManagedServerAuthorityExit>;
+  stop(reason: string): Promise<ManagedServerAuthorityStop>;
 }>;

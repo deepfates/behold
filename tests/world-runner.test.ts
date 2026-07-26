@@ -1104,6 +1104,10 @@ test('managed release adopts an exact frozen external server authority without t
       worldTreeSha256: 'b'.repeat(64),
     }),
     exit,
+    async status() {
+      commands.push({ command: 'status' });
+      return { state: { lifecycle: 'ready', ticks: 'frozen' } };
+    },
     async freeze() {
       commands.push({ command: 'freeze' });
       return { acknowledgedBy: 'minecraft', tickState: 'frozen' };
@@ -1121,7 +1125,13 @@ test('managed release adopts an exact frozen external server authority without t
       externalAlive = false;
       const terminal = { name: 'place-release-serve', code: 0 as const, signal: null };
       resolveExit(terminal);
-      return terminal;
+      return {
+        protocol: 'behold.external-minecraft-server-stop.v1' as const,
+        saveAcknowledgement: { acknowledgedBy: 'minecraft', saved: true, command: 'stop' },
+        commandTerminal: { command: 'stop', acknowledgement: 'Saved the game' },
+        stopped: { event: 'stopped', java: { pid: 9002, cleanExit: true, exitCode: 0 } },
+        exit: terminal,
+      };
     },
   };
 
@@ -1176,7 +1186,7 @@ test('managed release adopts an exact frozen external server authority without t
   await run.finished;
   assert.deepEqual(
     commands.map(({ command }) => command),
-    ['save', 'save', 'unfreeze', 'save', 'stop'],
+    ['save', 'save', 'unfreeze', 'stop'],
   );
   const terminal = verifyWorldLifecycleJournal(run.control.journalFile).events.find(
     (event) => event.type === 'run_terminal_world_state',

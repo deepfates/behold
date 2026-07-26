@@ -309,6 +309,9 @@ function makeFixture(t: test.TestContext) {
     minecraftServerJar: path.join(root, 'fixture-server.jar'),
     transcriptFile,
     exit,
+    async status() {
+      return { state: { lifecycle: 'ready', ticks: 'frozen' } };
+    },
     async freeze() {
       return freezeTerminal;
     },
@@ -319,7 +322,13 @@ function makeFixture(t: test.TestContext) {
       return null;
     },
     async stop() {
-      return exit;
+      return {
+        protocol: 'behold.external-minecraft-server-stop.v1' as const,
+        saveAcknowledgement: '[Server thread/INFO]: Saved the game',
+        commandTerminal: { command: 'stop', acknowledgement: 'Saved the game' },
+        stopped: { event: 'stopped', java: { pid: identity.processes.javaPid } },
+        exit: await exit,
+      };
     },
   });
   return {
