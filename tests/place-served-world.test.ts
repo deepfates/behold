@@ -10,6 +10,7 @@ import {
   assertPlaceServedAuthority,
   assertPlaceServedResumeContinuity,
   establishPlaceServedWorldBasis,
+  reconcilePlaceSavedFailedStartHead,
   reconcileRecoveredPlaceServedWorldHead,
   recordPlaceServedWorldHead,
   verifyPlaceServedWorldBasis,
@@ -290,6 +291,109 @@ test('a completed abandoned-after-save recovery can authenticate the stopped wor
 
   assert.equal(head.terminalKind, 'recovered_after_save');
   assert.equal(head.lifecycle.terminalSequence, terminal.sequence);
+  assert.equal(
+    assertPlaceServedResumeContinuity(established.descriptor.paths.descriptor, fixture.headFile)
+      .runtime.digest,
+    digestTree(fixture.runtimeWorld).digest,
+  );
+});
+
+test('a clean Place stop can reconcile an unreleased failed-start cleanup race', (t) => {
+  const fixture = makeFixture(t);
+  const established = establishPlaceServedWorldBasis(
+    {
+      sessionRoot: fixture.sessionRoot,
+      authority: fixture.authority,
+      saveEvidence: fixture.saveTerminal,
+    },
+    { assertAuthorityOwnership: () => {} },
+  );
+  fs.writeFileSync(path.join(fixture.runtimeWorld, 'level.dat'), 'Place saved after failed start');
+  const control = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: established.descriptor.worldId,
+    runtimePath: fixture.runtimeWorld,
+  });
+  const failed = control.append('run_start_failed', { error: 'missing cognition credential' });
+  control.update('stopping');
+  control.append('failed_start_cleanup_started');
+  control.append('failed_start_cleanup_failed', { error: 'Place stop still settling' });
+  control.update('recovery_required', { server: null, controllers: [] });
+
+  const lifecycleLines = fs.readFileSync(control.journalFile, 'utf8').trim().split('\n');
+  const lifecycleTip = JSON.parse(lifecycleLines.at(-1)!).digest;
+  const ownerFile = path.join(fixture.controlRoot, established.descriptor.worldId, 'owner.json');
+  const preparedFile = path.join(fixture.sessionRoot, 'place-save-recovery.prepared.json');
+  const completedFile = path.join(fixture.sessionRoot, 'place-save-recovery.completed.json');
+  const prepared = {
+    protocol: 'behold.world-recovery-evidence.v1',
+    phase: 'prepared',
+    classification: 'abandoned_unclean_shutdown',
+    world: established.descriptor.worldId,
+    epoch: control.record().epoch,
+    owner: { file: ownerFile },
+    lifecycle: {
+      file: fs.realpathSync.native(control.journalFile),
+      tipDigest: lifecycleTip,
+      eventCount: lifecycleLines.length,
+      saveAcknowledged: false,
+    },
+    runtime: {
+      runtimePath: established.descriptor.paths.runtimeWorld,
+      runtimeSessionLock: { state: 'clear' },
+      serverPort: { state: 'clear' },
+    },
+  };
+  fs.writeFileSync(preparedFile, `${JSON.stringify(prepared)}\n`);
+  const completed = {
+    protocol: 'behold.world-recovery-evidence.v1',
+    phase: 'completed',
+    classification: 'abandoned_unclean_shutdown',
+    world: established.descriptor.worldId,
+    epoch: control.record().epoch,
+    preparedEvidence: fs.realpathSync.native(preparedFile),
+    preparedSha256: sha256File(preparedFile),
+    releasedOwnerFile: ownerFile,
+    releasedControllerLeases: [],
+  };
+  fs.unlinkSync(ownerFile);
+  fs.writeFileSync(completedFile, `${JSON.stringify(completed)}\n`);
+
+  const transcriptFile = path.join(fixture.sessionRoot, 'failed-place-control.jsonl');
+  writeTranscript(transcriptFile, [
+    {
+      protocol: 'place-compiler-serve-control/v1',
+      event: 'ready',
+      identity: fixture.identity,
+      state: { lifecycle: 'ready', ticks: 'running' },
+    },
+    {
+      protocol: 'place-compiler-serve-control/v1',
+      event: 'command_terminal',
+      requestId: 'behold:stop',
+      command: 'stop',
+      ok: true,
+      identity: fixture.identity,
+      state: { lifecycle: 'stopped', ticks: 'frozen' },
+      acknowledgement: 'Saved the game',
+    },
+    {
+      protocol: 'place-compiler-serve-control/v1',
+      event: 'stopped',
+      identity: fixture.identity,
+      state: { lifecycle: 'stopped', ticks: 'frozen' },
+      java: { pid: fixture.identity.processes.javaPid, cleanExit: true, exitCode: 0 },
+    },
+  ]);
+
+  const head = reconcilePlaceSavedFailedStartHead({
+    descriptorFile: established.descriptor.paths.descriptor,
+    recoveryEvidenceFile: completedFile,
+    placeTranscriptFile: transcriptFile,
+    headFile: fixture.headFile,
+  });
+  assert.equal(head.terminalKind, 'recovered_after_place_save');
+  assert.equal(head.lifecycle.terminalSequence, failed.sequence);
   assert.equal(
     assertPlaceServedResumeContinuity(established.descriptor.paths.descriptor, fixture.headFile)
       .runtime.digest,

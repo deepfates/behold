@@ -16,7 +16,7 @@ export const PLACE_SERVED_WORLD_PROTOCOL = 'behold.place-served-world.v1' as con
 export const PLACE_SERVED_WORLD_HEAD_PROTOCOL = 'behold.place-served-world-head.v1' as const;
 
 type PlaceServedWorldTerminalKind =
-  'completed_run' | 'failed_start_cleanup' | 'recovered_after_save';
+  'completed_run' | 'failed_start_cleanup' | 'recovered_after_save' | 'recovered_after_place_save';
 
 export type PlaceServedWorldDescriptor = Readonly<{
   protocol: typeof PLACE_SERVED_WORLD_PROTOCOL;
@@ -352,17 +352,21 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
       (event) => event.sequence === head.lifecycle.terminalSequence,
     );
     const terminalKind = placeServedWorldTerminalKind(terminal?.type);
-    const recovered = head.terminalKind === 'recovered_after_save';
-    const completed = recovered
+    const recoveredLifecycle = head.terminalKind === 'recovered_after_save';
+    const recoveredPlace = head.terminalKind === 'recovered_after_place_save';
+    const recovered = recoveredLifecycle || recoveredPlace;
+    const completed = recoveredLifecycle
       ? verifyRecoveredHeadEvidence(head, lifecycle, descriptor)
-      : terminal
-        ? placeServedWorldTerminalCompletion(
-            lifecycle.events,
-            terminal.sequence,
-            terminalKind,
-            descriptor,
-          )
-        : null;
+      : recoveredPlace
+        ? verifyRecoveredPlaceSavedHeadEvidence(head, lifecycle, descriptor)
+        : terminal
+          ? placeServedWorldTerminalCompletion(
+              lifecycle.events,
+              terminal.sequence,
+              terminalKind,
+              descriptor,
+            )
+          : null;
     if (
       lifecycle.world !== descriptor.worldId ||
       lifecycle.tipDigest !== head.lifecycle.tipDigest ||
@@ -370,8 +374,9 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
       (!recovered && terminalKind == null) ||
       (!recovered && head.terminalKind != null && head.terminalKind !== terminalKind) ||
       terminal.digest !== head.lifecycle.terminalDigest ||
-      (terminal.data as any)?.protocol !== 'behold.managed-terminal-world-state.v1' ||
-      (terminal.data as any)?.tree?.digest !== head.runtimeDigest ||
+      (!recoveredPlace &&
+        (terminal.data as any)?.protocol !== 'behold.managed-terminal-world-state.v1') ||
+      (!recoveredPlace && (terminal.data as any)?.tree?.digest !== head.runtimeDigest) ||
       !completed
     ) {
       throw new Error('Place served-world head does not name a clean terminal lifecycle');
@@ -528,6 +533,72 @@ export function reconcileRecoveredPlaceServedWorldHead(input: {
   return head;
 }
 
+/**
+ * Reconciles the narrower failure where Behold rejected the run before any
+ * resident was released, its early cleanup probe raced Place's owned stop,
+ * and Place subsequently proved an exact clean save/exit in its immutable
+ * control transcript. The recovery evidence still has to prove that every
+ * recorded process is dead and the runtime is stopped and clear.
+ */
+export function reconcilePlaceSavedFailedStartHead(input: {
+  descriptorFile: string;
+  recoveryEvidenceFile: string;
+  placeTranscriptFile: string;
+  headFile: string;
+  now?: () => Date;
+}) {
+  const { descriptor } = verifyPlaceServedWorldBasis(input.descriptorFile);
+  const evidence = readCompletedRecovery(input.recoveryEvidenceFile, descriptor);
+  if (
+    evidence.completed.classification !== 'abandoned_unclean_shutdown' ||
+    evidence.prepared.classification !== 'abandoned_unclean_shutdown' ||
+    evidence.prepared.lifecycle?.saveAcknowledged !== false
+  ) {
+    throw new Error('Only an unclean failed-start recovery can use Place save reconciliation');
+  }
+  const lifecycle = verifyWorldLifecycleJournal(evidence.prepared.lifecycle.file);
+  const failed = lifecycle.events.find((event) => event.type === 'run_start_failed');
+  if (
+    lifecycle.world !== descriptor.worldId ||
+    lifecycle.tipDigest !== evidence.prepared.lifecycle.tipDigest ||
+    lifecycle.events.length !== evidence.prepared.lifecycle.eventCount ||
+    lifecycle.events.at(-1)?.type !== 'control_state_changed' ||
+    (lifecycle.events.at(-1)?.data as any)?.state !== 'recovery_required' ||
+    !failed ||
+    lifecycle.events.some(
+      (event) => event.type === 'experiment_released' || event.type === 'controller_started',
+    ) ||
+    evidence.prepared.runtime?.runtimePath !== descriptor.paths.runtimeWorld ||
+    evidence.prepared.runtime?.runtimeSessionLock?.state !== 'clear' ||
+    evidence.prepared.runtime?.serverPort?.state !== 'clear'
+  ) {
+    throw new Error('Recovered lifecycle is not an unreleased stopped failed start');
+  }
+  const place = verifyStoppedPlaceTranscript(input.placeTranscriptFile, descriptor);
+  const runtime = digestTree(descriptor.paths.runtimeWorld);
+  const base = {
+    protocol: PLACE_SERVED_WORLD_HEAD_PROTOCOL,
+    worldId: descriptor.worldId,
+    updatedAt: (input.now?.() ?? new Date()).toISOString(),
+    runtimeDigest: runtime.digest,
+    terminalKind: 'recovered_after_place_save' as const,
+    lifecycle: {
+      file: lifecycle.file,
+      terminalSequence: failed.sequence,
+      terminalDigest: failed.digest,
+      tipDigest: lifecycle.tipDigest,
+    },
+    recovery: recoveryHeadEvidence(evidence),
+    place,
+  };
+  const head = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
+  if (!verifyRecoveredPlaceSavedHeadEvidence(head, lifecycle, descriptor)) {
+    throw new Error('Place-saved failed-start head failed its own verification');
+  }
+  atomicWriteJson(input.headFile, head);
+  return head;
+}
+
 function verifyRecoveredHeadEvidence(
   head: any,
   lifecycle: any,
@@ -564,6 +635,138 @@ function verifyRecoveredHeadEvidence(
     (terminal.data as any)?.tree?.digest === head.runtimeDigest
     ? completed
     : null;
+}
+
+function verifyRecoveredPlaceSavedHeadEvidence(
+  head: any,
+  lifecycle: any,
+  descriptor: PlaceServedWorldDescriptor,
+) {
+  if (head.terminalKind !== 'recovered_after_place_save') return null;
+  let evidence;
+  let place;
+  try {
+    evidence = readCompletedRecovery(head.recovery?.completedEvidenceFile, descriptor);
+    place = verifyStoppedPlaceTranscript(head.place?.transcriptFile, descriptor);
+  } catch {
+    return null;
+  }
+  const failed = lifecycle.events.find(
+    (event: any) => event.sequence === head.lifecycle.terminalSequence,
+  );
+  return evidence.completed.classification === 'abandoned_unclean_shutdown' &&
+    evidence.prepared.classification === 'abandoned_unclean_shutdown' &&
+    evidence.prepared.lifecycle?.saveAcknowledged === false &&
+    evidence.prepared.lifecycle?.file === lifecycle.file &&
+    evidence.prepared.lifecycle?.tipDigest === lifecycle.tipDigest &&
+    sha256File(evidence.completedFile) === head.recovery.completedEvidenceSha256 &&
+    sha256File(evidence.preparedFile) === head.recovery.preparedEvidenceSha256 &&
+    failed?.type === 'run_start_failed' &&
+    !lifecycle.events.some(
+      (event: any) => event.type === 'experiment_released' || event.type === 'controller_started',
+    ) &&
+    stableJson(place) === stableJson(head.place)
+    ? evidence.completed
+    : null;
+}
+
+function readCompletedRecovery(
+  recoveryEvidenceFile: string,
+  descriptor: PlaceServedWorldDescriptor,
+) {
+  const completedFile = plainFile(recoveryEvidenceFile, 'completed world recovery evidence');
+  const completed = readJson(completedFile);
+  const preparedFile = plainFile(completed.preparedEvidence, 'prepared world recovery evidence');
+  const prepared = readJson(preparedFile);
+  if (
+    completed.protocol !== 'behold.world-recovery-evidence.v1' ||
+    completed.phase !== 'completed' ||
+    completed.world !== descriptor.worldId ||
+    completed.preparedSha256 !== sha256File(preparedFile) ||
+    prepared.protocol !== 'behold.world-recovery-evidence.v1' ||
+    prepared.phase !== 'prepared' ||
+    prepared.world !== descriptor.worldId ||
+    completed.classification !== prepared.classification ||
+    completed.epoch !== prepared.epoch ||
+    completed.releasedOwnerFile !== prepared.owner?.file ||
+    fs.existsSync(completed.releasedOwnerFile)
+  ) {
+    throw new Error('World recovery evidence is not complete or authentic');
+  }
+  return { completedFile, completed, preparedFile, prepared };
+}
+
+function recoveryHeadEvidence(evidence: ReturnType<typeof readCompletedRecovery>) {
+  return {
+    completedEvidenceFile: evidence.completedFile,
+    completedEvidenceSha256: sha256File(evidence.completedFile),
+    preparedEvidenceFile: evidence.preparedFile,
+    preparedEvidenceSha256: sha256File(evidence.preparedFile),
+  };
+}
+
+function verifyStoppedPlaceTranscript(
+  transcriptFileValue: string,
+  descriptor: PlaceServedWorldDescriptor,
+) {
+  const transcript = verifyPlaceServeTranscript(transcriptFileValue);
+  const parsed = transcript.events.map((event: any) => ({
+    event,
+    message: JSON.parse(event.line),
+  }));
+  const ready = parsed.find(({ message }: any) => message.event === 'ready');
+  const stopTerminal = parsed.find(
+    ({ message }: any) =>
+      message.event === 'command_terminal' &&
+      message.command === 'stop' &&
+      message.ok === true &&
+      message.state?.lifecycle === 'stopped' &&
+      typeof message.acknowledgement === 'string',
+  );
+  const stopped = parsed.find(
+    ({ event, message }: any) =>
+      event.sequence > (stopTerminal?.event.sequence ?? Number.MAX_SAFE_INTEGER) &&
+      message.event === 'stopped' &&
+      message.state?.lifecycle === 'stopped' &&
+      message.java?.cleanExit === true &&
+      message.java?.exitCode === 0,
+  );
+  if (
+    !ready ||
+    !stopTerminal ||
+    !stopped ||
+    !placeMessageIdentityMatches(ready.message.identity, descriptor) ||
+    !placeMessageIdentityMatches(stopTerminal.message.identity, descriptor) ||
+    !placeMessageIdentityMatches(stopped.message.identity, descriptor) ||
+    ready.message.identity?.processes?.javaPid !== stopped.message.java?.pid
+  ) {
+    throw new Error('Place transcript does not prove an exact clean saved stop');
+  }
+  return {
+    transcriptFile: transcript.file,
+    transcriptSha256: sha256File(transcript.file),
+    transcriptTipDigest: transcript.tipDigest,
+    stopTerminalSequence: stopTerminal.event.sequence,
+    stopTerminalLineSha256: stopTerminal.event.lineSha256,
+    stoppedSequence: stopped.event.sequence,
+    stoppedLineSha256: stopped.event.lineSha256,
+  };
+}
+
+function placeMessageIdentityMatches(identity: any, descriptor: PlaceServedWorldDescriptor) {
+  return (
+    identity?.placeId === descriptor.origin.placeId &&
+    identity?.placeName === descriptor.display.placeName &&
+    identity?.sourceRunId === descriptor.origin.sourceRunId &&
+    identity?.profileId === descriptor.origin.profileId &&
+    identity?.minecraftVersion === descriptor.origin.minecraftVersion &&
+    identity?.sourceReleaseManifestSha256 === descriptor.origin.sourceReleaseManifestSha256 &&
+    identity?.sourceWorldTreeSha256 === descriptor.origin.sourceWorldTreeSha256 &&
+    identity?.minecraftServerSha256 === descriptor.origin.minecraftServerSha256 &&
+    identity?.runtimeManifestSha256 === descriptor.origin.runtimeManifestSha256 &&
+    identity?.releasePath === descriptor.paths.release &&
+    identity?.runtimePath === descriptor.paths.runtimeRoot
+  );
 }
 
 function placeServedWorldTerminalKind(type: unknown): PlaceServedWorldTerminalKind | null {
