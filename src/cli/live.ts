@@ -29,6 +29,7 @@ import {
 
 const PLACE_SERVE_REVISION = '103deac629d8f784ea22d956c890de77334d730a' as const;
 const LIVE_SESSION_PROTOCOL = 'behold.live-session.v1' as const;
+const LIVE_RESIDENT_REVISION_PROTOCOL = 'behold.live-resident-revision.v1' as const;
 const LIVE_EPISODE_RECORD_PROTOCOL = 'behold.live-episode-record.v1' as const;
 const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
 const LIVE_LYNC_SNAPSHOT_PROTOCOL = 'behold.live-lync-snapshot.v1' as const;
@@ -55,6 +56,7 @@ export async function runLiveCli(argv: string[]) {
       'max-model-concurrency': { type: 'string' },
       'lmstudio-models-root': { type: 'string' },
       'native-player': { type: 'string' },
+      'change-minds': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
     allowPositionals: true,
@@ -114,14 +116,30 @@ export async function runLiveCli(argv: string[]) {
   }
   const residentSetSha256 = sha256(stableJson(residents));
   const existingPlan = fs.existsSync(paths.plan) ? readLivePlan(paths.plan) : null;
+  let residentRevision: ReturnType<typeof readLiveResidentRevision> | null = null;
   if (existingPlan) {
     if (
       existingPlan.sessionId !== sessionId ||
-      existingPlan.releaseManifestSha256 !== releaseManifestSha256 ||
-      existingPlan.residentSetSha256 !== residentSetSha256 ||
-      stableJson(existingPlan.residents) !== stableJson(residents)
+      existingPlan.releaseManifestSha256 !== releaseManifestSha256
     ) {
-      throw new Error('live session identity differs from its persistent population or release');
+      throw new Error('live session identity differs from its persistent release');
+    }
+    const current = latestLiveResidentRevision(paths.residentRevisions, existingPlan);
+    if (stableJson(current.residents) !== stableJson(residents)) {
+      if (parsed.values['change-minds'] !== true) {
+        throw new Error(
+          'live resident minds differ from the persistent session; repeat with --change-minds for an explicit mind-only revision',
+        );
+      }
+      assertLiveMindRevisionCompatible(current.residents, residents);
+      residentRevision = writeLiveResidentRevision({
+        directory: paths.residentRevisions,
+        sessionId,
+        previousDigest: current.digest,
+        residents,
+      });
+    } else {
+      residentRevision = current.revision;
     }
     assertPlaceServedResumeContinuity(paths.descriptor, paths.head);
   } else if (fs.existsSync(paths.descriptor)) {
@@ -358,6 +376,7 @@ export async function runLiveCli(argv: string[]) {
       ecologyLog,
       accountingScopeId,
       nativeHuman,
+      residentRevision,
     });
     process.stdout.write(`\n[behold live] stopped cleanly\n`);
     process.stdout.write(`[behold live] episode record: ${episodeRecord.file}\n`);
@@ -451,6 +470,7 @@ function liveSessionPaths(sessionRoot: string) {
     control: path.join(sessionRoot, 'control'),
     entities: path.join(sessionRoot, 'entities'),
     runs: path.join(sessionRoot, 'runs'),
+    residentRevisions: path.join(sessionRoot, 'resident-revisions'),
   });
 }
 
@@ -520,6 +540,7 @@ function writeEpisodeRecord(input: {
   ecologyLog: ReturnType<typeof preservePlaceServerLog>;
   accountingScopeId: string;
   nativeHuman: ReturnType<typeof assessNativeHumanEntry> | null;
+  residentRevision: ReturnType<typeof readLiveResidentRevision> | null;
 }) {
   const episodeRoot = path.dirname(path.resolve(input.file));
   const lives = input.run.residents.map((resident) => {
@@ -553,6 +574,7 @@ function writeEpisodeRecord(input: {
     worldId: input.head.worldId,
     terminalWorldDigest: input.head.runtimeDigest,
     accountingScopeId: input.accountingScopeId,
+    residentRevision: input.residentRevision,
     experimentRelease: input.run.experimentRelease,
     lifecycle: {
       file: input.run.control.journalFile,
@@ -871,6 +893,121 @@ export function liveEpisodeAccountingScope(sessionScopeId: string, episodeId: st
   return `${scope}:episode:${episodeId}`;
 }
 
+export function assertLiveMindRevisionCompatible(
+  previous: readonly Record<string, any>[],
+  next: readonly Record<string, any>[],
+) {
+  if (
+    stableJson(previous.map(liveResidentContinuityIdentity)) !==
+    stableJson(next.map(liveResidentContinuityIdentity))
+  ) {
+    throw new Error(
+      'live --change-minds may change only model, mind transport, urgent model, and provider quotas; resident identity, body, charter, cadence, and steering must remain unchanged',
+    );
+  }
+}
+
+function liveResidentContinuityIdentity(resident: Record<string, any>) {
+  const {
+    model: _model,
+    urgentModel: _urgentModel,
+    mind: _mind,
+    providerQuotas: _providerQuotas,
+    providerRoute: _providerRoute,
+    ollamaLocal: _ollamaLocal,
+    lmStudioLocal: _lmStudioLocal,
+    ...continuity
+  } = resident;
+  return continuity;
+}
+
+function latestLiveResidentRevision(directory: string, plan: ReturnType<typeof readLivePlan>) {
+  const files = fs.existsSync(directory)
+    ? fs
+        .readdirSync(directory, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /^[0-9]{6}\.json$/.test(entry.name))
+        .map((entry) => path.join(directory, entry.name))
+        .sort()
+    : [];
+  let residents: readonly Record<string, any>[] = plan.residents;
+  let digest = plan.residentSetSha256;
+  let revision: ReturnType<typeof readLiveResidentRevision> | null = null;
+  for (const file of files) {
+    const next = readLiveResidentRevision(file);
+    if (next.sessionId !== plan.sessionId || next.previousDigest !== digest) {
+      throw new Error('live resident revision chain is not continuous with this session');
+    }
+    assertLiveMindRevisionCompatible(residents, next.residents);
+    residents = next.residents;
+    digest = next.digest;
+    revision = next;
+  }
+  return {
+    residents,
+    digest,
+    revision,
+  };
+}
+
+function writeLiveResidentRevision(input: {
+  directory: string;
+  sessionId: string;
+  previousDigest: string;
+  residents: readonly Record<string, any>[];
+}) {
+  fs.mkdirSync(input.directory, { recursive: true, mode: 0o700 });
+  const ordinal =
+    Math.max(
+      0,
+      ...fs
+        .readdirSync(input.directory, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /^[0-9]{6}\.json$/.test(entry.name))
+        .map((entry) => Number(entry.name.slice(0, 6))),
+    ) + 1;
+  const sequence = String(ordinal).padStart(6, '0');
+  const residentSetSha256 = sha256(stableJson(input.residents));
+  const base = {
+    protocol: LIVE_RESIDENT_REVISION_PROTOCOL,
+    sequence,
+    sessionId: input.sessionId,
+    changedAt: new Date().toISOString(),
+    previousDigest: input.previousDigest,
+    residentSetSha256,
+    residents: input.residents,
+  };
+  const revision = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
+  writeJsonExclusive(path.join(input.directory, `${sequence}.json`), revision);
+  return revision;
+}
+
+function readLiveResidentRevision(file: string) {
+  const value = readJson(file);
+  const { digest, ...base } = value;
+  if (
+    value.protocol !== LIVE_RESIDENT_REVISION_PROTOCOL ||
+    !/^[0-9]{6}$/.test(value.sequence) ||
+    typeof value.sessionId !== 'string' ||
+    typeof value.changedAt !== 'string' ||
+    typeof value.previousDigest !== 'string' ||
+    typeof value.residentSetSha256 !== 'string' ||
+    !Array.isArray(value.residents) ||
+    value.residentSetSha256 !== sha256(stableJson(value.residents)) ||
+    digest !== sha256(stableJson(base))
+  ) {
+    throw new Error('live resident revision is malformed or unauthenticated');
+  }
+  return deepFreeze(value) as Readonly<{
+    protocol: typeof LIVE_RESIDENT_REVISION_PROTOCOL;
+    sequence: string;
+    sessionId: string;
+    changedAt: string;
+    previousDigest: string;
+    residentSetSha256: string;
+    residents: readonly Record<string, any>[];
+    digest: string;
+  }>;
+}
+
 function findRepositoryRoot() {
   const candidates = [process.cwd(), path.resolve(__dirname, '..', '..', '..')];
   for (const candidate of candidates) {
@@ -1026,6 +1163,7 @@ export function liveUsage() {
     '  --max-model-concurrency N      Concurrent local cognition (default min(2, residents))',
     '  --lmstudio-models-root DIR     Exact local LM Studio artifact root',
     '  --native-player USERNAME       Require this operator-declared native human join',
+    '  --change-minds                 Explicitly revise only model/mind transport for the same lives',
     '',
     'Residents keep their declared human-semantic body, charter, model transport, and durable',
     'attempt ceilings. The ceiling is safety/resource governance, not a fairness claim.',

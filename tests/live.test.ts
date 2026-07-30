@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  assertLiveMindRevisionCompatible,
   assessNativeHumanEntry,
   listPlaceServerLogs,
   liveEpisodeAccountingScope,
@@ -11,6 +12,46 @@ import {
   preservePlaceServerLog,
   preserveTextileImport,
 } from '../src/cli/live';
+
+test('live mind revision preserves resident identity, body, charter, cadence, and steering', () => {
+  const original = [
+    {
+      entityId: 'Iris',
+      bodyUsername: 'IrisBody',
+      model: 'provider/model',
+      mind: 'direct',
+      policyProfile: 'legible-resident-v1',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      tickMs: 4000,
+      providerQuotas: { residentDecisionAttempts: 8, auxiliaryContextAttempts: 2 },
+      providerRoute: { protocol: 'provider' },
+    },
+  ];
+  assert.doesNotThrow(() =>
+    assertLiveMindRevisionCompatible(original, [
+      {
+        ...original[0],
+        model: 'local/model@4bit',
+        providerQuotas: { residentDecisionAttempts: 16, auxiliaryContextAttempts: 4 },
+        providerRoute: undefined,
+        lmStudioLocal: { protocol: 'local' },
+      },
+    ]),
+  );
+  for (const changed of [
+    { bodyUsername: 'OtherBody' },
+    { tickMs: 1000 },
+    { task: 'mine this block' },
+    { policyProfile: 'neutral-benchmark-v1' },
+  ]) {
+    assert.throws(
+      () => assertLiveMindRevisionCompatible(original, [{ ...original[0], ...changed }]),
+      /may change only model/,
+    );
+  }
+});
 
 test('live resumes durable lives with a fresh bounded accounting scope per episode', () => {
   assert.equal(

@@ -56,6 +56,10 @@ Persistent living Place
   namespace; prior usage remains in its original ledger and is never balanced
   between residents. Changing the release or population under an existing name
   fails closed.
+- `--change-minds` explicitly changes only model/mind transport and attempt
+  quotas for the same named residents. The append-only revision refuses changes
+  to bodies, profiles, cadence, tasks, or other steering, so a continuing life
+  can change minds without silently becoming another resident.
 
 Build and run Minecraft agents on your own server in minutes. Behold gives you:
 
