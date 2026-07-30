@@ -107,6 +107,19 @@ export type ConsoleOptions = {
   }) => Promise<void>;
 };
 
+export function incomingChatPolicySignal(
+  username: string,
+  managedBodyUsernames: ReadonlySet<string>,
+): 'wake' | 'resume' {
+  return managedBodyUsernames.has(
+    String(username || '')
+      .trim()
+      .toLowerCase(),
+  )
+    ? 'wake'
+    : 'resume';
+}
+
 export async function runConsole(opts: ConsoleOptions = {}) {
   if (opts.agentName) process.env.MINECRAFT_USERNAME = opts.bodyUsername || opts.agentName;
   else if (opts.bodyUsername) process.env.MINECRAFT_USERNAME = opts.bodyUsername;
@@ -487,10 +500,16 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   bot.on('playerLeft', (player: any) => recordExternalPlayerIntervention('left', player?.username));
   bot.on('chat', (user: string, text: string) => {
     if (user === (bot as any).username) return;
+    const policySignal = incomingChatPolicySignal(user, managedBodyUsernames);
     recordExternalPlayerIntervention('chat', user, { text });
     cache.chatTail.push({ user, text });
     cache.chatTail = cache.chatTail.slice(-3);
-    appendJournal(experimentActive ? 'chat_received' : 'setup_chat_received', { user, text });
+    appendJournal(experimentActive ? 'chat_received' : 'setup_chat_received', {
+      user,
+      text,
+      senderPopulation:
+        policySignal === 'wake' ? 'managed_resident_peer' : 'native_human_or_unmanaged_player',
+    });
     if (experimentActive) {
       taskRuntime?.permissions.recordIncomingChat(user, text);
       taskRuntime?.verifier.recordIncomingChat(user, text);
@@ -500,7 +519,8 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     if (!taskRuntime || user.toLowerCase() === taskRuntime.task.target?.toLowerCase()) {
       if (experimentActive) {
         engine?.muteLLM(false);
-        policy?.resume();
+        if (policySignal === 'resume') policy?.resume();
+        else policy?.wake();
       }
     } else {
       if (localWorldReady && experimentActive) policy?.wake();
