@@ -4,10 +4,12 @@ import { validateResidentActionInput } from '../src/mind/schema';
 
 const schema = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     target: { type: 'string', enum: ['entity:7', 'entity:9'] },
     on: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         x: { type: 'number' },
         y: { type: 'integer', minimum: -64, maximum: 320 },
@@ -31,13 +33,20 @@ test('resident action inputs validate against nested, bounded, enum, and array s
 
 test('resident action input validation reports every unsafe mismatch before admission', () => {
   const result = validateResidentActionInput(
-    { target: 'entity:hidden', on: { x: '1', y: 400.5 }, events: [7] },
+    {
+      target: 'entity:hidden',
+      on: { x: '1', y: 400.5, hiddenCoordinate: 12 },
+      events: [7],
+      extraControl: true,
+    },
     schema,
   );
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.deepEqual(result.errors, [
+    '$.extraControl: field is not declared',
     '$.target: value is outside enum',
+    '$.on.hiddenCoordinate: field is not declared',
     '$.on.x: expected finite number',
     '$.on.y: expected integer',
     '$.on.y: value is above maximum 320',

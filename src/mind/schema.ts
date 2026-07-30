@@ -7,6 +7,7 @@ const SUPPORTED_KEYS = new Set([
   'maximum',
   'description',
   'items',
+  'additionalProperties',
 ]);
 
 export type ResidentSchemaValidation =
@@ -55,6 +56,12 @@ function validateNode(value: unknown, schemaValue: unknown, path: string, errors
     for (const name of required) {
       if (!Object.prototype.hasOwnProperty.call(object, name)) {
         errors.push(`${path}.${name}: required field is missing`);
+      }
+    }
+    if (schema.additionalProperties === false) {
+      const declared = new Set(Object.keys(properties));
+      for (const name of Object.keys(object)) {
+        if (!declared.has(name)) errors.push(`${path}.${name}: field is not declared`);
       }
     }
     for (const [name, childSchema] of Object.entries(properties)) {

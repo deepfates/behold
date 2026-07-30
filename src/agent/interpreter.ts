@@ -73,6 +73,16 @@ type InterpreterOptions = {
   safetyProfile?: MinecraftSafetyProfile;
 };
 
+function closeResidentActionSchema(value: any): any {
+  if (Array.isArray(value)) return value.map(closeResidentActionSchema);
+  if (!value || typeof value !== 'object') return value;
+  const closed = Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, closeResidentActionSchema(child)]),
+  );
+  if (closed.type === 'object') closed.additionalProperties = false;
+  return closed;
+}
+
 export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   const specs: CommandSpec[] = [];
   const add = (s: CommandSpec) => {
@@ -80,7 +90,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     if ((s.audience ?? null) !== declared) {
       throw new Error(`action audience registry disagrees for ${s.name}`);
     }
-    specs.push(s);
+    specs.push({ ...s, parameters: closeResidentActionSchema(s.parameters) });
   };
 
   if (opts.projects) {
