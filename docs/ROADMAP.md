@@ -45,6 +45,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   authenticated current resident revision: ordinary resume and exact recovery
   no longer depend on retaining the original ignored operator JSON file, while
   new sessions and explicit `--change-minds` revisions still require one.
+  Episode 000028 exercised that shorter front door without `--residents`,
+  restored revision 000008 and both private lives, shared one Qwen weight
+  instance, advanced the completed world head, and printed the same
+  self-contained resume form.
 - Episodes 000022 and 000023 ran the ordinary Qwen 3.6 35B-A3B LM Studio
   configuration for ten minutes and then resumed the exact same stopped world
   and lives for five more. Both residents shared one physical weight instance
