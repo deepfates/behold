@@ -78,6 +78,26 @@ test('experience records before downstream delivery and contains observer failur
   experience.destroy();
 });
 
+test('cursor focus distinguishes visible nearby blocks from interaction range', () => {
+  const bot = fakeBot();
+  bot.world.raycast = (eye: Vec3, direction: Vec3, _range: number, matcher?: any) =>
+    matcher
+      ? null
+      : {
+          name: 'stone_bricks',
+          position: new Vec3(0, 64, -5),
+          intersect: eye.plus(direction.scaled(5.2)),
+          face: 3,
+        };
+  const experience = new InhabitantExperience(bot);
+
+  const focus = experience.observe().scene.focus;
+
+  assert.equal(focus?.distance, 5.2);
+  assert.equal(focus?.reachable, false);
+  experience.destroy();
+});
+
 test('inhabitant observation preserves embodied state, provenance, and new events', () => {
   let now = 1000;
   const bot = fakeBot();

@@ -250,6 +250,36 @@ test('a focused human action fails closed when the crosshair target changed afte
   assert.equal(digs, 0);
 });
 
+test('a nearby cursor block outside interaction range returns a recoverable body error', async () => {
+  const bot = baseBot();
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:0:64:-5',
+        kind: 'block',
+        name: 'stone_bricks',
+        source: 'cursor',
+        position: { x: 0, y: 64, z: -5 },
+        distance: 5.2,
+        reachable: false,
+        face: 'south',
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot).run(
+    'dig_focused_block',
+    {},
+    { observation: admitted },
+  );
+
+  assert.deepEqual(result, {
+    ok: false,
+    error: 'focused_block_outside_interaction_range',
+  });
+});
+
 test('an exact current cursor block is not rejected by a disagreeing visibility heuristic', async () => {
   const bot = baseBot();
   bot.game = { dimension: 'overworld' };

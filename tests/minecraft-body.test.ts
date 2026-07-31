@@ -81,6 +81,15 @@ test('human-semantic projection contains only JSON values when perception fields
   assertNoUndefinedValues(projected);
 });
 
+test('human-semantic focus proximity uses the same horizon as block interaction', () => {
+  const observation = rawObservation();
+  observation.scene.focus.distance = 4.5;
+  assert.equal(projectHumanSemanticObservation(observation).scene.focus.proximity, 'interaction');
+
+  observation.scene.focus.distance = 4.51;
+  assert.equal(projectHumanSemanticObservation(observation).scene.focus.proximity, 'nearby');
+});
+
 test('ground contact wins over Mineflayer resting velocity in semantic motion', () => {
   const grounded = rawObservation();
   grounded.self.pose.velocity = { x: 0, y: -0.1, z: 0 };

@@ -2,6 +2,7 @@ import {
   projectCurrentModelObservation,
   projectHistoricalModelObservation,
 } from './observation-context';
+import { HUMAN_SEMANTIC_INTERACTION_DISTANCE } from '../agent/action-profiles';
 
 export const MINECRAFT_BODY_PROFILES = [
   'minecraft-resident-v1',
@@ -308,7 +309,7 @@ function semanticProximity(value: any) {
 }
 
 function proximityBand(distance: number) {
-  if (distance <= 4) return 'interaction';
+  if (distance <= HUMAN_SEMANTIC_INTERACTION_DISTANCE) return 'interaction';
   if (distance <= 12) return 'nearby';
   return 'distant';
 }

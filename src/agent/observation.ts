@@ -1,6 +1,7 @@
 import type { Bot } from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { minecraftOxygenLevel } from './condition';
+import { HUMAN_SEMANTIC_INTERACTION_DISTANCE } from './action-profiles';
 
 export type ChatLine = { username: string; message: string; at: number } | null;
 
@@ -516,7 +517,11 @@ function visualField(
     depthRows: samples.map((row) => row.map(depthSymbol).join('')),
     materialLegend: names.map((name) => ({ symbol: symbols.get(name)!, name })),
     depthLegend: [
-      { symbol: '1', label: 'interaction', maxDistance: 4.5 },
+      {
+        symbol: '1',
+        label: 'interaction',
+        maxDistance: HUMAN_SEMANTIC_INTERACTION_DISTANCE,
+      },
       { symbol: '2', label: 'near', maxDistance: 8 },
       { symbol: '3', label: 'mid', maxDistance: 16 },
       { symbol: '4', label: 'far', maxDistance },
@@ -535,7 +540,7 @@ function visualField(
 function depthSymbol(sample: VisualRaySample) {
   if (sample.state === 'no_hit') return '.';
   if (sample.state === 'unavailable') return '?';
-  if (sample.distance <= 4.5) return '1';
+  if (sample.distance <= HUMAN_SEMANTIC_INTERACTION_DISTANCE) return '1';
   if (sample.distance <= 8) return '2';
   if (sample.distance <= 16) return '3';
   return '4';

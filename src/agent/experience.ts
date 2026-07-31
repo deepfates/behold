@@ -9,6 +9,7 @@ import {
   worldPositionIsVisible,
 } from './observation';
 import type { InhabitantProject } from '../entity/projects';
+import { HUMAN_SEMANTIC_INTERACTION_DISTANCE } from './action-profiles';
 import {
   bodyConditionBecameOrWorsenedCritical,
   isCriticalBodyCondition,
@@ -892,7 +893,7 @@ function focusObject(bot: Bot): SceneObject | null {
           z: block.position.z,
         },
         distance: target.distance,
-        reachable: target.distance <= 6,
+        reachable: target.distance <= HUMAN_SEMANTIC_INTERACTION_DISTANCE,
         face: blockFaceName(block.face),
       };
     }
@@ -927,7 +928,12 @@ function sceneEntity(
     source: 'vision',
     position: entity.position,
     distance: entity.distance,
-    proximity: entity.distance <= 4 ? 'interaction' : entity.distance <= 12 ? 'nearby' : 'distant',
+    proximity:
+      entity.distance <= HUMAN_SEMANTIC_INTERACTION_DISTANCE
+        ? 'interaction'
+        : entity.distance <= 12
+          ? 'nearby'
+          : 'distant',
     relativeBearingRadians: round(relativeBearingRadians),
     relativeDirection: directionLabel(relativeBearingRadians),
     visibility: 'visible',

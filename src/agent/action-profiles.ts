@@ -10,6 +10,9 @@ export type MinecraftActionProfile = (typeof MINECRAFT_ACTION_PROFILES)[number];
 export const MINECRAFT_SAFETY_PROFILES = ['resident-safe-v1', 'vanilla-player-v1'] as const;
 export type MinecraftSafetyProfile = (typeof MINECRAFT_SAFETY_PROFILES)[number];
 
+/** One ordinary first-person block-interaction horizon across perception and execution. */
+export const HUMAN_SEMANTIC_INTERACTION_DISTANCE = 4.5;
+
 export type MinecraftActionClass =
   'player-intention' | 'disclosed-composite-skill' | 'resident-memory-utility' | 'unclassified';
 
@@ -53,23 +56,32 @@ const HUMAN_SEMANTIC_ACTION_DESCRIPTIONS = new Map<string, string>([
   ['attack_focused_entity', 'Swing once at the entity currently under the crosshair.'],
   [
     'dig_focused_block',
-    'Dig the reachable block currently under the crosshair without approaching it.',
+    'Dig the block currently under the crosshair when focus proximity is interaction, without approaching it.',
   ],
   [
     'place_held_against_focus',
-    'Place the held block against the block face currently under the crosshair without repositioning.',
+    'Place the held block against the block face currently under the crosshair when focus proximity is interaction, without repositioning.',
   ],
-  ['use_focused_block', 'Use the block currently under the crosshair once.'],
+  [
+    'use_focused_block',
+    'Use the block currently under the crosshair once when focus proximity is interaction.',
+  ],
   [
     'inspect_focused_container',
-    'Open the container currently under the crosshair and inspect its UI.',
+    'Open the container currently under the crosshair at interaction proximity and inspect its UI.',
   ],
-  ['deposit_in_focused_container', 'Move named owned items into the focused openable container.'],
-  ['withdraw_from_focused_container', 'Move named visible container items into inventory.'],
+  [
+    'deposit_in_focused_container',
+    'Move named owned items into the focused openable container at interaction proximity.',
+  ],
+  [
+    'withdraw_from_focused_container',
+    'Move named visible container items into inventory at interaction proximity.',
+  ],
   ['equip_item', 'Hold or wear one item named in the inventory UI.'],
   ['drop_item', 'Drop an item named in the inventory UI.'],
   ['consume', 'Use one item named in the inventory UI as food or drink.'],
-  ['sleep_in_focused_bed', 'Use the bed currently under the crosshair.'],
+  ['sleep_in_focused_bed', 'Use the bed currently under the crosshair at interaction proximity.'],
   ['wake_up', 'Leave the bed while this body is sleeping.'],
 ]);
 

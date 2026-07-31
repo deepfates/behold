@@ -12,7 +12,11 @@ import {
 } from './observation';
 import { surveyArea } from '../skills/survey';
 import { digPositionIssueForBody } from './body-geometry';
-import { usesResidentSafety, type MinecraftSafetyProfile } from './action-profiles';
+import {
+  HUMAN_SEMANTIC_INTERACTION_DISTANCE,
+  usesResidentSafety,
+  type MinecraftSafetyProfile,
+} from './action-profiles';
 import {
   MANAGE_PROJECT_TOOL,
   RESIDENT_PROJECT_EVIDENCE_VALUES,
@@ -2584,10 +2588,10 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'dig_focused_block',
     description:
-      'Dig the reachable block currently under the crosshair without approaching or selecting another target.',
+      'Dig the block currently under the crosshair at interaction proximity without approaching or selecting another target.',
     parameters: { type: 'object', properties: {} },
     run: async (_args, execution) => {
-      const focused = focusedBlockAtAdmission(bot, execution?.observation, 4.5);
+      const focused = focusedBlockAtAdmission(bot, execution?.observation);
       if (!focused.ok) return focused;
       // The fresh exact eye-ray match above is the canonical visibility and
       // reach admission for this cursor action. Do not contradict it with
@@ -2605,10 +2609,10 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   add({
     name: 'place_held_against_focus',
     description:
-      'Place the currently held block against the exact block face under the crosshair without selecting support or repositioning.',
+      'Place the currently held block against the exact block face under the crosshair at interaction proximity without selecting support or repositioning.',
     parameters: { type: 'object', properties: {} },
     run: async (_args, execution) => {
-      const focused = focusedBlockAtAdmission(bot, execution?.observation, 5);
+      const focused = focusedBlockAtAdmission(bot, execution?.observation);
       if (!focused.ok) return focused;
       const face = blockFaceName(focused.block.face);
       if (!face) return { ok: false, error: 'focused_block_face_unavailable' };
@@ -2624,12 +2628,12 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       'Use the block currently under the crosshair once. Verified toggles report their observed state change; other blocks report only that the input was dispatched.',
     parameters: { type: 'object', properties: {} },
     run: async (_args, execution) => {
-      const focused = focusedBlockAtAdmission(bot, execution?.observation, 5);
+      const focused = focusedBlockAtAdmission(bot, execution?.observation);
       if (!focused.ok) return focused;
       if (toggleProperty(focused.block)) {
         return runExistingCommand(
           'toggle_block',
-          { ...focused.position, maxDistance: 5 },
+          { ...focused.position, maxDistance: HUMAN_SEMANTIC_INTERACTION_DISTANCE },
           execution,
         );
       }
@@ -2669,14 +2673,18 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
               required: ['name'],
             },
       run: async (args, execution) => {
-        const focused = focusedBlockAtAdmission(bot, execution?.observation, 5);
+        const focused = focusedBlockAtAdmission(bot, execution?.observation);
         if (!focused.ok) return focused;
         if (!isStorageBlock(focused.block)) {
           return { ok: false, error: 'focused_block_is_not_container' };
         }
         return runExistingCommand(
           delegate,
-          { ...args, ...focused.position, maxDistance: 5 },
+          {
+            ...args,
+            ...focused.position,
+            maxDistance: HUMAN_SEMANTIC_INTERACTION_DISTANCE,
+          },
           execution,
         );
       },
@@ -2689,12 +2697,16 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     description: 'Use the bed currently under the crosshair without searching for another bed.',
     parameters: { type: 'object', properties: {} },
     run: async (_args, execution) => {
-      const focused = focusedBlockAtAdmission(bot, execution?.observation, 5);
+      const focused = focusedBlockAtAdmission(bot, execution?.observation);
       if (!focused.ok) return focused;
       if (!(bot as any).isABed?.(focused.block)) {
         return { ok: false, error: 'focused_block_is_not_bed' };
       }
-      return runExistingCommand('sleep_in_bed', { ...focused.position, maxDistance: 5 }, execution);
+      return runExistingCommand(
+        'sleep_in_bed',
+        { ...focused.position, maxDistance: HUMAN_SEMANTIC_INTERACTION_DISTANCE },
+        execution,
+      );
     },
     category: 'self-care',
     effects: { blockMutation: 'state' },
@@ -2812,20 +2824,26 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   };
 }
 
-function focusedBlockAtAdmission(bot: Bot, observation: any, maxDistance: number) {
+function focusedBlockAtAdmission(bot: Bot, observation: any) {
   const focus = observation?.scene?.focus;
   const admittedPosition = integerBlockPosition(focus?.position);
   if (
     observation?.protocol !== 'behold.inhabitant.v2' ||
     focus?.kind !== 'block' ||
     focus?.source !== 'cursor' ||
-    focus?.reachable !== true ||
-    !admittedPosition ||
-    Number(focus?.distance) > maxDistance
+    !admittedPosition
   ) {
-    return { ok: false as const, error: 'admitted_reachable_block_focus_unavailable' };
+    return { ok: false as const, error: 'admitted_block_focus_unavailable' };
   }
-  const block = blockAtViewCursor(bot, maxDistance);
+  const admittedDistance = Number(focus?.distance);
+  if (
+    focus?.reachable !== true ||
+    !Number.isFinite(admittedDistance) ||
+    admittedDistance > HUMAN_SEMANTIC_INTERACTION_DISTANCE
+  ) {
+    return { ok: false as const, error: 'focused_block_outside_interaction_range' };
+  }
+  const block = blockAtViewCursor(bot, HUMAN_SEMANTIC_INTERACTION_DISTANCE);
   const currentPosition = integerBlockPosition(block?.position);
   const currentFace = blockFaceName(block?.face);
   if (

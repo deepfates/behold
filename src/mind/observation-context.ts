@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { EntityTurn } from '../entity/loom';
 import { projectResidentVisibleValue } from './resident-visibility';
+import { HUMAN_SEMANTIC_INTERACTION_DISTANCE } from '../agent/action-profiles';
 
 const MODEL_EVENT_BATCH = 12;
 const RECENT_ACTION_TURN_LIMIT = 6;
@@ -404,7 +405,7 @@ function rememberedPerception(observation: any) {
 function semanticProximity(value: unknown) {
   const distance = finiteOrNull(value);
   if (distance == null) return null;
-  if (distance <= 4) return 'interaction';
+  if (distance <= HUMAN_SEMANTIC_INTERACTION_DISTANCE) return 'interaction';
   if (distance <= 12) return 'nearby';
   return 'distant';
 }
