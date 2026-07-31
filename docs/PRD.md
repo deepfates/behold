@@ -2,6 +2,11 @@
 
 Version: 0.2 (2025-10-14)
 
+> Historical MVP brief. It describes the original console and command-registry
+> direction, not Behold's current product state or acceptance standard. The
+> current goal and status live in the [README](../README.md),
+> [Roadmap](ROADMAP.md), and [First Life](FIRST_LIFE.md).
+
 ## 1) Background
 
 Behold provides a Mineflayer bot and a spec-first command registry over the Mineflayer API. The target is one idiomatic CLI, `behold <AgentName> [--model ...]`, using one shared action stream for human and model choices. The embodied console is the current candidate production path; the older stdio and tick-loop entrypoints have not yet been canonicalized against it. Manual insertion exists, while direct pause/resume, single-step control, and acknowledged in-flight cancellation remain red.

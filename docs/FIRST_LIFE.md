@@ -32,6 +32,22 @@ observation. Over time it should:
 This is deliberately more demanding than completing a scripted task. A task can
 be passed by a disposable controller. A life has unfinished concerns.
 
+## Current product truth
+
+The world, body, lifecycle, identity, and history foundations are substantial;
+sustained resident life is not yet dependable. In ordinary `behold live`
+episodes 000016 and 000017, two untasked residents independently removed four
+stone-brick blocks, stopped cleanly, resumed the same world and lives, and
+continued their passage-opening concern through ordinary Lync continuity.
+
+Episode 000019 did not repeat that result. One resident chose to dig a nearby
+wall, but the body rejected the target outside its interaction horizon. The
+failure exposed inconsistent meanings of interaction distance and an opaque
+error; it was not a persistent consequence. No human joined that episode.
+Textile's presenter has consumed episode-frozen Lync unions in a non-mutating
+projection test, but the ordinary graphical reading experience remains
+unverified. These are partial behavioral results, not a completed living world.
+
 ## The first live proof
 
 On July 13, 2026, `ScoutLife` entered the local Minecraft world without a task

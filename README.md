@@ -37,11 +37,11 @@ Persistent living Place
   read-only first-person viewer URL per resident. Joining with a compatible
   native client is optional and does not transfer world ownership away from the
   foreground command.
-- Add `--native-player USERNAME` for an explicit native-human treatment. Once
-  the residents are ready, the entry prints the local launcher settings and
-  requires both the Place-owned server log and every independent resident
-  journal to witness that declared player's join. A declared but unwitnessed
-  treatment preserves its episode record and exits nonzero.
+- Any compatible Minecraft client may join the printed endpoint while the world
+  is live; no declaration releases or directs the residents. The optional
+  `--native-player USERNAME` flag adds a post-episode observation check for one
+  username. It cannot establish client provenance, and it is not required for
+  ordinary human entry.
 - A clean stop records the new persistent world head and an authenticated episode
   record. The record binds the Place control transcript, byte-identical Place-owned
   Minecraft server log, cognition/accounting evidence, per-life body journals,

@@ -17,7 +17,7 @@ Run the ordinary persistent-world front door after the resident composition and 
 
 ## Acceptance Criteria
 
-In a bounded ordinary behold live episode, at least two independently configured named residents operate at usable Minecraft cadence without hidden action steering; a resident independently chooses and creates a meaningful persistent Minecraft consequence; another viewpoint independently witnesses it; a native human joins during the life; the world and residents stop and resume cleanly; later resident conduct perceives and recognizes the surviving consequence; resident contexts and Lync lives remain isolated while identical weights may be shared; and the canonical Lync resident/world histories are readable through Textile.
+Through ordinary `behold live` use, independently configured named residents perceive, choose, act, adapt to real Minecraft outcomes, and sustain meaningful conduct at a usable cadence without supplied tasks or hidden action steering. Their conduct leaves durable world effects and meaningful continuity across normal stop and resume. Resident contexts, identity, memory, and Lync lives remain isolated while identical physical weights may be shared. A human can enter, observe, interact, leave, and return through normal Minecraft play. Canonical Lync resident/world history remains readable through Textile. A rehearsed action, named chore, post-hoc receipt, or one short successful episode does not satisfy sustained life.
 
 ## Notes
 
@@ -32,3 +32,25 @@ Episode 000014 (OpenAI GPT-5.6 Luna via pinned OpenRouter OpenAI route) ran 2026
 **2026-07-31T02:47:28Z**
 
 Episodes 000016 and 000017 materially advanced the product. In 000016, Iris and Moss independently chose six dig_focused_block actions and Minecraft verified four persistent stone-brick removals to air at (2010,-48,1376), (2010,-48,1378), (2010,-48,1372), and (2010,-47,1373); the episode stopped/saved cleanly and cost $0.0605028. Episode 000017 resumed the same world/lives cleanly for $0.05313169 and both residents continued the wall/opening/passage concern in their own intentions, including Iris describing a newly opened lateral path and Moss moving through newly visible open area. This establishes resident-chosen material consequences plus behavioral continuation after resume. Still absent: native-human presence, independent human/other-resident witnessing of one named hole, Textile UI readability verification, and a resident-written self.projects concern.
+
+**2026-07-31T18:01:12Z**
+
+Ground-truth correction and current frontier: episode 000019 did not produce a
+persistent consequence or human join. Moss independently chose
+`dig_focused_block` on a stone-brick wall shown at nearby proximity, but the raw
+frame placed it 5.2 blocks away and execution rejected it with the opaque
+`admitted_reachable_block_focus_unavailable` error. The body contract now uses
+one 4.5-block interaction horizon across raw focus, semantic proximity, focused
+block actions, and remembered perception; focused actions describe the
+interaction precondition and return `focused_block_outside_interaction_range`
+without choosing a recovery action. Full check passes 591/591 plus one
+environment skip.
+
+Current LM Studio inventory is 53 models and empty at rest. A no-world gate on
+newly installed Qwen 3.6 35B-A3B MLX 4-bit used one physical instance with
+`parallel=2` for two isolated resident requests. The current closed action
+contract returned validator-clean look and movement decisions in 7.34 and 7.30
+seconds, then unloaded cleanly. This earns an ordinary unsteered live exercise
+but proves no Minecraft conduct. The active acceptance wording was condensed
+to sustained ordinary life and normal human play; named consequences and
+declared-player ceremony are no longer the goal.

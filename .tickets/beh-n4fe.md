@@ -16,7 +16,7 @@ Compose the already-working Place Compiler artifact, Behold resident, ordinary M
 
 ## Acceptance Criteria
 
-From the ordinary documented `behold live` path, select and verify the accepted Place-served Oxford world; start ordinary Minecraft ecology and at least two independently configured named residents; allow a human to join through the native client while the life is running; observe sustained adaptive conduct and at least one non-scripted, persistent, independently witnessed world consequence involving resident activity; stop and resume cleanly; and preserve canonical Lync resident/world histories that remain readable through Textile while retaining resident, world, epoch, ecology, and causal identity. State the exact models/minds used and distinguish same-model controls from heterogeneous-model comparison. A rehearsed pause, scripted exchange, packaging receipt, hidden reflex, action steering, scheduler parity treatment, or isolated subsystem test does not satisfy this ticket.
+The ordinary documented `behold live` path supports dependable independent resident life in a persistent Place-served Minecraft world: timely perception and action, adaptive conduct, durable world effects, distinct identity and memory across stop/resume, ordinary human entry and interaction, and canonical Lync histories readable through Textile. Exact models and runtime conditions remain visible, shared weights never merge resident context, and ordinary failures stay part of the record. A scripted exchange, prescribed consequence, packaging receipt, hidden reflex, scheduler treatment, or isolated subsystem test does not satisfy this epic.
 
 ## Notes
 

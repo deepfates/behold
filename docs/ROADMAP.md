@@ -35,14 +35,46 @@ Progress is tracked through the [verification ladder](VERIFICATION_LADDER.md).
 Minecraft life and survival are one world competence pack beside the foundation
 scoreboard; they do not define whether the portable inhabitant loop is complete.
 
-### Working
+### Current truth (updated 2026-07-31)
+
+- `behold live` is a real foreground composition over Place's exact lifecycle.
+  It starts independently configured residents, keeps their bodies, contexts,
+  accounting, and Lync lives separate, permits shared physical model weights,
+  exposes ordinary viewer and Minecraft endpoints, and cleanly saves, stops,
+  and resumes the persistent world.
+- Episodes 000016 and 000017 produced the strongest current behavioral result:
+  four Minecraft-confirmed resident-chosen block removals followed by clean
+  resume and continued passage-opening conduct. That is meaningful progress,
+  not sustained-life acceptance.
+- Episode 000019 regressed to social/camera/movement churn and produced no
+  persistent consequence. Its one chosen dig failed because perception,
+  semantic proximity, and execution used inconsistent interaction horizons.
+  The body contract now uses one 4.5-block horizon and reports an explicit
+  out-of-range failure; live adaptation after that repair is unexercised.
+- Provider-backed Luna remains the strongest exercised timely resident mind.
+  The current LM Studio inventory contains newer candidates. Qwen 3.6 35B-A3B
+  4-bit has now returned two concurrent, schema-valid resident decisions in
+  about 7.3 seconds through one shared physical instance. That is a credible
+  no-world gate, not yet resident-life evidence.
+- Humans may join the printed Minecraft endpoint through ordinary client play.
+  The optional `--native-player` flag is only a post-episode username witness
+  check; it is neither a resident-release ritual nor proof of client provenance.
+  Ordinary entry during a useful continuing episode remains unexercised.
+- Canonical Lync histories and episode-frozen byte unions exist. Textile's
+  presenter has read the union without rewriting it; ordinary graphical
+  inspection is still unknown.
+
+### Supported foundations and retained history
 
 - A separately named `legible-resident-v1` treatment now combines the ratified
   human-semantic body with a small identity/self-direction/adaptation charter
   and a strict public intention plus expected-observable-consequence response.
   The exact public commitment persists and replays with its causal EntityTurn;
   profile or content tamper fails closed. It does not inherit `resident-v1`
-  survival/project coaching or loop-shaping guards. Its first live Oxford
+  survival/project coaching. Product residents do share narrow causal-progress
+  safeguards against repeated failed actions, project bookkeeping, and
+  social/camera churn; those safeguards reject loops without choosing the next
+  action. Its first live Oxford
   acceptance produced two readable camera commitments from Phi and no valid
   Llama action while ordinary hostile ecology killed the residents thirteen
   times. Five-second urgent deadlines could not admit the 7-37 second local
@@ -313,28 +345,22 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ## Immediate priorities
 
-1. Establish a local cognition path with measured body-relevant latency while
-   preserving the exact charter, human-semantic body/action contract, strict
-   public response, stale-body rejection, and independent resident sessions.
-   Investigate already-installed Apple-Silicon runtimes and real prefix/KV reuse
-   before changing the treatment or slowing Minecraft to accommodate a model.
-2. When that gate passes, run one bounded ordinary-ecology Oxford life with two
-   independently configured residents and judge persistent, adaptive world or
-   social conduct—not call count. Preserve failures without retries, hidden
-   reflexes, forced schedules, or catch-up normalization.
-3. Finish the ordinary foreground operator path now established by `behold
-live`: exercise its v2 authoritative ecology record, episode-frozen Lync
-   histories, Textile viewing interface, and explicit native-human entry
-   treatment in a real episode.
-   Do not substitute a dashboard or a bespoke ignored harness for this entry.
-4. Pass the ticket acceptance from that ordinary path: a non-scripted persistent
-   resident consequence, independent witness, native co-presence, restart
-   continuity, and understandable Lync multiversal history with exact identities
-   through Textile or another compatible viewer.
-5. Only after the composed living-world experience is honest, return to broader
-   evaluation families, crossing semantics, competence suites, and long soaks.
-   Neutral benchmark work remains a separately named research treatment, not the
-   product controller for sustained resident life.
+1. Exercise the repaired perception-to-action boundary through ordinary,
+   unsteered `behold live` use. Judge adaptation, consequences, and continuity,
+   not calls, named chores, or harness assertions.
+2. Take the strongest credible cognition condition into that path. Prefer LM
+   Studio when its latency and conduct earn it; retain the timely provider route
+   as a product comparator rather than delaying lived acceptance for local-model
+   ceremony.
+3. Keep the world open long enough for ordinary human entry, interaction,
+   departure, and return. Observe exact server and resident evidence without
+   making a declared username a precondition for resident life.
+4. Stop and resume normally, then inspect whether distinct residents recognize
+   and continue what actually survived. Read the canonical Lync histories
+   through Textile without turning episode records into a second history.
+5. Add a ticket only when ordinary use exposes an owning defect. Longer soaks
+   follow once the short lived loop is coherent enough to make their failures
+   informative.
 
 Contrasting-world integration remains useful research after the Minecraft
 product composition is honest; it is not the current product definition or an
