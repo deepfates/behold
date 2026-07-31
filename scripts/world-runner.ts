@@ -507,6 +507,18 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
     if (result.target && !result.task) {
       throw residentConfigInvalid(file, `resident ${index} target requires task`);
     }
+    if (
+      residentPolicyProfile(result.policyProfile) === 'legible-resident-v1' &&
+      (result.providerRoute as OpenRouterRoutePolicy | undefined)?.protocol !==
+        'behold.openrouter-route-policy.v2' &&
+      !result.ollamaLocal &&
+      !result.lmStudioLocal
+    ) {
+      throw residentConfigInvalid(
+        file,
+        `resident ${index} legible-resident-v1 requires a strict resident-session transport`,
+      );
+    }
     return Object.freeze(result as ManagedResidentSpec);
   });
   return Object.freeze(residents);

@@ -16,7 +16,11 @@ export const PLACE_SERVED_WORLD_PROTOCOL = 'behold.place-served-world.v1' as con
 export const PLACE_SERVED_WORLD_HEAD_PROTOCOL = 'behold.place-served-world-head.v1' as const;
 
 type PlaceServedWorldTerminalKind =
-  'completed_run' | 'failed_start_cleanup' | 'recovered_after_save' | 'recovered_after_place_save';
+  | 'completed_run'
+  | 'failed_start_cleanup'
+  | 'recovered_after_save'
+  | 'recovered_after_place_save'
+  | 'place_only_cleanup';
 
 export type PlaceServedWorldDescriptor = Readonly<{
   protocol: typeof PLACE_SERVED_WORLD_PROTOCOL;
@@ -354,7 +358,8 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
     const terminalKind = placeServedWorldTerminalKind(terminal?.type);
     const recoveredLifecycle = head.terminalKind === 'recovered_after_save';
     const recoveredPlace = head.terminalKind === 'recovered_after_place_save';
-    const recovered = recoveredLifecycle || recoveredPlace;
+    const placeOnlyCleanup = head.terminalKind === 'place_only_cleanup';
+    const recovered = recoveredLifecycle || recoveredPlace || placeOnlyCleanup;
     const completed = recoveredLifecycle
       ? verifyRecoveredHeadEvidence(head, lifecycle, descriptor)
       : recoveredPlace
@@ -367,6 +372,9 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
               descriptor,
             )
           : null;
+    const placeOnlyEvidence = placeOnlyCleanup
+      ? verifyPlaceOnlyCleanupHeadEvidence(head, lifecycle, descriptor)
+      : null;
     if (
       lifecycle.world !== descriptor.worldId ||
       lifecycle.tipDigest !== head.lifecycle.tipDigest ||
@@ -375,9 +383,13 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
       (!recovered && head.terminalKind != null && head.terminalKind !== terminalKind) ||
       terminal.digest !== head.lifecycle.terminalDigest ||
       (!recoveredPlace &&
+        !placeOnlyCleanup &&
         (terminal.data as any)?.protocol !== 'behold.managed-terminal-world-state.v1') ||
-      (!recoveredPlace && (terminal.data as any)?.tree?.digest !== head.runtimeDigest) ||
-      !completed
+      (!recoveredPlace &&
+        !placeOnlyCleanup &&
+        (terminal.data as any)?.tree?.digest !== head.runtimeDigest) ||
+      (!placeOnlyCleanup && !completed) ||
+      (placeOnlyCleanup && !placeOnlyEvidence)
     ) {
       throw new Error('Place served-world head does not name a clean terminal lifecycle');
     }
@@ -390,6 +402,72 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
     );
   }
   return Object.freeze({ ...established, head: head ? deepFreeze(head) : null, runtime: actual });
+}
+
+/**
+ * Advances a clean head after Place itself was started and saved, but Behold
+ * rejected the resident configuration before acquiring a world lifecycle.
+ */
+export function recordPlaceOnlyCleanupHead(input: {
+  descriptorFile: string;
+  previousHeadFile: string;
+  placeTranscriptFile: string;
+  headFile: string;
+  now?: () => Date;
+}) {
+  const { descriptor } = verifyPlaceServedWorldBasis(input.descriptorFile);
+  const previousHeadFile = plainFile(input.previousHeadFile, 'previous served-world head');
+  const previous = readJson(previousHeadFile);
+  const { digest, ...previousBase } = previous;
+  if (
+    previous.protocol !== PLACE_SERVED_WORLD_HEAD_PROTOCOL ||
+    previous.worldId !== descriptor.worldId ||
+    digest !== sha256(stableJson(previousBase)) ||
+    previous.terminalKind === 'place_only_cleanup'
+  ) {
+    throw new Error('Place-only cleanup requires an authenticated ordinary prior head');
+  }
+  const lifecycle = verifyWorldLifecycleJournal(previous.lifecycle.file);
+  const terminal = lifecycle.events.find(
+    (event) => event.sequence === previous.lifecycle.terminalSequence,
+  );
+  const terminalKind = placeServedWorldTerminalKind(terminal?.type);
+  if (
+    lifecycle.world !== descriptor.worldId ||
+    lifecycle.tipDigest !== previous.lifecycle.tipDigest ||
+    lifecycle.events.at(-1)?.type !== 'control_released' ||
+    terminalKind == null ||
+    previous.terminalKind !== terminalKind ||
+    terminal?.digest !== previous.lifecycle.terminalDigest ||
+    (terminal.data as any)?.tree?.digest !== previous.runtimeDigest ||
+    !placeServedWorldTerminalCompletion(
+      lifecycle.events,
+      terminal.sequence,
+      terminalKind,
+      descriptor,
+    )
+  ) {
+    throw new Error('Place-only cleanup prior head does not name a clean terminal lifecycle');
+  }
+  const place = verifyStoppedPlaceTranscript(input.placeTranscriptFile, descriptor);
+  const runtime = digestTree(descriptor.paths.runtimeWorld);
+  const base = {
+    protocol: PLACE_SERVED_WORLD_HEAD_PROTOCOL,
+    worldId: descriptor.worldId,
+    updatedAt: (input.now?.() ?? new Date()).toISOString(),
+    runtimeDigest: runtime.digest,
+    terminalKind: 'place_only_cleanup' as const,
+    previousRuntimeDigest: previous.runtimeDigest,
+    previousTerminalKind: terminalKind,
+    lifecycle: previous.lifecycle,
+    place,
+  };
+  const head = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
+  if (!verifyPlaceOnlyCleanupHeadEvidence(head, lifecycle, descriptor)) {
+    throw new Error('Place-only cleanup head failed its own verification');
+  }
+  atomicWriteJson(input.headFile, head);
+  return head;
 }
 
 export function recordPlaceServedWorldHead(input: {
@@ -667,6 +745,38 @@ function verifyRecoveredPlaceSavedHeadEvidence(
     ) &&
     stableJson(place) === stableJson(head.place)
     ? evidence.completed
+    : null;
+}
+
+function verifyPlaceOnlyCleanupHeadEvidence(
+  head: any,
+  lifecycle: any,
+  descriptor: PlaceServedWorldDescriptor,
+) {
+  if (head.terminalKind !== 'place_only_cleanup') return null;
+  let place;
+  try {
+    place = verifyStoppedPlaceTranscript(head.place?.transcriptFile, descriptor);
+  } catch {
+    return null;
+  }
+  const terminal = lifecycle.events.find(
+    (event: any) => event.sequence === head.lifecycle.terminalSequence,
+  );
+  const terminalKind = placeServedWorldTerminalKind(terminal?.type);
+  return terminalKind != null &&
+    head.previousTerminalKind === terminalKind &&
+    terminal?.digest === head.lifecycle.terminalDigest &&
+    (terminal.data as any)?.tree?.digest === head.previousRuntimeDigest &&
+    lifecycle.events.at(-1)?.type === 'control_released' &&
+    placeServedWorldTerminalCompletion(
+      lifecycle.events,
+      terminal.sequence,
+      terminalKind,
+      descriptor,
+    ) &&
+    stableJson(place) === stableJson(head.place)
+    ? place
     : null;
 }
 

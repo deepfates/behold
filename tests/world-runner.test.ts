@@ -371,6 +371,19 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
         ],
       },
     ],
+    [
+      'resident strict transport',
+      {
+        protocol: 'behold.managed-resident-set.v1',
+        residents: [
+          {
+            entityId: 'Scout',
+            model: 'provider/model',
+            policyProfile: 'legible-resident-v1',
+          },
+        ],
+      },
+    ],
   ] as const) {
     fs.writeFileSync(file, JSON.stringify(document));
     assert.throws(

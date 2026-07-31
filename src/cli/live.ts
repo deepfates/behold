@@ -19,6 +19,7 @@ import {
   assertPlaceServedResumeContinuity,
   establishPlaceServedWorldBasis,
   recordPlaceServedWorldHead,
+  recordPlaceOnlyCleanupHead,
   verifyPlaceServedWorldBasis,
 } from '../runtime/place-served-world';
 import {
@@ -401,6 +402,15 @@ export async function runLiveCli(argv: string[]) {
     if (run && !cleanStop) {
       await run.stop('live_failure').catch(() => {});
       await run.finished.catch(() => {});
+    } else if (authority && existingPlan && fs.existsSync(paths.head)) {
+      await authority.stop('live_preflight_failure');
+      recordPlaceOnlyCleanupHead({
+        descriptorFile: paths.descriptor,
+        previousHeadFile: paths.head,
+        placeTranscriptFile: authority.transcriptFile,
+        headFile: paths.head,
+      });
+      authority = null;
     }
     throw error;
   } finally {

@@ -12,6 +12,7 @@ import {
   establishPlaceServedWorldBasis,
   reconcilePlaceSavedFailedStartHead,
   reconcileRecoveredPlaceServedWorldHead,
+  recordPlaceOnlyCleanupHead,
   recordPlaceServedWorldHead,
   verifyPlaceServedWorldBasis,
 } from '../src/runtime/place-served-world';
@@ -140,6 +141,46 @@ test('a frozen saved Place runtime becomes one immutable Behold adoption basis a
     assertPlaceServedResumeContinuity(established.descriptor.paths.descriptor, fixture.headFile)
       .head.runtimeDigest,
     failedHead.runtimeDigest,
+  );
+
+  fs.writeFileSync(path.join(fixture.runtimeWorld, 'place-cleanup.txt'), 'saved before admission');
+  const placeOnlyTranscript = path.join(fixture.sessionRoot, 'place-only-control.jsonl');
+  writeTranscript(placeOnlyTranscript, [
+    {
+      protocol: 'place-compiler-serve-control/v1',
+      event: 'ready',
+      identity: fixture.identity,
+      state: { lifecycle: 'ready', ticks: 'running' },
+    },
+    {
+      protocol: 'place-compiler-serve-control/v1',
+      event: 'command_terminal',
+      command: 'stop',
+      ok: true,
+      identity: fixture.identity,
+      state: { lifecycle: 'stopped', ticks: 'frozen' },
+      acknowledgement: 'Saved the game',
+    },
+    {
+      protocol: 'place-compiler-serve-control/v1',
+      event: 'stopped',
+      identity: fixture.identity,
+      state: { lifecycle: 'stopped', ticks: 'frozen' },
+      java: { pid: fixture.identity.processes.javaPid, cleanExit: true, exitCode: 0 },
+    },
+  ]);
+  const placeOnlyHead = recordPlaceOnlyCleanupHead({
+    descriptorFile: established.descriptor.paths.descriptor,
+    previousHeadFile: fixture.headFile,
+    placeTranscriptFile: placeOnlyTranscript,
+    headFile: fixture.headFile,
+  });
+  assert.equal(placeOnlyHead.terminalKind, 'place_only_cleanup');
+  assert.equal(placeOnlyHead.previousRuntimeDigest, failedHead.runtimeDigest);
+  assert.equal(
+    assertPlaceServedResumeContinuity(established.descriptor.paths.descriptor, fixture.headFile)
+      .runtime.digest,
+    placeOnlyHead.runtimeDigest,
   );
 
   fs.writeFileSync(path.join(fixture.runtimeWorld, 'resident-built.txt'), 'out of band mutation');
