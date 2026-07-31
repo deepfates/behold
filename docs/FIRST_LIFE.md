@@ -44,6 +44,20 @@ Episode 000019 did not repeat that result. One resident chose to dig a nearby
 wall, but the body rejected the target outside its interaction horizon. The
 failure exposed inconsistent meanings of interaction distance and an opaque
 error; it was not a persistent consequence. No human joined that episode.
+Episode 000020 then showed that timely local inference is still insufficient:
+Qwen 3.6 35B-A3B produced 80 valid turns at roughly 5.6-second median latency,
+including movement and conversation, but spiraled into repeated greetings and
+hallucinated mechanisms around a stone wall without changing the world. Dense
+Qwen 3.6 27B took 47-48 seconds for its first movement choices in interrupted
+episode 000021 and is not usable at Minecraft body time on this host.
+
+That interrupt also found a lifecycle defect. Minecraft saved and stopped, but
+Behold died before recording a terminal episode and left epoch 17 falsely
+marked running. The ordinary recovery entry now preserves such a run as
+interrupted, verifies the exact dead ownership and unchanged stopped runtime,
+and advances the resumable world head without calling it a clean episode.
+Epoch 17 has been recovered; the repaired normal Ctrl-C path still needs one
+fresh live exercise.
 Textile's presenter has consumed episode-frozen Lync unions in a non-mutating
 projection test, but the ordinary graphical reading experience remains
 unverified. These are partial behavioral results, not a completed living world.

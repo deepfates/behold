@@ -52,10 +52,22 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   The body contract now uses one 4.5-block horizon and reports an explicit
   out-of-range failure; live adaptation after that repair is unexercised.
 - Provider-backed Luna remains the strongest exercised timely resident mind.
-  The current LM Studio inventory contains newer candidates. Qwen 3.6 35B-A3B
-  4-bit has now returned two concurrent, schema-valid resident decisions in
-  about 7.3 seconds through one shared physical instance. That is a credible
-  no-world gate, not yet resident-life evidence.
+  Episode 000020 took Qwen 3.6 35B-A3B through the ordinary five-minute live
+  path on one shared physical instance with isolated resident sessions. Across
+  80 accepted turns its median decisions were 5.6-5.7 seconds and both residents
+  moved and spoke, but they converged on repeated greetings and invented
+  button/redstone explanations for an ordinary stone wall. No block, inventory,
+  or other durable world consequence occurred. Episode 000021 rejected dense
+  Qwen 3.6 27B as a body-time candidate after its first two movement decisions
+  took 47-48 seconds.
+- Interrupting episode 000021 exposed a real ordinary-stop hole: the process
+  group died after Minecraft saved, but before Behold published its terminal
+  lifecycle or episode record. `behold live --recover` now accepts only the
+  exact dead owner/process/lease/runtime identity, retains the interrupted run
+  as unclean, and advances the resumable stopped head without inventing a clean
+  episode. Epoch 17 was recovered through that path; normal Ctrl-C now keeps
+  SIGINT/SIGTERM/SIGHUP protection installed through drain, save, record, and
+  Place shutdown. A fresh real Ctrl-C episode has not yet exercised the repair.
 - Humans may join the printed Minecraft endpoint through ordinary client play.
   The optional `--native-player` flag is only a post-episode username witness
   check; it is neither a resident-release ritual nor proof of client provenance.

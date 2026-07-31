@@ -54,3 +54,31 @@ seconds, then unloaded cleanly. This earns an ordinary unsteered live exercise
 but proves no Minecraft conduct. The active acceptance wording was condensed
 to sustained ordinary life and normal human play; named consequences and
 declared-player ceremony are no longer the goal.
+
+**2026-07-31T18:39:56Z**
+
+Episodes 000020 and 000021 close the current local-model branch without
+accepting resident life. Qwen 3.6 35B-A3B completed 80 valid ordinary live turns
+through one shared LM Studio weight instance with separate resident contexts;
+median decision latency was 5.716 seconds for Iris and 5.623 seconds for Moss.
+They moved and spoke, but converged on repeated greetings and invented
+button/redstone explanations for a stone wall. Six generic-use attempts and no
+dig, place, inventory, or other durable world consequence occurred. The
+observation already exposed null/current focus and the action contract already
+stated its precondition, so no dynamic schema or controller-chosen repair was
+added to compensate for the model's grounding failure.
+
+Dense Qwen 3.6 27B then produced one movement choice per resident at 47.1 and
+48.4 seconds and was stopped as unusable at Minecraft body time. That interrupt
+left epoch 17 dead but marked running and episode 000021 intentionally without
+an episode record. Commits 8481d12 and 076dd02 add exact abandoned-owner
+recovery plus signal protection through the full stop settlement. The ordinary
+`behold live --recover` path preserved the interrupted evidence, authenticated
+runtime head `26205490b9748d673844c578a6c1c980e0f4369c52f26e5f62ee93209f2c4f0f`,
+and cleared the owner with no listener or model loaded. Full check passes
+594/594 plus one environment skip. A fresh real Ctrl-C run remains unexercised.
+
+The next discriminating behavioral exercise is the already-authorized stronger
+provider mind through the ordinary live path, not another cached local model or
+more acceptance machinery. `OPENROUTER_API_KEY` is currently absent from the
+process environment, so no paid launch or world mutation has begun.

@@ -33,6 +33,11 @@ Persistent living Place
   and serves one Place release, then either creates or resumes the named world
   and exact resident population. Use `--duration SECONDS` for a bounded episode;
   Ctrl-C requests the same clean drain, save, and stop path.
+- If the owning process dies before that path publishes its terminal record,
+  repeat the same command with `--recover`. Recovery starts no world or model:
+  it releases only an exact dead local owner with clear process, lease, lock,
+  port, and unchanged runtime evidence, and keeps the interrupted run distinct
+  from a clean episode.
 - The foreground output prints the loopback native Minecraft endpoint and one
   read-only first-person viewer URL per resident. Joining with a compatible
   native client is optional and does not transfer world ownership away from the
