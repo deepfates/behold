@@ -58,6 +58,7 @@ import {
   isNeutralPolicy,
   residentPolicyProfile,
   usesHumanSemanticPolicySurface,
+  usesResidentProgressSafeguards,
   usesResidentV1Behavior,
   type ResidentPolicyProfile,
 } from './profile';
@@ -254,6 +255,7 @@ export const DEFAULT_LOOM_FOLD_MAX_OUTPUT_TOKENS = 1_024;
 const WAIT_TOOL = 'wait_for_event';
 const COLLECT_TOOL = 'collect_nearby_item';
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
+const SOCIAL_CAMERA_TOOLS = new Set([...COMMUNICATION_TOOLS, 'look_at', 'look_direction']);
 const PROJECT_PROGRESS_EVENT_TYPES = new Set([
   'spawned',
   'local_world_ready',
@@ -511,7 +513,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let parentTurnId = history.at(-1)?.id ?? null;
   let lastActionSignature: string | null = null;
   let repeatedActionCount = 0;
-  let consecutiveCommunicationActions = trailingCommunicationActions(history);
+  let consecutiveSocialCameraActions = trailingSocialCameraActions(history);
   let consecutiveProjectActions = trailingProjectActions(history);
   const trailingFailures = trailingFailedEmbodiedActions(history);
   let failedEmbodiedTool = trailingFailures.tool;
@@ -1049,7 +1051,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         repeatedActionCount = 1;
       }
       if (
-        usesResidentV1Behavior(policyProfile) &&
+        usesResidentProgressSafeguards(policyProfile) &&
         intent.tool !== 'attack_entity' &&
         repeatedActionCount >= 3
       ) {
@@ -1073,7 +1075,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       if (
-        usesResidentV1Behavior(policyProfile) &&
+        usesResidentProgressSafeguards(policyProfile) &&
         EMBODIED_ACTION_TOOLS.has(intent.tool) &&
         intent.tool === failedEmbodiedTool &&
         failedEmbodiedCount >= 3
@@ -1097,7 +1099,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       if (
-        usesResidentV1Behavior(policyProfile) &&
+        usesResidentProgressSafeguards(policyProfile) &&
         intent.tool === MANAGE_PROJECT_TOOL &&
         consecutiveProjectActions >= 1
       ) {
@@ -1121,15 +1123,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
       if (
-        usesResidentV1Behavior(policyProfile) &&
-        COMMUNICATION_TOOLS.has(intent.tool) &&
-        consecutiveCommunicationActions >= 2
+        usesResidentProgressSafeguards(policyProfile) &&
+        SOCIAL_CAMERA_TOOLS.has(intent.tool) &&
+        consecutiveSocialCameraActions >= 2
       ) {
         const result = {
           ok: false,
-          error: 'communication_without_world_progress',
+          error: 'social_camera_churn_without_world_progress',
           reason:
-            'You already sent two messages without an embodied action or a human reply. Act in the world or wait for a reply before speaking again.',
+            'Two recent choices only spoke or moved the camera without bodily or world progress. Choose a materially different affordance or wait for new external evidence.',
         };
         appendRejectedToolResult(decision, result);
         const nextObservation = observe();
@@ -1140,7 +1142,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           nextObservation,
         );
         appendWorldUpdate(nextObservation, `World after loop-breaking ${intent.tool}`);
-        log(`[policy] broke communication-only loop: ${intent.tool}`);
+        log(`[policy] broke social/camera-only loop: ${intent.tool}`);
         continueImmediately = true;
         return;
       }
@@ -1165,8 +1167,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       }
 
       log(`[policy] propose: ${intent.tool} ${fmtArgs(intent.input)}`);
-      if (COMMUNICATION_TOOLS.has(intent.tool)) consecutiveCommunicationActions += 1;
-      else if (intent.tool !== WAIT_TOOL) consecutiveCommunicationActions = 0;
+      if (SOCIAL_CAMERA_TOOLS.has(intent.tool)) consecutiveSocialCameraActions += 1;
+      else if (intent.tool !== WAIT_TOOL) consecutiveSocialCameraActions = 0;
       lastTool = intent.tool;
       // Establish ownership before admission. The environment may synchronously
       // emit a terminal event while enqueueing (for example, bodily urgency can
@@ -1623,7 +1625,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function resume() {
     if (stopped) return;
-    consecutiveCommunicationActions = 0;
+    consecutiveSocialCameraActions = 0;
     consecutiveProjectActions = 0;
     if (!suspended) {
       if (!fixedPilotSlots) void wake(false, { kind: 'resume' });
@@ -1844,10 +1846,10 @@ export function controllerSystemPrompt(
   return lines.join('\n');
 }
 
-function trailingCommunicationActions(turns: EntityTurn[]) {
+function trailingSocialCameraActions(turns: EntityTurn[]) {
   let count = 0;
   for (let index = turns.length - 1; index >= 0; index -= 1) {
-    if (!COMMUNICATION_TOOLS.has(turns[index].action.name)) break;
+    if (!SOCIAL_CAMERA_TOOLS.has(turns[index].action.name)) break;
     count += 1;
   }
   return count;

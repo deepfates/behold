@@ -24,6 +24,11 @@ export function usesResidentV1Behavior(profile: ResidentPolicyProfile) {
   return profile === 'resident-v1';
 }
 
+/** Product residents share causal progress safeguards without sharing a personality prompt. */
+export function usesResidentProgressSafeguards(profile: ResidentPolicyProfile) {
+  return profile !== 'neutral-benchmark-v1';
+}
+
 /** Profiles ratified for the ordinary human-comparable semantic body/action surface. */
 export function usesHumanSemanticPolicySurface(profile: ResidentPolicyProfile) {
   return profile !== 'resident-v1';

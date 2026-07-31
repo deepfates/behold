@@ -1,7 +1,7 @@
 ---
 id: beh-cqjs
 status: in_progress
-deps: [beh-l69b, beh-ro6n, beh-jygo]
+deps: [beh-l69b, beh-ro6n, beh-jygo, beh-exc1]
 links: []
 created: 2026-07-31T01:23:36Z
 type: feature
@@ -24,3 +24,7 @@ In a bounded ordinary behold live episode, at least two independently configured
 **2026-07-31T02:09:53Z**
 
 Episode 000013 (Gemini 3.6 Flash, Google AI Studio pinned route) was timely and cleanly stopped but behaviorally inert: 27 resident decisions, /bin/zsh.129033 reported cost, camera turns/social exchange/waits, zero locomotion or material consequence, and no native-human join because the Mac was locked. This falsifies that timely strict-schema inference alone crosses acceptance. beh-jygo is the sole new repair frontier: exact native-tool admission for historically consequence-capable OpenAI-class residents.
+
+**2026-07-31T02:31:50Z**
+
+Episode 000014 (OpenAI GPT-5.6 Luna via pinned OpenRouter OpenAI route) ran 2026-07-31T02:26:56Z–02:30:19Z and stopped cleanly. It spent $0.094104 across 125 settled decisions. Iris independently moved four blocks and triggered a pressure plate; Moss perceived the click and asked about it, demonstrating one real perception→action→consequence→social-adaptation chain at usable cadence. It then collapsed into 120+ successful turns dominated by chat/whisper and look_direction, with no persistent consequence and no native human. The concrete owning defect is that legible-resident-v1 bypasses all existing loop breakers, and camera turns reset communication progress; beh-exc1 is the sole repair leaf.

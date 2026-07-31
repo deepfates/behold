@@ -3726,21 +3726,44 @@ test('a failed model call is visible once with request provenance and no credent
   }
 });
 
-test('controller breaks a communication-only loop until the body acts or a human replies', async () => {
-  const originalFetch = globalThis.fetch;
-  const responses = [
-    assistantTool('chat-one', 'chat', { text: 'First message.' }),
-    assistantTool('chat-two', 'chat', { text: 'Second message.' }),
-    assistantTool('chat-three', 'chat', { text: 'Third message.' }),
-    assistantTool('collect-after-chat', 'collect_nearby_item', { target: 'entity:17' }),
+test('legible resident breaks a social/camera-only loop until the body acts or a human replies', async () => {
+  const choices = [
+    { name: 'chat', input: { text: 'First message.' } },
+    { name: 'look_direction', input: { horizontal: 'right', vertical: 'same' } },
+    { name: 'whisper', input: { username: 'Alex', text: 'Third message.' } },
+    {
+      name: 'move_controls',
+      input: {
+        direction: 'forward',
+        jump: false,
+        sprint: false,
+        sneak: false,
+        durationMs: 500,
+      },
+    },
   ];
-  globalThis.fetch = (async () =>
-    ({
-      ok: true,
-      status: 200,
-      json: async () => ({ choices: [{ message: responses.shift() }] }),
-      text: async () => '',
-    }) as any) as typeof fetch;
+  const mind: ResidentMind = {
+    id: 'legible-loop-fixture',
+    decide: async () => {
+      const choice = choices.shift();
+      assert.ok(choice, 'controller made more model calls than the scripted trajectory');
+      const intention = `Choose ${choice.name}`;
+      const expectedObservableConsequence = 'Minecraft should return its real result';
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'act',
+        utterance: `Intention: ${intention}\nExpected observable consequence: ${expectedObservableConsequence}`,
+        publicCommitment: {
+          protocol: 'behold.resident-public-action-commitment.v1',
+          policyProfile: 'legible-resident-v1',
+          intention,
+          expectedObservableConsequence,
+        },
+        action: { ...choice, callId: `call-${choice.name}` },
+        call: modelCallEvidence('legible-loop-fixture'),
+      };
+    },
+  };
 
   let sequence = 1;
   const enqueued: any[] = [];
@@ -3748,7 +3771,7 @@ test('controller breaks a communication-only loop until the body acts or a human
   const policy = startLLMPolicy(
     {
       entityId: 'Scout',
-      actions: [tool('chat'), tool('collect_nearby_item')],
+      actions: [tool('chat'), tool('whisper'), tool('look_direction'), tool('move_controls')],
       attempt: (intent) => {
         enqueued.push(intent);
         return true;
@@ -3773,6 +3796,8 @@ test('controller breaks a communication-only loop until the body acts or a human
     {
       apiKey: 'test-key',
       model: 'test/model',
+      mind,
+      policyProfile: 'legible-resident-v1',
       acceptEngineEvent: () => true,
       onEntityTurn: (turn) => turns.push(turn),
     },
@@ -3792,13 +3817,12 @@ test('controller breaks a communication-only loop until the body acts or a human
     await until(() => enqueued.length === 3);
     assert.deepEqual(
       enqueued.map((intent) => intent.tool),
-      ['chat', 'chat', 'collect_nearby_item'],
+      ['chat', 'look_direction', 'move_controls'],
     );
-    assert.equal(turns[2]?.action.name, 'chat');
-    assert.equal(turns[2]?.outcome.error, 'communication_without_world_progress');
+    assert.equal(turns[2]?.action.name, 'whisper');
+    assert.equal(turns[2]?.outcome.error, 'social_camera_churn_without_world_progress');
   } finally {
-    policy.stop();
-    globalThis.fetch = originalFetch;
+    await policy.stop();
   }
 });
 
