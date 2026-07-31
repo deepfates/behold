@@ -79,7 +79,12 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   as unclean, and advances the resumable stopped head without inventing a clean
   episode. Epoch 17 was recovered through that path; normal Ctrl-C now keeps
   SIGINT/SIGTERM/SIGHUP protection installed through drain, save, record, and
-  Place shutdown. A fresh real Ctrl-C episode has not yet exercised the repair.
+  Place shutdown. Episode 000029 exercised a fresh real Ctrl-C after both
+  residents were released and cognition was active: two admitted calls were
+  cancelled, all nine requests settled, both controllers exited zero, the
+  shared model unloaded, Minecraft acknowledged its save and stopped, the
+  lifecycle recorded `SIGINT`, and the foreground exited zero with a completed
+  resumable head.
 - Humans may join the printed Minecraft endpoint through ordinary client play.
   The optional `--native-player` flag is only a post-episode username witness
   check; it is neither a resident-release ritual nor proof of client provenance.
