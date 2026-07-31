@@ -405,6 +405,45 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
   );
 });
 
+test('resident-set input admits the explicit native-tool resident route', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-set-native-tools-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'residents.json');
+  const providerRoute = {
+    protocol: 'behold.openrouter-route-policy.v3',
+    routes: [{ requestTag: 'openai', responseProvider: 'OpenAI' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+    residentDecisionFormat: 'native_tools',
+    reasoningEffort: 'none',
+  } as const;
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      protocol: 'behold.managed-resident-set.v1',
+      residents: [
+        {
+          entityId: 'NativeLife',
+          model: 'openai/gpt-5.6-luna',
+          mind: 'direct',
+          policyProfile: 'legible-resident-v1',
+          providerRoute,
+        },
+      ],
+    }),
+  );
+
+  assert.deepEqual(loadManagedResidentSet(file), [
+    {
+      entityId: 'NativeLife',
+      model: 'openai/gpt-5.6-luna',
+      mind: 'direct',
+      policyProfile: 'legible-resident-v1',
+      providerRoute,
+    },
+  ]);
+});
+
 test('resident-set input binds a separately named strict-JSON Ollama transport', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-ollama-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

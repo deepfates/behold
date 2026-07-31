@@ -511,6 +511,8 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
       residentPolicyProfile(result.policyProfile) === 'legible-resident-v1' &&
       (result.providerRoute as OpenRouterRoutePolicy | undefined)?.protocol !==
         'behold.openrouter-route-policy.v2' &&
+      (result.providerRoute as OpenRouterRoutePolicy | undefined)?.protocol !==
+        'behold.openrouter-route-policy.v3' &&
       !result.ollamaLocal &&
       !result.lmStudioLocal
     ) {
@@ -1140,6 +1142,7 @@ function normalizeManagedResidents(
       if (
         policyProfile === 'legible-resident-v1' &&
         providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
+        providerRoute?.protocol !== 'behold.openrouter-route-policy.v3' &&
         !ollamaLocal &&
         !lmStudioLocal
       ) {
