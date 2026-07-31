@@ -31,7 +31,7 @@ export function directOpenRouterRequestBody(
         },
       },
       reasoning: { effort: 'minimal' as const, exclude: true as const },
-      temperature: 0.2,
+      ...(request.model.includes('gpt-5') ? {} : { temperature: 0.2 }),
       stream: false as const,
       ...(routePolicy ? openRouterWirePolicy(routePolicy) : {}),
     };

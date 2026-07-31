@@ -125,6 +125,7 @@ export function assertOpenRouterRouteRequest(
   const policy = openRouterRoutePolicy(expectedPolicy);
   if (!plainRecord(value)) throw new Error('request body must be an object');
   if (policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL) {
+    const generationFields = expectedModel.includes('gpt-5') ? [] : ['temperature'];
     const record = exactRecord(
       value,
       [
@@ -132,14 +133,19 @@ export function assertOpenRouterRouteRequest(
         'messages',
         'response_format',
         'reasoning',
-        'temperature',
+        ...generationFields,
         'stream',
         'max_tokens',
         'provider',
       ],
       'OpenRouter resident-session request',
     );
-    if (record.temperature !== 0.2 || record.stream !== false) {
+    if (
+      record.stream !== false ||
+      (expectedModel.includes('gpt-5')
+        ? record.temperature !== undefined
+        : record.temperature !== 0.2)
+    ) {
       throw new Error('OpenRouter resident-session generation settings differ');
     }
     const reasoning = exactRecord(

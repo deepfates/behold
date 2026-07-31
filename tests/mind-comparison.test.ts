@@ -302,6 +302,26 @@ test('the provider resident-session transport refuses another resident identity'
   );
 });
 
+test('a GPT-5 resident session omits unsupported temperature without weakening routing', () => {
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v2',
+    routes: [{ requestTag: 'openai', responseProvider: 'OpenAI' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+  } as const;
+  const residentRequest = {
+    ...request(),
+    model: 'openai/gpt-5.4-mini',
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+  } as any;
+  const body = directOpenRouterRequestBody(residentRequest, routePolicy);
+
+  assert.equal('temperature' in body, false);
+  assert.doesNotThrow(() => assertOpenRouterRouteRequest(body, residentRequest.model, routePolicy));
+});
+
 test('a direct resident rejects returned provider or model identity drift', async () => {
   const routePolicy = {
     protocol: 'behold.openrouter-route-policy.v1',
