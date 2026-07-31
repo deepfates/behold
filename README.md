@@ -29,6 +29,13 @@ repetitive, ineffective, and consequential choices; those choices are observed
 conduct, not a product score. Passing the mechanics stack is therefore not
 presented as a finished living world.
 
+The latest exercised local path ran two Qwen 3.6 35B-A3B residents for ten
+minutes and resumed them for five more with one shared LM Studio weight instance,
+isolated own-life context, clean saved-world continuity, and Minecraft-confirmed
+resident-chosen block removals. Textile's real projector reads the frozen Lync
+union without diagnostics. Native human co-presence and a genuinely long soak
+remain unexercised.
+
 Persistent living Place
 
 - `behold live RELEASE --residents FILE --accept-eula --session NAME` verifies

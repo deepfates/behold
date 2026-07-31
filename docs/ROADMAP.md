@@ -42,24 +42,29 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   accounting, and Lync lives separate, permits shared physical model weights,
   exposes ordinary viewer and Minecraft endpoints, and cleanly saves, stops,
   and resumes the persistent world.
-- Episodes 000016 and 000017 produced the strongest current behavioral result:
-  four Minecraft-confirmed resident-chosen block removals followed by clean
-  resume and continued passage-opening conduct. That is meaningful progress,
-  not sustained-life acceptance.
-- Episode 000019 regressed to social/camera/movement churn and produced no
-  persistent consequence. Its one chosen dig failed because perception,
-  semantic proximity, and execution used inconsistent interaction horizons.
-  The body contract now uses one 4.5-block horizon and reports an explicit
-  out-of-range failure; live adaptation after that repair is unexercised.
-- Provider-backed Luna remains the strongest exercised timely resident mind.
-  Episode 000020 took Qwen 3.6 35B-A3B through the ordinary five-minute live
-  path on one shared physical instance with isolated resident sessions. Across
-  80 accepted turns its median decisions were 5.6-5.7 seconds and both residents
-  moved and spoke, but they converged on repeated greetings and invented
-  button/redstone explanations for an ordinary stone wall. No block, inventory,
-  or other durable world consequence occurred. Episode 000021 rejected dense
-  Qwen 3.6 27B as a body-time candidate after its first two movement decisions
-  took 47-48 seconds.
+- Episodes 000022 and 000023 ran the ordinary Qwen 3.6 35B-A3B LM Studio
+  configuration for ten minutes and then resumed the exact same stopped world
+  and lives for five more. Both residents shared one physical weight instance
+  while keeping separate controller processes, broker identities, quotas,
+  requests, and Lync lives. Episode 000023 reopened Iris with 557 prior turns
+  and Moss with 562, at their saved positions and with only their own lived
+  continuity. Clean stop advanced the authenticated world head and unloaded the
+  model after cognition drained.
+- Qwen's episode-000022 median resident-decision latency was 6.7-6.9 seconds
+  (p95 8.6-8.7 seconds); episode 000023 was 6.6-6.7 seconds (p95 7.9-8.0
+  seconds). The residents spoke, looked, moved, used, and attempted inventory
+  and placement actions. In 000022 each independently chose and received
+  Minecraft block-update confirmation for one stone-brick-wall removal. Their
+  repetitive conversation and unsupported claims about the scene are observed
+  model conduct, not Behold acceptance failures.
+- The same episodes exposed two apparatus defects in returned context. An
+  internal 16-step sequence boundary falsely announced a future episode even
+  though cognition resumed four seconds later, and action results supplied
+  controller-authored recovery suggestions. The model-facing boundary message
+  and recovery advice are now absent; terminal results retain factual success,
+  failure, geometry, and Minecraft consequences. Episode 000023 exercised the
+  first repair through normal resume. The remaining placement wording repair is
+  covered by the full provider-free check and awaits live recurrence.
 - Interrupting episode 000021 exposed a real ordinary-stop hole: the process
   group died after Minecraft saved, but before Behold published its terminal
   lifecycle or episode record. `behold live --recover` now accepts only the
@@ -71,10 +76,20 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 - Humans may join the printed Minecraft endpoint through ordinary client play.
   The optional `--native-player` flag is only a post-episode username witness
   check; it is neither a resident-release ritual nor proof of client provenance.
-  Ordinary entry during a useful continuing episode remains unexercised.
+  Episode 000024 resumed the same world and lives for ten minutes with
+  `--native-player importdf`; the already-authenticated client made no join, so
+  the post-episode assessment correctly failed and retained its negative record.
+  That run exposed two front-door defects now repaired: the ready message now
+  names Minecraft's ordinary Direct Connection path rather than a separate
+  repo-local launcher, and an expected missing-human result can no longer
+  relabel a clean completed world head as preflight cleanup. The episode-000024
+  head was reconstructed from its authenticated clean lifecycle. Actual
+  authenticated human co-presence remains unexercised.
 - Canonical Lync histories and episode-frozen byte unions exist. Textile's
-  presenter has read the union without rewriting it; ordinary graphical
-  inspection is still unknown.
+  actual app-layer projector read episode 000023's 61.8 MB union as 1,192 source
+  events: 1,190 readable turns, two structural roots, and zero unsupported,
+  nonconforming, or warning results. Ordinary graphical inspection is still
+  unknown.
 
 ### Supported foundations and retained history
 
