@@ -25,6 +25,15 @@ The legible resident policy rejects recurring communication/camera-only churn af
 
 ## Notes
 
+**2026-07-31T18:48:20Z**
+
+Superseded by an owner correction to product meaning. This ticket accurately
+records a completed experiment in controller-defined progress, but its repair
+is not part of the ordinary legible treatment: talk, camera motion, repetition,
+and ineffective choices are resident conduct, not controller rejection
+conditions. The guard remains available only in the explicitly coached legacy
+`resident-v1` profile.
+
 **2026-07-31T02:40:27Z**
 
 Episode 000015 exercised the repair through ordinary behold live: 79 decisions, $0.0625925 reported cost, 38 move_controls choices plus varied orientation/use attempts versus only one move in 000014. The social/camera guard rejected 19 churn proposals, product residents adapted into bodily motion, neutral remained unchanged, the world stopped cleanly, and full check passed (588 pass, one environment skip). This satisfies this narrow repair ticket, not parent acceptance: no persistent mutation occurred.

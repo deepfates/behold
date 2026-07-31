@@ -11,6 +11,7 @@ import {
   modelDecisionInvalidation,
   startLLMPolicy,
 } from '../src/policy/llm';
+import { usesResidentProgressSafeguards } from '../src/policy/profile';
 import type { EntityTurn } from '../src/entity/loom';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { cognitionHeaderNames } from '../src/mind/cognition';
@@ -3403,16 +3404,25 @@ test('legible-resident-v1 admits own concern continuity without supplying a goal
 
   assert.match(system, /persistent embodied Minecraft resident/i);
   assert.match(system, /own lived trajectory and public commitments.*continuing identity/i);
-  assert.match(system, /body, the surrounding environment, and other residents as independent/i);
-  assert.match(system, /adapt to what actually happens/i);
+  assert.match(system, /bounded first-person information from this body/i);
+  assert.match(system, /no task, project, next goal, or preferred conduct/i);
+  assert.match(system, /other residents are independent beings/i);
+  assert.match(system, /action is only a proposal until its result returns/i);
+  assert.match(system, /absence from view.*unobserved consequence/i);
   assert.match(system, /one short intention and one expected observable consequence/i);
   assert.match(system, /never private reasoning/i);
   assert.match(system, /manage_project can keep that one self-chosen concern/i);
   assert.match(system, /does not act in Minecraft/i);
   assert.doesNotMatch(
     system,
-    /shelter|food|materials|\bcraft(?:ing)?\b|survival|inspect first|move_direction|wait_for_event|repeat no failed action/i,
+    /\badapt\b|shelter|food|materials|\bcraft(?:ing)?\b|survival|inspect first|move_direction|wait_for_event|repeat no failed action/i,
   );
+});
+
+test('only the explicitly coached legacy profile substitutes controller progress judgments', () => {
+  assert.equal(usesResidentProgressSafeguards('resident-v1'), true);
+  assert.equal(usesResidentProgressSafeguards('legible-resident-v1'), false);
+  assert.equal(usesResidentProgressSafeguards('neutral-benchmark-v1'), false);
 });
 
 test('legible-resident policy persists its exact public commitment with the causal turn', async () => {
@@ -3732,7 +3742,7 @@ test('a failed model call is visible once with request provenance and no credent
   }
 });
 
-test('legible resident breaks a social/camera-only loop until the body acts or a human replies', async () => {
+test('legible resident may repeat social and camera choices without controller substitution', async () => {
   const choices = [
     { name: 'chat', input: { text: 'First message.' } },
     { name: 'look_direction', input: { horizontal: 'right', vertical: 'same' } },
@@ -3823,10 +3833,13 @@ test('legible resident breaks a social/camera-only loop until the body acts or a
     await until(() => enqueued.length === 3);
     assert.deepEqual(
       enqueued.map((intent) => intent.tool),
-      ['chat', 'look_direction', 'move_controls'],
+      ['chat', 'look_direction', 'whisper'],
     );
-    assert.equal(turns[2]?.action.name, 'whisper');
-    assert.equal(turns[2]?.outcome.error, 'social_camera_churn_without_world_progress');
+    assert.equal(turns.length, 2);
+    assert.equal(
+      turns.some((turn) => turn.outcome.error === 'social_camera_churn_without_world_progress'),
+      false,
+    );
   } finally {
     await policy.stop();
   }

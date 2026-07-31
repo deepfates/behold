@@ -8,18 +8,29 @@ type: feature
 priority: 0
 assignee: deepfates
 parent: beh-n4fe
-tags: [living-world, acceptance, minecraft, behavior]
+tags: [living-world, acceptance, minecraft, grounding]
 ---
 
-# Accept sustained adaptive life through behold live
+# Accept grounded independent life through behold live
 
 Run the ordinary persistent-world front door after the resident composition and decision cycle are operable. This is a product acceptance, not a task script, scheduler treatment, or evidence-framework project. Expand the DAG only for defects the live episode actually reveals.
 
 ## Acceptance Criteria
 
-Through ordinary `behold live` use, independently configured named residents perceive, choose, act, adapt to real Minecraft outcomes, and sustain meaningful conduct at a usable cadence without supplied tasks or hidden action steering. Their conduct leaves durable world effects and meaningful continuity across normal stop and resume. Resident contexts, identity, memory, and Lync lives remain isolated while identical physical weights may be shared. A human can enter, observe, interact, leave, and return through normal Minecraft play. Canonical Lync resident/world history remains readable through Textile. A rehearsed action, named chore, post-hoc receipt, or one short successful episode does not satisfy sustained life.
+Through ordinary `behold live` use, independently configured named residents receive truthful bounded information, choose without controller progress judgments, act at a cadence that can participate in the ticking world, and receive authoritative consequences. The world and each resident's isolated identity, memory, and Lync life persist across normal stop and resume while identical physical weights may be shared. A human can enter, observe, interact, leave, and return through normal Minecraft play. Canonical Lync resident/world history remains readable through Textile. Repetitive, ineffective, or self-defeating resident choices do not fail this acceptance; misinformation, context leakage, fabricated or suppressed consequences, hidden steering, broken continuity, or an unusable action horizon do.
 
 ## Notes
+
+**2026-07-31T18:48:20Z**
+
+Owner correction: resident behavior is the phenomenon, not the product score.
+The earlier requirement for adaptive or materially productive conduct and the
+beh-exc1 loop-breaking repair imposed a controller theory of progress on valid
+resident choices. The ordinary legible profile now preserves repeated and
+ineffective admitted choices; physics, schema, authority, safety profile, and
+actual Minecraft consequences remain enforced. Historical episode notes below
+still describe what happened, but their behavioral pass/fail interpretations
+are not the current acceptance criterion.
 
 **2026-07-31T02:09:53Z**
 

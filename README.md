@@ -17,15 +17,17 @@ client. Each resident may use a different model or mind program, while world
 changes remain Minecraft-authoritative and resident/world histories remain
 portable Lync that can be inspected with tools such as Textile.
 
-The pieces are substantial but not yet a successful living-world treatment.
+The pieces are substantial but not yet a fully grounded living-world treatment.
 `behold live` now composes an accepted Place release, persistent named lives,
 independently configured resident sessions, viewer discovery, a native-client
 endpoint, clean stop/resume, and an authenticated episode record in one foreground
 operator entry. It does not launch a human client or run Textile on the
-operator's behalf. More importantly, the installed local-model treatments have
-not yet produced sustained adaptive Minecraft conduct at body-relevant latency.
-Passing the mechanics stack is therefore not presented as a finished living
-world.
+operator's behalf. Ordinary live use has not yet established that its bounded
+perception, admitted actions, returned consequences, continuity, and human
+coexistence stay truthful and usable over a long life. Residents have made
+repetitive, ineffective, and consequential choices; those choices are observed
+conduct, not a product score. Passing the mechanics stack is therefore not
+presented as a finished living world.
 
 Persistent living Place
 

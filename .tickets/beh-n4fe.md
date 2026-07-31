@@ -16,9 +16,18 @@ Compose the already-working Place Compiler artifact, Behold resident, ordinary M
 
 ## Acceptance Criteria
 
-The ordinary documented `behold live` path supports dependable independent resident life in a persistent Place-served Minecraft world: timely perception and action, adaptive conduct, durable world effects, distinct identity and memory across stop/resume, ordinary human entry and interaction, and canonical Lync histories readable through Textile. Exact models and runtime conditions remain visible, shared weights never merge resident context, and ordinary failures stay part of the record. A scripted exchange, prescribed consequence, packaging receipt, hidden reflex, scheduler treatment, or isolated subsystem test does not satisfy this epic.
+The ordinary documented `behold live` path supports dependable independent resident life in a persistent Place-served Minecraft world: truthful bounded perception, unsteered choice, timely faithful action and consequence, distinct identity and memory across stop/resume, ordinary human entry and interaction, and canonical Lync histories readable through Textile. Exact models and runtime conditions remain visible, shared weights never merge resident context, and ordinary failures stay part of the record. Resident conduct is observed rather than graded; a scripted exchange, prescribed consequence, packaging receipt, hidden reflex, scheduler treatment, or isolated subsystem test does not satisfy this epic.
 
 ## Notes
+
+**2026-07-31T18:48:20Z**
+
+Owner correction: this epic does not require good, adaptive, productive, or
+materially consequential choices from a resident. It requires an ontologically
+hard environment that tells each resident the truth available to its body,
+faithfully applies its admitted choices, returns real consequences, and
+preserves isolated life over time. Bad choices are data. Controller-authored
+progress judgments are product defects on the ordinary legible path.
 
 **2026-07-25T16:31:29Z**
 

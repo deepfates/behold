@@ -79,19 +79,18 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 ### Supported foundations and retained history
 
 - A separately named `legible-resident-v1` treatment now combines the ratified
-  human-semantic body with a small identity/self-direction/adaptation charter
+  human-semantic body with a small identity and bounded-information charter
   and a strict public intention plus expected-observable-consequence response.
   The exact public commitment persists and replays with its causal EntityTurn;
   profile or content tamper fails closed. It does not inherit `resident-v1`
-  survival/project coaching. Product residents do share narrow causal-progress
-  safeguards against repeated failed actions, project bookkeeping, and
-  social/camera churn; those safeguards reject loops without choosing the next
-  action. Its first live Oxford
+  survival/project coaching or controller progress judgments: repeated,
+  ineffective, conversational, and camera-only choices remain the resident's
+  choices. Its first live Oxford
   acceptance produced two readable camera commitments from Phi and no valid
   Llama action while ordinary hostile ecology killed the residents thirteen
   times. Five-second urgent deadlines could not admit the 7-37 second local
-  responses, and the turn-only aftermath omitted most deaths. This is a failed
-  behavioral acceptance, not evidence that the treatment improves conduct. See
+  responses, and the turn-only record omitted most deaths. This exposed latency
+  and history-fidelity questions; it does not grade the residents' conduct. See
   [Legible resident treatment v1](LEGIBLE_RESIDENT_TREATMENT.md).
 - A separately versioned local resident-session boundary now keeps the standing
   charter and exact action contract ahead of changing life, projects recent
@@ -358,8 +357,9 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 ## Immediate priorities
 
 1. Exercise the repaired perception-to-action boundary through ordinary,
-   unsteered `behold live` use. Judge adaptation, consequences, and continuity,
-   not calls, named chores, or harness assertions.
+   unsteered `behold live` use. Check that bounded information is correct, every
+   admitted choice receives its real consequence, and continuity is faithful;
+   do not grade which choices a resident makes.
 2. Take the strongest credible cognition condition into that path. Prefer LM
    Studio when its latency and conduct earn it; retain the timely provider route
    as a product comparator rather than delaying lived acceptance for local-model
@@ -367,9 +367,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 3. Keep the world open long enough for ordinary human entry, interaction,
    departure, and return. Observe exact server and resident evidence without
    making a declared username a precondition for resident life.
-4. Stop and resume normally, then inspect whether distinct residents recognize
-   and continue what actually survived. Read the canonical Lync histories
-   through Textile without turning episode records into a second history.
+4. Stop and resume normally, then inspect whether each distinct resident is
+   shown its own prior life and the world state that actually survived. What it
+   does with that information is conduct to observe. Read canonical Lync
+   histories through Textile without turning episode records into a second history.
 5. Add a ticket only when ordinary use exposes an owning defect. Longer soaks
    follow once the short lived loop is coherent enough to make their failures
    informative.

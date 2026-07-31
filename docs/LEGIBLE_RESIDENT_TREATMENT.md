@@ -1,11 +1,11 @@
 # Legible resident treatment v1
 
-`legible-resident-v1` is a versioned behavioral treatment for sustained resident
+`legible-resident-v1` is a versioned information and continuity treatment for resident
 life through the ordinary human-comparable semantic Minecraft body. It is not a
 neutral benchmark and it is not the existing coached `resident-v1` product
-policy. Its first live Oxford acceptance did not establish improvement: Phi
-made two public camera commitments, Llama made no valid action, and neither
-resident adapted when hostile ecology arrived.
+policy. Its first live Oxford exercise observed two public camera commitments
+from Phi and two malformed greetings from Llama while hostile ecology killed
+both bodies. Those choices are treatment observations, not a quality failure.
 
 ## Standing charter
 
@@ -13,11 +13,11 @@ The system prompt establishes only these durable premises:
 
 - the resident has a persistent identity in its own lived trajectory and public
   commitments;
-- it directs its own conduct from current perception and its own continuity;
-- it attends to its body, environment, and other residents as independent
-  beings;
-- it adapts to authoritative Minecraft outcomes and does not promote an
-  expectation or unseen result into fact; and
+- current perception is bounded first-person information and supplies no task,
+  project, next goal, or preferred conduct;
+- other residents have independent bodies, information, and lives;
+- Minecraft outcomes are authoritative, an action remains a proposal until its
+  result returns, and absence from view or an expected result is not fact; and
 - before one action it publishes a short intention and expected observable
   consequence as public continuity, never private reasoning.
 
@@ -126,8 +126,8 @@ provider call, or operator action after release.
 The treatment seam passed mechanically for Phi's two valid turns: each exact
 public commitment, action, authoritative outcome, and safe current/next
 perception persisted and rendered through Textile without exposing private
-causal frames. Behavior remained red. Llama returned two malformed greetings;
-Phi only reversed its view; the five-second urgent-decision boundary then
+causal frames. Llama returned two malformed greetings and Phi reversed its
+view; the five-second urgent-decision boundary then
 cancelled work much faster than either local model could answer while mobs
 killed both bodies repeatedly. The exact result is recorded in
 [Legible-resident Oxford acceptance](reports/2026-07-26-legible-oxford-acceptance.md).
@@ -137,8 +137,9 @@ no-world session probe preloaded both exact local models and moved the repeated
 control catalog ahead of changing life, but concurrent decisions still took
 14.5-24.5 seconds. It also caught and removed a controller-shaped continuity
 projection that taught Llama the wrong response wrappers. The corrected
-session mechanics are useful; the installed pair remains unsuitable for a new
-ordinary-ecology acceptance at those measured latencies. The broader gate is a
+session mechanics are useful; the installed pair cannot reliably put choices
+into an ordinary ticking ecology at those measured latencies. The broader gate is a
 resident cognition runtime with body-relevant latency, independently active
 sessions, and the unchanged charter/action validator. A later run must still
-observe behavior rather than assume either the charter or runtime causes it.
+observe conduct without grading it, while checking that the information and
+consequences presented to each resident remain faithful.
