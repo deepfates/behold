@@ -651,11 +651,10 @@ function confirmControllerAdmission(admission: ControllerAdmissionProof) {
 }
 
 /**
- * Lync's events.json is a derived acceleration snapshot; the .lync bytes are
- * the durable center. Its current file store rewrites the snapshot before the
- * per-root log, so interruption can leave either the new snapshot or the old
- * log intact. Preserve an invalid snapshot as evidence and let the published
- * loader rebuild from .lync instead of making a healthy life unopenable.
+ * Older Lync file stores wrote events.json as a derived acceleration snapshot;
+ * the append-only journal directory is the durable center. Preserve an invalid
+ * legacy snapshot as evidence before opening the store. Current Lync migrates
+ * valid legacy snapshots once and does not recreate this derived authority.
  */
 async function recoverInvalidLyncSnapshot(directory: string, warnings: string[]) {
   const snapshotFile = path.join(directory, 'events.json');
@@ -677,7 +676,7 @@ async function recoverInvalidLyncSnapshot(directory: string, warnings: string[])
   const preservedName = `events.invalid-${Date.now()}-${randomUUID()}.json`;
   await fsPromises.rename(snapshotFile, path.join(directory, preservedName));
   warnings.push(
-    `preserved invalid derived Lync snapshot as ${preservedName}; recovered from authoritative .lync bytes`,
+    `preserved invalid legacy Lync snapshot as ${preservedName}; recovered from canonical journal bytes`,
   );
 }
 

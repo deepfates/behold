@@ -570,7 +570,7 @@ test('Lync recovers from an interrupted derived snapshot without discarding its 
   assert.equal(fs.readFileSync(lyncFile, 'utf8'), durableBytes);
   assert.ok(
     recovered.warnings.some((warning) =>
-      warning.includes('recovered from authoritative .lync bytes'),
+      warning.includes('recovered from canonical journal bytes'),
     ),
   );
   assert.equal(
@@ -579,7 +579,12 @@ test('Lync recovers from an interrupted derived snapshot without discarding its 
   );
 
   await recovered.append(turn(2, 'Scout:turn:1'));
-  assert.doesNotThrow(() => JSON.parse(fs.readFileSync(snapshotFile, 'utf8')));
+  if (fs.existsSync(snapshotFile)) {
+    // Legacy published Lync recreates its derived snapshot; current Lync
+    // migrates away from it. Behold remains compatible across that boundary.
+    assert.doesNotThrow(() => JSON.parse(fs.readFileSync(snapshotFile, 'utf8')));
+  }
+  assert.ok(fs.readFileSync(lyncFile, 'utf8').length > durableBytes.length);
   assert.equal(recovered.turns().length, 2);
   await recovered.close();
 });
