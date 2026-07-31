@@ -39,9 +39,12 @@ remain unexercised.
 Persistent living Place
 
 - `behold live RELEASE --residents FILE --accept-eula --session NAME` verifies
-  and serves one Place release, then either creates or resumes the named world
-  and exact resident population. Use `--duration SECONDS` for a bounded episode;
-  Ctrl-C requests the same clean drain, save, and stop path.
+  and serves one Place release and creates its named world and resident
+  population. Later `behold live RELEASE --accept-eula --session NAME` resumes
+  the authenticated resident revision already owned by that session; an ignored
+  operator input file is not a second durability dependency. Use `--duration
+SECONDS` for a bounded episode; Ctrl-C requests the same clean drain, save,
+  and stop path.
 - If the owning process dies before that path publishes its terminal record,
   repeat the same command with `--recover`. Recovery starts no world or model:
   it releases only an exact dead local owner with clear process, lease, lock,
@@ -64,14 +67,14 @@ Persistent living Place
   The original Lync multiversal logs remain canonical; Textile is an interface
   for viewing them through profile `org.behold.inhabitant.v1`, and Behold does
   not render or rewrite those histories.
-- Repeating the exact command and session name resumes the same stopped world,
-  bodies, life looms, and resident configuration. Each new episode receives a
+- Repeating the printed resume command and session name resumes the same stopped
+  world, bodies, life looms, and resident configuration. Each new episode receives a
   fresh, explicitly bounded provider-attempt scope under the persistent session
   namespace; prior usage remains in its original ledger and is never balanced
   between residents. Changing the release or population under an existing name
   fails closed.
-- `--change-minds` explicitly changes only model/mind transport and attempt
-  quotas for the same named residents. The append-only revision refuses changes
+- `--change-minds --residents FILE` explicitly changes only model/mind transport
+  and attempt quotas for the same named residents. The append-only revision refuses changes
   to bodies, profiles, cadence, tasks, or other steering, so a continuing life
   can change minds without silently becoming another resident.
 

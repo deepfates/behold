@@ -15,6 +15,7 @@ import {
   preserveResidentLyncFiles,
   preservePlaceServerLog,
   preserveTextileImport,
+  selectLiveResidentConfiguration,
   shouldRecordPlaceOnlyCleanup,
 } from '../src/cli/live';
 
@@ -77,6 +78,81 @@ test('live mind revision preserves resident identity, body, charter, cadence, an
       /may change only model/,
     );
   }
+});
+
+test('live resident configuration is self-contained after the session is created', () => {
+  const residents = [{ entityId: 'Iris', model: 'provider/model' }] as any;
+  const current = { residents, digest: 'current-digest', revision: null } as any;
+
+  assert.throws(
+    () =>
+      selectLiveResidentConfiguration({
+        requestedResidents: null,
+        current: null,
+        changeMinds: false,
+        recover: false,
+      }),
+    /new live session requires --residents FILE/,
+  );
+  assert.equal(
+    selectLiveResidentConfiguration({
+      requestedResidents: null,
+      current,
+      changeMinds: false,
+      recover: false,
+    }).residents,
+    residents,
+  );
+  assert.equal(
+    selectLiveResidentConfiguration({
+      requestedResidents: null,
+      current,
+      changeMinds: false,
+      recover: true,
+    }).residents,
+    residents,
+  );
+  assert.throws(
+    () =>
+      selectLiveResidentConfiguration({
+        requestedResidents: null,
+        current,
+        changeMinds: true,
+        recover: false,
+      }),
+    /--change-minds requires --residents FILE/,
+  );
+
+  const changed = [{ entityId: 'Iris', model: 'local/model' }] as any;
+  assert.throws(
+    () =>
+      selectLiveResidentConfiguration({
+        requestedResidents: changed,
+        current,
+        changeMinds: false,
+        recover: false,
+      }),
+    /resident minds differ/,
+  );
+  assert.throws(
+    () =>
+      selectLiveResidentConfiguration({
+        requestedResidents: changed,
+        current,
+        changeMinds: true,
+        recover: true,
+      }),
+    /--recover requires the session's current resident configuration/,
+  );
+  assert.equal(
+    selectLiveResidentConfiguration({
+      requestedResidents: changed,
+      current,
+      changeMinds: true,
+      recover: false,
+    }).writeRevision,
+    true,
+  );
 });
 
 test('live resumes durable lives with a fresh bounded accounting scope per episode', () => {
@@ -282,18 +358,16 @@ test('live resume instruction retains the exact Place runtime and native-player 
   assert.equal(
     liveResumeInstruction({
       releaseRoot: '/places/Oxford release',
-      residentFile: "/state/owner's residents.json",
       sessionId: 'oxford-life',
       nativePlayer: 'importdf',
       placeCompiler: { kind: 'checkout', root: '/worktrees/place-103deac' },
     }),
-    "behold live '/places/Oxford release' --residents '/state/owner'\"'\"'s residents.json' --accept-eula --session oxford-life --place-compiler /worktrees/place-103deac --native-player importdf",
+    "behold live '/places/Oxford release' --accept-eula --session oxford-life --place-compiler /worktrees/place-103deac --native-player importdf",
   );
 
   assert.equal(
     liveResumeInstruction({
       releaseRoot: '/places/oxford',
-      residentFile: '/state/residents.json',
       sessionId: 'oxford-life',
       nativePlayer: null,
       placeCompiler: {
@@ -303,6 +377,6 @@ test('live resume instruction retains the exact Place runtime and native-player 
         distributionSha256: 'a'.repeat(64),
       },
     }),
-    `behold live /places/oxford --residents /state/residents.json --accept-eula --session oxford-life --place-compiler-bin /bin/place-compiler --place-compiler-version 1.2.3 --place-compiler-distribution-sha256 ${'a'.repeat(64)}`,
+    `behold live /places/oxford --accept-eula --session oxford-life --place-compiler-bin /bin/place-compiler --place-compiler-version 1.2.3 --place-compiler-distribution-sha256 ${'a'.repeat(64)}`,
   );
 });

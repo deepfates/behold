@@ -69,8 +69,8 @@ export async function runLiveCli(argv: string[]) {
     process.stdout.write(`${liveUsage()}\n`);
     return 0;
   }
-  if (parsed.positionals.length !== 1 || !parsed.values.residents) {
-    throw new Error('live requires one RELEASE and --residents FILE');
+  if (parsed.positionals.length !== 1) {
+    throw new Error('live requires one RELEASE');
   }
   if (parsed.values['accept-eula'] !== true) {
     throw new Error('live requires explicit --accept-eula');
@@ -86,20 +86,6 @@ export async function runLiveCli(argv: string[]) {
     'Minecraft server JAR',
   );
   const releaseRoot = plainDirectory(parsed.positionals[0], 'Place release');
-  const residentFile = plainFile(String(parsed.values.residents), 'resident set');
-  const residents = loadManagedResidentSet(residentFile);
-  if (residents.some((resident) => resident.providerQuotas == null || resident.paused === true)) {
-    throw new Error('live requires an armed per-resident provider-attempt ceiling for every life');
-  }
-  const nativePlayer = parsed.values['native-player']
-    ? minecraftUsername(parsed.values['native-player'], '--native-player')
-    : null;
-  if (
-    nativePlayer &&
-    residents.some((resident) => resident.bodyUsername.toLowerCase() === nativePlayer.toLowerCase())
-  ) {
-    throw new Error('--native-player must be distinct from every managed resident body');
-  }
   const releaseManifestFile = path.join(releaseRoot, 'release-manifest.json');
   const releaseManifest = readJson(releaseManifestFile);
   const placeId = safeSegment(releaseManifest?.placeId, 'Place id');
@@ -118,9 +104,7 @@ export async function runLiveCli(argv: string[]) {
   for (const directory of [paths.episodes, paths.control, paths.entities, paths.runs]) {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   }
-  const residentSetSha256 = sha256(stableJson(residents));
   const existingPlan = fs.existsSync(paths.plan) ? readLivePlan(paths.plan) : null;
-  let residentRevision: ReturnType<typeof readLiveResidentRevision> | null = null;
   if (existingPlan) {
     if (
       existingPlan.sessionId !== sessionId ||
@@ -128,31 +112,48 @@ export async function runLiveCli(argv: string[]) {
     ) {
       throw new Error('live session identity differs from its persistent release');
     }
-    const current = latestLiveResidentRevision(paths.residentRevisions, existingPlan);
-    if (stableJson(current.residents) !== stableJson(residents)) {
-      if (parsed.values.recover === true) {
-        throw new Error("live --recover requires the session's current resident configuration");
-      }
-      if (parsed.values['change-minds'] !== true) {
-        throw new Error(
-          'live resident minds differ from the persistent session; repeat with --change-minds for an explicit mind-only revision',
-        );
-      }
-      assertLiveMindRevisionCompatible(current.residents, residents);
-      residentRevision = writeLiveResidentRevision({
-        directory: paths.residentRevisions,
-        sessionId,
-        previousDigest: current.digest,
-        residents,
-      });
-    } else {
-      residentRevision = current.revision;
-    }
-    if (parsed.values.recover !== true) {
-      assertPlaceServedResumeContinuity(paths.descriptor, paths.head);
-    }
   } else if (fs.existsSync(paths.descriptor)) {
     throw new Error('served-world genesis exists without its live session plan');
+  }
+  const requestedResidentFile = parsed.values.residents
+    ? plainFile(String(parsed.values.residents), 'resident set')
+    : null;
+  const requestedResidents = requestedResidentFile
+    ? loadManagedResidentSet(requestedResidentFile)
+    : null;
+  const currentResidents = existingPlan
+    ? latestLiveResidentRevision(paths.residentRevisions, existingPlan)
+    : null;
+  const residentSelection = selectLiveResidentConfiguration({
+    requestedResidents,
+    current: currentResidents,
+    changeMinds: parsed.values['change-minds'] === true,
+    recover: parsed.values.recover === true,
+  });
+  const residents = residentSelection.residents;
+  const residentRevision = residentSelection.writeRevision
+    ? writeLiveResidentRevision({
+        directory: paths.residentRevisions,
+        sessionId,
+        previousDigest: currentResidents!.digest,
+        residents,
+      })
+    : residentSelection.residentRevision;
+  const residentSetSha256 = sha256(stableJson(residents));
+  if (residents.some((resident) => resident.providerQuotas == null || resident.paused === true)) {
+    throw new Error('live requires an armed per-resident provider-attempt ceiling for every life');
+  }
+  const nativePlayer = parsed.values['native-player']
+    ? minecraftUsername(parsed.values['native-player'], '--native-player')
+    : null;
+  if (
+    nativePlayer &&
+    residents.some((resident) => resident.bodyUsername.toLowerCase() === nativePlayer.toLowerCase())
+  ) {
+    throw new Error('--native-player must be distinct from every managed resident body');
+  }
+  if (existingPlan && parsed.values.recover !== true) {
+    assertPlaceServedResumeContinuity(paths.descriptor, paths.head);
   }
 
   if (parsed.values.recover === true) {
@@ -446,7 +447,6 @@ export async function runLiveCli(argv: string[]) {
     process.stdout.write(
       `[behold live] resume: ${liveResumeInstruction({
         releaseRoot,
-        residentFile,
         sessionId,
         nativePlayer,
         placeCompiler: resumePlaceCompiler,
@@ -536,7 +536,6 @@ export function nativeHumanJoinInstruction(
 
 export function liveResumeInstruction(input: {
   releaseRoot: string;
-  residentFile: string;
   sessionId: string;
   nativePlayer: string | null;
   placeCompiler:
@@ -548,16 +547,7 @@ export function liveResumeInstruction(input: {
         distributionSha256: string;
       }>;
 }): string {
-  const args = [
-    'behold',
-    'live',
-    input.releaseRoot,
-    '--residents',
-    input.residentFile,
-    '--accept-eula',
-    '--session',
-    input.sessionId,
-  ];
+  const args = ['behold', 'live', input.releaseRoot, '--accept-eula', '--session', input.sessionId];
   if (input.placeCompiler.kind === 'checkout') {
     args.push('--place-compiler', input.placeCompiler.root);
   } else {
@@ -1055,6 +1045,58 @@ export function liveEpisodeAccountingScope(sessionScopeId: string, episodeId: st
   return `${scope}:episode:${episodeId}`;
 }
 
+export function selectLiveResidentConfiguration(input: {
+  requestedResidents: ReturnType<typeof loadManagedResidentSet> | null;
+  current: ReturnType<typeof latestLiveResidentRevision> | null;
+  changeMinds: boolean;
+  recover: boolean;
+}) {
+  if (!input.current) {
+    if (!input.requestedResidents) {
+      throw new Error('a new live session requires --residents FILE');
+    }
+    if (input.changeMinds) {
+      throw new Error('live --change-minds requires an existing persistent session');
+    }
+    return Object.freeze({
+      residents: input.requestedResidents,
+      residentRevision: null,
+      writeRevision: false,
+    });
+  }
+  if (!input.requestedResidents) {
+    if (input.changeMinds) {
+      throw new Error('live --change-minds requires --residents FILE');
+    }
+    return Object.freeze({
+      residents: input.current.residents,
+      residentRevision: input.current.revision,
+      writeRevision: false,
+    });
+  }
+  if (stableJson(input.current.residents) === stableJson(input.requestedResidents)) {
+    return Object.freeze({
+      residents: input.current.residents,
+      residentRevision: input.current.revision,
+      writeRevision: false,
+    });
+  }
+  if (input.recover) {
+    throw new Error("live --recover requires the session's current resident configuration");
+  }
+  if (!input.changeMinds) {
+    throw new Error(
+      'live resident minds differ from the persistent session; repeat with --change-minds for an explicit mind-only revision',
+    );
+  }
+  assertLiveMindRevisionCompatible(input.current.residents, input.requestedResidents);
+  return Object.freeze({
+    residents: input.requestedResidents,
+    residentRevision: null,
+    writeRevision: true,
+  });
+}
+
 export function assertLiveMindRevisionCompatible(
   previous: readonly Record<string, any>[],
   next: readonly Record<string, any>[],
@@ -1091,7 +1133,7 @@ function latestLiveResidentRevision(directory: string, plan: ReturnType<typeof r
         .map((entry) => path.join(directory, entry.name))
         .sort()
     : [];
-  let residents: readonly Record<string, any>[] = plan.residents;
+  let residents: ReturnType<typeof loadManagedResidentSet> = plan.residents;
   let digest = plan.residentSetSha256;
   let revision: ReturnType<typeof readLiveResidentRevision> | null = null;
   for (const file of files) {
@@ -1115,7 +1157,7 @@ function writeLiveResidentRevision(input: {
   directory: string;
   sessionId: string;
   previousDigest: string;
-  residents: readonly Record<string, any>[];
+  residents: ReturnType<typeof loadManagedResidentSet>;
 }) {
   fs.mkdirSync(input.directory, { recursive: true, mode: 0o700 });
   const ordinal =
@@ -1165,7 +1207,7 @@ function readLiveResidentRevision(file: string) {
     changedAt: string;
     previousDigest: string;
     residentSetSha256: string;
-    residents: readonly Record<string, any>[];
+    residents: ReturnType<typeof loadManagedResidentSet>;
     digest: string;
   }>;
 }
@@ -1305,11 +1347,12 @@ function deepFreeze<T>(value: T): T {
 export function liveUsage() {
   return [
     'Usage:',
-    '  behold live RELEASE --residents FILE --accept-eula [options]',
+    '  behold live RELEASE --accept-eula [--residents FILE] [options]',
     '',
     'Runs or resumes one persistent Place world with independently configured residents.',
     '',
     'Options:',
+    '  --residents FILE               Required for a new session or --change-minds',
     '  --duration SECONDS              Live time after all residents are ready (default 300)',
     '  --session ID                   Stable session name; the exact repeat resumes it',
     '  --state DIRECTORY              Parent for persistent world/lives/history',

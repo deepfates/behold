@@ -41,7 +41,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   It starts independently configured residents, keeps their bodies, contexts,
   accounting, and Lync lives separate, permits shared physical model weights,
   exposes ordinary viewer and Minecraft endpoints, and cleanly saves, stops,
-  and resumes the persistent world.
+  and resumes the persistent world. A created session now owns the exact
+  authenticated current resident revision: ordinary resume and exact recovery
+  no longer depend on retaining the original ignored operator JSON file, while
+  new sessions and explicit `--change-minds` revisions still require one.
 - Episodes 000022 and 000023 ran the ordinary Qwen 3.6 35B-A3B LM Studio
   configuration for ten minutes and then resumed the exact same stopped world
   and lives for five more. Both residents shared one physical weight instance
