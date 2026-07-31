@@ -376,15 +376,7 @@ export async function runLiveCli(argv: string[]) {
       }
       throw error;
     }
-    printLiveReady(
-      sessionId,
-      authority,
-      run,
-      durationMs,
-      episodeRoot,
-      nativePlayer,
-      repositoryRoot,
-    );
+    printLiveReady(sessionId, authority, run, durationMs, episodeRoot, nativePlayer);
     run.control.append('live_session_duration_armed', {
       durationMs,
       beginsAt: 'run_ready',
@@ -456,17 +448,20 @@ export async function runLiveCli(argv: string[]) {
       await run.stop('live_failure').catch(() => {});
       await run.finished.catch(() => {});
     } else if (
-      authority &&
-      existingPlan &&
-      !managedLifecycleObserved &&
-      fs.existsSync(paths.head)
+      shouldRecordPlaceOnlyCleanup({
+        cleanStop,
+        hasAuthority: authority != null,
+        hadExistingPlan: existingPlan != null,
+        managedLifecycleObserved,
+        headExists: fs.existsSync(paths.head),
+      })
     ) {
       try {
-        await authority.stop('live_preflight_failure');
+        await authority!.stop('live_preflight_failure');
         recordPlaceOnlyCleanupHead({
           descriptorFile: paths.descriptor,
           previousHeadFile: paths.head,
-          placeTranscriptFile: authority.transcriptFile,
+          placeTranscriptFile: authority!.transcriptFile,
           headFile: paths.head,
         });
         authority = null;
@@ -491,7 +486,6 @@ function printLiveReady(
   durationMs: number,
   episodeRoot: string,
   nativePlayer: string | null,
-  repositoryRoot: string,
 ) {
   process.stdout.write(`\n[behold live] ${sessionId} is alive for ${durationMs / 1000}s\n`);
   process.stdout.write(
@@ -505,10 +499,40 @@ function printLiveReady(
   process.stdout.write(`[behold live] episode evidence: ${episodeRoot}\n`);
   if (nativePlayer) {
     process.stdout.write(
-      `[behold live] native human: set NATIVE_MC_SERVER=${authority.host}:${authority.port} and NATIVE_MC_USERNAME=${nativePlayer}, then run npm run native in ${repositoryRoot}\n`,
+      nativeHumanJoinInstruction(
+        authority.host,
+        authority.port,
+        authority.placeIdentity.minecraftVersion,
+        nativePlayer,
+      ),
     );
   }
   process.stdout.write('[behold live] Ctrl-C saves the world and ends this episode.\n\n');
+}
+
+export function nativeHumanJoinInstruction(
+  host: string,
+  port: number,
+  minecraftVersion: string,
+  username: string,
+) {
+  return `[behold live] native human ${username}: in Minecraft Java ${minecraftVersion}, open Multiplayer > Direct Connection and join ${host}:${port}\n`;
+}
+
+export function shouldRecordPlaceOnlyCleanup(input: {
+  cleanStop: boolean;
+  hasAuthority: boolean;
+  hadExistingPlan: boolean;
+  managedLifecycleObserved: boolean;
+  headExists: boolean;
+}) {
+  return (
+    !input.cleanStop &&
+    input.hasAuthority &&
+    input.hadExistingPlan &&
+    !input.managedLifecycleObserved &&
+    input.headExists
+  );
 }
 
 export function createLiveBoundary(

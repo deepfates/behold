@@ -10,9 +10,11 @@ import {
   createLiveBoundary,
   listPlaceServerLogs,
   liveEpisodeAccountingScope,
+  nativeHumanJoinInstruction,
   preserveResidentLyncFiles,
   preservePlaceServerLog,
   preserveTextileImport,
+  shouldRecordPlaceOnlyCleanup,
 } from '../src/cli/live';
 
 test('live keeps terminal signal protection installed through caller-owned cleanup', async () => {
@@ -243,5 +245,32 @@ test('native-human treatment requires the server and every resident to witness t
         repositoryRoot: root,
       }),
     /collides with a managed resident body/,
+  );
+});
+
+test('native-human readiness names the ordinary client path and a completed episode keeps its head', () => {
+  assert.equal(
+    nativeHumanJoinInstruction('127.0.0.1', 25565, '1.21.4', 'Ada'),
+    '[behold live] native human Ada: in Minecraft Java 1.21.4, open Multiplayer > Direct Connection and join 127.0.0.1:25565\n',
+  );
+  assert.equal(
+    shouldRecordPlaceOnlyCleanup({
+      cleanStop: true,
+      hasAuthority: true,
+      hadExistingPlan: true,
+      managedLifecycleObserved: false,
+      headExists: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRecordPlaceOnlyCleanup({
+      cleanStop: false,
+      hasAuthority: true,
+      hadExistingPlan: true,
+      managedLifecycleObserved: false,
+      headExists: true,
+    }),
+    true,
   );
 });
