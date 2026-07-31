@@ -142,6 +142,11 @@ export function createLoomContextView(
   }
 
   function shouldPrepare() {
+    // A fallback bounds the prompt during a summarizer outage, but it must not
+    // become the resident's permanent memory. The canonical loom is still
+    // present, so a later maintenance opportunity can rebuild the disposable
+    // view from turn one even when no newer turn has arrived.
+    if (fold?.generation.kind === 'fallback') return true;
     const pending = foldTarget() - foldedThrough();
     if (pending <= 0) return false;
     if (!fold && turns.length > recentTurns + foldTriggerTurns - 1) return true;
@@ -168,8 +173,9 @@ export function createLoomContextView(
 
   async function performFold(signal?: AbortSignal) {
     const target = foldTarget();
-    let cursor = foldedThrough();
-    let summary = fold?.summary ?? null;
+    const rebuildingFallback = fold?.generation.kind === 'fallback';
+    let cursor = rebuildingFallback ? 0 : foldedThrough();
+    let summary = rebuildingFallback ? null : (fold?.summary ?? null);
     let changed = false;
 
     while (cursor < target) {

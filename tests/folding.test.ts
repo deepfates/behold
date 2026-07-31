@@ -127,6 +127,50 @@ test('a fold fallback identifies its failed generation and exact deterministic s
   ]);
 });
 
+test('a later maintenance opportunity heals a fallback from the canonical loom', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-heal-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const cacheFile = path.join(root, 'fold.json');
+  const turns = Array.from({ length: 4 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  const failed = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    cacheFile,
+    recentTurns: 2,
+    foldBatchTurns: 2,
+    foldTriggerTurns: 1,
+    summarizerProtocol: 'test-summarizer.v1',
+    summarize: async () => {
+      throw new Error('temporary summarizer outage');
+    },
+  });
+  await failed.prepare();
+  assert.equal(failed.view().fold?.generation.kind, 'fallback');
+  assert.equal(failed.state().foldedThrough, 2);
+
+  const requests: any[] = [];
+  const healed = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    cacheFile,
+    recentTurns: 2,
+    foldBatchTurns: 2,
+    foldTriggerTurns: 1,
+    summarizerProtocol: 'test-summarizer.v1',
+    summarize: async (request) => {
+      requests.push(request);
+      return 'Scout retains grounded continuity from turns one and two.';
+    },
+  });
+  assert.equal(healed.state().needsFold, true);
+  assert.equal(await healed.prepare(), true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].fromSequence, 1);
+  assert.equal(requests[0].previousSummary, null);
+  assert.equal(healed.view().fold?.generation.kind, 'model');
+  assert.doesNotMatch(healed.view().fold!.summary, /automatic fold summary unavailable/);
+});
+
 test('a read-only loom view never fabricates or writes a fold needed for replay', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-read-only-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

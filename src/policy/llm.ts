@@ -451,7 +451,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     cacheFile: opts.foldCacheFile,
     readOnly: opts.foldReadOnly,
     recentTurns: opts.foldRecentTurns ?? 6,
-    foldBatchTurns: opts.foldBatchTurns ?? 24,
+    // One fold step shares the resident's inference runtime. Keep the atomic
+    // step inside the ordinary body horizon; larger histories advance through
+    // repeated durable steps instead of one long, repeatedly cancelled call.
+    foldBatchTurns: opts.foldBatchTurns ?? 6,
     foldTriggerTurns: opts.foldTriggerTurns ?? 6,
     now,
     projectionProfile: bodyProfile,
@@ -663,13 +666,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         const triggers = urgentEventTriggers(latest, lastSequence);
         if (force || hasDecisionRelevantEvent(latest, lastSequence)) {
           if (!fixedPilotSlots || force) queueWake(cause);
-          activeModelRequest?.abort(
-            abortError(
-              triggers.length > 0
-                ? 'urgent_world_attention_during_loom_fold'
-                : 'world_attention_during_loom_fold',
-            ),
-          );
+          // Ordinary changes remain queued for the next truthful observation.
+          // Cancelling every bounded fold step here can starve long-term
+          // continuity forever in an active world. Bodily urgency and explicit
+          // forced attention still reclaim the resident immediately.
+          if (force || triggers.length > 0) {
+            activeModelRequest?.abort(
+              abortError(
+                triggers.length > 0
+                  ? 'urgent_world_attention_during_loom_fold'
+                  : 'forced_attention_during_loom_fold',
+              ),
+            );
+          }
         }
       } else {
         if (!fixedPilotSlots || force) queueWake(cause);

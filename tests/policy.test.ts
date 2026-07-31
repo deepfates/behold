@@ -1619,17 +1619,21 @@ test('urgent bodily evidence cancels a background loom fold before the resident 
   }
 });
 
-test('an ordinary world change preempts idle loom maintenance and receives foreground thought', async () => {
+test('an ordinary world change waits for one bounded loom step and then receives foreground thought', async () => {
   let sequence = 1;
   let foldStarted!: () => void;
   const started = new Promise<void>((resolve) => (foldStarted = resolve));
+  let finishFold!: (summary: string) => void;
   let foldAborted = false;
   const requests: ResidentMindRequest[] = [];
   const turns: EntityTurn[] = [];
+  let secondDecisionStarted!: () => void;
+  const secondDecision = new Promise<void>((resolve) => (secondDecisionStarted = resolve));
   const mind: ResidentMind = {
     id: 'ordinary-attention-mind',
     decide: async (request) => {
       requests.push(request);
+      if (requests.length === 2) secondDecisionStarted();
       return {
         protocol: 'behold.mind-decision.v1',
         disposition: 'wait',
@@ -1670,11 +1674,12 @@ test('an ordinary world change preempts idle loom maintenance and receives foreg
       acceptEngineEvent: () => true,
       history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
       foldRecentTurns: 1,
-      foldBatchTurns: 1,
+      foldBatchTurns: 2,
       foldTriggerTurns: 1,
       summarizeLoom: async (_request, signal) => {
         foldStarted();
-        return await new Promise<string>((_resolve, reject) => {
+        return await new Promise<string>((resolve, reject) => {
+          finishFold = resolve;
           signal?.addEventListener(
             'abort',
             () => {
@@ -1698,12 +1703,22 @@ test('an ordinary world change preempts idle loom maintenance and receives foreg
 
     sequence = 2;
     policy.wake();
-    await until(() => requests.length === 2 && turns.length === 2);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(foldAborted, false);
+    assert.equal(requests.length, 1, 'ordinary attention queues behind the bounded fold step');
+    finishFold('Scout previously attempted movement and observed its consequences.');
+    await Promise.race([
+      secondDecision,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('ordinary attention did not resume after fold')), 500),
+      ),
+    ]);
+    await until(() => turns.length === 2);
 
-    assert.equal(foldAborted, true);
+    assert.equal(foldAborted, false);
     assert.equal(requests[1].attention.mode, 'deliberative');
     assert.equal((requests[1].observation as any).events[0].type, 'visible_block_changed');
-    assert.equal(policy.state().loomContext.foldedThrough, 0);
+    assert.equal(policy.state().loomContext.foldedThrough, 2);
   } finally {
     await policy.stop();
   }
@@ -2913,6 +2928,7 @@ test('loom-fold model usage is journalable instead of hidden from resident budge
       model: 'test/model',
       recordModelIO: true,
       history,
+      foldBatchTurns: 24,
       acceptEngineEvent: () => true,
       onAuxiliaryModelCall: (turn) => auxiliary.push(turn),
       onEntityTurn: (turn) => turns.push(turn),
