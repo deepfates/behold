@@ -1,10 +1,10 @@
 ---
 id: beh-n4fe
 status: in_progress
-deps: []
+deps: [beh-cqjs]
 links: []
 created: 2026-07-25T16:07:56Z
-type: feature
+type: epic
 priority: 0
 assignee: deepfates
 tags: [living-world, place-compiler, residents, human-entry, experience]
@@ -16,7 +16,7 @@ Compose the already-working Place Compiler artifact, Behold resident, ordinary M
 
 ## Acceptance Criteria
 
-From the ordinary documented `behold live` path, select and verify the accepted Place-served Oxford world; start ordinary Minecraft ecology and at least two independently configured named residents; allow a human to join through the native client while the life is running; observe sustained adaptive conduct and at least one non-scripted, persistent, independently witnessed world consequence involving resident activity; stop and resume cleanly; and produce a readable Lync/Textile aftermath that preserves resident, world, epoch, ecology, and causal identity. State the exact models/minds used and distinguish same-model controls from heterogeneous-model comparison. A rehearsed pause, scripted exchange, packaging receipt, hidden reflex, action steering, scheduler parity treatment, or isolated subsystem test does not satisfy this ticket.
+From the ordinary documented `behold live` path, select and verify the accepted Place-served Oxford world; start ordinary Minecraft ecology and at least two independently configured named residents; allow a human to join through the native client while the life is running; observe sustained adaptive conduct and at least one non-scripted, persistent, independently witnessed world consequence involving resident activity; stop and resume cleanly; and preserve canonical Lync resident/world histories that remain readable through Textile while retaining resident, world, epoch, ecology, and causal identity. State the exact models/minds used and distinguish same-model controls from heterogeneous-model comparison. A rehearsed pause, scripted exchange, packaging receipt, hidden reflex, action steering, scheduler parity treatment, or isolated subsystem test does not satisfy this ticket.
 
 ## Notes
 
@@ -518,3 +518,7 @@ so real Oxford native co-presence remains unexercised. Details are in
 `docs/reports/2026-07-26-native-human-live-entry.md`; adaptive conduct and a
 persistent resident-authored independently witnessed consequence also remain
 open, so `beh-n4fe` remains open.
+
+**2026-07-31T01:23:46Z**
+
+2026-07-30 strategy reset: this ticket is now the enduring living-world epic. Active terminology is canonical Lync histories readable through Textile, not "Textile aftermath." The initial reality-driven frontier is beh-l69b (canonical resident assembly) and beh-ro6n (explicit resident decision cycle), which may proceed independently; beh-cqjs is the ordinary adaptive-life acceptance blocked on both. Add repair tickets only for defects observed through that acceptance. Refactors, tests, reports, and episode machinery do not close this epic.

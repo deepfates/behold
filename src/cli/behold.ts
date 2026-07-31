@@ -1,8 +1,11 @@
 #!/usr/bin/env node
+import { config as loadDotenv } from 'dotenv';
 import { parseArgs } from 'node:util';
 import { runConsole } from '../tui/console';
 import { completeSuccessfulCliExit } from './process-lifecycle';
 import { fixedDecisionPilotScheduleFromText } from '../policy/fixed-decision-pilot';
+
+if (process.env.BEHOLD_LOAD_DOTENV !== '0') loadDotenv();
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -36,9 +39,6 @@ async function main() {
   const agentName = args.positionals[0];
   if (!agentName || args.values.help) return usage();
 
-  if (args.values.server) process.env.SERVER_HOST = String(args.values.server);
-  if (args.values.port) process.env.SERVER_PORT = String(args.values.port);
-  if (args.values.world) process.env.BEHOLD_WORLD_ID = String(args.values.world);
   const allow = args.values.allowTools
     ? String(args.values.allowTools)
         .split(',')
@@ -49,6 +49,9 @@ async function main() {
   await runConsole({
     agentName,
     bodyUsername: args.values.body ? String(args.values.body) : undefined,
+    serverHost: args.values.server ? String(args.values.server) : undefined,
+    serverPort: args.values.port ? Number(args.values.port) : undefined,
+    circleId: args.values.world ? String(args.values.world) : undefined,
     model: args.values.model ? String(args.values.model) : undefined,
     urgentModel: args.values.urgentModel ? String(args.values.urgentModel) : undefined,
     urgentDecisionTimeoutMs: args.values.urgentDecisionTimeoutMs

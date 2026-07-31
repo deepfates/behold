@@ -1,39 +1,14 @@
-import { config as loadDotenv } from 'dotenv';
 import readline from 'node:readline';
-import { getConfig } from '../config';
+import type { ConfigEnvironment } from '../config';
 import { closeBotViewer, createBot } from '../bot';
 import { buildInterpreter } from '../agent/interpreter';
 import { minecraftInhabitantActionsFor } from '../agent/affordances';
-import {
-  minecraftActionProfile,
-  minecraftActionsForProfile,
-  minecraftSafetyProfile,
-  type MinecraftActionProfile,
-  type MinecraftSafetyProfile,
-} from '../agent/action-profiles';
+import { minecraftActionsForProfile } from '../agent/action-profiles';
 import { buildFrame, renderFrame } from './render';
 import { parseLine } from './parse';
 import { createEngine } from '../loop/engine';
-import {
-  boundedUrgentDecisionTimeoutMs,
-  isBodilyUrgencyEvent,
-  isImmediateAttentionEvent,
-  startLLMPolicy,
-} from '../policy/llm';
-import {
-  residentPolicyProfile,
-  usesHumanSemanticPolicySurface,
-  type ResidentPolicyProfile,
-} from '../policy/profile';
+import { isBodilyUrgencyEvent, isImmediateAttentionEvent, startLLMPolicy } from '../policy/llm';
 import { createAxResidentMind } from '../mind/ax';
-import {
-  minecraftBodyProfile,
-  usesHumanSemanticBody,
-  type MinecraftBodyProfile,
-} from '../mind/minecraft-body';
-import { isCognitionTransportEnabled } from '../mind/cognition';
-import { openRouterRoutePolicyFromEnvironment } from '../mind/openrouter-route';
-import { ollamaLocalPolicyFromEnvironment } from '../mind/ollama-local';
 import { createOllamaLocalResidentMind } from '../mind/ollama';
 import {
   createLmStudioLocalLoomSummarizer,
@@ -41,13 +16,9 @@ import {
 } from '../mind/lmstudio';
 import {
   LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL,
-  lmStudioLocalPolicyFromEnvironment,
   lmStudioResidentInstanceId,
 } from '../mind/lmstudio-local';
-import {
-  assertOllamaLocalJsonActionTreatment,
-  usesOllamaResidentSessionTransport,
-} from '../mind/ollama-json-action';
+import { usesOllamaResidentSessionTransport } from '../mind/ollama-json-action';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
 import { createProjectMemory } from '../entity/projects';
@@ -63,39 +34,17 @@ import {
   type ExperimentReleaseReference,
 } from '../runtime/experiment-release';
 import {
-  fixedDecisionPilotSchedule,
   runFixedDecisionPilotSchedule,
-  type FixedDecisionPilotSchedule,
   type FixedDecisionPilotSlot,
 } from '../policy/fixed-decision-pilot';
+import {
+  resolveResidentRuntimeConfig,
+  type ResidentRuntimeOptions,
+} from '../runtime/resident-config';
 
 const INITIAL_WORLD_SYNC_SETTLE_MS = 4_000;
 
-if (process.env.BEHOLD_LOAD_DOTENV !== '0') loadDotenv();
-
-export type ConsoleOptions = {
-  /** Continuing private-life identity. */
-  agentName?: string;
-  /** Minecraft connection identity. Defaults to agentName. */
-  bodyUsername?: string;
-  model?: string;
-  urgentModel?: string;
-  urgentDecisionTimeoutMs?: number;
-  tickMs?: number;
-  /** Maximum entity turns in one uninterrupted cognition burst. */
-  maxTurnSteps?: number;
-  /** Whether a resident starts another burst after reaching maxTurnSteps. */
-  resumeAfterBudget?: boolean;
-  /** Explicit four-slot experimental schedule; absent preserves ordinary event-driven cognition. */
-  decisionSchedule?: FixedDecisionPilotSchedule;
-  paused?: boolean;
-  policyProfile?: ResidentPolicyProfile;
-  bodyProfile?: MinecraftBodyProfile;
-  actionProfile?: MinecraftActionProfile;
-  safetyProfile?: MinecraftSafetyProfile;
-  allowTools?: string[] | null;
-  task?: string;
-  target?: string;
+export type ConsoleOptions = ResidentRuntimeOptions & {
   /**
    * Programmatic world/evaluation setup after the native body has synchronized
    * but before the resident is declared ready or cognition can begin. This is
@@ -120,119 +69,49 @@ export function incomingChatPolicySignal(
     : 'resume';
 }
 
-export async function runConsole(opts: ConsoleOptions = {}) {
-  if (opts.agentName) process.env.MINECRAFT_USERNAME = opts.bodyUsername || opts.agentName;
-  else if (opts.bodyUsername) process.env.MINECRAFT_USERNAME = opts.bodyUsername;
-  if (opts.model) process.env.LLM_MODEL = opts.model;
-  if (opts.tickMs) process.env.AGENT_TICK_MS = String(opts.tickMs);
-
-  const cfg = getConfig();
-  const name = opts.agentName?.trim() || cfg.auth.username || 'Agent';
-  const bodyUsername = cfg.auth.username || 'BeholdBot';
-  const urgentModel = opts.urgentModel?.trim() || undefined;
-  const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(
-    opts.urgentDecisionTimeoutMs ?? process.env.BEHOLD_URGENT_DECISION_TIMEOUT_MS,
-  );
-  const policyProfile = residentPolicyProfile(
-    opts.policyProfile ?? process.env.BEHOLD_POLICY_PROFILE,
-  );
-  const bodyProfile = minecraftBodyProfile(
-    opts.bodyProfile ??
-      process.env.BEHOLD_BODY_PROFILE ??
-      (usesHumanSemanticPolicySurface(policyProfile)
-        ? 'minecraft-human-semantic-v1'
-        : 'minecraft-resident-v1'),
-  );
-  const actionProfile = minecraftActionProfile(
-    opts.actionProfile ??
-      process.env.BEHOLD_ACTION_PROFILE ??
-      (usesHumanSemanticPolicySurface(policyProfile)
-        ? 'minecraft-human-semantic-v1'
-        : 'resident-v1'),
-  );
-  if (usesHumanSemanticBody(bodyProfile) !== (actionProfile === 'minecraft-human-semantic-v1')) {
-    throw new Error(
-      `body profile ${bodyProfile} must be paired with its matching action profile; received ${actionProfile}`,
-    );
-  }
-  const safetyProfile = minecraftSafetyProfile(
-    opts.safetyProfile ??
-      process.env.BEHOLD_SAFETY_PROFILE ??
-      (usesHumanSemanticPolicySurface(policyProfile) ? 'vanilla-player-v1' : 'resident-safe-v1'),
-  );
-  const mindAdapter = residentMindAdapter(process.env.BEHOLD_MIND);
-  const cognitionTransport = isCognitionTransportEnabled(process.env.BEHOLD_COGNITION_TRANSPORT);
-  const providerRoute = openRouterRoutePolicyFromEnvironment(
-    process.env.BEHOLD_OPENROUTER_ROUTE_POLICY,
-  );
-  const ollamaLocal = ollamaLocalPolicyFromEnvironment(process.env.BEHOLD_OLLAMA_LOCAL_POLICY);
-  const lmStudioLocal = lmStudioLocalPolicyFromEnvironment(
-    process.env.BEHOLD_LMSTUDIO_LOCAL_POLICY,
-  );
-  if (
-    policyProfile === 'legible-resident-v1' &&
-    providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
-    !ollamaLocal &&
-    !lmStudioLocal
-  ) {
-    throw new Error('legible-resident-v1 requires a strict resident-session transport');
-  }
-  if (ollamaLocal) assertOllamaLocalJsonActionTreatment({ policyProfile }, ollamaLocal);
-  if (providerRoute && mindAdapter !== 'direct') {
-    throw new Error('OpenRouter route policy requires the direct resident mind adapter');
-  }
-  if (ollamaLocal && mindAdapter !== 'direct') {
-    throw new Error('Ollama local policy requires the direct resident mind adapter');
-  }
-  if (ollamaLocal && providerRoute) {
-    throw new Error('A resident cannot combine OpenRouter and Ollama transport policies');
-  }
-  if (lmStudioLocal && mindAdapter !== 'direct') {
-    throw new Error('LM Studio local policy requires the direct resident mind adapter');
-  }
-  if (lmStudioLocal && (providerRoute || ollamaLocal)) {
-    throw new Error('A resident cannot combine OpenRouter, Ollama, and LM Studio policies');
-  }
-  if (ollamaLocal && !cognitionTransport) {
-    throw new Error('Ollama local policy requires the authenticated cognition transport');
-  }
-  if (lmStudioLocal && !cognitionTransport) {
-    throw new Error('LM Studio local policy requires the authenticated cognition transport');
-  }
-  if (ollamaLocal && ollamaLocal.modelTag !== cfg.llm.model) {
-    throw new Error('Ollama local model tag differs from LLM_MODEL');
-  }
-  if (lmStudioLocal && lmStudioLocal.modelKey !== cfg.llm.model) {
-    throw new Error('LM Studio local model key differs from LLM_MODEL');
-  }
-  const maxTurnSteps = opts.maxTurnSteps ?? (opts.task ? 8 : 16);
-  const resumeAfterBudget = opts.resumeAfterBudget ?? opts.task == null;
-  const decisionSchedule = opts.decisionSchedule
-    ? fixedDecisionPilotSchedule(opts.decisionSchedule)
-    : null;
-  if (decisionSchedule && (maxTurnSteps !== 1 || resumeAfterBudget !== false)) {
-    throw new Error(
-      'fixed decision pilot schedule requires maxTurnSteps 1 and resumeAfterBudget false',
-    );
-  }
-  const releaseGate = experimentReleaseGateFromEnvironment({
-    entityId: name,
-    bodyUsername,
-    model: cfg.llm.model,
-    urgentModel: urgentModel ?? null,
-    mind: mindAdapter,
-    ...(providerRoute ? { providerRoute } : {}),
-    ...(ollamaLocal ? { ollamaLocal } : {}),
-    ...(lmStudioLocal ? { lmStudioLocal } : {}),
-    ...(decisionSchedule ? { decisionSchedule } : {}),
-    profiles: {
-      policy: policyProfile,
-      body: bodyProfile,
-      actions: actionProfile,
-      safety: safetyProfile,
+export async function runConsole(
+  opts: ConsoleOptions = {},
+  environment: ConfigEnvironment = process.env,
+) {
+  const runtime = resolveResidentRuntimeConfig(opts, environment);
+  const cfg = runtime.minecraft;
+  const name = runtime.entityId;
+  const bodyUsername = runtime.bodyUsername;
+  const urgentModel = runtime.urgentModel;
+  const urgentDecisionTimeoutMs = runtime.urgentDecisionTimeoutMs;
+  const policyProfile = runtime.profiles.policy;
+  const bodyProfile = runtime.profiles.body;
+  const actionProfile = runtime.profiles.actions;
+  const safetyProfile = runtime.profiles.safety;
+  const mindAdapter = runtime.cognition.mind;
+  const cognitionTransport = runtime.cognition.authenticatedTransport;
+  const providerRoute = runtime.cognition.providerRoute;
+  const ollamaLocal = runtime.cognition.ollamaLocal;
+  const lmStudioLocal = runtime.cognition.lmStudioLocal;
+  const maxTurnSteps = runtime.maxTurnSteps;
+  const resumeAfterBudget = runtime.resumeAfterBudget;
+  const decisionSchedule = runtime.decisionSchedule;
+  const releaseGate = experimentReleaseGateFromEnvironment(
+    {
+      entityId: name,
+      bodyUsername,
+      model: cfg.llm.model,
+      urgentModel: urgentModel ?? null,
+      mind: mindAdapter,
+      ...(providerRoute ? { providerRoute } : {}),
+      ...(ollamaLocal ? { ollamaLocal } : {}),
+      ...(lmStudioLocal ? { lmStudioLocal } : {}),
+      ...(decisionSchedule ? { decisionSchedule } : {}),
+      profiles: {
+        policy: policyProfile,
+        body: bodyProfile,
+        actions: actionProfile,
+        safety: safetyProfile,
+      },
+      quotaAccountId: runtime.managed.quotaAccountId,
     },
-    quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
-  });
+    environment as NodeJS.ProcessEnv,
+  );
   if (decisionSchedule && !releaseGate) {
     throw new Error('fixed decision pilot schedule requires an admitted experiment release');
   }
@@ -264,9 +143,9 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     }
   };
   const taskTarget =
-    opts.task === 'come-see-do-report' ? opts.target || 'importdf' : (opts.target ?? null);
+    runtime.task === 'come-see-do-report' ? runtime.target || 'importdf' : (runtime.target ?? null);
   appendJournal('run_started', {
-    runId: process.env.BEHOLD_RUN_ID || journal.id,
+    runId: runtime.managed.runId || journal.id,
     journalId: journal.id,
     server: cfg.server,
     circle: cfg.circle,
@@ -275,10 +154,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
     model: cfg.llm.model,
     urgentModel: urgentModel ?? null,
     controller: {
-      kind:
-        (process.env.OPENROUTER_API_KEY || process.env.BEHOLD_COGNITION_BEARER) && !opts.paused
-          ? 'llm'
-          : 'operator',
+      kind: runtime.cognition.apiKey && !runtime.paused ? 'llm' : 'operator',
       mindAdapter,
       providerRoute,
       ollamaLocal,
@@ -289,12 +165,12 @@ export async function runConsole(opts: ConsoleOptions = {}) {
       safetyProfile,
       urgentModel: urgentModel ?? null,
       urgentDecisionTimeoutMs,
-      tickMs: Number(process.env.AGENT_TICK_MS || 3000),
+      tickMs: runtime.tickMs,
       maxTurnSteps,
       resumeAfterBudget,
       decisionSchedule,
-      paused: Boolean(opts.paused),
-      allowTools: opts.allowTools ?? null,
+      paused: runtime.paused,
+      allowTools: runtime.allowTools,
       experimentRelease: releaseGate
         ? {
             state: 'setup_waiting',
@@ -304,7 +180,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
           }
         : null,
     },
-    task: opts.task ?? null,
+    task: runtime.task ?? null,
     target: taskTarget,
     entityLoom: entityLoom.file,
     entityLoomBackend: entityLoom.backend,
@@ -335,10 +211,10 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   );
   const bot = createBot(cfg, entityLoom.connectionCapability, name);
   const taskRuntime =
-    opts.task === 'come-see-do-report'
+    runtime.task === 'come-see-do-report'
       ? createComeSeeDoReportRuntime(bot as any, taskTarget!)
       : null;
-  const task = taskRuntime?.task ?? resolveTask(opts.task, opts.target);
+  const task = taskRuntime?.task ?? resolveTask(runtime.task, runtime.target);
   let policy: ReturnType<typeof startLLMPolicy> | null = null;
   let fixedScheduleStarted = false;
   let fixedSchedulePromise: Promise<unknown> | null = null;
@@ -354,7 +230,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   const experience = new InhabitantExperience(bot as any, {
     entityId: name,
     circleId: cfg.circle.id,
-    managedRunId: process.env.BEHOLD_RUN_ID || null,
+    managedRunId: runtime.managed.runId,
     task,
     projects: () => projects.snapshot(),
     places: () => places.snapshot(),
@@ -597,8 +473,8 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   };
 
   engine = createEngine(registry, {
-    tickMs: Number(process.env.AGENT_TICK_MS || 3000),
-    allowTools: opts.allowTools,
+    tickMs: runtime.tickMs,
+    allowTools: runtime.allowTools as string[] | null,
     log: (s) => console.error(s),
     onEvent: (event) => {
       const deliver = (consumer: string, fn: () => void) => {
@@ -772,23 +648,13 @@ export async function runConsole(opts: ConsoleOptions = {}) {
   });
 
   // Optional LLM policy
-  const localResidentSession = ollamaLocal != null || lmStudioLocal != null;
-  const apiKey = localResidentSession
-    ? process.env.BEHOLD_COGNITION_BEARER
-    : process.env.OPENROUTER_API_KEY;
-  const cognitionEndpoint = localResidentSession
-    ? process.env.BEHOLD_COGNITION_ENDPOINT
-    : process.env.OPENROUTER_BASE_URL;
-  if (localResidentSession && (!apiKey || !cognitionEndpoint)) {
-    throw new Error(
-      'Local resident policy is missing its runner-owned broker credential or endpoint',
-    );
-  }
+  const apiKey = runtime.cognition.apiKey;
+  const cognitionEndpoint = runtime.cognition.endpoint;
   const lmStudioModelInstance = lmStudioLocal
-    ? admittedLmStudioModelInstance(process.env.BEHOLD_LMSTUDIO_MODEL_INSTANCE_ID, lmStudioLocal)
+    ? admittedLmStudioModelInstance(runtime.cognition.lmStudioModelInstanceId, lmStudioLocal)
     : null;
-  const model = cfg.llm.model;
-  if (apiKey && !opts.paused) {
+  const model = runtime.model;
+  if (apiKey && !runtime.paused) {
     const completeToolSpecs = interp.list('inhabitant').map((s: any) => ({
       type: 'function',
       function: {
@@ -841,8 +707,8 @@ export async function runConsole(opts: ConsoleOptions = {}) {
                 apiKey,
                 model,
                 allowedModels: urgentModel ? [urgentModel] : [],
-                apiURL: openAICompatibleBaseURL(process.env.OPENROUTER_BASE_URL),
-                recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+                apiURL: openAICompatibleBaseURL(environment.OPENROUTER_BASE_URL),
+                recordModelIO: runtime.cognition.recordModelIO,
                 cognitionTransport,
               })
             : ollamaLocal
@@ -851,7 +717,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
                   endpoint: cognitionEndpoint!,
                   policy: ollamaLocal,
                   cognitionTransport: true,
-                  recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+                  recordModelIO: runtime.cognition.recordModelIO,
                 })
               : lmStudioLocal
                 ? createLmStudioLocalResidentMind({
@@ -860,7 +726,7 @@ export async function runConsole(opts: ConsoleOptions = {}) {
                     policy: lmStudioLocal,
                     modelInstanceId: lmStudioModelInstance!,
                     cognitionTransport: true,
-                    recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+                    recordModelIO: runtime.cognition.recordModelIO,
                   })
                 : undefined,
         ...(lmStudioLocal
@@ -871,21 +737,21 @@ export async function runConsole(opts: ConsoleOptions = {}) {
                 policy: lmStudioLocal,
                 modelInstanceId: lmStudioModelInstance!,
                 cognitionTransport: true,
-                recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+                recordModelIO: runtime.cognition.recordModelIO,
                 onCall: (turn) => appendJournal('model_auxiliary_call', turn),
                 onError: (failure) => appendJournal('model_auxiliary_call_failed', failure),
               }),
               foldSummarizerProtocol: LMSTUDIO_LOCAL_LOOM_FOLD_TRANSPORT_PROTOCOL,
             }
           : {}),
-        recordModelIO: process.env.BEHOLD_RECORD_MODEL_IO === '1',
+        recordModelIO: runtime.cognition.recordModelIO,
         cognitionTransport,
         ...(providerRoute ? { routePolicy: providerRoute } : {}),
-        tickMs: Number(process.env.AGENT_TICK_MS || 3000),
+        tickMs: runtime.tickMs,
         maxTurnSteps,
         resumeAfterBudget,
         decisionScheduling: decisionSchedule ? 'fixed-pilot-slots' : 'world-events',
-        allowTools: opts.allowTools ?? null,
+        allowTools: runtime.allowTools as string[] | null,
         // The complete loom stays authoritative. The adjacent fold is only a
         // validated, disposable prompt view over older turns.
         history: entityLoom.turns(),
@@ -1129,14 +995,6 @@ function admittedLmStudioModelInstance(
     throw new Error('LM Studio model instance differs from the runner-admitted resident session');
   }
   return configured;
-}
-
-function residentMindAdapter(value: string | undefined): 'direct' | 'ax' {
-  const normalized = String(value || 'direct')
-    .trim()
-    .toLowerCase();
-  if (normalized === 'direct' || normalized === 'ax') return normalized;
-  throw new Error(`Unsupported BEHOLD_MIND ${JSON.stringify(value)}; expected direct or ax`);
 }
 
 function waitForInitialWorldSync(bot: any, milliseconds: number) {

@@ -18,15 +18,26 @@ export interface Config {
   llm: { apiKey?: string; model: string };
 }
 
-function envInt(name: string, def: number) {
-  const raw = process.env[name];
+export type ConfigEnvironment = Readonly<Record<string, string | undefined>>;
+
+export type ConfigOverrides = Readonly<{
+  serverHost?: string;
+  serverPort?: number;
+  circleId?: string;
+  bodyUsername?: string;
+  model?: string;
+  tickMs?: number;
+}>;
+
+function envInt(environment: ConfigEnvironment, name: string, def: number) {
+  const raw = environment[name];
   if (raw == null || raw === '') return def;
   const n = Number(raw);
   return Number.isFinite(n) ? n : def;
 }
 
-function envBool(name: string, def: boolean) {
-  const raw = process.env[name];
+function envBool(environment: ConfigEnvironment, name: string, def: boolean) {
+  const raw = environment[name];
   if (raw == null || raw === '') return def;
   const s = String(raw).toLowerCase();
   if (['1', 'true', 'yes', 'on'].includes(s)) return true;
@@ -34,10 +45,13 @@ function envBool(name: string, def: boolean) {
   return def;
 }
 
-export function getConfig(): Config {
-  const host = process.env.SERVER_HOST || 'localhost';
-  const port = envInt('SERVER_PORT', 25565);
-  const explicitCircle = String(process.env.BEHOLD_WORLD_ID || '').trim();
+export function getConfig(
+  environment: ConfigEnvironment = process.env,
+  overrides: ConfigOverrides = {},
+): Config {
+  const host = overrides.serverHost?.trim() || environment.SERVER_HOST || 'localhost';
+  const port = overrides.serverPort ?? envInt(environment, 'SERVER_PORT', 25565);
+  const explicitCircle = String(overrides.circleId ?? environment.BEHOLD_WORLD_ID ?? '').trim();
   const cfg: Config = {
     server: {
       host,
@@ -47,36 +61,45 @@ export function getConfig(): Config {
       ? { id: explicitCircle, source: 'explicit' }
       : { id: endpointCircleId(host, port), source: 'endpoint-fallback' },
     auth: {
-      username: process.env.MINECRAFT_USERNAME || 'BeholdBot',
-      password: process.env.MINECRAFT_PASSWORD || undefined,
-      mode: (process.env.MINECRAFT_AUTH || 'offline').toLowerCase() as 'offline' | 'microsoft',
+      username: overrides.bodyUsername?.trim() || environment.MINECRAFT_USERNAME || 'BeholdBot',
+      password: environment.MINECRAFT_PASSWORD || undefined,
+      mode: (environment.MINECRAFT_AUTH || 'offline').toLowerCase() as 'offline' | 'microsoft',
     },
     agent: {
-      tickMs: envInt('AGENT_TICK_MS', 4000),
+      tickMs: overrides.tickMs ?? envInt(environment, 'AGENT_TICK_MS', 4000),
     },
     viewer: {
-      enabled: envBool('VIEWER_ENABLED', true),
-      required: envBool('VIEWER_REQUIRED', false),
+      enabled: envBool(environment, 'VIEWER_ENABLED', true),
+      required: envBool(environment, 'VIEWER_REQUIRED', false),
       host: '127.0.0.1',
-      port: envInt('VIEWER_PORT', 3007),
-      firstPerson: envBool('VIEWER_FIRST_PERSON', true),
-      viewDistance: envInt('VIEWER_DISTANCE', 8),
+      port: envInt(environment, 'VIEWER_PORT', 3007),
+      firstPerson: envBool(environment, 'VIEWER_FIRST_PERSON', true),
+      viewDistance: envInt(environment, 'VIEWER_DISTANCE', 8),
     },
     input: {
-      mode: (process.env.KEY_MODE || 'hold').toLowerCase() === 'toggle' ? 'toggle' : 'hold',
+      mode: (environment.KEY_MODE || 'hold').toLowerCase() === 'toggle' ? 'toggle' : 'hold',
     },
     llm: {
-      apiKey: process.env.OPENROUTER_API_KEY || undefined,
-      model: process.env.LLM_MODEL || DEFAULT_LLM_MODEL,
+      apiKey: environment.OPENROUTER_API_KEY || undefined,
+      model: overrides.model?.trim() || environment.LLM_MODEL || DEFAULT_LLM_MODEL,
     },
   };
 
   for (const key of REQUIRED_FOR_MINECRAFT) {
-    if (!process.env[key]) {
+    if (!environment[key] && !providedByOverride(key, overrides)) {
       console.warn(`[config] ${key} not set; using defaults if available.`);
     }
   }
   return cfg;
+}
+
+function providedByOverride(
+  key: (typeof REQUIRED_FOR_MINECRAFT)[number],
+  overrides: ConfigOverrides,
+) {
+  if (key === 'SERVER_HOST') return Boolean(overrides.serverHost?.trim());
+  if (key === 'SERVER_PORT') return overrides.serverPort != null;
+  return Boolean(overrides.bodyUsername?.trim());
 }
 
 function endpointCircleId(host: string, port: number) {

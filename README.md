@@ -128,16 +128,18 @@ Quickstart
   - `dig @cursor` · `equip pickaxe` · `eat`
 
 What is it?
-Behold runs a Mineflayer bot and exposes a spec‑first command registry you can call from a console, an LLM, or a script. A small arbiter executes one action at a time. `stop` suspends new model work, cancels queued model intents, and asks the active adapter to cancel; pathfinding and digging only report cancellation after Mineflayer acknowledges it. Adapters without an acknowledgement still serialize and drain instead of fabricating interruption. A legacy JSONL harness also exists, but it has not yet been canonicalized against the embodied/Lync path.
+Behold runs a Mineflayer body through one embodied resident runtime shared by the interactive console and managed `behold live` residents. That runtime composes bounded experience, current physical affordances, a replaceable mind, the serialized intent engine, and the resident's Lync life. `stop` suspends new model work, cancels queued model intents, and asks the active adapter to cancel; pathfinding and digging only report cancellation after Mineflayer acknowledges it. Adapters without an acknowledgement still serialize and drain instead of fabricating interruption. The older tick/reasoner entry and JSONL harness remain compatibility surfaces, not equivalent resident paths.
 
 Key files
 
-- `src/index.ts` — Entry point; loads config and starts the bot + agent loop
+- `src/runtime/resident-config.ts` — Pure process-boundary resolver for one explicit resident runtime configuration
+- `src/tui/console.ts` — Canonical embodied resident composition used by interactive and managed resident entry
+- `src/index.ts` — Legacy tick/reasoner entry retained for compatibility; not the resident product path
 - `src/config.ts` — Reads env vars and validates runtime config
 - `src/bot.ts` — Creates the Mineflayer bot and binds core events
 - Viewer: when enabled, starts a local web viewer (prismarine-viewer) on spawn
-- `src/agent/loop.ts` — Agent loop runner (tick-based)
-- `src/agent/reasoner.ts` — Minimal reasoner; uses OpenRouter chat (no tools) or a tiny fallback
+- `src/agent/loop.ts` — Legacy tick loop retained for compatibility
+- `src/agent/reasoner.ts` — Legacy mention-oriented reasoner; not used by the embodied resident path
 - `src/agent/observation.ts` — Shared observation builder for bot state
 - `src/agent/harness_stdio.ts` — JSONL stdio harness for external control
 - `src/cli/main.ts` — Transitional CLI (`tools`, `agent --stdio`)
