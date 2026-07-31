@@ -10,6 +10,7 @@ import {
   assertPlaceServedAuthority,
   assertPlaceServedResumeContinuity,
   establishPlaceServedWorldBasis,
+  reconcileAbandonedPlaceServedWorldHead,
   reconcilePlaceSavedFailedStartHead,
   reconcileRecoveredPlaceServedWorldHead,
   recordPlaceOnlyCleanupHead,
@@ -332,6 +333,83 @@ test('a completed abandoned-after-save recovery can authenticate the stopped wor
 
   assert.equal(head.terminalKind, 'recovered_after_save');
   assert.equal(head.lifecycle.terminalSequence, terminal.sequence);
+  assert.equal(
+    assertPlaceServedResumeContinuity(established.descriptor.paths.descriptor, fixture.headFile)
+      .runtime.digest,
+    digestTree(fixture.runtimeWorld).digest,
+  );
+});
+
+test('an exact abandoned running epoch can become the resumable stopped head without becoming a clean episode', (t) => {
+  const fixture = makeFixture(t);
+  const established = establishPlaceServedWorldBasis(
+    {
+      sessionRoot: fixture.sessionRoot,
+      authority: fixture.authority,
+      saveEvidence: fixture.saveTerminal,
+    },
+    { assertAuthorityOwnership: () => {} },
+  );
+  const control = acquireWorldControl({
+    controlRoot: fixture.controlRoot,
+    world: established.descriptor.worldId,
+    runtimePath: fixture.runtimeWorld,
+  });
+  control.update('starting', {
+    server: { pid: process.pid, jarSha256: fixture.identity.minecraftServerSha256 },
+  });
+  control.update('running');
+  fs.writeFileSync(path.join(fixture.runtimeWorld, 'interrupted-life.txt'), 'retained state');
+
+  const owner = control.record();
+  const lifecycleLines = fs.readFileSync(control.journalFile, 'utf8').trim().split('\n');
+  const last = JSON.parse(lifecycleLines.at(-1)!);
+  const ownerFile = path.join(fixture.controlRoot, established.descriptor.worldId, 'owner.json');
+  const preparedFile = path.join(fixture.sessionRoot, 'abandoned.prepared.json');
+  const completedFile = path.join(fixture.sessionRoot, 'abandoned.completed.json');
+  const prepared = {
+    protocol: 'behold.world-recovery-evidence.v1',
+    phase: 'prepared',
+    classification: 'abandoned_unclean_shutdown',
+    world: established.descriptor.worldId,
+    epoch: owner.epoch,
+    owner: { file: ownerFile, record: owner },
+    lifecycle: {
+      file: fs.realpathSync.native(control.journalFile),
+      tipDigest: last.digest,
+      eventCount: lifecycleLines.length,
+      saveAcknowledged: false,
+    },
+    runtime: {
+      runtimePath: established.descriptor.paths.runtimeWorld,
+      runtimeSessionLock: { state: 'clear' },
+      serverPort: { state: 'clear' },
+    },
+    runtimeTree: digestTree(fixture.runtimeWorld),
+  };
+  fs.writeFileSync(preparedFile, `${JSON.stringify(prepared)}\n`);
+  const completed = {
+    protocol: 'behold.world-recovery-evidence.v1',
+    phase: 'completed',
+    classification: 'abandoned_unclean_shutdown',
+    world: established.descriptor.worldId,
+    epoch: owner.epoch,
+    preparedEvidence: fs.realpathSync.native(preparedFile),
+    preparedSha256: sha256File(preparedFile),
+    releasedOwnerFile: ownerFile,
+    releasedControllerLeases: [],
+  };
+  fs.unlinkSync(ownerFile);
+  fs.writeFileSync(completedFile, `${JSON.stringify(completed)}\n`);
+
+  const head = reconcileAbandonedPlaceServedWorldHead({
+    descriptorFile: established.descriptor.paths.descriptor,
+    recoveryEvidenceFile: completedFile,
+    headFile: fixture.headFile,
+  });
+
+  assert.equal(head.terminalKind, 'recovered_abandoned_run');
+  assert.equal(head.lifecycle.terminalSequence, last.sequence);
   assert.equal(
     assertPlaceServedResumeContinuity(established.descriptor.paths.descriptor, fixture.headFile)
       .runtime.digest,

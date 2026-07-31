@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,12 +7,34 @@ import test from 'node:test';
 import {
   assertLiveMindRevisionCompatible,
   assessNativeHumanEntry,
+  createLiveBoundary,
   listPlaceServerLogs,
   liveEpisodeAccountingScope,
   preserveResidentLyncFiles,
   preservePlaceServerLog,
   preserveTextileImport,
 } from '../src/cli/live';
+
+test('live keeps terminal signal protection installed through caller-owned cleanup', async () => {
+  const signals = new EventEmitter();
+  const boundary = createLiveBoundary(
+    { finished: new Promise<void>(() => {}) },
+    60_000,
+    signals as any,
+  );
+
+  signals.emit('SIGINT');
+  assert.equal(await boundary.wait, 'SIGINT');
+  assert.equal(signals.listenerCount('SIGINT'), 1);
+  assert.equal(signals.listenerCount('SIGHUP'), 1);
+  signals.emit('SIGHUP');
+  assert.equal(signals.listenerCount('SIGHUP'), 1);
+
+  boundary.dispose();
+  assert.equal(signals.listenerCount('SIGINT'), 0);
+  assert.equal(signals.listenerCount('SIGTERM'), 0);
+  assert.equal(signals.listenerCount('SIGHUP'), 0);
+});
 
 test('live mind revision preserves resident identity, body, charter, cadence, and steering', () => {
   const original = [

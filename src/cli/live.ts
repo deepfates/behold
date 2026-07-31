@@ -8,6 +8,7 @@ import {
   bundledJava,
   loadManagedResidentSet,
   managedSessionDurationMs,
+  recoverAbandonedManagedWorld,
   resolveManagedDataRoot,
   startManagedWorld,
   type ManagedWorldRun,
@@ -18,6 +19,7 @@ import {
   assertPlaceServedAuthority,
   assertPlaceServedResumeContinuity,
   establishPlaceServedWorldBasis,
+  reconcileAbandonedPlaceServedWorldHead,
   recordPlaceServedWorldHead,
   recordPlaceOnlyCleanupHead,
   verifyPlaceServedWorldBasis,
@@ -58,6 +60,7 @@ export async function runLiveCli(argv: string[]) {
       'lmstudio-models-root': { type: 'string' },
       'native-player': { type: 'string' },
       'change-minds': { type: 'boolean', default: false },
+      recover: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
     allowPositionals: true,
@@ -87,14 +90,6 @@ export async function runLiveCli(argv: string[]) {
   const residents = loadManagedResidentSet(residentFile);
   if (residents.some((resident) => resident.providerQuotas == null || resident.paused === true)) {
     throw new Error('live requires an armed per-resident provider-attempt ceiling for every life');
-  }
-  if (
-    !process.env.OPENROUTER_API_KEY &&
-    residents.some((resident) => resident.ollamaLocal == null && resident.lmStudioLocal == null)
-  ) {
-    throw new Error(
-      'live requires OPENROUTER_API_KEY before starting Place for provider residents',
-    );
   }
   const nativePlayer = parsed.values['native-player']
     ? minecraftUsername(parsed.values['native-player'], '--native-player')
@@ -135,6 +130,9 @@ export async function runLiveCli(argv: string[]) {
     }
     const current = latestLiveResidentRevision(paths.residentRevisions, existingPlan);
     if (stableJson(current.residents) !== stableJson(residents)) {
+      if (parsed.values.recover === true) {
+        throw new Error("live --recover requires the session's current resident configuration");
+      }
       if (parsed.values['change-minds'] !== true) {
         throw new Error(
           'live resident minds differ from the persistent session; repeat with --change-minds for an explicit mind-only revision',
@@ -150,9 +148,46 @@ export async function runLiveCli(argv: string[]) {
     } else {
       residentRevision = current.revision;
     }
-    assertPlaceServedResumeContinuity(paths.descriptor, paths.head);
+    if (parsed.values.recover !== true) {
+      assertPlaceServedResumeContinuity(paths.descriptor, paths.head);
+    }
   } else if (fs.existsSync(paths.descriptor)) {
     throw new Error('served-world genesis exists without its live session plan');
+  }
+
+  if (parsed.values.recover === true) {
+    if (!existingPlan) throw new Error('live --recover requires an existing persistent session');
+    if (parsed.values['change-minds'] === true) {
+      throw new Error('live --recover cannot revise resident minds');
+    }
+    const established = verifyPlaceServedWorldBasis(paths.descriptor);
+    if (established.descriptor.worldId !== existingPlan.worldId) {
+      throw new Error('live recovery world differs from its persistent session');
+    }
+    const recovered = await recoverAbandonedManagedWorld({
+      worldId: existingPlan.worldId,
+      world: established.world,
+      controlRoot: paths.control,
+      entityRoot: paths.entities,
+    });
+    const head = reconcileAbandonedPlaceServedWorldHead({
+      descriptorFile: paths.descriptor,
+      recoveryEvidenceFile: recovered.completedEvidence,
+      headFile: paths.head,
+    });
+    process.stdout.write(
+      `[behold live] recovered abandoned epoch ${recovered.epoch}; persistent head ${head.runtimeDigest}\n`,
+    );
+    return 0;
+  }
+
+  if (
+    !process.env.OPENROUTER_API_KEY &&
+    residents.some((resident) => resident.ollamaLocal == null && resident.lmStudioLocal == null)
+  ) {
+    throw new Error(
+      'live requires OPENROUTER_API_KEY before starting Place for provider residents',
+    );
   }
 
   const episodeId = nextEpisodeId(paths.episodes);
@@ -227,6 +262,7 @@ export async function runLiveCli(argv: string[]) {
   let run: ManagedWorldRun | null = null;
   let cleanStop = false;
   let managedLifecycleObserved = false;
+  let boundary: ReturnType<typeof createLiveBoundary> | null = null;
   const startedAt = new Date().toISOString();
   const placeServerLogsBefore = new Set(listPlaceServerLogs(paths.placeRuntime));
   try {
@@ -354,7 +390,8 @@ export async function runLiveCli(argv: string[]) {
       beginsAt: 'run_ready',
       terminalReason: 'duration_elapsed',
     });
-    const reason = await awaitLiveBoundary(run, durationMs);
+    boundary = createLiveBoundary(run, durationMs);
+    const reason = await boundary.wait;
     await run.stop(reason);
     await run.finished;
     cleanStop = true;
@@ -443,6 +480,7 @@ export async function runLiveCli(argv: string[]) {
   } finally {
     if (authority)
       await authority.stop(cleanStop ? 'live_final_settlement' : 'live_failure').catch(() => {});
+    boundary?.dispose();
   }
 }
 
@@ -473,28 +511,36 @@ function printLiveReady(
   process.stdout.write('[behold live] Ctrl-C saves the world and ends this episode.\n\n');
 }
 
-async function awaitLiveBoundary(run: ManagedWorldRun, durationMs: number) {
+export function createLiveBoundary(
+  run: Pick<ManagedWorldRun, 'finished'>,
+  durationMs: number,
+  signalSource: Pick<NodeJS.Process, 'on' | 'removeListener'> = process,
+) {
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
   let requestStop!: (reason: string) => void;
   const requested = new Promise<string>((resolve) => {
     requestStop = resolve;
   });
-  const onSigint = () => requestStop('SIGINT');
-  const onSigterm = () => requestStop('SIGTERM');
-  process.once('SIGINT', onSigint);
-  process.once('SIGTERM', onSigterm);
-  const timer = setTimeout(() => requestStop('duration_elapsed'), durationMs);
-  try {
-    return await Promise.race([
-      requested,
-      run.finished.then(() => {
-        throw new Error('a managed resident or server exited before the live boundary');
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-    process.removeListener('SIGINT', onSigint);
-    process.removeListener('SIGTERM', onSigterm);
+  const handlers = new Map<(typeof signals)[number], () => void>();
+  for (const signal of signals) {
+    const handler = () => requestStop(signal);
+    handlers.set(signal, handler);
+    signalSource.on(signal, handler);
   }
+  const timer = setTimeout(() => requestStop('duration_elapsed'), durationMs);
+  const wait = Promise.race([
+    requested,
+    run.finished.then(() => {
+      throw new Error('a managed resident or server exited before the live boundary');
+    }),
+  ]).finally(() => clearTimeout(timer));
+  return Object.freeze({
+    wait,
+    dispose() {
+      clearTimeout(timer);
+      for (const [signal, handler] of handlers) signalSource.removeListener(signal, handler);
+    },
+  });
 }
 
 function liveSessionPaths(sessionRoot: string) {
@@ -1199,8 +1245,9 @@ export function liveUsage() {
     '  --server-jar FILE              Pinned server JAR (default Behold managed artifact)',
     '  --max-model-concurrency N      Concurrent local cognition (default min(2, residents))',
     '  --lmstudio-models-root DIR     Exact local LM Studio artifact root',
-    '  --native-player USERNAME       Require this operator-declared native human join',
+    '  --native-player USERNAME       Check one username in post-episode join observations',
     '  --change-minds                 Explicitly revise only model/mind transport for the same lives',
+    '  --recover                      Release an exact abandoned stopped epoch without starting Place',
     '',
     'Residents keep their declared human-semantic body, charter, model transport, and durable',
     'attempt ceilings. The ceiling is safety/resource governance, not a fairness claim.',

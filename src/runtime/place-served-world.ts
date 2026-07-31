@@ -20,6 +20,7 @@ type PlaceServedWorldTerminalKind =
   | 'failed_start_cleanup'
   | 'recovered_after_save'
   | 'recovered_after_place_save'
+  | 'recovered_abandoned_run'
   | 'place_only_cleanup';
 
 export type PlaceServedWorldDescriptor = Readonly<{
@@ -358,20 +359,24 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
     const terminalKind = placeServedWorldTerminalKind(terminal?.type);
     const recoveredLifecycle = head.terminalKind === 'recovered_after_save';
     const recoveredPlace = head.terminalKind === 'recovered_after_place_save';
+    const recoveredAbandoned = head.terminalKind === 'recovered_abandoned_run';
     const placeOnlyCleanup = head.terminalKind === 'place_only_cleanup';
-    const recovered = recoveredLifecycle || recoveredPlace || placeOnlyCleanup;
+    const recovered =
+      recoveredLifecycle || recoveredPlace || recoveredAbandoned || placeOnlyCleanup;
     const completed = recoveredLifecycle
       ? verifyRecoveredHeadEvidence(head, lifecycle, descriptor)
       : recoveredPlace
         ? verifyRecoveredPlaceSavedHeadEvidence(head, lifecycle, descriptor)
-        : terminal
-          ? placeServedWorldTerminalCompletion(
-              lifecycle.events,
-              terminal.sequence,
-              terminalKind,
-              descriptor,
-            )
-          : null;
+        : recoveredAbandoned
+          ? verifyRecoveredAbandonedHeadEvidence(head, lifecycle, descriptor)
+          : terminal
+            ? placeServedWorldTerminalCompletion(
+                lifecycle.events,
+                terminal.sequence,
+                terminalKind,
+                descriptor,
+              )
+            : null;
     const placeOnlyEvidence = placeOnlyCleanup
       ? verifyPlaceOnlyCleanupHeadEvidence(head, lifecycle, descriptor)
       : null;
@@ -381,11 +386,13 @@ export function assertPlaceServedResumeContinuity(descriptorFile: string, headFi
       (!recovered && lifecycle.events.at(-1)?.type !== 'control_released') ||
       (!recovered && terminalKind == null) ||
       (!recovered && head.terminalKind != null && head.terminalKind !== terminalKind) ||
-      terminal.digest !== head.lifecycle.terminalDigest ||
+      (!recoveredAbandoned && terminal?.digest !== head.lifecycle.terminalDigest) ||
       (!recoveredPlace &&
+        !recoveredAbandoned &&
         !placeOnlyCleanup &&
         (terminal.data as any)?.protocol !== 'behold.managed-terminal-world-state.v1') ||
       (!recoveredPlace &&
+        !recoveredAbandoned &&
         !placeOnlyCleanup &&
         (terminal.data as any)?.tree?.digest !== head.runtimeDigest) ||
       (!placeOnlyCleanup && !completed) ||
@@ -682,6 +689,76 @@ export function reconcilePlaceSavedFailedStartHead(input: {
   return head;
 }
 
+/**
+ * Advances the persistent head after the lifecycle owner and all of its
+ * children died before the normal stop protocol could publish a terminal
+ * world state. The recovery evidence binds the exact abandoned owner,
+ * lifecycle tip, dead process set, clear lock/port fence, and unchanged
+ * stopped runtime tree. It does not relabel the interrupted episode as clean.
+ */
+export function reconcileAbandonedPlaceServedWorldHead(input: {
+  descriptorFile: string;
+  recoveryEvidenceFile: string;
+  headFile: string;
+  now?: () => Date;
+}) {
+  const { descriptor } = verifyPlaceServedWorldBasis(input.descriptorFile);
+  const evidence = readCompletedRecovery(input.recoveryEvidenceFile, descriptor);
+  if (
+    evidence.completed.classification !== 'abandoned_unclean_shutdown' ||
+    evidence.prepared.classification !== 'abandoned_unclean_shutdown'
+  ) {
+    throw new Error('Abandoned live recovery requires an unclean-shutdown classification');
+  }
+  const lifecycle = verifyWorldLifecycleJournal(evidence.prepared.lifecycle?.file);
+  const last = lifecycle.events.at(-1);
+  const owner = evidence.prepared.owner?.record;
+  const ownerState = owner
+    ? {
+        state: owner.state,
+        runtime: owner.runtime,
+        server: owner.server,
+        controllers: owner.controllers,
+      }
+    : null;
+  const runtime = digestTree(descriptor.paths.runtimeWorld);
+  if (
+    lifecycle.world !== descriptor.worldId ||
+    lifecycle.tipDigest !== evidence.prepared.lifecycle?.tipDigest ||
+    lifecycle.events.length !== evidence.prepared.lifecycle?.eventCount ||
+    last?.type !== 'control_state_changed' ||
+    stableJson(last.data) !== stableJson(ownerState) ||
+    !['starting', 'running', 'stopping', 'recovery_required', 'stopped_verified'].includes(
+      owner?.state,
+    ) ||
+    evidence.prepared.runtime?.runtimeSessionLock?.state !== 'clear' ||
+    evidence.prepared.runtime?.serverPort?.state !== 'clear' ||
+    evidence.prepared.runtimeTree?.digest !== runtime.digest
+  ) {
+    throw new Error('Abandoned live recovery does not bind the exact stopped runtime');
+  }
+  const base = {
+    protocol: PLACE_SERVED_WORLD_HEAD_PROTOCOL,
+    worldId: descriptor.worldId,
+    updatedAt: (input.now?.() ?? new Date()).toISOString(),
+    runtimeDigest: runtime.digest,
+    terminalKind: 'recovered_abandoned_run' as const,
+    lifecycle: {
+      file: lifecycle.file,
+      terminalSequence: last.sequence,
+      terminalDigest: last.digest,
+      tipDigest: lifecycle.tipDigest,
+    },
+    recovery: recoveryHeadEvidence(evidence),
+  };
+  const head = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
+  if (!verifyRecoveredAbandonedHeadEvidence(head, lifecycle, descriptor)) {
+    throw new Error('Abandoned live recovery head failed its own verification');
+  }
+  atomicWriteJson(input.headFile, head);
+  return head;
+}
+
 function verifyRecoveredHeadEvidence(
   head: any,
   lifecycle: any,
@@ -749,6 +826,46 @@ function verifyRecoveredPlaceSavedHeadEvidence(
       (event: any) => event.type === 'experiment_released' || event.type === 'controller_started',
     ) &&
     stableJson(place) === stableJson(head.place)
+    ? evidence.completed
+    : null;
+}
+
+function verifyRecoveredAbandonedHeadEvidence(
+  head: any,
+  lifecycle: any,
+  descriptor: PlaceServedWorldDescriptor,
+) {
+  if (head.terminalKind !== 'recovered_abandoned_run') return null;
+  let evidence;
+  try {
+    evidence = readCompletedRecovery(head.recovery?.completedEvidenceFile, descriptor);
+  } catch {
+    return null;
+  }
+  const last = lifecycle.events.at(-1);
+  const owner = evidence.prepared.owner?.record;
+  const ownerState = owner
+    ? {
+        state: owner.state,
+        runtime: owner.runtime,
+        server: owner.server,
+        controllers: owner.controllers,
+      }
+    : null;
+  return evidence.completed.classification === 'abandoned_unclean_shutdown' &&
+    evidence.prepared.classification === 'abandoned_unclean_shutdown' &&
+    evidence.prepared.lifecycle?.file === lifecycle.file &&
+    evidence.prepared.lifecycle?.tipDigest === lifecycle.tipDigest &&
+    evidence.prepared.lifecycle?.eventCount === lifecycle.events.length &&
+    last?.sequence === head.lifecycle.terminalSequence &&
+    last?.digest === head.lifecycle.terminalDigest &&
+    last?.type === 'control_state_changed' &&
+    stableJson(last.data) === stableJson(ownerState) &&
+    evidence.prepared.runtime?.runtimeSessionLock?.state === 'clear' &&
+    evidence.prepared.runtime?.serverPort?.state === 'clear' &&
+    evidence.prepared.runtimeTree?.digest === head.runtimeDigest &&
+    sha256File(evidence.completedFile) === head.recovery.completedEvidenceSha256 &&
+    sha256File(evidence.preparedFile) === head.recovery.preparedEvidenceSha256
     ? evidence.completed
     : null;
 }

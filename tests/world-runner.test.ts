@@ -2846,6 +2846,10 @@ test('recovery preserves evidence before releasing an exact dead same-host epoch
   const completed = JSON.parse(fs.readFileSync(recovered.completedEvidence, 'utf8'));
   assert.equal(prepared.lifecycle.tipDigest, lifecycleTip);
   assert.equal(prepared.lifecycle.saveAcknowledged, false);
+  assert.equal(
+    prepared.runtimeTree.digest,
+    digestTree(fixture.options.world.runtime.worldPath).digest,
+  );
   assert.equal(prepared.controllerLeases.length, 2);
   assert.deepEqual(prepared.controllerLeases.map((lease: any) => lease.record.entityId).sort(), [
     'Builder',
@@ -2864,6 +2868,54 @@ test('recovery preserves evidence before releasing an exact dead same-host epoch
   });
   assert.equal(next.record().epoch, 2);
   next.release();
+});
+
+test('recovery accepts an exact dead owner that died while still marked running', async (t) => {
+  const fixture = makeFixture(t);
+  const entityRoot = path.dirname(path.dirname(fixture.lease));
+  const worldControlModule = path.resolve(__dirname, '../src/runtime/world-control.js');
+  const abandoned = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+        const os = require('node:os');
+        const { acquireWorldControl } = require(process.argv[1]);
+        const control = acquireWorldControl({
+          controlRoot: process.argv[2], world: 'fixture', runtimePath: process.argv[3],
+          pid: process.pid, hostname: os.hostname()
+        });
+        control.update('starting', { server: { pid: process.pid, jarSha256: 'abc' } });
+        control.update('running');
+      `,
+      worldControlModule,
+      fixture.controlRoot,
+      fixture.options.world.runtime.worldPath,
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.equal(abandoned.status, 0, abandoned.stderr);
+  const held = inspectWorldControl(fixture.controlRoot, 'fixture');
+  assert.equal(held.state === 'held' ? held.record.state : null, 'running');
+
+  const recovered = await recoverAbandonedManagedWorld(
+    {
+      worldId: 'fixture',
+      world: fixture.options.world,
+      controlRoot: fixture.controlRoot,
+      entityRoot,
+    },
+    { inspectRuntime: async () => runtimeEvidence(null) },
+  );
+
+  assert.equal(recovered.classification, 'abandoned_unclean_shutdown');
+  assert.equal(inspectWorldControl(fixture.controlRoot, 'fixture').state, 'clear');
+  const prepared = JSON.parse(fs.readFileSync(recovered.preparedEvidence, 'utf8'));
+  assert.equal(prepared.owner.record.state, 'running');
+  assert.equal(
+    prepared.runtimeTree.digest,
+    digestTree(fixture.options.world.runtime.worldPath).digest,
+  );
 });
 
 test('managed world runner owns conjunctive readiness, distinct leases, drain, save, and stop for two residents', async (t) => {

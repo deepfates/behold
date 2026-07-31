@@ -2916,9 +2916,14 @@ export async function recoverAbandonedManagedWorld(
     dependencies.inspectRuntime ?? (() => statusWorld(options.worldId, options.world));
   const now = dependencies.now ?? (() => new Date());
   const inspection = inspectWorldControl(options.controlRoot, options.worldId);
-  if (inspection.state !== 'held' || inspection.record.state !== 'recovery_required') {
+  if (
+    inspection.state !== 'held' ||
+    !['starting', 'running', 'stopping', 'recovery_required', 'stopped_verified'].includes(
+      inspection.record.state,
+    )
+  ) {
     throw new WorldRunnerError(
-      `World ${options.worldId} has no recovery-required owner`,
+      `World ${options.worldId} has no abandoned managed owner`,
       'world_control_not_recoverable',
       inspection,
     );
@@ -2957,6 +2962,7 @@ export async function recoverAbandonedManagedWorld(
   const leases = inspectRecoveryLeases(owner, entityRoot, circleIds);
   const runtime = await inspectRuntime();
   assertStoppedEvidence(runtime, 'before_abandoned_owner_recovery');
+  const runtimeTree = digestTree(options.world.runtime.worldPath);
   const saveAcknowledged = lifecycle.events.some(
     (event) => event.type === 'server_save_acknowledged',
   );
@@ -2980,6 +2986,7 @@ export async function recoverAbandonedManagedWorld(
       saveAcknowledged,
     },
     runtime,
+    runtimeTree,
     processes: processes.map((entry) => ({ ...entry, observedDead: true })),
     controllerLeases: leases.map((lease) => ({
       file: lease.file,
@@ -3000,6 +3007,14 @@ export async function recoverAbandonedManagedWorld(
   assertRecoveryLeasesUnchanged(leases);
   const finalRuntime = await inspectRuntime();
   assertStoppedEvidence(finalRuntime, 'immediately_before_abandoned_owner_release');
+  const finalRuntimeTree = digestTree(options.world.runtime.worldPath);
+  if (finalRuntimeTree.digest !== runtimeTree.digest) {
+    throw new WorldRunnerError(
+      'Runtime changed while abandoned ownership was being recovered',
+      'recovery_runtime_tree_changed',
+      { before: runtimeTree, after: finalRuntimeTree },
+    );
+  }
   for (const lease of leases) {
     if (!lease.present) continue;
     fs.unlinkSync(lease.file);
