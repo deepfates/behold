@@ -243,7 +243,14 @@ export async function runConsole(
           eventSource: event.source,
         });
       }
-      if (isImmediateAttentionEvent(event)) policy?.wake();
+      if (isImmediateAttentionEvent(event)) {
+        policy?.wake({
+          kind: 'world_event',
+          type: event.type,
+          sequence: event.sequence,
+          salience: event.salience,
+        });
+      }
     },
     onEventError: (error, event) =>
       console.error(
@@ -336,7 +343,7 @@ export async function runConsole(
     if (!localWorldReady || !experimentActive || !policy) return;
     policy.start();
     if (decisionSchedule) startFixedDecisionSchedule();
-    else policy.wake();
+    else policy.wake({ kind: 'initial' });
   };
 
   const recordTaskProgress = () => {
@@ -396,10 +403,24 @@ export async function runConsole(
       if (experimentActive) {
         engine?.muteLLM(false);
         if (policySignal === 'resume') policy?.resume();
-        else policy?.wake();
+        else {
+          policy?.wake({
+            kind: 'world_event',
+            type: 'chat_received',
+            sequence: null,
+            salience: 'high',
+          });
+        }
       }
     } else {
-      if (localWorldReady && experimentActive) policy?.wake();
+      if (localWorldReady && experimentActive) {
+        policy?.wake({
+          kind: 'world_event',
+          type: 'chat_received',
+          sequence: null,
+          salience: 'high',
+        });
+      }
     }
   });
 
@@ -518,7 +539,9 @@ export async function runConsole(
         tool !== 'chat' &&
         tool !== 'whisper'
       ) {
-        if (localWorldReady && experimentActive) policy?.wake();
+        if (localWorldReady && experimentActive) {
+          policy?.wake({ kind: 'external' });
+        }
       }
       return policyDelivery?.catch((error: any) =>
         console.error(
@@ -543,6 +566,7 @@ export async function runConsole(
   const show = () => {
     try {
       updateSense();
+      cache.decisionCycle = policy?.state().decisionCycle ?? null;
       const text = renderFrame(name, buildFrame(bot as any, cache));
       process.stdout.write(`\x1b[2K\r${text.split('\n').join('\n')}\n`);
       prompt();

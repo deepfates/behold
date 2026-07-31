@@ -70,6 +70,7 @@ import {
   type MinecraftBodyProfile,
 } from '../mind/minecraft-body';
 import type { OpenRouterRoutePolicy } from '../mind/openrouter-route';
+import { createResidentDecisionCycle, type ResidentWakeCause } from './decision-cycle';
 
 export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
@@ -519,6 +520,22 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let activeDecision: ActiveDecision | null = null;
   let continuingBodilyAttention: ResidentAttention | null = null;
   let mindPreparation: Promise<unknown> | null = null;
+  const decisionCycle = createResidentDecisionCycle(now);
+
+  function queueWake(cause: ResidentWakeCause) {
+    wakeQueued = true;
+    decisionCycle.queueWake(cause);
+  }
+
+  function clearQueuedWake() {
+    wakeQueued = false;
+    decisionCycle.clearQueuedWake();
+  }
+
+  function takeQueuedWake() {
+    wakeQueued = false;
+    return decisionCycle.takeQueuedWake() ?? ({ kind: 'external' } as const);
+  }
 
   async function prepareMind() {
     if (!mind.prepare) return null;
@@ -600,10 +617,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     return await mindPreparation;
   }
 
-  async function wake(force = false) {
+  async function wake(force = false, cause: ResidentWakeCause = { kind: 'external' }) {
     if (stopped || suspended) return;
     if (deciding) {
-      if (!fixedPilotSlots || force) wakeQueued = true;
+      if (!fixedPilotSlots || force) queueWake(cause);
       const latest = observe();
       const decision = activeDecision;
       const triggers = urgentEventTriggers(latest, decision?.observationSequence ?? lastSequence);
@@ -636,7 +653,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         const latest = observe();
         const triggers = urgentEventTriggers(latest, lastSequence);
         if (force || hasDecisionRelevantEvent(latest, lastSequence)) {
-          if (!fixedPilotSlots || force) wakeQueued = true;
+          if (!fixedPilotSlots || force) queueWake(cause);
           activeModelRequest?.abort(
             abortError(
               triggers.length > 0
@@ -646,16 +663,17 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           );
         }
       } else {
-        if (!fixedPilotSlots || force) wakeQueued = true;
+        if (!fixedPilotSlots || force) queueWake(cause);
       }
       return;
     }
     if (pending) {
-      if (!fixedPilotSlots || force) wakeQueued = true;
+      if (!fixedPilotSlots || force) queueWake(cause);
       return;
     }
     if (fixedPilotSlots && !force) return;
 
+    decisionCycle.enter('perceiving', { activeWake: cause });
     let frame: any = null;
     if (!contextPrepared) {
       frame = observe();
@@ -664,15 +682,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const initialBodyUrgency =
         hasBodilyUrgency(initialAttention) || isCriticalBodyCondition(frame?.self?.condition);
       if (opts.foldReadOnly && loomContext.state().needsFold) {
+        decisionCycle.enter('preparing_context');
         preparingContext = true;
+        let preparationFailed = false;
         try {
           await loomContext.prepare();
         } catch (error: any) {
+          preparationFailed = true;
           if (!stopped)
             log(`[policy] could not prepare loom context: ${error?.message || String(error)}`);
           return;
         } finally {
           preparingContext = false;
+          if (!stopped) decisionCycle.enter(preparationFailed ? 'idle' : 'perceiving');
           settleStop();
         }
       }
@@ -687,18 +709,27 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       }
     }
 
+    decisionCycle.enter('perceiving');
     frame ??= observe();
+    decisionCycle.enter('perceiving', {
+      observationSequence: Number(frame?.sequence),
+    });
     if (hasUnfinishedAction(frame)) {
-      wakeQueued = true;
+      queueWake(cause);
+      decisionCycle.enter('idle');
       return;
     }
-    if (!turnActive && !force && !hasDecisionRelevantEvent(frame, lastSequence)) return;
+    if (!turnActive && !force && !hasDecisionRelevantEvent(frame, lastSequence)) {
+      decisionCycle.enter('idle');
+      return;
+    }
 
     if (!turnActive) {
       turnActive = true;
       turnSteps = 0;
     }
     appendWorldUpdate(frame, 'New world experience');
+    decisionCycle.enter('preparing_context');
     await continueTurn();
   }
 
@@ -706,12 +737,17 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     if (stopped || suspended) {
       turnActive = false;
       turnSteps = 0;
-      wakeQueued = false;
+      clearQueuedWake();
+      decisionCycle.enter(stopped ? 'stopped' : 'suspended');
       return;
     }
-    if (!turnActive || pending) return;
+    if (!turnActive || pending) {
+      if (pending) decisionCycle.enter('action_pending');
+      else decisionCycle.enter('idle');
+      return;
+    }
     if (deciding || preparingContext) {
-      wakeQueued = true;
+      queueWake({ kind: 'external' });
       return;
     }
 
@@ -726,14 +762,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       if (opts.resumeAfterBudget && !resumeTimer) {
         resumeTimer = setTimeout(() => {
           resumeTimer = null;
-          void wake(true);
+          void wake(true, { kind: 'budget_resume' });
         }, tickMs);
       }
       scheduleLoomMaintenance();
+      decisionCycle.enter('idle');
       return;
     }
 
     deciding = true;
+    decisionCycle.enter('preparing_context');
     let continueImmediately = false;
     try {
       turnSteps += 1;
@@ -846,6 +884,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           });
           let validated: ValidatedModelDecision;
           try {
+            decisionCycle.enter('deciding');
             const proposed = await mind.decide(request, { signal });
             if (signal.aborted) {
               throw signal.reason ?? abortError('urgent decision expired before admission');
@@ -1136,6 +1175,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       // after the terminal has already claimed it.
       const proposedPending = { intent, toolCallId: decision.toolCallId, draft };
       pending = proposedPending;
+      decisionCycle.enter('action_pending', {
+        observationSequence: Number(draft.observation?.sequence),
+      });
       let accepted: boolean | void;
       try {
         accepted = environment.attempt(intent, { observation: draft.observation });
@@ -1149,6 +1191,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           return;
         }
         pending = null;
+        decisionCycle.enter('settling_action');
         const result = {
           ok: false,
           error: 'intent_not_enqueued',
@@ -1197,16 +1240,20 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       }
       turnActive = false;
       turnSteps = 0;
+      decisionCycle.enter(stopped ? 'stopped' : suspended ? 'suspended' : 'idle');
     } finally {
       deciding = false;
       activeDecision = null;
       settleStop();
       if (!stopped && continueImmediately && turnActive && !pending) {
+        decisionCycle.enter('preparing_context');
         setImmediate(() => void continueTurn());
       } else if (!stopped && wakeQueued && !pending) {
-        wakeQueued = false;
-        setImmediate(() => void wake());
+        const queuedCause = takeQueuedWake();
+        decisionCycle.enter('idle');
+        setImmediate(() => void wake(false, queuedCause));
       } else if (!stopped && !turnActive && !pending) {
+        decisionCycle.enter(suspended ? 'suspended' : 'idle');
         scheduleLoomMaintenance();
       }
     }
@@ -1255,6 +1302,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
     preparingContext = true;
     loomMaintenanceActive = true;
+    decisionCycle.enter('preparing_context', { activeWake: null });
     try {
       const folded = await withModelRequest((signal) => loomContext.prepare(signal));
       if (!stopped && folded) {
@@ -1276,8 +1324,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       preparingContext = false;
       settleStop();
       if (!stopped && wakeQueued) {
-        wakeQueued = false;
-        setImmediate(() => void wake());
+        const queuedCause = takeQueuedWake();
+        decisionCycle.enter('idle');
+        setImmediate(() => void wake(false, queuedCause));
+      } else if (!stopped) {
+        decisionCycle.enter(suspended ? 'suspended' : 'idle');
       }
     }
   }
@@ -1330,6 +1381,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
     const finished = pending;
     pending = null;
+    decisionCycle.enter('settling_action', {
+      observationSequence: Number(finished.draft.observation?.sequence),
+    });
     if (
       event.type === 'action_completed' &&
       continuingBodilyAttention &&
@@ -1377,7 +1431,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       // Observe again so continuation sees the committed view rather than the
       // provisional frame captured before persistence.
       appendWorldUpdate(observe(), `World after ${finished.intent.tool}`);
-      wakeQueued = false;
+      clearQueuedWake();
     } catch (error: any) {
       log(`[policy] could not persist entity turn: ${error?.message || String(error)}`);
       turnActive = false;
@@ -1386,10 +1440,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       preparingContext = false;
       settleStop();
     }
-    if (!stopped && turnActive && !suspended) setImmediate(() => void continueTurn());
-    else if (!stopped && wakeQueued) {
-      wakeQueued = false;
-      setImmediate(() => void wake());
+    if (!stopped && turnActive && !suspended) {
+      decisionCycle.enter('preparing_context');
+      setImmediate(() => void continueTurn());
+    } else if (!stopped && wakeQueued) {
+      const queuedCause = takeQueuedWake();
+      decisionCycle.enter('idle');
+      setImmediate(() => void wake(false, queuedCause));
+    } else if (!stopped) {
+      decisionCycle.enter(suspended ? 'suspended' : 'idle');
     }
   }
 
@@ -1431,6 +1490,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     nextObservation: any,
     completedAt = now(),
   ) {
+    decisionCycle.enter('committing_turn', {
+      observationSequence: Number(draft.observation?.sequence),
+    });
     const sequence = entitySequence + 1;
     const turn: EntityTurn = {
       protocol: 'behold.entity-turn.v1',
@@ -1523,16 +1585,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function start() {
-    if (!fixedPilotSlots && !stopped && !timer) timer = setInterval(() => void wake(), tickMs);
+    if (!fixedPilotSlots && !stopped && !timer) {
+      timer = setInterval(() => void wake(false, { kind: 'timer' }), tickMs);
+    }
   }
 
   function stop() {
     if (stopPromise) return stopPromise;
     stopped = true;
     suspended = true;
-    wakeQueued = false;
+    clearQueuedWake();
     turnActive = false;
     turnSteps = 0;
+    decisionCycle.enter('stopped');
     if (timer) clearInterval(timer);
     timer = null;
     if (resumeTimer) clearTimeout(resumeTimer);
@@ -1547,9 +1612,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function suspend(reason = 'human_stop') {
     suspended = true;
-    wakeQueued = false;
+    clearQueuedWake();
     turnActive = false;
     turnSteps = 0;
+    decisionCycle.enter('suspended');
     if (resumeTimer) clearTimeout(resumeTimer);
     resumeTimer = null;
     log(`[policy] suspended: ${reason}`);
@@ -1560,12 +1626,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     consecutiveCommunicationActions = 0;
     consecutiveProjectActions = 0;
     if (!suspended) {
-      if (!fixedPilotSlots) void wake();
+      if (!fixedPilotSlots) void wake(false, { kind: 'resume' });
       return;
     }
     suspended = false;
+    decisionCycle.enter('idle');
     log('[policy] resumed by world interaction');
-    if (!fixedPilotSlots) void wake(true);
+    if (!fixedPilotSlots) void wake(true, { kind: 'resume' });
   }
 
   async function withModelRequest<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -1592,8 +1659,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     prepareMind,
     start,
     stop,
-    tick: () => wake(true),
-    wake: () => void wake(),
+    tick: () => wake(true, { kind: 'fixed_slot' }),
+    wake: (cause?: ResidentWakeCause) => void wake(false, cause),
     suspend,
     resume,
     onEngineEvent,
@@ -1611,6 +1678,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       modelRequestActive: activeModelRequest !== null,
       loomMaintenanceScheduled,
       loomMaintenanceActive,
+      decisionCycle: decisionCycle.snapshot(
+        pending ? { id: pending.intent.id, tool: pending.intent.tool } : null,
+        fixedPilotSlots,
+      ),
       loomContext: loomContext.state(),
     }),
   };

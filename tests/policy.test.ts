@@ -101,6 +101,131 @@ test('only bodily urgent events can reclaim a model-owned body action', () => {
   assert.equal(isBodilyUrgencyEvent({ type: 'chat_received', salience: 'urgent' }), false);
 });
 
+test('resident decision-cycle state exposes thought and durable life commit boundaries', async () => {
+  let decisionStarted!: () => void;
+  const atDecision = new Promise<void>((resolve) => (decisionStarted = resolve));
+  let releaseDecision!: () => void;
+  const decisionGate = new Promise<void>((resolve) => (releaseDecision = resolve));
+  let commitStarted!: () => void;
+  const atCommit = new Promise<void>((resolve) => (commitStarted = resolve));
+  let releaseCommit!: () => void;
+  const commitGate = new Promise<void>((resolve) => (releaseCommit = resolve));
+  const mind: ResidentMind = {
+    id: 'observable-cycle-mind',
+    decide: async () => {
+      decisionStarted();
+      await decisionGate;
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I will wait for the world.',
+        action: null,
+        call: modelCallEvidence('observable-cycle-mind'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'CycleResident',
+      actions: [],
+      attempt: () => assert.fail('a waiting resident cannot attempt a physical action'),
+      observe: (sinceSequence = 0) => experience(1, null, sinceSequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'neutral-benchmark-v1',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      acceptEngineEvent: () => true,
+      onEntityTurn: async () => {
+        commitStarted();
+        await commitGate;
+      },
+    },
+  );
+
+  const tick = policy.tick();
+  await atDecision;
+  assert.deepEqual(policy.state().decisionCycle.activeWake, { kind: 'fixed_slot' });
+  assert.equal(policy.state().decisionCycle.phase, 'deciding');
+  assert.equal(policy.state().decisionCycle.waitingFor, 'mind');
+
+  releaseDecision();
+  await atCommit;
+  assert.equal(policy.state().decisionCycle.phase, 'committing_turn');
+  assert.equal(policy.state().decisionCycle.waitingFor, 'commit');
+
+  releaseCommit();
+  await tick;
+  assert.equal(policy.state().decisionCycle.phase, 'idle');
+  assert.equal(policy.state().decisionCycle.waitingFor, 'timer_or_world_event');
+  await policy.stop();
+  assert.equal(policy.state().decisionCycle.phase, 'stopped');
+});
+
+test('resident decision-cycle state owns a physical intent through its authentic terminal', async () => {
+  let attempted: any = null;
+  let commitStarted!: () => void;
+  const atCommit = new Promise<void>((resolve) => (commitStarted = resolve));
+  let releaseCommit!: () => void;
+  const commitGate = new Promise<void>((resolve) => (releaseCommit = resolve));
+  const mind: ResidentMind = {
+    id: 'acting-cycle-mind',
+    decide: async () => ({
+      protocol: 'behold.mind-decision.v1',
+      disposition: 'act',
+      utterance: 'I turn to inspect another direction.',
+      action: { name: 'look_direction', input: {} },
+      call: modelCallEvidence('acting-cycle-mind'),
+    }),
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'CycleResident',
+      actions: [tool('look_direction')],
+      attempt: (intent) => {
+        attempted = intent;
+        return true;
+      },
+      observe: (sinceSequence = 0) => experience(1, null, sinceSequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'neutral-benchmark-v1',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      acceptEngineEvent: () => true,
+      onEntityTurn: async () => {
+        commitStarted();
+        await commitGate;
+      },
+    },
+  );
+
+  await policy.tick();
+  assert.ok(attempted);
+  assert.equal(policy.state().decisionCycle.phase, 'action_pending');
+  assert.deepEqual(policy.state().decisionCycle.pendingIntent, {
+    id: attempted.id,
+    tool: 'look_direction',
+  });
+
+  const terminal = policy.onEngineEvent({
+    type: 'action_completed',
+    at: Date.now(),
+    data: { intent: attempted, result: { ok: true, orientationChanged: true } },
+  });
+  await atCommit;
+  assert.equal(policy.state().decisionCycle.phase, 'committing_turn');
+  assert.equal(policy.state().decisionCycle.pendingIntent, null);
+  releaseCommit();
+  await terminal;
+  await policy.stop();
+});
+
 test('release-gated policy admits no mind call before release and attributes every later turn', async () => {
   const release = {
     protocol: 'behold.experiment-release-reference.v1' as const,

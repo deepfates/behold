@@ -1,5 +1,6 @@
 import type { Bot } from 'mineflayer';
 import { collectObservation } from '../agent/observation';
+import type { ResidentDecisionCycleState } from '../policy/decision-cycle';
 
 export type Frame = {
   position?: { x: number; y: number; z: number } | null;
@@ -22,6 +23,7 @@ export type Frame = {
   last?: string | null;
   inventory?: Array<{ name: string; count: number }>;
   nearbyBlocks?: Array<{ name: string; count: number }>;
+  decisionCycle?: ResidentDecisionCycleState | null;
 };
 
 export function buildFrame(bot: Bot, cache: any): Frame {
@@ -45,6 +47,7 @@ export function buildFrame(bot: Bot, cache: any): Frame {
     last: cache.last || null,
     inventory: observation.inventory,
     nearbyBlocks: observation.nearbyBlocks,
+    decisionCycle: cache.decisionCycle || null,
   };
 }
 
@@ -60,6 +63,15 @@ export function renderFrame(name: string, f: Frame) {
   lines.push(
     `[${name}] pos ${pos} | hp ${hp} food ${food} | ${f.dimension ?? ''} ${day}${held}`.trim(),
   );
+  if (f.decisionCycle) {
+    const pending = f.decisionCycle.pendingIntent?.tool
+      ? ` ${f.decisionCycle.pendingIntent.tool}`
+      : '';
+    const wake = f.decisionCycle.activeWake ? ` via ${f.decisionCycle.activeWake.kind}` : '';
+    lines.push(
+      `[${name}] life ${f.decisionCycle.phase}${pending} | awaiting ${f.decisionCycle.waitingFor}${wake}`,
+    );
+  }
 
   let focus = 'none';
   if (f.cursor) {
