@@ -422,30 +422,33 @@ export function recordPlaceOnlyCleanupHead(input: {
   if (
     previous.protocol !== PLACE_SERVED_WORLD_HEAD_PROTOCOL ||
     previous.worldId !== descriptor.worldId ||
-    digest !== sha256(stableJson(previousBase)) ||
-    previous.terminalKind === 'place_only_cleanup'
+    digest !== sha256(stableJson(previousBase))
   ) {
-    throw new Error('Place-only cleanup requires an authenticated ordinary prior head');
+    throw new Error('Place-only cleanup requires an authenticated prior head');
   }
   const lifecycle = verifyWorldLifecycleJournal(previous.lifecycle.file);
   const terminal = lifecycle.events.find(
     (event) => event.sequence === previous.lifecycle.terminalSequence,
   );
   const terminalKind = placeServedWorldTerminalKind(terminal?.type);
+  const previousPlaceOnly = previous.terminalKind === 'place_only_cleanup';
+  const priorEvidenceValid = previousPlaceOnly
+    ? verifyPlaceOnlyCleanupHeadEvidence(previous, lifecycle, descriptor)
+    : previous.terminalKind === terminalKind &&
+      (terminal.data as any)?.tree?.digest === previous.runtimeDigest &&
+      placeServedWorldTerminalCompletion(
+        lifecycle.events,
+        terminal.sequence,
+        terminalKind,
+        descriptor,
+      );
   if (
     lifecycle.world !== descriptor.worldId ||
     lifecycle.tipDigest !== previous.lifecycle.tipDigest ||
     lifecycle.events.at(-1)?.type !== 'control_released' ||
     terminalKind == null ||
-    previous.terminalKind !== terminalKind ||
     terminal?.digest !== previous.lifecycle.terminalDigest ||
-    (terminal.data as any)?.tree?.digest !== previous.runtimeDigest ||
-    !placeServedWorldTerminalCompletion(
-      lifecycle.events,
-      terminal.sequence,
-      terminalKind,
-      descriptor,
-    )
+    !priorEvidenceValid
   ) {
     throw new Error('Place-only cleanup prior head does not name a clean terminal lifecycle');
   }
@@ -457,7 +460,9 @@ export function recordPlaceOnlyCleanupHead(input: {
     updatedAt: (input.now?.() ?? new Date()).toISOString(),
     runtimeDigest: runtime.digest,
     terminalKind: 'place_only_cleanup' as const,
-    previousRuntimeDigest: previous.runtimeDigest,
+    previousRuntimeDigest: previousPlaceOnly
+      ? previous.previousRuntimeDigest
+      : previous.runtimeDigest,
     previousTerminalKind: terminalKind,
     lifecycle: previous.lifecycle,
     place,

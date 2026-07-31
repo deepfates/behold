@@ -88,6 +88,14 @@ export async function runLiveCli(argv: string[]) {
   if (residents.some((resident) => resident.providerQuotas == null || resident.paused === true)) {
     throw new Error('live requires an armed per-resident provider-attempt ceiling for every life');
   }
+  if (
+    !process.env.OPENROUTER_API_KEY &&
+    residents.some((resident) => resident.ollamaLocal == null && resident.lmStudioLocal == null)
+  ) {
+    throw new Error(
+      'live requires OPENROUTER_API_KEY before starting Place for provider residents',
+    );
+  }
   const nativePlayer = parsed.values['native-player']
     ? minecraftUsername(parsed.values['native-player'], '--native-player')
     : null;
@@ -218,6 +226,7 @@ export async function runLiveCli(argv: string[]) {
   let authority: FrozenPlaceServeAuthority | null = null;
   let run: ManagedWorldRun | null = null;
   let cleanStop = false;
+  let managedLifecycleObserved = false;
   const startedAt = new Date().toISOString();
   const placeServerLogsBefore = new Set(listPlaceServerLogs(paths.placeRuntime));
   try {
@@ -312,15 +321,22 @@ export async function runLiveCli(argv: string[]) {
       const addedLifecycleFiles = liveLifecycleFiles(paths.control, plan.worldId).filter(
         (file) => !lifecycleFilesBefore.has(file),
       );
+      managedLifecycleObserved = addedLifecycleFiles.length > 0;
       if (addedLifecycleFiles.length === 1) {
-        const failedHead = recordPlaceServedWorldHead({
-          descriptorFile: paths.descriptor,
-          lifecycleFile: addedLifecycleFiles[0],
-          headFile: paths.head,
-        });
-        process.stderr.write(
-          `[behold live] failed start stopped cleanly; preserved world head ${failedHead.runtimeDigest}\n`,
-        );
+        try {
+          const failedHead = recordPlaceServedWorldHead({
+            descriptorFile: paths.descriptor,
+            lifecycleFile: addedLifecycleFiles[0],
+            headFile: paths.head,
+          });
+          process.stderr.write(
+            `[behold live] failed start stopped cleanly; preserved world head ${failedHead.runtimeDigest}\n`,
+          );
+        } catch (headError: any) {
+          process.stderr.write(
+            `[behold live] failed start requires canonical recovery: ${headError?.message || String(headError)}\n`,
+          );
+        }
       }
       throw error;
     }
@@ -402,15 +418,26 @@ export async function runLiveCli(argv: string[]) {
     if (run && !cleanStop) {
       await run.stop('live_failure').catch(() => {});
       await run.finished.catch(() => {});
-    } else if (authority && existingPlan && fs.existsSync(paths.head)) {
-      await authority.stop('live_preflight_failure');
-      recordPlaceOnlyCleanupHead({
-        descriptorFile: paths.descriptor,
-        previousHeadFile: paths.head,
-        placeTranscriptFile: authority.transcriptFile,
-        headFile: paths.head,
-      });
-      authority = null;
+    } else if (
+      authority &&
+      existingPlan &&
+      !managedLifecycleObserved &&
+      fs.existsSync(paths.head)
+    ) {
+      try {
+        await authority.stop('live_preflight_failure');
+        recordPlaceOnlyCleanupHead({
+          descriptorFile: paths.descriptor,
+          previousHeadFile: paths.head,
+          placeTranscriptFile: authority.transcriptFile,
+          headFile: paths.head,
+        });
+        authority = null;
+      } catch (cleanupError: any) {
+        process.stderr.write(
+          `[behold live] failed to authenticate preflight cleanup: ${cleanupError?.message || String(cleanupError)}\n`,
+        );
+      }
     }
     throw error;
   } finally {
