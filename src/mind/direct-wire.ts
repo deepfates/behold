@@ -1,4 +1,5 @@
 import type { ResidentMindRequest } from './interface';
+import { createNativeToolResidentSessionEnvelope } from './direct-native-tools';
 import { createStrictLocalResidentSessionEnvelope } from './ollama-json-action';
 import { openRouterWirePolicy, type OpenRouterRoutePolicy } from './openrouter-route';
 
@@ -18,6 +19,22 @@ export function directOpenRouterRequestBody(
   routePolicy?: OpenRouterRoutePolicy | null,
 ) {
   if (request.policyProfile === 'legible-resident-v1') {
+    if (routePolicy?.protocol === 'behold.openrouter-route-policy.v3') {
+      const envelope = createNativeToolResidentSessionEnvelope(request);
+      return {
+        model: request.model,
+        messages: envelope.messages,
+        tools: envelope.tools,
+        tool_choice: request.requiredAction
+          ? { type: 'function' as const, function: { name: request.requiredAction } }
+          : ('required' as const),
+        parallel_tool_calls: false as const,
+        reasoning: { effort: routePolicy.reasoningEffort, exclude: true as const },
+        ...(request.model.includes('gpt-5') ? {} : { temperature: 0.2 }),
+        stream: false as const,
+        ...openRouterWirePolicy(routePolicy),
+      };
+    }
     const envelope = createStrictLocalResidentSessionEnvelope(request);
     return {
       model: request.model,

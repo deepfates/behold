@@ -720,7 +720,8 @@ export async function runConsole(
           (ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)) ||
           lmStudioLocal ||
           (policyProfile === 'legible-resident-v1' &&
-            providerRoute?.protocol === 'behold.openrouter-route-policy.v2')
+            (providerRoute?.protocol === 'behold.openrouter-route-policy.v2' ||
+              providerRoute?.protocol === 'behold.openrouter-route-policy.v3'))
             ? 'resident-session-v1'
             : 'recent-action-v1',
         ...(releaseGate ? { experimentRelease: () => experimentRelease } : {}),

@@ -40,9 +40,9 @@ const V1_CONTRACT_INSTRUCTION =
   'Choose exactly one admitted action. Return only one JSON object with exactly the fields "action" and "arguments". Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
 const V2_CONTRACT_BEGIN = 'BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V2_BEGIN\n';
 const V2_CONTRACT_END = '\nBEHOLD_LOCAL_JSON_ACTION_CONTRACT_V2_END';
-const V2_CONTRACT_INSTRUCTION =
+export const V2_CONTRACT_INSTRUCTION =
   'Choose exactly one admitted action. Return only one JSON object with exactly the fields "intention", "expectedObservableConsequence", "action", and "arguments". The first two fields are short public commitments, not private reasoning or claims of success. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
-const RESIDENT_SESSION_RESPONSE_REMINDER =
+export const RESIDENT_SESSION_RESPONSE_REMINDER =
   'Respond now with one JSON object matching the resident action contract above. Publish a short intention and expected observable consequence, then choose exactly one admitted action. Do not repeat the contract or add prose.';
 
 const schemaDescriptor = deepFreeze({

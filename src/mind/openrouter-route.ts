@@ -1,7 +1,9 @@
 import { assertStrictLocalResidentSessionEnvelope } from './ollama-json-action';
+import { assertNativeToolResidentSessionEnvelope } from './direct-native-tools';
 
 export const OPENROUTER_ROUTE_POLICY_PROTOCOL = 'behold.openrouter-route-policy.v1' as const;
 export const OPENROUTER_ROUTE_POLICY_V2_PROTOCOL = 'behold.openrouter-route-policy.v2' as const;
+export const OPENROUTER_ROUTE_POLICY_V3_PROTOCOL = 'behold.openrouter-route-policy.v3' as const;
 
 export type OpenRouterRoutePolicyV1 = Readonly<{
   protocol: typeof OPENROUTER_ROUTE_POLICY_PROTOCOL;
@@ -21,7 +23,19 @@ export type OpenRouterRoutePolicyV2 = Readonly<{
   maxOutputTokens: number;
 }>;
 
-export type OpenRouterRoutePolicy = OpenRouterRoutePolicyV1 | OpenRouterRoutePolicyV2;
+export type OpenRouterRoutePolicyV3 = Readonly<{
+  protocol: typeof OPENROUTER_ROUTE_POLICY_V3_PROTOCOL;
+  routes: readonly Readonly<{ requestTag: string; responseProvider: string }>[];
+  allowFallbacks: false;
+  maxOutputTokens: number;
+  /** Explicitly selects the provider-native resident decision envelope. */
+  residentDecisionFormat: 'native_tools';
+  /** Exact reasoning setting admitted for this provider route. */
+  reasoningEffort: 'none';
+}>;
+
+export type OpenRouterRoutePolicy =
+  OpenRouterRoutePolicyV1 | OpenRouterRoutePolicyV2 | OpenRouterRoutePolicyV3;
 
 export type OpenRouterResponseIdentity = Readonly<{
   ok: boolean;
@@ -39,26 +53,42 @@ const MAX_OUTPUT_TOKENS = 32_768;
 export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
   if (!plainRecord(value)) throw new Error('OpenRouter route policy must be an object');
   const keys = Object.keys(value).sort();
-  const v2 = value.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL;
-  const expected = v2
-    ? ['allowFallbacks', 'maxOutputTokens', 'protocol', 'routes']
+  const routed =
+    value.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL ||
+    value.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL;
+  const nativeTools = value.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL;
+  const expected = routed
+    ? [
+        'allowFallbacks',
+        'maxOutputTokens',
+        'protocol',
+        ...(nativeTools ? ['reasoningEffort', 'residentDecisionFormat'] : []),
+        'routes',
+      ]
     : ['allowFallbacks', 'maxOutputTokens', 'order', 'protocol'];
   if (JSON.stringify(keys) !== JSON.stringify(expected)) {
     throw new Error('OpenRouter route policy fields do not match the versioned contract');
   }
   if (
     value.protocol !== OPENROUTER_ROUTE_POLICY_PROTOCOL &&
-    value.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL
+    value.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL &&
+    value.protocol !== OPENROUTER_ROUTE_POLICY_V3_PROTOCOL
   ) {
     throw new Error(
-      `OpenRouter route policy protocol must be ${OPENROUTER_ROUTE_POLICY_PROTOCOL} or ${OPENROUTER_ROUTE_POLICY_V2_PROTOCOL}`,
+      `OpenRouter route policy protocol must be ${OPENROUTER_ROUTE_POLICY_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V2_PROTOCOL}, or ${OPENROUTER_ROUTE_POLICY_V3_PROTOCOL}`,
     );
+  }
+  if (nativeTools && value.residentDecisionFormat !== 'native_tools') {
+    throw new Error('OpenRouter v3 residentDecisionFormat must be native_tools');
+  }
+  if (nativeTools && value.reasoningEffort !== 'none') {
+    throw new Error('OpenRouter v3 reasoningEffort must be none');
   }
   if (value.allowFallbacks !== false) {
     throw new Error('OpenRouter route policy allowFallbacks must be exactly false');
   }
-  const order = v2 ? null : providerNames(value.order, 'order');
-  const routes = v2 ? parseRoutes(value.routes) : null;
+  const order = routed ? null : providerNames(value.order, 'order');
+  const routes = routed ? parseRoutes(value.routes) : null;
   if (
     !Number.isSafeInteger(value.maxOutputTokens) ||
     Number(value.maxOutputTokens) < 1 ||
@@ -68,19 +98,30 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
       `OpenRouter route policy maxOutputTokens must be an integer from 1 through ${MAX_OUTPUT_TOKENS}`,
     );
   }
-  return v2
-    ? deepFreeze({
-        protocol: OPENROUTER_ROUTE_POLICY_V2_PROTOCOL,
-        routes: routes!,
-        allowFallbacks: false as const,
-        maxOutputTokens: Number(value.maxOutputTokens),
-      })
-    : deepFreeze({
-        protocol: OPENROUTER_ROUTE_POLICY_PROTOCOL,
-        order: order!,
-        allowFallbacks: false as const,
-        maxOutputTokens: Number(value.maxOutputTokens),
-      });
+  if (nativeTools) {
+    return deepFreeze({
+      protocol: OPENROUTER_ROUTE_POLICY_V3_PROTOCOL,
+      routes: routes!,
+      allowFallbacks: false as const,
+      maxOutputTokens: Number(value.maxOutputTokens),
+      residentDecisionFormat: 'native_tools' as const,
+      reasoningEffort: 'none' as const,
+    });
+  }
+  if (routed) {
+    return deepFreeze({
+      protocol: OPENROUTER_ROUTE_POLICY_V2_PROTOCOL,
+      routes: routes!,
+      allowFallbacks: false as const,
+      maxOutputTokens: Number(value.maxOutputTokens),
+    });
+  }
+  return deepFreeze({
+    protocol: OPENROUTER_ROUTE_POLICY_PROTOCOL,
+    order: order!,
+    allowFallbacks: false as const,
+    maxOutputTokens: Number(value.maxOutputTokens),
+  });
 }
 
 export function openRouterRoutePolicyFromEnvironment(value: unknown) {
@@ -103,7 +144,7 @@ export function serializeOpenRouterRoutePolicy(value: OpenRouterRoutePolicy) {
 export function openRouterWirePolicy(value: OpenRouterRoutePolicy) {
   const policy = openRouterRoutePolicy(value);
   const order =
-    policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL
+    policy.protocol !== OPENROUTER_ROUTE_POLICY_PROTOCOL
       ? policy.routes.map((route) => route.requestTag)
       : policy.order;
   return deepFreeze({
@@ -176,6 +217,44 @@ export function assertOpenRouterRouteRequest(
     assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
     if (residentIdentity != null) assertResidentWireOwner(record.messages, residentIdentity);
   }
+  if (policy.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL) {
+    const generationFields = expectedModel.includes('gpt-5') ? [] : ['temperature'];
+    const record = exactRecord(
+      value,
+      [
+        'model',
+        'messages',
+        'tools',
+        'tool_choice',
+        'parallel_tool_calls',
+        'reasoning',
+        ...generationFields,
+        'stream',
+        'max_tokens',
+        'provider',
+      ],
+      'OpenRouter native-tool resident-session request',
+    );
+    if (
+      record.stream !== false ||
+      record.parallel_tool_calls !== false ||
+      (expectedModel.includes('gpt-5')
+        ? record.temperature !== undefined
+        : record.temperature !== 0.2)
+    ) {
+      throw new Error('OpenRouter native-tool resident generation settings differ');
+    }
+    const reasoning = exactRecord(
+      record.reasoning,
+      ['effort', 'exclude'],
+      'OpenRouter native-tool resident reasoning',
+    );
+    if (reasoning.effort !== policy.reasoningEffort || reasoning.exclude !== true) {
+      throw new Error('OpenRouter native-tool resident reasoning differs');
+    }
+    assertNativeToolResidentSessionEnvelope(record.messages, record.tools, record.tool_choice);
+    if (residentIdentity != null) assertResidentWireOwner(record.messages, residentIdentity);
+  }
   if (value.model !== expectedModel) throw new Error('request model differs from admitted model');
   if (value.max_tokens !== policy.maxOutputTokens || value.max_completion_tokens !== undefined) {
     throw new Error('request output cap differs from admitted max_tokens');
@@ -218,7 +297,7 @@ function assertResidentWireOwner(messagesValue: unknown, residentIdentity: strin
     throw new Error('OpenRouter resident current observation is malformed');
   }
   const jsonStart = current.content.indexOf('{');
-  const jsonEnd = current.content.lastIndexOf('\n\nRespond now with one JSON object');
+  const jsonEnd = current.content.lastIndexOf('\n\nRespond now with');
   if (jsonStart < 0 || jsonEnd <= jsonStart) {
     throw new Error('OpenRouter resident current observation is missing its body identity');
   }
@@ -247,7 +326,7 @@ export function inspectOpenRouterResponseIdentity(
   const returnedModel = plainRecord(value) ? optionalText(value.model) : null;
   const returnedProvider = plainRecord(value) ? optionalText(value.provider) : null;
   const admittedProviders =
-    policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL
+    policy.protocol !== OPENROUTER_ROUTE_POLICY_PROTOCOL
       ? policy.routes.map((route) => route.responseProvider)
       : policy.order;
   let reason: OpenRouterResponseIdentity['reason'] = 'matched';
@@ -266,7 +345,7 @@ export function inspectOpenRouterResponseIdentity(
 }
 
 function expectedRequestTags(policy: OpenRouterRoutePolicy) {
-  return policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL
+  return policy.protocol !== OPENROUTER_ROUTE_POLICY_PROTOCOL
     ? policy.routes.map((route) => route.requestTag)
     : policy.order;
 }

@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { cognitionClientHeaders, parseCognitionAdmission } from './cognition';
 import { directOpenRouterRequestBody } from './direct-wire';
+import {
+  createNativeToolResidentSessionEnvelope,
+  parseNativeToolResidentDecision,
+} from './direct-native-tools';
 import { ResidentMindCallError, type ModelCallEvidence } from './evidence';
 import type { ResidentMind, ResidentMindDecision, ResidentMindRequest } from './interface';
 import {
@@ -47,8 +51,14 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
       const startedAt = now();
       const requestId = `direct-${randomUUID()}`;
       const body = directOpenRouterRequestBody(request, routePolicy) as Record<string, any>;
+      const nativeRoutePolicy =
+        routePolicy?.protocol === 'behold.openrouter-route-policy.v3' ? routePolicy : null;
+      const nativeToolSession =
+        request.policyProfile === 'legible-resident-v1' && nativeRoutePolicy
+          ? createNativeToolResidentSessionEnvelope(request)
+          : null;
       const residentSession =
-        request.policyProfile === 'legible-resident-v1'
+        request.policyProfile === 'legible-resident-v1' && !nativeToolSession
           ? createStrictLocalResidentSessionEnvelope(request)
           : null;
       const requestBody = JSON.stringify(body);
@@ -78,6 +88,20 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
                 responseSchemaSha256: residentSession.responseSchemaSha256,
                 stablePrefixSha256: residentSession.stablePrefixSha256,
                 reasoningEffort: 'minimal',
+                reasoningExcluded: true,
+              },
+            }
+          : {}),
+        ...(nativeToolSession
+          ? {
+              providerResidentSession: {
+                protocol: nativeToolSession.protocol,
+                messageLayoutProtocol: nativeToolSession.messageLayoutProtocol,
+                workingContinuityProtocol: nativeToolSession.workingContinuityProtocol,
+                actionContractSha256: nativeToolSession.actionContractSha256,
+                toolsSha256: nativeToolSession.toolsSha256,
+                stablePrefixSha256: nativeToolSession.stablePrefixSha256,
+                reasoningEffort: nativeRoutePolicy!.reasoningEffort,
                 reasoningExcluded: true,
               },
             }
@@ -235,6 +259,9 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
         },
       };
       try {
+        if (nativeToolSession) {
+          return parseNativeToolResidentDecision(data, request, call);
+        }
         if (residentSession) {
           const message = data?.choices?.[0]?.message;
           if (!message || typeof message.content !== 'string') {

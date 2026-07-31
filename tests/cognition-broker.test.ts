@@ -22,6 +22,7 @@ import {
 import { verifyQuotaLedger } from '../src/observability/quota-ledger';
 import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 import { preflightOllamaLocal } from '../src/mind/ollama-local';
+import { directOpenRouterRequestBody } from '../src/mind/direct-wire';
 import {
   createOllamaLocalJsonActionRequest,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
@@ -775,6 +776,84 @@ test('the transport gate admits only the resident exact OpenRouter route policy'
   }
 });
 
+test('the transport gate rejects native resident envelope drift before upstream', async () => {
+  let upstreamCalls = 0;
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v3',
+    routes: [{ requestTag: 'openai', responseProvider: 'OpenAI' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+    residentDecisionFormat: 'native_tools',
+    reasoningEffort: 'none',
+  } as const;
+  const exact = directOpenRouterRequestBody(nativeResidentRequest(), routePolicy) as any;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [{ ...client('a'), routePolicy, residentIdentity: 'Scout' } as any],
+    maxConcurrent: 1,
+    fetch: async () => {
+      upstreamCalls += 1;
+      return jsonResponse({
+        id: 'native-route-bound',
+        model: 'fixture/model',
+        provider: 'OpenAI',
+        choices: [{ message: { role: 'assistant', content: null } }],
+      });
+    },
+  });
+
+  try {
+    const mutations: Array<(body: any) => void> = [
+      (body) => {
+        body.tools[0].function.name = 'teleport';
+      },
+      (body) => {
+        body.tools[0].function.parameters.additionalProperties = true;
+      },
+      (body) => {
+        body.tool_choice = { type: 'function', function: { name: 'teleport' } };
+      },
+      (body) => {
+        body.messages.at(-1).content += ' extra';
+      },
+      (body) => {
+        body.parallel_tool_calls = true;
+      },
+      (body) => {
+        body.reasoning.effort = 'low';
+      },
+    ];
+    for (const [index, mutate] of mutations.entries()) {
+      const drifted = structuredClone(exact);
+      mutate(drifted);
+      const response = await brokerRequest(
+        broker,
+        'a',
+        JSON.stringify(drifted),
+        'deliberative',
+        `native-route-drift-${index}`,
+      );
+      assert.equal(response.status, 400);
+      assert.equal(((await response.json()) as any).error.code, 'request_route_policy_mismatch');
+    }
+    assert.equal(upstreamCalls, 0);
+
+    const admitted = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify(exact),
+      'deliberative',
+      'native-route-exact',
+    );
+    assert.equal(admitted.status, 200);
+    assert.equal(upstreamCalls, 1);
+  } finally {
+    await broker.close();
+  }
+});
+
 test('the transport gate retains and refuses successful upstream route identity drift', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-route-drift-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -1423,6 +1502,53 @@ function token(name: string) {
 
 function requestBody(model: string, label: string) {
   return ` { "model": ${JSON.stringify(model)}, "messages": [{"role":"user","content":${JSON.stringify(label)}}] } `;
+}
+
+function nativeResidentRequest() {
+  const observation = {
+    protocol: 'behold.minecraft-human-semantic-observation.v1',
+    self: { identity: 'Scout', health: 20 },
+    visible: { blocks: [] },
+  };
+  return {
+    protocol: 'behold.mind-request.v1' as const,
+    entityId: 'Scout',
+    model: 'fixture/model',
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+    observation,
+    conversation: [
+      { role: 'system', content: 'Live as Scout in the continuing world.' },
+      { role: 'user', content: JSON.stringify(observation) },
+    ],
+    actions: [
+      {
+        name: 'move_controls',
+        description: 'Hold bounded movement controls, then release them.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            direction: { type: 'string', enum: ['forward', 'back', 'left', 'right'] },
+            durationMs: { type: 'number', minimum: 100, maximum: 2_000 },
+          },
+          required: ['direction', 'durationMs'],
+          additionalProperties: false,
+        },
+      },
+      {
+        name: 'wait_for_event',
+        inputSchema: {
+          type: 'object',
+          properties: { reason: { type: 'string' } },
+          required: ['reason'],
+          additionalProperties: false,
+        },
+      },
+    ],
+    requiredAction: null,
+  };
 }
 
 function brokerRequest(

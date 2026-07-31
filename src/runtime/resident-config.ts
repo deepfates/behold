@@ -153,6 +153,7 @@ export function resolveResidentRuntimeConfig(
   if (
     policy === 'legible-resident-v1' &&
     providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
+    providerRoute?.protocol !== 'behold.openrouter-route-policy.v3' &&
     !ollamaLocal &&
     !lmStudioLocal
   ) {

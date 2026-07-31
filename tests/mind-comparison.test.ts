@@ -322,6 +322,188 @@ test('a GPT-5 resident session omits unsupported temperature without weakening r
   assert.doesNotThrow(() => assertOpenRouterRouteRequest(body, residentRequest.model, routePolicy));
 });
 
+test('a v3 provider resident uses one exact native tool and retains its public commitment', async () => {
+  const bodies: any[] = [];
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v3',
+    routes: [{ requestTag: 'openai', responseProvider: 'OpenAI' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+    residentDecisionFormat: 'native_tools',
+    reasoningEffort: 'none',
+  } as const;
+  const residentRequest = {
+    ...request(),
+    model: 'openai/gpt-5.6-luna',
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+  } as any;
+  const mind = createDirectResidentMind({
+    apiKey: 'test-key',
+    model: residentRequest.model,
+    routePolicy,
+    recordModelIO: true,
+    endpoint: 'https://models.example.test/v1/chat/completions',
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          id: 'native-tool-generation',
+          model: residentRequest.model,
+          provider: 'OpenAI',
+          choices: [
+            {
+              finish_reason: 'tool_calls',
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-move',
+                    type: 'function',
+                    function: {
+                      name: 'move_direction',
+                      arguments: JSON.stringify({
+                        intention: 'Step forward once',
+                        expectedObservableConsequence: 'My position and view should advance',
+                        arguments: { direction: 'forward', distance: 2 },
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+  });
+
+  const decision = await mind.decide(residentRequest, {
+    signal: new AbortController().signal,
+  });
+
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].response_format, undefined);
+  assert.equal(bodies[0].tool_choice, 'required');
+  assert.equal(bodies[0].parallel_tool_calls, false);
+  assert.deepEqual(bodies[0].reasoning, { effort: 'none', exclude: true });
+  assert.equal(bodies[0].temperature, undefined);
+  assert.equal(bodies[0].tools.length, residentRequest.actions.length);
+  assert.deepEqual(bodies[0].tools[0].function.parameters.required, [
+    'intention',
+    'expectedObservableConsequence',
+    'arguments',
+  ]);
+  assert.deepEqual(
+    bodies[0].tools[0].function.parameters.properties.arguments,
+    residentRequest.actions[0].inputSchema,
+  );
+  assert.doesNotThrow(() =>
+    assertOpenRouterRouteRequest(bodies[0], residentRequest.model, routePolicy),
+  );
+  assert.deepEqual(decision.action, {
+    name: 'move_direction',
+    input: { direction: 'forward', distance: 2 },
+    callId: 'call-move',
+  });
+  assert.equal(decision.publicCommitment?.intention, 'Step forward once');
+  assert.equal(
+    (decision.call.request as any).providerResidentSession.protocol,
+    'behold.openrouter-native-tool-resident-session.v1',
+  );
+});
+
+test('a v3 provider resident rejects malformed native calls without repair', async () => {
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v3',
+    routes: [{ requestTag: 'openai', responseProvider: 'OpenAI' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+    residentDecisionFormat: 'native_tools',
+    reasoningEffort: 'none',
+  } as const;
+  const residentRequest = {
+    ...request(),
+    model: 'openai/gpt-5.6-luna',
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+  } as any;
+  const invalidMessages = [
+    {
+      role: 'assistant',
+      content: 'I will move now.',
+      tool_calls: [],
+    },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          id: 'call-invalid',
+          type: 'function',
+          function: {
+            name: 'move_direction',
+            arguments: JSON.stringify({
+              intention: 'Move',
+              expectedObservableConsequence: 'Position changes',
+              arguments: { direction: 'forward', distance: 99 },
+            }),
+          },
+        },
+      ],
+    },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          id: 'call-extra',
+          type: 'function',
+          function: {
+            name: 'move_direction',
+            arguments: JSON.stringify({
+              intention: 'Move',
+              expectedObservableConsequence: 'Position changes',
+              arguments: { direction: 'forward', distance: 2 },
+              extra: true,
+            }),
+          },
+        },
+      ],
+    },
+  ];
+
+  for (const message of invalidMessages) {
+    const mind = createDirectResidentMind({
+      apiKey: 'test-key',
+      model: residentRequest.model,
+      routePolicy,
+      endpoint: 'https://models.example.test/v1/chat/completions',
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            model: residentRequest.model,
+            provider: 'OpenAI',
+            choices: [{ finish_reason: 'tool_calls', message }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    });
+    await assert.rejects(
+      mind.decide(residentRequest, { signal: new AbortController().signal }),
+      (error: any) => {
+        assert.ok(error instanceof ResidentMindCallError);
+        assert.equal(error.call.response.terminal, 'malformed_output');
+        return true;
+      },
+    );
+  }
+});
+
 test('a direct resident rejects returned provider or model identity drift', async () => {
   const routePolicy = {
     protocol: 'behold.openrouter-route-policy.v1',
