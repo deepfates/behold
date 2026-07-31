@@ -1423,7 +1423,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           ok: false,
           error: 'placement_target_occupied',
           target: summarizeBlock(beforeBlock),
-          reason: 'Choose a face whose adjacent destination cell is air or replaceable vegetation.',
+          reason: 'The adjacent destination cell is neither air nor replaceable vegetation.',
         };
       }
       if (placementIntersectsBody(bot, position)) {

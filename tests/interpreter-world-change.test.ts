@@ -449,6 +449,11 @@ test('placement refuses an occupied destination before sending a Minecraft comma
 
   assert.equal(direct.error, 'placement_target_occupied');
   assert.equal(against.error, 'placement_target_occupied');
+  assert.equal(
+    against.reason,
+    'The adjacent destination cell is neither air nor replaceable vegetation.',
+  );
+  assert.equal(JSON.stringify(against).includes('Choose'), false);
   assert.equal(attempted, false);
 });
 
