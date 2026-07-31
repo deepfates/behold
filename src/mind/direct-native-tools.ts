@@ -94,12 +94,13 @@ export function parseNativeToolResidentDecision(
   }
   const tool = exactRecord(
     assistant.tool_calls[0],
-    ['id', 'type', 'function'],
+    ['id', 'index', 'type', 'function'],
     'provider native tool call',
   );
   const fn = exactRecord(tool.function, ['name', 'arguments'], 'provider native tool function');
   if (
     tool.type !== 'function' ||
+    tool.index !== 0 ||
     typeof tool.id !== 'string' ||
     !tool.id ||
     typeof fn.name !== 'string' ||

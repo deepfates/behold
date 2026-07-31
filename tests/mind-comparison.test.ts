@@ -361,6 +361,7 @@ test('a v3 provider resident uses one exact native tool and retains its public c
                 tool_calls: [
                   {
                     id: 'call-move',
+                    index: 0,
                     type: 'function',
                     function: {
                       name: 'move_direction',
@@ -445,6 +446,7 @@ test('a v3 provider resident rejects malformed native calls without repair', asy
       tool_calls: [
         {
           id: 'call-invalid',
+          index: 0,
           type: 'function',
           function: {
             name: 'move_direction',
@@ -463,6 +465,7 @@ test('a v3 provider resident rejects malformed native calls without repair', asy
       tool_calls: [
         {
           id: 'call-extra',
+          index: 0,
           type: 'function',
           function: {
             name: 'move_direction',
