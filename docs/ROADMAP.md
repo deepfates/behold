@@ -37,6 +37,19 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Current truth (updated 2026-07-31)
 
+- Episodes 000031-000033 crossed the first complete ordinary live acceptance.
+  Two Qwen 3.6 35B-A3B residents shared one LM Studio weight instance while
+  retaining separate controllers, requests, quotas, and Lync lives. The native
+  Java player `importdf` joined, moved and chatted with both residents, left on
+  clean stop, and returned after resume; Place and both resident journals
+  witnessed the joins. Moss then independently dug gray concrete at
+  `(2004,-49,1395)`. After another clean restart the saved Anvil chunk contained
+  air there and dirt below. Bodies reopened at their exact saved positions with
+  814/831 and then 830/847 prior private turns. The residents recalled the
+  structure, digging, pressure plates, and the human, but not the exact earlier
+  request to be shown around; autobiographical recall quality remains open.
+  Episode 000033 correctly retained a failed optional native-human assessment
+  because the client did not rejoin that final 90-second window.
 - `behold live` is a real foreground composition over Place's exact lifecycle.
   It starts independently configured residents, keeps their bodies, contexts,
   accounting, and Lync lives separate, permits shared physical model weights,
@@ -69,8 +82,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   recipient's name could preempt resident-owned deliberation and restart it on
   compact social context. Addressing now remains explicit data on a high-salience
   event: it wakes cognition without becoming an emergency or suppressing any
-  resident choice. Focused experience/policy tests pass; live recurrence is not
-  yet exercised.
+  resident choice. Episodes 000031-000033 exercised the repair live: social
+  cycling remained model conduct, but residents also completed locomotion,
+  exploration, human interaction, and a block removal without chat repeatedly
+  preempting every deliberation.
 - The same episodes exposed two apparatus defects in returned context. An
   internal 16-step sequence boundary falsely announced a future episode even
   though cognition resumed four seconds later, and action results supplied
@@ -112,8 +127,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   episode 000027 exercised both fixes through the production front door: its v2
   record names Java Direct Connection and its printed command includes the
   pinned checkout plus `--native-player`. It advanced the authenticated
-  completed head normally. Actual authenticated human co-presence remains
-  unexercised; no server connection attempt has yet reached these windows.
+  completed head normally. Episode 000031 later recorded the first authoritative
+  `importdf` server join and every-resident witness; episode 000032 repeated the
+  join after stop/resume and carried normal chat and movement between the human
+  and residents.
 - Canonical Lync histories and episode-frozen byte unions exist. Textile's
   actual app-layer projector read episode 000023's 61.8 MB union as 1,192 source
   events: 1,190 readable turns, two structural roots, and zero unsupported,
@@ -125,8 +142,15 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   nonconforming, or warning results. Its read-only session view displayed 1,453
   navigable nodes, bounded the live DOM to 48 turns, moved through the history
   to Iris turn 55, named preserved earlier/later turns, exposed only truthful
-  read/branch/link controls, and relayed no copy. Graphical history readability
-  is exercised; authenticated native human co-presence is still not.
+  read/branch/link controls, and relayed no copy. The local Lync 0.4 candidate
+  then migrated the real Iris and Moss lives without changing either
+  pre-migration canonical byte prefix, archived the exact legacy snapshots, and
+  appended new turns without recreating `events.json`. Textile's ordinary
+  app-layer projector reads episode 000033's 84 MB union as 1,709 source events,
+  1,707 readable turns, two structural roots, and zero unsupported,
+  nonconforming, or warning results. Graphical history readability and
+  authenticated native human co-presence are exercised; long-duration
+  operability and richer world-history views remain open.
 
 ### Supported foundations and retained history
 

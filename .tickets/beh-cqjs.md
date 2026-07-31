@@ -1,6 +1,6 @@
 ---
 id: beh-cqjs
-status: in_progress
+status: closed
 deps: [beh-l69b, beh-ro6n, beh-jygo, beh-exc1]
 links: []
 created: 2026-07-31T01:23:36Z
@@ -137,3 +137,7 @@ Reviewing the next human-entry path found a controller contribution hidden insid
 **2026-07-31T22:40:05Z**
 
 2026-07-31 local Lync candidate cb4f45f was packed as deepfates-lync-0.4.0.tgz (sha256 c4bd29d4f4ddc4f62b8cec75e83bd66f973db86d1361cd4ca908dc7bd1703596) and installed into Behold without changing package.json/package-lock or publishing. The first full check exposed one obsolete Behold assertion that events.json must be recreated after recovery. Behold now treats that file as a legacy optional compatibility artifact and requires canonical journal growth instead. Focused interrupted-snapshot recovery passes; full Behold check passes 599 tests plus one environment skip against the candidate. Lync verify passes 163/163. No actual Iris/Moss directory or world was opened by these tests.
+
+**2026-07-31T23:02:54Z**
+
+Episodes 000031-000033 exercise this ticket through the ordinary front door. Episode 000031 ran two Qwen 3.6 35B-A3B residents on one shared LM Studio weight instance with isolated controllers, requests, quotas, and Lync lives. The authenticated native Java player importdf joined, moved, chatted, and was witnessed by Place plus both resident journals. Episode 000031 stopped cleanly; 000032 reopened exact saved bodies and 814/831 prior turns, the human returned, and Moss independently dug gray concrete at (2004,-49,1395). After another clean restart the saved Anvil chunk held air there and dirt below. Textile projected episode 000033 as 1,709 source events, 1,707 readable turns, two structural roots, and zero unsupported/nonconforming/warning results. Real limitations remain visible: exact recall of the pre-stop request to be shown around failed, social loops remain common model conduct, and episode 000033 correctly failed its optional native-human check because the client did not rejoin that 90-second window. The broader epic remains open for dependable long-duration life and stronger autobiographical continuity; these limitations do not violate this ticket’s ratified rule that resident choices are observed rather than graded.

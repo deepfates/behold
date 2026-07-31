@@ -29,16 +29,18 @@ repetitive, ineffective, and consequential choices; those choices are observed
 conduct, not a product score. Passing the mechanics stack is therefore not
 presented as a finished living world.
 
-The latest exercised local path ran two Qwen 3.6 35B-A3B residents for ten
-minutes and resumed them for five more with one shared LM Studio weight instance,
-isolated own-life context, clean saved-world continuity, and Minecraft-confirmed
-resident-chosen block removals. Textile's ordinary local-review UI now reads and
-navigates the 75 MB episode-000029 frozen Lync union directly, with 1,450
-readable turns and no projector diagnostics, without relaying or transcribing
-the canonical archive into a second mutable Loom. Episode 000030 then opened a
-fresh ordinary Direct Connection window and correctly retained no human witness
-when the native client made no connection attempt; it still stopped and saved
-cleanly. Native human co-presence and a genuinely long soak remain unexercised.
+The latest exercised local path ran two Qwen 3.6 35B-A3B residents through an
+ordinary ten-minute live episode and two resumes with one shared LM Studio
+weight instance and isolated own-life context. A native Java client joined as
+`importdf`, moved and chatted with both residents, left on clean stop, and
+returned after resume; both resident journals and the Place server log witnessed
+the joins. Moss later chose to dig one gray-concrete block, and a second restart
+reopened the saved chunk with air at that coordinate and dirt below. Textile's
+ordinary raw-Lync projector reads the 84 MB episode-000033 frozen union as 1,707
+readable turns plus two structural roots with no unsupported, nonconforming, or
+warning results. Exact recall of the human's pre-stop request was weak, episode
+000033 correctly failed its optional human-witness check when the client did not
+rejoin that window, and a genuinely long soak remains unexercised.
 
 Persistent living Place
 
