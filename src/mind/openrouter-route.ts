@@ -152,7 +152,11 @@ export function openRouterWirePolicy(value: OpenRouterRoutePolicy) {
     provider: deepFreeze({
       order,
       allow_fallbacks: false as const,
-      require_parameters: true as const,
+      // OpenRouter's live OpenAI endpoint metadata omits parallel_tool_calls
+      // even though the endpoint accepts it. V3 pins one exact endpoint and
+      // validates its returned identity/output instead of trusting that
+      // incomplete metadata filter.
+      require_parameters: policy.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL ? false : true,
     }),
   });
 }
@@ -272,8 +276,10 @@ export function assertOpenRouterRouteRequest(
   if (value.provider.allow_fallbacks !== false) {
     throw new Error('request provider fallbacks are not disabled');
   }
-  if (value.provider.require_parameters !== true) {
-    throw new Error('request provider parameter support is not required');
+  const expectedRequireParameters =
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL ? false : true;
+  if (value.provider.require_parameters !== expectedRequireParameters) {
+    throw new Error('request provider parameter filter differs from the admitted route contract');
   }
   if (
     !Array.isArray(value.provider.order) ||

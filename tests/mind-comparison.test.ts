@@ -391,6 +391,7 @@ test('a v3 provider resident uses one exact native tool and retains its public c
   assert.equal(bodies[0].parallel_tool_calls, false);
   assert.deepEqual(bodies[0].reasoning, { effort: 'none', exclude: true });
   assert.equal(bodies[0].temperature, undefined);
+  assert.equal(bodies[0].provider.require_parameters, false);
   assert.equal(bodies[0].tools.length, residentRequest.actions.length);
   assert.deepEqual(bodies[0].tools[0].function.parameters.required, [
     'intention',
