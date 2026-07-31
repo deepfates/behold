@@ -35,8 +35,10 @@ isolated own-life context, clean saved-world continuity, and Minecraft-confirmed
 resident-chosen block removals. Textile's ordinary local-review UI now reads and
 navigates the 75 MB episode-000029 frozen Lync union directly, with 1,450
 readable turns and no projector diagnostics, without relaying or transcribing
-the canonical archive into a second mutable Loom. Native human co-presence and
-a genuinely long soak remain unexercised.
+the canonical archive into a second mutable Loom. Episode 000030 then opened a
+fresh ordinary Direct Connection window and correctly retained no human witness
+when the native client made no connection attempt; it still stopped and saved
+cleanly. Native human co-presence and a genuinely long soak remain unexercised.
 
 Persistent living Place
 

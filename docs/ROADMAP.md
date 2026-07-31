@@ -89,9 +89,13 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   The optional `--native-player` flag is only a post-episode username witness
   check; it is neither a resident-release ritual nor proof of client provenance.
   Episodes 000024 and 000026 each resumed the same world and lives for ten
-  minutes with `--native-player importdf`; the already-authenticated client made
-  no join during either live window, so both post-episode assessments correctly
-  failed and retained their negative records. These runs exposed four
+  minutes with `--native-player importdf`; episode 000030 opened another ordinary
+  window after graphical history review. The native client made no join during
+  any window, so all three post-episode assessments correctly failed and retained
+  their negative records. Episode 000030 restored resident revision 000008 with
+  717 and 733 prior private turns, served both residents from one shared Qwen
+  instance, settled all 61 admitted cognition attempts, saved a completed world
+  head, and unloaded the model. These runs exposed four
   front-door truth defects now repaired: readiness names Minecraft's ordinary
   Direct Connection path rather than a repo-local bot launcher; an expected
   missing-human result cannot relabel a clean completed head as preflight
@@ -101,8 +105,8 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   episode 000027 exercised both fixes through the production front door: its v2
   record names Java Direct Connection and its printed command includes the
   pinned checkout plus `--native-player`. It advanced the authenticated
-  completed head normally. Actual
-  authenticated human co-presence remains unexercised.
+  completed head normally. Actual authenticated human co-presence remains
+  unexercised; no server connection attempt has yet reached these windows.
 - Canonical Lync histories and episode-frozen byte unions exist. Textile's
   actual app-layer projector read episode 000023's 61.8 MB union as 1,192 source
   events: 1,190 readable turns, two structural roots, and zero unsupported,
