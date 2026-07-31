@@ -3681,6 +3681,75 @@ test('neutral policy admits a repeated failed player choice instead of repairing
   }
 });
 
+test('an automatically resumed decision sequence adds no invented episode boundary', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const enqueued: any[] = [];
+  const logs: string[] = [];
+  const mind: ResidentMind = {
+    id: 'sequence-boundary-fixture',
+    decide: async (request) => {
+      requests.push(request);
+      return requests.length === 1
+        ? {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'act',
+            utterance: null,
+            action: { name: 'chat', input: { text: 'First resident choice.' } },
+            call: modelCallEvidence('sequence-boundary-fixture'),
+          }
+        : {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'wait',
+            utterance: null,
+            action: { name: 'wait_for_event', input: { reason: 'resident chose to wait' } },
+            call: modelCallEvidence('sequence-boundary-fixture'),
+          };
+    },
+  };
+  let sequence = 1;
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('chat')],
+      attempt: (intent) => {
+        enqueued.push(intent);
+        return true;
+      },
+      observe: (sinceSequence) => experience(sequence, null, sinceSequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      tickMs: 1,
+      maxTurnSteps: 1,
+      resumeAfterBudget: true,
+      policyProfile: 'neutral-benchmark-v1',
+      acceptEngineEvent: () => true,
+      log: (message) => logs.push(message),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => enqueued.length === 1);
+    sequence += 1;
+    await policy.onEngineEvent({
+      type: 'action_completed',
+      at: 20,
+      data: { intent: enqueued[0], result: { ok: true } },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 525));
+    await until(() => requests.length === 2);
+
+    const resumedContext = JSON.stringify(requests[1].conversation);
+    assert.doesNotMatch(resumedContext, /controller step budget|next episode/i);
+    assert.ok(logs.some((message) => /ended decision sequence after 1 model steps/i.test(message)));
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('a failed model call is visible once with request provenance and no credential', async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;

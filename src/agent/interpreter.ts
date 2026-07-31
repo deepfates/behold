@@ -1103,16 +1103,6 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           ? {
               adjacentBlocks,
               openedBodyPassages,
-              nextAffordance:
-                openedBodyPassages.length > 0
-                  ? `This exact dig opened adjacent body space ${openedBodyPassages
-                      .map((passage) => passage.direction)
-                      .join(
-                        ', ',
-                      )} relative to the current view. You can intentionally enter it with move_direction before mining farther.`
-                  : adjacentBlocks.length > 0
-                    ? 'Choose an adjacent exposed block to inspect or mine next.'
-                    : 'The removed block exposed no adjacent solid continuation.',
             }
           : {}),
       };
@@ -2273,8 +2263,6 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         source: 'loaded_local_terrain',
         visibility: 'unknown',
         coordinateMeaning: 'solid_block_target_not_feet_position',
-        nextAffordance:
-          'Approach and look until a chosen lead becomes a current scene.terrain target, then mine that exact visible target.',
         omittedUnsafeTargets: positions.length - safePositions.length,
         searchedCandidates: positions.length,
         blocks: candidates.slice(0, requestedCount),
@@ -4137,8 +4125,6 @@ function protectedBodySpaceConflict(
     protectedBodyCells: place.protectedBodyCells,
     reason:
       'This cell was witnessed as usable body space in a durable place. An ordinary structural block would destroy that affordance.',
-    nextAffordance:
-      'Choose a wall, roof, or exterior cell. A real interior amenity such as a chest, barrel, crafting table, furnace, bed, light, sign, or carpet may still be placed here.',
   };
 }
 
@@ -4455,9 +4441,7 @@ function inspectBlockVolume(
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
     unloadedCells,
     coordinateMeaning:
-      'Each character denotes the block occupying that exact x,y,z cell; choose air or replaceable vegetation for place_block.',
-    nextAffordance:
-      'Place or remove one chosen block, then inspect again after several changes or whenever geometry becomes uncertain.',
+      'Each character denotes the block occupying that exact x,y,z cell; air and replaceable vegetation are valid place_block cells.',
   };
 }
 
@@ -4625,14 +4609,6 @@ function inspectReachableSpace(
     scanEdgeCells: scanEdgeCells.slice(0, 12).map(({ x, y, z }) => ({ x, y, z })),
     openingsFromProtectedSpace: [...openings.values()].slice(0, 12),
     problems,
-    nextAffordance:
-      sharedCapacity && closableEntranceCount > 0
-        ? 'The scanned body space is sealed, covered, large enough for two, and has a usable closed entrance; preserve protectedCells as interior.'
-        : sharedCapacity
-          ? 'The sealed shared space has no usable entrance. Inspect its boundary, remove a two-block-high wall opening, then place a wooden door in that opening and inspect again from inside.'
-          : openings.size > 0
-            ? 'Close or door the reported candidateClosureCells without filling protectedCells, then inspect again from inside.'
-            : 'Inspect a larger radius or choose a different supported interior feet cell before changing blocks.',
   };
 }
 

@@ -594,10 +594,7 @@ test('find_blocks returns actionable local positions without claiming visibility
     likelyGrounded: true,
   });
   assert.equal(result.coordinateMeaning, 'solid_block_target_not_feet_position');
-  assert.equal(
-    result.nextAffordance,
-    'Approach and look until a chosen lead becomes a current scene.terrain target, then mine that exact visible target.',
-  );
+  assert.equal('nextAffordance' in result, false);
 });
 
 test('find_blocks scans past unsafe nearest matches to expose a useful target', async () => {
@@ -752,7 +749,10 @@ test('inspect_reachable_space does not call a sealed box an enterable shelter', 
   assert.equal(result.sealed, true);
   assert.equal(result.sharedCapacity, true);
   assert.equal(result.closableEntranceCount, 0);
-  assert.match(result.nextAffordance, /no usable entrance/i);
+  assert.ok(
+    result.problems.some((problem: string) => /no closed usable wooden door/i.test(problem)),
+  );
+  assert.equal('nextAffordance' in result, false);
 });
 
 test('inspect_reachable_space exposes an exact opening from roofed space to outside', async () => {
@@ -1697,7 +1697,7 @@ test('digging reports only a body passage causally opened by that exact block ch
   );
   assert.equal(result.openedBodyPassages[0].enterable, true);
   assert.deepEqual(result.openedBodyPassages[0].feet.position, { x: 0, y: 64, z: -1 });
-  assert.match(result.nextAffordance, /enter it with move_direction before mining farther/);
+  assert.equal('nextAffordance' in result, false);
 });
 
 test('dig_block reports cancellation only after Mineflayer acknowledges diggingAborted', async () => {

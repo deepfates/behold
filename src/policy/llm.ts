@@ -761,11 +761,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
 
     if (turnSteps >= maxTurnSteps) {
-      log(`[policy] controller paused after reaching ${maxTurnSteps} model steps`);
-      messages.push({
-        role: 'user',
-        content: `Controller step budget reached (${maxTurnSteps}); your life and unfinished commitments continue in the next episode.`,
-      });
+      log(`[policy] ended decision sequence after ${maxTurnSteps} model steps`);
       turnActive = false;
       turnSteps = 0;
       if (opts.resumeAfterBudget && !resumeTimer) {
