@@ -108,7 +108,14 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   events: 1,190 readable turns, two structural roots, and zero unsupported,
   nonconforming, or warning results. It also read episode 000026's 74.9 MB union
   as 1,448 source events, 1,446 readable turns, two structural roots, and the
-  same zero-diagnostic result. Ordinary graphical inspection is still unknown.
+  same zero-diagnostic result. Textile's ordinary browser-local review path has
+  now opened episode 000029's 75,012,413-byte union as 1,452 source events,
+  1,450 readable turns, and two structural roots with no unsupported,
+  nonconforming, or warning results. Its read-only session view displayed 1,453
+  navigable nodes, bounded the live DOM to 48 turns, moved through the history
+  to Iris turn 55, named preserved earlier/later turns, exposed only truthful
+  read/branch/link controls, and relayed no copy. Graphical history readability
+  is exercised; authenticated native human co-presence is still not.
 
 ### Supported foundations and retained history
 
