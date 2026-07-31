@@ -30,7 +30,8 @@ test('loom folding is a bounded view and never mutates source turns', async () =
     materialized.turns.map((turn) => turn.sequence),
     [17, 18, 19, 20],
   );
-  assert.equal(requests.length, 4);
+  assert.equal(requests.length, 0, 'a large backlog uses one local canonical index');
+  assert.equal(materialized.fold?.generation.kind, 'canonical_index');
   assert.equal(JSON.stringify(turns), original);
   assert.match(foldMessage(materialized.fold!).content, /non-authoritative projection/);
 });
@@ -62,11 +63,11 @@ test('loom folding advances in batches and keeps a bounded verbatim frontier', a
   await view.prepare();
   assert.equal(view.state().foldedThrough, 12);
   assert.equal(view.state().visibleTurns, 4);
-  assert.equal(summaries, 3);
+  assert.equal(summaries, 1, 'only the later bounded increment needs model summarization');
 });
 
-test('cancelling a multi-batch fold preserves the last completed cache without synthetic progress', async () => {
-  const turns = Array.from({ length: 12 }, (_, index) => entityTurn(index + 1, 'Scout'));
+test('cancelling one bounded fold increment preserves the last completed cache without synthetic progress', async () => {
+  const turns = Array.from({ length: 4 }, (_, index) => entityTurn(index + 1, 'Scout'));
   const controller = new AbortController();
   let calls = 0;
   const view = createLoomContextView(turns, {
@@ -83,8 +84,11 @@ test('cancelling a multi-batch fold preserves the last completed cache without s
     },
   });
 
+  assert.equal(await view.prepare(), true);
+  view.append(entityTurn(5, 'Scout'));
+  view.append(entityTurn(6, 'Scout'));
   await assert.rejects(view.prepare(controller.signal), /foreground life resumed/);
-  assert.equal(calls, 2, 'cancellation must stop before a third provider batch');
+  assert.equal(calls, 2, 'each maintenance opportunity admits at most one provider batch');
   assert.equal(view.state().foldedThrough, 2, 'the completed first batch remains valid');
   assert.equal(view.state().needsFold, true);
   assert.doesNotMatch(view.view().fold!.summary, /automatic fold summary unavailable/);
@@ -108,7 +112,7 @@ test('a fold fallback identifies its failed generation and exact deterministic s
   assert.equal(await view.prepare(), true);
   const fold = view.view().fold as any;
   assert.equal(fold.generation.kind, 'fallback');
-  assert.equal(fold.generation.source, 'deterministic-source-anchors-v1');
+  assert.equal(fold.generation.source, 'deterministic-canonical-anchors-v1');
   assert.equal(fold.generation.failure.name, 'Error');
   assert.equal(fold.generation.failure.message, 'fixture fold provider unavailable');
   assert.match(fold.generation.sourceSha256, /^[a-f0-9]{64}$/);
@@ -127,7 +131,7 @@ test('a fold fallback identifies its failed generation and exact deterministic s
   ]);
 });
 
-test('a later maintenance opportunity heals a fallback from the canonical loom', async (t) => {
+test('a later bounded increment builds model continuity from a canonical fallback', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-heal-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const cacheFile = path.join(root, 'fold.json');
@@ -149,7 +153,8 @@ test('a later maintenance opportunity heals a fallback from the canonical loom',
   assert.equal(failed.state().foldedThrough, 2);
 
   const requests: any[] = [];
-  const healed = createLoomContextView(turns, {
+  const continuedTurns = [...turns, entityTurn(5, 'Scout'), entityTurn(6, 'Scout')];
+  const healed = createLoomContextView(continuedTurns, {
     entityId: 'Scout',
     model: 'test/model',
     cacheFile,
@@ -165,10 +170,10 @@ test('a later maintenance opportunity heals a fallback from the canonical loom',
   assert.equal(healed.state().needsFold, true);
   assert.equal(await healed.prepare(), true);
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].fromSequence, 1);
-  assert.equal(requests[0].previousSummary, null);
+  assert.equal(requests[0].fromSequence, 3);
+  assert.match(requests[0].previousSummary, /Canonical own-life index through t2/);
   assert.equal(healed.view().fold?.generation.kind, 'model');
-  assert.doesNotMatch(healed.view().fold!.summary, /automatic fold summary unavailable/);
+  assert.equal(healed.state().foldedThrough, 4);
 });
 
 test('a read-only loom view never fabricates or writes a fold needed for replay', async (t) => {
@@ -217,7 +222,7 @@ test('a validated fold cache is disposable acceleration, not another source of t
     },
   });
   await first.prepare();
-  assert.equal(firstCalls, 2);
+  assert.equal(firstCalls, 0);
 
   let resumedCalls = 0;
   const resumed = createLoomContextView(turns, {
@@ -249,6 +254,46 @@ test('a validated fold cache is disposable acceleration, not another source of t
   assert.equal(rebuilt.state().foldedThrough, 0);
   await rebuilt.prepare();
   assert.equal(rebuilt.state().foldedThrough, 8);
+});
+
+test('a large backlog retains literal old dialogue and material consequences without provider work', async () => {
+  const turns = Array.from({ length: 100 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  turns[12].observation.events = [
+    {
+      sequence: 90,
+      type: 'chat_received',
+      isNew: true,
+      data: { from: 'importdf', text: 'remember the old bridge when we come back' },
+    },
+  ];
+  turns[41].action = {
+    ...turns[41].action,
+    name: 'dig_focused_block',
+    input: {},
+  };
+  turns[41].outcome = {
+    ok: true,
+    eventType: 'action_completed',
+    result: { ok: true, block: 'stone_bricks', position: { x: 1, y: 2, z: 3 } },
+  };
+  let calls = 0;
+  const view = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    recentTurns: 4,
+    foldBatchTurns: 6,
+    summarize: async () => {
+      calls += 1;
+      return 'provider summary';
+    },
+  });
+
+  assert.equal(await view.prepare(), true);
+  assert.equal(calls, 0);
+  assert.equal(view.state().foldedThrough, 96);
+  assert.equal(view.view().fold?.generation.kind, 'canonical_index');
+  assert.match(view.view().fold!.summary, /remember the old bridge when we come back/);
+  assert.match(view.view().fold!.summary, /dig_focused_block/);
 });
 
 test('a fold cache cannot cross an embodied observation profile', async () => {

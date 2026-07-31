@@ -31,8 +31,14 @@ export type LoomFoldRecord = {
         summarySha256: string;
       }
     | {
+        kind: 'canonical_index';
+        source: 'deterministic-canonical-anchors-v1';
+        sourceSha256: string;
+        summarySha256: string;
+      }
+    | {
         kind: 'fallback';
-        source: 'deterministic-source-anchors-v1';
+        source: 'deterministic-source-anchors-v1' | 'deterministic-canonical-anchors-v1';
         reason: 'summarizer_error' | 'empty_summary';
         sourceSha256: string;
         summarySha256: string;
@@ -142,11 +148,6 @@ export function createLoomContextView(
   }
 
   function shouldPrepare() {
-    // A fallback bounds the prompt during a summarizer outage, but it must not
-    // become the resident's permanent memory. The canonical loom is still
-    // present, so a later maintenance opportunity can rebuild the disposable
-    // view from turn one even when no newer turn has arrived.
-    if (fold?.generation.kind === 'fallback') return true;
     const pending = foldTarget() - foldedThrough();
     if (pending <= 0) return false;
     if (!fold && turns.length > recentTurns + foldTriggerTurns - 1) return true;
@@ -173,90 +174,131 @@ export function createLoomContextView(
 
   async function performFold(signal?: AbortSignal) {
     const target = foldTarget();
-    const rebuildingFallback = fold?.generation.kind === 'fallback';
-    let cursor = rebuildingFallback ? 0 : foldedThrough();
-    let summary = rebuildingFallback ? null : (fold?.summary ?? null);
-    let changed = false;
+    const cursor = foldedThrough();
+    if (cursor >= target) return false;
+    throwIfAborted(signal);
 
-    while (cursor < target) {
-      throwIfAborted(signal);
-      const end = Math.min(target, cursor + foldBatchTurns);
-      const batch = turns.slice(cursor, end);
-      if (!batch.length) break;
-      const request: LoomFoldRequest = {
-        entityId: options.entityId,
-        previousSummary: summary,
-        turns: batch.map((turn, index) =>
-          (options.projectTurn ?? projectTurnForFolding)(turn, batch[index - 1]),
-        ),
-        fromSequence: batch[0].sequence,
-        toSequence: batch.at(-1)!.sequence,
-      };
-      const sourceSha256 = sha256(stableJson(request));
-      let nextSummary: string;
-      let generation: LoomFoldRecord['generation'];
-      try {
-        nextSummary = boundedText(await options.summarize(request, signal), summaryMaxChars);
-        if (nextSummary) {
-          generation = {
-            kind: 'model',
-            source: 'configured_summarizer',
-            sourceSha256,
-            summarySha256: sha256(nextSummary),
-          };
-        } else {
-          nextSummary = fallbackSummary(summary, batch, summaryMaxChars);
-          generation = fallbackGeneration(
-            'empty_summary',
-            new Error('configured loom summarizer returned no summary text'),
-            sourceSha256,
-            nextSummary,
-          );
-        }
-      } catch (error) {
-        if (signal?.aborted) throw signal.reason ?? error;
-        nextSummary = fallbackSummary(summary, batch, summaryMaxChars);
-        generation = fallbackGeneration('summarizer_error', error, sourceSha256, nextSummary);
-      }
-      throwIfAborted(signal);
-
-      const tip = batch.at(-1)!;
-      const generatedAt = now();
-      const source = {
-        fromSequence: 1,
-        toSequence: tip.sequence,
-        tipId: tip.id,
-        turnCount: tip.sequence,
-      };
-      if (generation.kind === 'fallback') {
-        options.onContextIntervention?.({
-          protocol: 'behold.context-intervention.v1',
-          kind: 'loom_fold_fallback',
-          entityId: options.entityId,
-          model: options.model,
-          at: generatedAt,
-          projectionProfile: options.projectionProfile ?? null,
-          source,
-          generation,
-        });
-      }
+    // A resident can return after a long life or a changed projection contract
+    // with far more canonical history than one timely model request should
+    // consume. Build a truthful local index over that prefix in one pass. It is
+    // deliberately less interpretive than a model summary, but it preserves
+    // dialogue and material consequences instead of blocking the body or
+    // manufacturing "summary unavailable" progress. Later small increments
+    // can be folded by the configured summarizer from this grounded base.
+    if (target - cursor > foldBatchTurns) {
+      const indexed = canonicalAnchorSummary(
+        turns.slice(0, target),
+        summaryMaxChars,
+        options.projectTurn ?? projectTurnForFolding,
+      );
+      const tip = turns[target - 1];
       fold = {
         protocol: 'behold.loom-fold.v3',
         entityId: options.entityId,
-        source,
-        summary: nextSummary,
-        generatedAt,
+        source: {
+          fromSequence: 1,
+          toSequence: tip.sequence,
+          tipId: tip.id,
+          turnCount: tip.sequence,
+        },
+        summary: indexed.summary,
+        generatedAt: now(),
         model: options.model,
-        generation,
+        generation: {
+          kind: 'canonical_index',
+          source: 'deterministic-canonical-anchors-v1',
+          sourceSha256: indexed.sourceSha256,
+          summarySha256: sha256(indexed.summary),
+        },
         ...(options.projectionProfile ? { projectionProfile: options.projectionProfile } : {}),
         ...(options.summarizerProtocol ? { summarizerProtocol: options.summarizerProtocol } : {}),
       };
-      summary = nextSummary;
-      cursor = end;
-      changed = true;
       saveFold(options.cacheFile, fold);
+      return true;
     }
-    return changed;
+
+    const end = Math.min(target, cursor + foldBatchTurns);
+    const batch = turns.slice(cursor, end);
+    if (!batch.length) return false;
+    const summary = fold?.summary ?? null;
+    const request: LoomFoldRequest = {
+      entityId: options.entityId,
+      previousSummary: summary,
+      turns: batch.map((turn, index) =>
+        (options.projectTurn ?? projectTurnForFolding)(turn, batch[index - 1]),
+      ),
+      fromSequence: batch[0].sequence,
+      toSequence: batch.at(-1)!.sequence,
+    };
+    const sourceSha256 = sha256(stableJson(request));
+    let nextSummary: string;
+    let generation: LoomFoldRecord['generation'];
+    try {
+      nextSummary = boundedText(await options.summarize(request, signal), summaryMaxChars);
+      if (nextSummary) {
+        generation = {
+          kind: 'model',
+          source: 'configured_summarizer',
+          sourceSha256,
+          summarySha256: sha256(nextSummary),
+        };
+      } else {
+        nextSummary = canonicalAnchorSummary(
+          turns.slice(0, end),
+          summaryMaxChars,
+          options.projectTurn ?? projectTurnForFolding,
+        ).summary;
+        generation = fallbackGeneration(
+          'empty_summary',
+          new Error('configured loom summarizer returned no summary text'),
+          sourceSha256,
+          nextSummary,
+        );
+      }
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
+      nextSummary = canonicalAnchorSummary(
+        turns.slice(0, end),
+        summaryMaxChars,
+        options.projectTurn ?? projectTurnForFolding,
+      ).summary;
+      generation = fallbackGeneration('summarizer_error', error, sourceSha256, nextSummary);
+    }
+    throwIfAborted(signal);
+
+    const tip = batch.at(-1)!;
+    const generatedAt = now();
+    const source = {
+      fromSequence: 1,
+      toSequence: tip.sequence,
+      tipId: tip.id,
+      turnCount: tip.sequence,
+    };
+    if (generation.kind === 'fallback') {
+      options.onContextIntervention?.({
+        protocol: 'behold.context-intervention.v1',
+        kind: 'loom_fold_fallback',
+        entityId: options.entityId,
+        model: options.model,
+        at: generatedAt,
+        projectionProfile: options.projectionProfile ?? null,
+        source,
+        generation,
+      });
+    }
+    fold = {
+      protocol: 'behold.loom-fold.v3',
+      entityId: options.entityId,
+      source,
+      summary: nextSummary,
+      generatedAt,
+      model: options.model,
+      generation,
+      ...(options.projectionProfile ? { projectionProfile: options.projectionProfile } : {}),
+      ...(options.summarizerProtocol ? { summarizerProtocol: options.summarizerProtocol } : {}),
+    };
+    saveFold(options.cacheFile, fold);
+    return true;
   }
 
   return {
@@ -417,18 +459,113 @@ function saveFold(cacheFile: string | null | undefined, record: LoomFoldRecord) 
   fs.renameSync(temporary, cacheFile);
 }
 
-function fallbackSummary(previous: string | null, batch: EntityTurn[], limit: number) {
-  const from = batch[0]?.sequence;
-  const to = batch.at(-1)?.sequence;
-  return boundedText(
-    [
-      previous,
-      `[t${from}-t${to}: automatic fold summary unavailable; consult this entity's loom for the original evidence.]`,
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    limit,
-  );
+const MATERIAL_MEMORY_ACTIONS = new Set([
+  'dig_block',
+  'dig_focused_block',
+  'place_block',
+  'place_against',
+  'craft_item',
+  'consume',
+  'drop_item',
+  'deposit_in_focused_container',
+  'withdraw_from_focused_container',
+  'toggle_block',
+  'sleep_in_bed',
+  'attack_entity',
+]);
+
+/**
+ * A compact, literal index over resident-visible canonical life. This is the
+ * degraded memory path, not a behavioral interpretation: dialogue, material
+ * actions, and life boundaries are copied from the resident's own safe
+ * projection with turn anchors so the original Lync records remain locatable.
+ */
+function canonicalAnchorSummary(
+  sourceTurns: EntityTurn[],
+  limit: number,
+  projectTurn: (
+    turn: EntityTurn,
+    previousTurn?: EntityTurn,
+  ) => ReturnType<typeof projectTurnForFolding>,
+) {
+  const sourceHash = createHash('sha256');
+  const dialogue: string[] = [];
+  const consequences: string[] = [];
+  const boundaries: string[] = [];
+  const seenDialogue = new Set<string>();
+  let previous: EntityTurn | undefined;
+
+  for (const turn of sourceTurns) {
+    const projected = projectTurn(turn, previous);
+    sourceHash.update(stableJson(projected));
+    for (const frame of [projected.observation, projected.nextObservation]) {
+      for (const event of Array.isArray(frame?.events) ? frame.events : []) {
+        const type = String(event?.type || '');
+        if (type === 'chat_received') {
+          const from = boundedText(event?.data?.from ?? event?.data?.user ?? 'someone', 80);
+          const text = boundedText(event?.data?.text ?? '', 300);
+          const key = `${event?.sequence ?? ''}\u0000${from}\u0000${text}`;
+          if (text && !seenDialogue.has(key)) {
+            seenDialogue.add(key);
+            dialogue.push(`[t${turn.sequence}] heard ${from}: ${JSON.stringify(text)}`);
+          }
+        }
+        if (['died', 'spawned', 'dimension_changed'].includes(type)) {
+          boundaries.push(`[t${turn.sequence}] experienced ${type}`);
+        }
+      }
+    }
+    if (projected.action?.name === 'chat' && projected.outcome?.ok) {
+      const text = boundedText(projected.action?.input?.text ?? '', 300);
+      if (text) dialogue.push(`[t${turn.sequence}] said: ${JSON.stringify(text)}`);
+    }
+    if (
+      projected.outcome?.ok &&
+      MATERIAL_MEMORY_ACTIONS.has(String(projected.action?.name || ''))
+    ) {
+      consequences.push(
+        boundedText(
+          `[t${turn.sequence}] chose ${projected.action.name} ${JSON.stringify(
+            projected.action.input ?? {},
+          )}; observed ${JSON.stringify(projected.outcome.result ?? { ok: true })}`,
+          600,
+        ),
+      );
+    }
+    previous = turn;
+  }
+
+  const through = sourceTurns.at(-1)?.sequence ?? 0;
+  const header = [
+    `Canonical own-life index through t${through}.`,
+    'Literal selected anchors only; absence is not evidence that an event did not happen. Consult the canonical loom for full detail.',
+  ].join('\n');
+  const remaining = Math.max(0, limit - header.length - 4);
+  const dialogueText = newestLinesWithin(dialogue, Math.floor(remaining * 0.58));
+  const consequenceText = newestLinesWithin(consequences, Math.floor(remaining * 0.34));
+  const boundaryText = newestLinesWithin(boundaries, Math.floor(remaining * 0.08));
+  const sections = [
+    dialogueText ? `Dialogue:\n${dialogueText}` : '',
+    consequenceText ? `Material consequences:\n${consequenceText}` : '',
+    boundaryText ? `Life boundaries:\n${boundaryText}` : '',
+  ].filter(Boolean);
+  return {
+    summary: boundedText([header, ...sections].join('\n'), limit),
+    sourceSha256: sourceHash.digest('hex'),
+  };
+}
+
+function newestLinesWithin(lines: string[], limit: number) {
+  const selected: string[] = [];
+  let used = 0;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    const bytes = line.length + (selected.length ? 1 : 0);
+    if (used + bytes > limit) continue;
+    selected.push(line);
+    used += bytes;
+  }
+  return selected.reverse().join('\n');
 }
 
 function fallbackGeneration(
@@ -440,7 +577,7 @@ function fallbackGeneration(
   const value = error as any;
   return {
     kind: 'fallback',
-    source: 'deterministic-source-anchors-v1',
+    source: 'deterministic-canonical-anchors-v1',
     reason,
     sourceSha256,
     summarySha256: sha256(summary),

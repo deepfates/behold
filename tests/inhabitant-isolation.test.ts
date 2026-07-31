@@ -34,16 +34,16 @@ test('two inhabitants restart from their own looms and folded views without leak
   }) as typeof fetch;
 
   try {
-    await runOneLife(scout, 'SCOUT_FOLDED_CONTINUITY');
-    await runOneLife(builder, 'BUILDER_FOLDED_CONTINUITY');
+    await runOneLife(scout);
+    await runOneLife(builder);
 
     const scoutFold = readJson(path.join(path.dirname(scout.file), 'fold.json'));
     const builderFold = readJson(path.join(path.dirname(builder.file), 'fold.json'));
     assert.equal(scoutFold.entityId, 'Scout');
     assert.equal(builderFold.entityId, 'Builder');
-    assert.match(scoutFold.summary, /SCOUT_FOLDED_CONTINUITY/);
+    assert.match(scoutFold.summary, /SCOUT_ONLY_/);
     assert.doesNotMatch(scoutFold.summary, /BUILDER/);
-    assert.match(builderFold.summary, /BUILDER_FOLDED_CONTINUITY/);
+    assert.match(builderFold.summary, /BUILDER_ONLY_/);
     assert.doesNotMatch(builderFold.summary, /SCOUT/);
 
     // Reopen both autobiographies as fresh controller instances, modeling a
@@ -53,8 +53,8 @@ test('two inhabitants restart from their own looms and folded views without leak
     await builder.close();
     const reopenedScout = await openEntityLoom('Scout', root, 'minecraft://shared-world');
     const reopenedBuilder = await openEntityLoom('Builder', root, 'minecraft://shared-world');
-    await runOneLife(reopenedScout, 'summarizer must not run on this restart', true);
-    await runOneLife(reopenedBuilder, 'summarizer must not run on this restart', true);
+    await runOneLife(reopenedScout, true);
+    await runOneLife(reopenedBuilder, true);
 
     assert.equal(reopenedScout.turns().length, 14);
     assert.equal(reopenedBuilder.turns().length, 14);
@@ -67,10 +67,10 @@ test('two inhabitants restart from their own looms and folded views without leak
     const builderRestartRequest = requests[3];
     const scoutContext = JSON.stringify(scoutRestartRequest.messages);
     const builderContext = JSON.stringify(builderRestartRequest.messages);
-    assert.match(scoutContext, /SCOUT_FOLDED_CONTINUITY/);
-    assert.doesNotMatch(scoutContext, /BUILDER_ONLY|BUILDER_FOLDED_CONTINUITY/);
-    assert.match(builderContext, /BUILDER_FOLDED_CONTINUITY/);
-    assert.doesNotMatch(builderContext, /SCOUT_ONLY|SCOUT_FOLDED_CONTINUITY/);
+    assert.match(scoutContext, /SCOUT_ONLY_/);
+    assert.doesNotMatch(scoutContext, /BUILDER_ONLY/);
+    assert.match(builderContext, /BUILDER_ONLY_/);
+    assert.doesNotMatch(builderContext, /SCOUT_ONLY_/);
     await reopenedScout.close();
     await reopenedBuilder.close();
   } finally {
@@ -79,7 +79,7 @@ test('two inhabitants restart from their own looms and folded views without leak
   }
 });
 
-async function runOneLife(loom: EntityLoom, foldedContinuity: string, rejectSummarizer = false) {
+async function runOneLife(loom: EntityLoom, rejectSummarizer = false) {
   const entityId = loom.turns()[0]?.entityId;
   assert.ok(entityId);
   let summaryCalls = 0;
@@ -109,7 +109,7 @@ async function runOneLife(loom: EntityLoom, foldedContinuity: string, rejectSumm
             JSON.stringify(turn).includes(`${entityId.toUpperCase()}_ONLY_`),
           ),
         );
-        return [request.previousSummary, foldedContinuity].filter(Boolean).join(' ');
+        return [request.previousSummary, `${entityId} model continuity`].filter(Boolean).join(' ');
       },
       onEntityTurn: (turn) => loom.append(turn),
     },
@@ -120,10 +120,8 @@ async function runOneLife(loom: EntityLoom, foldedContinuity: string, rejectSumm
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.equal(summaryCalls, 0);
     } else {
-      for (let attempt = 0; summaryCalls < 3 && attempt < 100; attempt += 1) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
-      assert.equal(summaryCalls, 3, 'idle maintenance folds only after foreground yield');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(summaryCalls, 0, 'large idle catch-up uses the canonical local index');
       assert.equal(policy.state().loomContext.foldedThrough, 9);
     }
   } finally {
