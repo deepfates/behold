@@ -668,9 +668,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           if (!fixedPilotSlots || force) queueWake(cause);
           // Ordinary changes remain queued for the next truthful observation.
           // Cancelling every bounded fold step here can starve long-term
-          // continuity forever in an active world. Bodily urgency and explicit
-          // forced attention still reclaim the resident immediately.
-          if (force || triggers.length > 0) {
+          // continuity forever in an active world. Bodily urgency and an
+          // explicit fixed-pilot slot still reclaim the resident immediately.
+          // Budget continuation and resume may admit thought without a new
+          // event, but do not thereby gain the separate power to preempt
+          // bounded memory maintenance.
+          if ((force && cause.kind === 'fixed_slot') || triggers.length > 0) {
             activeModelRequest?.abort(
               abortError(
                 triggers.length > 0
@@ -737,7 +740,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       decisionCycle.enter('idle');
       return;
     }
-    if (!turnActive && !force && !hasDecisionRelevantEvent(frame, lastSequence)) {
+    const admitsWithoutNewEvent =
+      force || cause.kind === 'budget_resume' || cause.kind === 'resume';
+    if (!turnActive && !admitsWithoutNewEvent && !hasDecisionRelevantEvent(frame, lastSequence)) {
       decisionCycle.enter('idle');
       return;
     }

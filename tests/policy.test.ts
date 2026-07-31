@@ -1724,6 +1724,105 @@ test('an ordinary world change waits for one bounded loom step and then receives
   }
 });
 
+test('budget continuation waits for bounded loom maintenance without requiring a new world event', async () => {
+  let foldStarted!: () => void;
+  const started = new Promise<void>((resolve) => (foldStarted = resolve));
+  let finishFold!: (summary: string) => void;
+  let foldAborted = false;
+  const requests: ResidentMindRequest[] = [];
+  const enqueued: any[] = [];
+  let resumed!: () => void;
+  const resumedDecision = new Promise<void>((resolve) => (resumed = resolve));
+  const mind: ResidentMind = {
+    id: 'budget-continuation-memory-fixture',
+    decide: async (request) => {
+      requests.push(request);
+      if (requests.length === 2) resumed();
+      return requests.length === 1
+        ? {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'act',
+            utterance: 'I will speak once before my bounded continuation.',
+            action: { name: 'chat', input: { text: 'One lived action.' } },
+            call: modelCallEvidence('budget-continuation-memory-fixture'),
+          }
+        : {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'wait',
+            utterance: 'I can continue after my memory advanced.',
+            action: null,
+            call: modelCallEvidence('budget-continuation-memory-fixture'),
+          };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('chat')],
+      attempt: (intent) => {
+        enqueued.push(intent);
+        return true;
+      },
+      observe: (sinceSequence = 0) => experience(1, null, sinceSequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+      history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
+      foldRecentTurns: 1,
+      foldBatchTurns: 2,
+      foldTriggerTurns: 1,
+      maxTurnSteps: 1,
+      tickMs: 1,
+      resumeAfterBudget: true,
+      summarizeLoom: async (_request, signal) => {
+        foldStarted();
+        return await new Promise<string>((resolve, reject) => {
+          finishFold = resolve;
+          signal?.addEventListener(
+            'abort',
+            () => {
+              foldAborted = true;
+              reject(signal.reason);
+            },
+            { once: true },
+          );
+        });
+      },
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => enqueued.length === 1);
+    await policy.onEngineEvent({
+      type: 'action_completed',
+      at: 20,
+      data: { intent: enqueued[0], result: { ok: true } },
+    });
+    await started;
+    await new Promise((resolve) => setTimeout(resolve, 525));
+
+    assert.equal(foldAborted, false);
+    assert.equal(requests.length, 1, 'budget continuation queues behind bounded memory work');
+    finishFold('Scout retained the earlier movement attempts before continuing.');
+    await Promise.race([
+      resumedDecision,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('budget continuation did not resume after fold')), 500),
+      ),
+    ]);
+
+    assert.equal(foldAborted, false);
+    assert.equal(policy.state().loomContext.foldedThrough, 2);
+    assert.match(JSON.stringify(requests[1].conversation), /Folded view of your own loom/);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('an alternate mind receives one bounded observation and the exact admitted action space', async () => {
   const requests: any[] = [];
   const attempted: any[] = [];
