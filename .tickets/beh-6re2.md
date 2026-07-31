@@ -1,6 +1,6 @@
 ---
 id: beh-6re2
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-07-31T02:40:27Z
@@ -24,6 +24,16 @@ Compose the existing project-memory utility beside the frozen human-semantic bod
 A legible untasked resident may autonomously create and later read its own bounded ongoing concern without changing the frozen bodily affordance definitions or neutral benchmark. In a bounded ordinary live exercise, a resident chooses such a concern and takes at least two causally coherent later actions toward it, including a material world-action attempt, with the concern surviving its Lync history; no task or next action is supplied.
 
 ## Notes
+
+**2026-07-31T19:10:26Z**
+
+Closed as a superseded product candidate after the owner clarified that
+resident conduct is observed rather than graded. The optional continuity
+affordance may remain available, but requiring a resident to select a project,
+take causally coherent steps toward it, or attempt a material action makes a
+particular theory of good conduct into acceptance. It is not a blocker or an
+active product frontier. The ordinary legible path must not force its use or
+apply the proposed bookkeeping/progress guard.
 
 **2026-07-31T02:47:28Z**
 
