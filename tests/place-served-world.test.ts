@@ -359,6 +359,7 @@ test('an exact abandoned running epoch can become the resumable stopped head wit
     server: { pid: process.pid, jarSha256: fixture.identity.minecraftServerSha256 },
   });
   control.update('running');
+  control.append('live_session_duration_armed', { durationMs: 120_000 });
   fs.writeFileSync(path.join(fixture.runtimeWorld, 'interrupted-life.txt'), 'retained state');
 
   const owner = control.record();

@@ -4410,6 +4410,9 @@ function assertRecoveryLifecycle(
 ) {
   const first: any = lifecycle.events[0];
   const last: any = lifecycle.events.at(-1);
+  const latestState: any = [...lifecycle.events]
+    .reverse()
+    .find((event) => event.type === 'control_state_changed');
   const initialOwner = first?.data?.owner;
   const expectedState = {
     state: owner.state,
@@ -4426,8 +4429,8 @@ function assertRecoveryLifecycle(
     initialOwner?.token !== owner.token ||
     initialOwner?.hostname !== owner.hostname ||
     initialOwner?.managerPid !== owner.managerPid ||
-    last?.type !== 'control_state_changed' ||
-    JSON.stringify(last?.data) !== JSON.stringify(expectedState)
+    !last ||
+    JSON.stringify(latestState?.data) !== JSON.stringify(expectedState)
   ) {
     throw new WorldRunnerError(
       'Recovery lifecycle does not terminate at the exact abandoned owner state',

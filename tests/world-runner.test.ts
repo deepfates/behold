@@ -2887,6 +2887,7 @@ test('recovery accepts an exact dead owner that died while still marked running'
         });
         control.update('starting', { server: { pid: process.pid, jarSha256: 'abc' } });
         control.update('running');
+        control.append('live_session_duration_armed', { durationMs: 120000 });
       `,
       worldControlModule,
       fixture.controlRoot,

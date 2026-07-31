@@ -712,6 +712,9 @@ export function reconcileAbandonedPlaceServedWorldHead(input: {
   }
   const lifecycle = verifyWorldLifecycleJournal(evidence.prepared.lifecycle?.file);
   const last = lifecycle.events.at(-1);
+  const latestState = [...lifecycle.events]
+    .reverse()
+    .find((event) => event.type === 'control_state_changed');
   const owner = evidence.prepared.owner?.record;
   const ownerState = owner
     ? {
@@ -726,8 +729,8 @@ export function reconcileAbandonedPlaceServedWorldHead(input: {
     lifecycle.world !== descriptor.worldId ||
     lifecycle.tipDigest !== evidence.prepared.lifecycle?.tipDigest ||
     lifecycle.events.length !== evidence.prepared.lifecycle?.eventCount ||
-    last?.type !== 'control_state_changed' ||
-    stableJson(last.data) !== stableJson(ownerState) ||
+    !last ||
+    stableJson(latestState?.data) !== stableJson(ownerState) ||
     !['starting', 'running', 'stopping', 'recovery_required', 'stopped_verified'].includes(
       owner?.state,
     ) ||
@@ -843,6 +846,9 @@ function verifyRecoveredAbandonedHeadEvidence(
     return null;
   }
   const last = lifecycle.events.at(-1);
+  const latestState = [...lifecycle.events]
+    .reverse()
+    .find((event: any) => event.type === 'control_state_changed');
   const owner = evidence.prepared.owner?.record;
   const ownerState = owner
     ? {
@@ -859,8 +865,7 @@ function verifyRecoveredAbandonedHeadEvidence(
     evidence.prepared.lifecycle?.eventCount === lifecycle.events.length &&
     last?.sequence === head.lifecycle.terminalSequence &&
     last?.digest === head.lifecycle.terminalDigest &&
-    last?.type === 'control_state_changed' &&
-    stableJson(last.data) === stableJson(ownerState) &&
+    stableJson(latestState?.data) === stableJson(ownerState) &&
     evidence.prepared.runtime?.runtimeSessionLock?.state === 'clear' &&
     evidence.prepared.runtime?.serverPort?.state === 'clear' &&
     evidence.prepared.runtimeTree?.digest === head.runtimeDigest &&
