@@ -37,7 +37,7 @@ const LIVE_EPISODE_RECORD_PROTOCOL = 'behold.live-episode-record.v1' as const;
 const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
 const LIVE_LYNC_SNAPSHOT_PROTOCOL = 'behold.live-lync-snapshot.v1' as const;
 const LIVE_TEXTILE_IMPORT_PROTOCOL = 'behold.live-textile-import.v1' as const;
-const LIVE_NATIVE_HUMAN_PROTOCOL = 'behold.live-native-human.v1' as const;
+const LIVE_NATIVE_HUMAN_PROTOCOL = 'behold.live-native-human.v2' as const;
 
 export async function runLiveCli(argv: string[]) {
   const parsed = parseArgs({
@@ -213,25 +213,35 @@ export async function runLiveCli(argv: string[]) {
         '--place-compiler-distribution-sha256',
       )
     : null;
-  const placeCompilerInput = placeCompilerBinaryValue
+  const resumePlaceCompiler = placeCompilerBinaryValue
     ? {
-        placeCompilerBinary: executableFile(
-          String(placeCompilerBinaryValue),
-          'Place Compiler binary',
-        ),
-        expectedPlaceCompilerPackage: {
-          name: 'place-compiler',
-          version: installedVersion!,
-          distributionSha256: installedDistributionSha256!,
-        },
+        kind: 'binary' as const,
+        binary: executableFile(String(placeCompilerBinaryValue), 'Place Compiler binary'),
+        version: installedVersion!,
+        distributionSha256: installedDistributionSha256!,
       }
     : {
-        placeCompilerRoot: plainDirectory(
+        kind: 'checkout' as const,
+        root: plainDirectory(
           String(explicitPlaceCompilerRoot ?? path.join(repositoryRoot, '..', 'place-compiler')),
           'Place Compiler root',
         ),
-        expectedPlaceCompilerRevision: existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION,
       };
+  const placeCompilerInput =
+    resumePlaceCompiler.kind === 'binary'
+      ? {
+          placeCompilerBinary: resumePlaceCompiler.binary,
+          expectedPlaceCompilerPackage: {
+            name: 'place-compiler',
+            version: resumePlaceCompiler.version,
+            distributionSha256: resumePlaceCompiler.distributionSha256,
+          },
+        }
+      : {
+          placeCompilerRoot: resumePlaceCompiler.root,
+          expectedPlaceCompilerRevision:
+            existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION,
+        };
   const requestedPlaceCompilerIdentity = placeCompilerBinaryValue
     ? `npm:place-compiler@${installedVersion}#${installedDistributionSha256}`
     : (existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION);
@@ -405,7 +415,6 @@ export async function runLiveCli(argv: string[]) {
           endpoint: authority.placeIdentity.endpoint,
           ecologyLogFile: ecologyLog.file,
           residents: run.residents,
-          repositoryRoot,
         })
       : null;
     const episodeRecord = writeEpisodeRecord({
@@ -435,7 +444,13 @@ export async function runLiveCli(argv: string[]) {
       );
     }
     process.stdout.write(
-      `[behold live] resume: behold live ${releaseRoot} --residents ${residentFile} --accept-eula --session ${sessionId}\n`,
+      `[behold live] resume: ${liveResumeInstruction({
+        releaseRoot,
+        residentFile,
+        sessionId,
+        nativePlayer,
+        placeCompiler: resumePlaceCompiler,
+      })}\n`,
     );
     if (nativeHuman && !nativeHuman.assessment.passed) {
       throw new Error(
@@ -517,6 +532,50 @@ export function nativeHumanJoinInstruction(
   username: string,
 ) {
   return `[behold live] native human ${username}: in Minecraft Java ${minecraftVersion}, open Multiplayer > Direct Connection and join ${host}:${port}\n`;
+}
+
+export function liveResumeInstruction(input: {
+  releaseRoot: string;
+  residentFile: string;
+  sessionId: string;
+  nativePlayer: string | null;
+  placeCompiler:
+    | Readonly<{ kind: 'checkout'; root: string }>
+    | Readonly<{
+        kind: 'binary';
+        binary: string;
+        version: string;
+        distributionSha256: string;
+      }>;
+}): string {
+  const args = [
+    'behold',
+    'live',
+    input.releaseRoot,
+    '--residents',
+    input.residentFile,
+    '--accept-eula',
+    '--session',
+    input.sessionId,
+  ];
+  if (input.placeCompiler.kind === 'checkout') {
+    args.push('--place-compiler', input.placeCompiler.root);
+  } else {
+    args.push(
+      '--place-compiler-bin',
+      input.placeCompiler.binary,
+      '--place-compiler-version',
+      input.placeCompiler.version,
+      '--place-compiler-distribution-sha256',
+      input.placeCompiler.distributionSha256,
+    );
+  }
+  if (input.nativePlayer) args.push('--native-player', input.nativePlayer);
+  return args.map(shellArgument).join(' ');
+}
+
+function shellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 export function shouldRecordPlaceOnlyCleanup(input: {
@@ -730,7 +789,6 @@ export function assessNativeHumanEntry(input: {
   residents: ReadonlyArray<
     Readonly<{ entityId: string; bodyUsername: string; journalDirectory: string }>
   >;
-  repositoryRoot: string;
 }) {
   const declaredPlayer = minecraftUsername(input.declaredPlayer, 'declared native player');
   if (
@@ -790,13 +848,10 @@ export function assessNativeHumanEntry(input: {
     declaredPlayer,
     classification: 'operator_declared_native_human',
     endpoint: { host: input.endpoint.host, port: input.endpoint.port },
-    launcher: {
-      workingDirectory: path.resolve(input.repositoryRoot),
-      command: 'npm run native',
-      environment: {
-        NATIVE_MC_SERVER: `${input.endpoint.host}:${input.endpoint.port}`,
-        NATIVE_MC_USERNAME: declaredPlayer,
-      },
+    entry: {
+      client: 'minecraft_java',
+      method: 'multiplayer_direct_connection',
+      address: `${input.endpoint.host}:${input.endpoint.port}`,
     },
     evidence: {
       ecologyLogFile: path.resolve(input.ecologyLogFile),

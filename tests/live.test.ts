@@ -10,6 +10,7 @@ import {
   createLiveBoundary,
   listPlaceServerLogs,
   liveEpisodeAccountingScope,
+  liveResumeInstruction,
   nativeHumanJoinInstruction,
   preserveResidentLyncFiles,
   preservePlaceServerLog,
@@ -213,10 +214,14 @@ test('native-human treatment requires the server and every resident to witness t
     endpoint: { host: '127.0.0.1', port: 25565 },
     ecologyLogFile: ecology,
     residents,
-    repositoryRoot: root,
   });
-  assert.equal(treatment.protocol, 'behold.live-native-human.v1');
+  assert.equal(treatment.protocol, 'behold.live-native-human.v2');
   assert.equal(treatment.classification, 'operator_declared_native_human');
+  assert.deepEqual(treatment.entry, {
+    client: 'minecraft_java',
+    method: 'multiplayer_direct_connection',
+    address: '127.0.0.1:25565',
+  });
   assert.equal(treatment.assessment.passed, true);
   assert.equal(treatment.evidence.serverJoins[0]?.line, 1);
   assert.deepEqual(
@@ -230,7 +235,6 @@ test('native-human treatment requires the server and every resident to witness t
     endpoint: { host: '127.0.0.1', port: 25565 },
     ecologyLogFile: ecology,
     residents,
-    repositoryRoot: root,
   });
   assert.equal(missingWitness.assessment.assertions.authoritativeServerJoin, true);
   assert.equal(missingWitness.assessment.assertions.witnessedByEveryResident, false);
@@ -242,7 +246,6 @@ test('native-human treatment requires the server and every resident to witness t
         endpoint: { host: '127.0.0.1', port: 25565 },
         ecologyLogFile: ecology,
         residents,
-        repositoryRoot: root,
       }),
     /collides with a managed resident body/,
   );
@@ -272,5 +275,34 @@ test('native-human readiness names the ordinary client path and a completed epis
       headExists: true,
     }),
     true,
+  );
+});
+
+test('live resume instruction retains the exact Place runtime and native-player check', () => {
+  assert.equal(
+    liveResumeInstruction({
+      releaseRoot: '/places/Oxford release',
+      residentFile: "/state/owner's residents.json",
+      sessionId: 'oxford-life',
+      nativePlayer: 'importdf',
+      placeCompiler: { kind: 'checkout', root: '/worktrees/place-103deac' },
+    }),
+    "behold live '/places/Oxford release' --residents '/state/owner'\"'\"'s residents.json' --accept-eula --session oxford-life --place-compiler /worktrees/place-103deac --native-player importdf",
+  );
+
+  assert.equal(
+    liveResumeInstruction({
+      releaseRoot: '/places/oxford',
+      residentFile: '/state/residents.json',
+      sessionId: 'oxford-life',
+      nativePlayer: null,
+      placeCompiler: {
+        kind: 'binary',
+        binary: '/bin/place-compiler',
+        version: '1.2.3',
+        distributionSha256: 'a'.repeat(64),
+      },
+    }),
+    `behold live /places/oxford --residents /state/residents.json --accept-eula --session oxford-life --place-compiler-bin /bin/place-compiler --place-compiler-version 1.2.3 --place-compiler-distribution-sha256 ${'a'.repeat(64)}`,
   );
 });

@@ -76,20 +76,24 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 - Humans may join the printed Minecraft endpoint through ordinary client play.
   The optional `--native-player` flag is only a post-episode username witness
   check; it is neither a resident-release ritual nor proof of client provenance.
-  Episode 000024 resumed the same world and lives for ten minutes with
-  `--native-player importdf`; the already-authenticated client made no join, so
-  the post-episode assessment correctly failed and retained its negative record.
-  That run exposed two front-door defects now repaired: the ready message now
-  names Minecraft's ordinary Direct Connection path rather than a separate
-  repo-local launcher, and an expected missing-human result can no longer
-  relabel a clean completed world head as preflight cleanup. The episode-000024
-  head was reconstructed from its authenticated clean lifecycle. Actual
+  Episodes 000024 and 000026 each resumed the same world and lives for ten
+  minutes with `--native-player importdf`; the already-authenticated client made
+  no join during either live window, so both post-episode assessments correctly
+  failed and retained their negative records. These runs exposed four
+  front-door truth defects now repaired: readiness names Minecraft's ordinary
+  Direct Connection path rather than a repo-local bot launcher; an expected
+  missing-human result cannot relabel a clean completed head as preflight
+  cleanup; the printed resume command retains the exact admitted Place Compiler
+  selector and native-player check; and new native-human records describe Java
+  Direct Connection rather than falsely claiming `npm run native`. Episode
+  000026 advanced the authenticated completed head normally. Actual
   authenticated human co-presence remains unexercised.
 - Canonical Lync histories and episode-frozen byte unions exist. Textile's
   actual app-layer projector read episode 000023's 61.8 MB union as 1,192 source
   events: 1,190 readable turns, two structural roots, and zero unsupported,
-  nonconforming, or warning results. Ordinary graphical inspection is still
-  unknown.
+  nonconforming, or warning results. It also read episode 000026's 74.9 MB union
+  as 1,448 source events, 1,446 readable turns, two structural roots, and the
+  same zero-diagnostic result. Ordinary graphical inspection is still unknown.
 
 ### Supported foundations and retained history
 
