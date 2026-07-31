@@ -1,6 +1,6 @@
 ---
 id: beh-cqjs
-status: open
+status: in_progress
 deps: [beh-l69b, beh-ro6n]
 links: []
 created: 2026-07-31T01:23:36Z
