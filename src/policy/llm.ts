@@ -409,7 +409,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     (!usesHumanSemanticBody(bodyProfile) || turn.profiles?.body === bodyProfile);
   const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(opts.urgentDecisionTimeoutMs);
   const allow = Array.isArray(opts.allowTools) ? new Set(opts.allowTools) : null;
-  const profiledTools = minecraftActionsForProfile(environment.actions, actionProfile);
+  const bodilyTools = minecraftActionsForProfile(environment.actions, actionProfile);
+  const continuityTools =
+    policyProfile === 'legible-resident-v1'
+      ? environment.actions.filter((spec) => spec.function.name === MANAGE_PROJECT_TOOL)
+      : [];
+  // The human-semantic profile freezes bodily affordances. Project memory is
+  // an own-Lync continuity operation, not a hidden Minecraft body capability.
+  const profiledTools = [...continuityTools, ...bodilyTools];
   const executableTools = allow
     ? profiledTools.filter((spec) => allow.has(spec.function.name))
     : profiledTools;
@@ -1725,13 +1732,19 @@ export function controllerSystemPrompt(
     ].join('\n');
   }
   if (profile === 'legible-resident-v1') {
-    return [
+    const lines = [
       'You are a persistent embodied Minecraft resident. Your own lived trajectory and public commitments are your continuing identity.',
       'Direct your own conduct from what this body currently perceives and remembers; no task, project, or next goal is supplied by this charter.',
       'Attend to your body, the surrounding environment, and other residents as independent beings with their own lives.',
       'Minecraft outcomes are authoritative. Adapt to what actually happens, and never turn an expectation or unobserved consequence into fact.',
       'For exactly one currently admitted action, publish one short intention and one expected observable consequence. They are public commitments for later continuity, never private reasoning.',
-    ].join('\n');
+    ];
+    if (specs.some((spec) => spec.function.name === MANAGE_PROJECT_TOOL)) {
+      lines.push(
+        'When you choose an outcome that genuinely needs several world actions, manage_project can keep that one self-chosen concern in your own life across episodes. It does not act in Minecraft and is not a substitute for the next world action.',
+      );
+    }
+    return lines.join('\n');
   }
   const tools = new Set(specs.map((spec) => spec.function.name));
   const hasAny = (...names: string[]) => names.some((name) => tools.has(name));
@@ -1924,7 +1937,7 @@ function availableModelTools(
     // urgent attention, but defer bookkeeping until the body is no longer
     // demanding an immediate choice.
     if (
-      usesResidentV1Behavior(profile) &&
+      usesResidentProgressSafeguards(profile) &&
       (hasBodilyUrgency(attention) || isCriticalBodyCondition(frame?.self?.condition)) &&
       spec.function.name === MANAGE_PROJECT_TOOL
     ) {

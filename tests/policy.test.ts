@@ -3395,7 +3395,7 @@ test('the neutral policy prompt states protocol only and contains no Minecraft s
   );
 });
 
-test('legible-resident-v1 is a narrow charter without resident-v1 goals or action coaching', () => {
+test('legible-resident-v1 admits own concern continuity without supplying a goal', () => {
   const system = controllerSystemPrompt(
     [tool('manage_project'), tool('dig_block'), tool('chat'), tool('wait_for_event')],
     'legible-resident-v1',
@@ -3407,9 +3407,11 @@ test('legible-resident-v1 is a narrow charter without resident-v1 goals or actio
   assert.match(system, /adapt to what actually happens/i);
   assert.match(system, /one short intention and one expected observable consequence/i);
   assert.match(system, /never private reasoning/i);
+  assert.match(system, /manage_project can keep that one self-chosen concern/i);
+  assert.match(system, /does not act in Minecraft/i);
   assert.doesNotMatch(
     system,
-    /manage_project|shelter|food|materials|\bcraft(?:ing)?\b|survival|inspect first|move_direction|wait_for_event|repeat no failed action/i,
+    /shelter|food|materials|\bcraft(?:ing)?\b|survival|inspect first|move_direction|wait_for_event|repeat no failed action/i,
   );
 });
 
@@ -3421,6 +3423,10 @@ test('legible-resident policy persists its exact public commitment with the caus
       assert.equal(request.policyProfile, 'legible-resident-v1');
       assert.equal(request.bodyProfile, 'minecraft-human-semantic-v1');
       assert.equal(request.actionProfile, 'minecraft-human-semantic-v1');
+      assert.deepEqual(
+        request.actions.map((action) => action.name),
+        ['manage_project', 'look_direction', 'wait_for_event'],
+      );
       return {
         protocol: 'behold.mind-decision.v1',
         disposition: 'wait',
@@ -3440,7 +3446,7 @@ test('legible-resident policy persists its exact public commitment with the caus
   const policy = startLLMPolicy(
     {
       entityId: 'LegibleScout',
-      actions: [tool('look_direction')],
+      actions: [tool('manage_project'), tool('look_direction')],
       attempt: () => true,
       observe: () => experience(1, null, 0),
     },
