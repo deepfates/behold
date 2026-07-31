@@ -727,7 +727,7 @@ test('urgent attention preserves resident choice while fresh perception updates 
   }
 });
 
-test('social urgency keeps ordinary projects available without bodily-danger framing', async () => {
+test('addressed chat remains high-salience deliberative information without preemption', async () => {
   const requests: ResidentMindRequest[] = [];
   const mind: ResidentMind = {
     id: 'social-attention-mind',
@@ -766,7 +766,7 @@ test('social urgency keeps ordinary projects available without bodily-danger fra
       {
         sequence: 1,
         type: 'chat_received',
-        salience: 'urgent',
+        salience: 'high',
         isNew: true,
         data: { from: 'importdf', text: 'Wren, are you there?', addressed: true },
       },
@@ -791,17 +791,14 @@ test('social urgency keeps ordinary projects available without bodily-danger fra
   try {
     await policy.tick();
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].attention?.mode, 'urgent');
+    assert.equal(requests[0].attention?.mode, 'deliberative');
     assert.equal(requests[0].model, 'test/model');
     assert.deepEqual(
       requests[0].actions.map((action) => action.name),
       ['manage_project', 'move_to', 'chat', 'wait_for_event'],
     );
-    const guidance = requests[0].conversation
-      .map((message: any) => String(message.content || ''))
-      .join('\n');
-    assert.match(guidance, /social event[\s\S]*ordinary admitted action surface is unchanged/);
-    assert.doesNotMatch(guidance, /bookkeeping is deferred|Do not continue unrelated construction/);
+    assert.deepEqual((requests[0].observation as any).events[0], observation.events[0]);
+    assert.equal(requests[0].attention?.triggers.length, 0);
   } finally {
     await policy.stop();
   }

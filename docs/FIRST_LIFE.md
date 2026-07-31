@@ -40,27 +40,23 @@ episodes 000016 and 000017, two untasked residents independently removed four
 stone-brick blocks, stopped cleanly, resumed the same world and lives, and
 continued their passage-opening concern through ordinary Lync continuity.
 
-Episode 000019 did not repeat that result. One resident chose to dig a nearby
-wall, but the body rejected the target outside its interaction horizon. The
-failure exposed inconsistent meanings of interaction distance and an opaque
-error; it was not a persistent consequence. No human joined that episode.
-Episode 000020 then showed that timely local inference is still insufficient:
-Qwen 3.6 35B-A3B produced 80 valid turns at roughly 5.6-second median latency,
-including movement and conversation, but spiraled into repeated greetings and
-hallucinated mechanisms around a stone wall without changing the world. Dense
-Qwen 3.6 27B took 47-48 seconds for its first movement choices in interrupted
-episode 000021 and is not usable at Minecraft body time on this host.
+Episodes 000022 and 000023 later ran Qwen 3.6 35B-A3B at a usable roughly
+seven-second median decision horizon, shared one physical LM Studio weight
+instance without sharing resident context, produced one Minecraft-confirmed
+block removal per resident, and resumed the exact world, bodies, and private
+lives. Repetitive conversation and unsupported resident claims remain observed
+conduct rather than controller-corrected failures. Dense Qwen 3.6 27B still took
+47-48 seconds for its first movement choices and is unusable at body time here.
 
-That interrupt also found a lifecycle defect. Minecraft saved and stopped, but
-Behold died before recording a terminal episode and left epoch 17 falsely
-marked running. The ordinary recovery entry now preserves such a run as
-interrupted, verifies the exact dead ownership and unchanged stopped runtime,
-and advances the resumable world head without calling it a clean episode.
-Epoch 17 has been recovered; the repaired normal Ctrl-C path still needs one
-fresh live exercise.
-Textile's presenter has consumed episode-frozen Lync unions in a non-mutating
-projection test, but the ordinary graphical reading experience remains
-unverified. These are partial behavioral results, not a completed living world.
+The abandoned-run recovery and normal Ctrl-C paths are now both exercised.
+Episode 000029 settled in-flight cognition, saved Minecraft, recorded a completed
+resumable head, and unloaded the shared model after one real SIGINT. Textile's
+ordinary local-review UI directly opened that episode's 75 MB frozen Lync union
+as 1,450 readable turns with no projector diagnostics and a bounded 48-turn DOM.
+Episode 000030 then opened another ordinary native-client window but received no
+client connection, so its authoritative human assessment correctly failed while
+the world still stopped and saved cleanly. Actual native human co-presence and a
+genuinely long life remain unexercised.
 
 ## The first live proof
 

@@ -533,12 +533,9 @@ export class InhabitantExperience {
       const lower = String(message).toLowerCase();
       const name = String((this.bot as any).username || '').toLowerCase();
       const addressed = !!name && lower.includes(name);
-      this.record(
-        'chat_received',
-        { from: username, text: message, addressed },
-        addressed ? 'urgent' : 'high',
-        'event',
-      );
+      // Addressing is truthful social metadata, not an emergency classification.
+      // Ordinary speech may wake cognition, but it must not preempt resident-owned thought.
+      this.record('chat_received', { from: username, text: message, addressed }, 'high', 'event');
     };
     const onSpawn = () => this.record('spawned', {}, 'high', 'body');
     const onDeath = () => this.record('died', {}, 'urgent', 'body');

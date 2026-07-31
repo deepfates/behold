@@ -199,7 +199,7 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   const afterChat = experience.observe(initial.sequence);
   const chat = afterChat.events.find((event) => event.type === 'chat_received');
   assert.equal(chat?.isNew, true);
-  assert.equal(chat?.salience, 'urgent');
+  assert.equal(chat?.salience, 'high');
   assert.deepEqual(chat?.data, {
     from: 'importdf',
     text: 'Scout, come here',

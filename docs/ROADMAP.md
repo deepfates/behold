@@ -64,6 +64,13 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   Minecraft block-update confirmation for one stone-brick-wall removal. Their
   repetitive conversation and unsupported claims about the scene are observed
   model conduct, not Behold acceptance failures.
+- Episode 000030 exposed one controller contribution to that conversation. An
+  addressed chat message was classified as urgent, so a greeting containing the
+  recipient's name could preempt resident-owned deliberation and restart it on
+  compact social context. Addressing now remains explicit data on a high-salience
+  event: it wakes cognition without becoming an emergency or suppressing any
+  resident choice. Focused experience/policy tests pass; live recurrence is not
+  yet exercised.
 - The same episodes exposed two apparatus defects in returned context. An
   internal 16-step sequence boundary falsely announced a future episode even
   though cognition resumed four seconds later, and action results supplied
