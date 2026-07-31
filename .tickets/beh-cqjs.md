@@ -1,7 +1,7 @@
 ---
 id: beh-cqjs
 status: in_progress
-deps: [beh-l69b, beh-ro6n, beh-jygo, beh-exc1, beh-6re2]
+deps: [beh-l69b, beh-ro6n, beh-jygo, beh-exc1]
 links: []
 created: 2026-07-31T01:23:36Z
 type: feature

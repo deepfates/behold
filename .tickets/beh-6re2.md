@@ -1,6 +1,6 @@
 ---
 id: beh-6re2
-status: in_progress
+status: open
 deps: []
 links: []
 created: 2026-07-31T02:40:27Z
@@ -28,3 +28,7 @@ A legible untasked resident may autonomously create and later read its own bound
 **2026-07-31T02:47:28Z**
 
 The code path is implemented and fully checked: legible product residents receive the existing own-Lync manage_project continuity operation alongside, not inside, the frozen human-semantic bodily affordance surface; neutral remains unchanged and project-bookkeeping loop protection applies. Episodes 000016/000017 then produced coherent multi-step passage-opening conduct and four persistent verified digs across clean resume, but neither resident selected manage_project, so this ticket remains open rather than treating tool availability or implicit Lync continuity as its exact acceptance.
+
+**2026-07-31T02:48:24Z**
+
+Principal correction after episode 000017: explicit project selection is not proven necessary for parent acceptance. The residents continued the passage/opening concern across restart through ordinary Lync continuity despite leaving self.projects empty. Keep this implementation as an open candidate for longer-horizon identity, but do not make it a blocker or redefine the endpoint around use of a bookkeeping tool.
