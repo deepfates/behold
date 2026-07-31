@@ -85,8 +85,11 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   missing-human result cannot relabel a clean completed head as preflight
   cleanup; the printed resume command retains the exact admitted Place Compiler
   selector and native-player check; and new native-human records describe Java
-  Direct Connection rather than falsely claiming `npm run native`. Episode
-  000026 advanced the authenticated completed head normally. Actual
+  Direct Connection rather than falsely claiming `npm run native`. A one-second
+  episode 000027 exercised both fixes through the production front door: its v2
+  record names Java Direct Connection and its printed command includes the
+  pinned checkout plus `--native-player`. It advanced the authenticated
+  completed head normally. Actual
   authenticated human co-presence remains unexercised.
 - Canonical Lync histories and episode-frozen byte unions exist. Textile's
   actual app-layer projector read episode 000023's 61.8 MB union as 1,192 source
