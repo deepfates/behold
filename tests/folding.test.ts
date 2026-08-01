@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createLoomContextView, foldMessage, projectTurnForFolding } from '../src/entity/folding';
+import {
+  createLoomContextView,
+  foldMessage,
+  projectTurnForFolding,
+  type BoundedLoomContextState,
+} from '../src/entity/folding';
 import type { EntityTurn } from '../src/entity/loom';
 
 test('loom folding is a bounded view and never mutates source turns', async () => {
@@ -565,6 +570,224 @@ test('loom views reject foreign turns instead of sharing inhabitant state', () =
     ['Scout', 'Scout'],
   );
 });
+
+test('a bounded authenticated fold starts with contiguous exact recent continuity and no source scan', async () => {
+  const turns = Array.from({ length: 20 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  turns[4].observation.events = [
+    {
+      sequence: 41,
+      type: 'chat_received',
+      isNew: true,
+      data: { from: 'Wren', text: 'west ridge' },
+    },
+  ];
+  const baseline = createLoomContextView(
+    boundedState(turns, 4, null, async function* () {
+      yield* turns;
+    }),
+    canonicalOptions(4),
+  );
+  await baseline.prepare();
+  const fold = baseline.view().fold!;
+  let rebuilds = 0;
+  const bounded = createLoomContextView(
+    boundedState(turns, 4, fold, async function* () {
+      rebuilds += 1;
+      yield* turns;
+    }),
+    canonicalOptions(4),
+  );
+
+  assert.equal(await bounded.prepare(), false);
+  assert.equal(rebuilds, 0);
+  assert.equal(bounded.state().totalTurns, 20);
+  assert.equal(bounded.state().foldedThrough, 16);
+  assert.deepEqual(
+    bounded.view().turns.map((turn) => turn.sequence),
+    [17, 18, 19, 20],
+  );
+  assert.match(bounded.view().fold!.summary, /west ridge/);
+
+  bounded.append(entityTurn(21, 'Scout'), sourceBinding(21));
+  assert.deepEqual(
+    bounded.view().turns.map((turn) => turn.sequence),
+    [18, 19, 20, 21],
+  );
+  assert.equal(bounded.state().foldedThrough, 17);
+  assert.equal(bounded.view().turns[0].parentId, bounded.view().fold!.source.tipId);
+});
+
+test('a bounded fold with the wrong authenticated chain binding rebuilds from canonical turns', async () => {
+  const turns = Array.from({ length: 18 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  const baseline = createLoomContextView(
+    boundedState(turns, 4, null, async function* () {
+      yield* turns;
+    }),
+    canonicalOptions(4),
+  );
+  await baseline.prepare();
+  const fold = baseline.view().fold!;
+  let rebuilds = 0;
+  const state = boundedState(turns, 4, fold, async function* () {
+    rebuilds += 1;
+    yield* turns;
+  });
+  const bounded = createLoomContextView(
+    {
+      ...state,
+      foldSource: {
+        ...state.foldSource!,
+        source: { ...state.foldSource!.source, digest: '0'.repeat(64) },
+      },
+    },
+    canonicalOptions(4),
+  );
+
+  assert.equal(bounded.state().needsFold, true);
+  assert.throws(() => bounded.view(), /must prepare/);
+  assert.equal(await bounded.prepare(), true);
+  assert.equal(rebuilds, 1);
+  assert.equal(bounded.view().fold!.source.canonicalChainDigest, fold.source.canonicalChainDigest);
+  assert.equal(bounded.view().fold!.summary, fold.summary);
+});
+
+test('incremental canonical indexing equals a one-pass rebuild', async () => {
+  const turns = Array.from({ length: 120 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  for (const sequence of [7, 29, 88]) {
+    turns[sequence - 1].observation.events = [
+      {
+        sequence: sequence * 10,
+        type: 'chat_received',
+        isNew: true,
+        data: { from: 'Wren', text: `marker-${sequence}` },
+      },
+    ];
+  }
+  turns[63].action = { ...turns[63].action, name: 'dig_focused_block', input: {} };
+  turns[63].outcome = { ok: true, eventType: 'action_completed', result: { block: 'stone' } };
+
+  const incremental = createLoomContextView(
+    boundedState(turns.slice(0, 4), 4, null, async function* () {
+      yield* turns.slice(0, 4);
+    }),
+    canonicalOptions(4),
+  );
+  for (const turn of turns.slice(4)) incremental.append(turn, sourceBinding(turn.sequence));
+
+  const onePass = createLoomContextView(
+    boundedState(turns, 4, null, async function* () {
+      yield* turns;
+    }),
+    canonicalOptions(4),
+  );
+  await onePass.prepare();
+  assert.deepEqual(incremental.view().fold, onePass.view().fold);
+  assert.deepEqual(incremental.view().turns, onePass.view().turns);
+});
+
+test('bounded canonical append projects only each newly folded turn', () => {
+  let projected = 0;
+  const options = {
+    ...canonicalOptions(6),
+    projectTurn: (turn: EntityTurn, previous?: EntityTurn) => {
+      projected += 1;
+      return projectTurnForFolding(turn, previous);
+    },
+  };
+  const initial = Array.from({ length: 6 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  const bounded = createLoomContextView(
+    boundedState(initial, 6, null, async function* () {
+      yield* initial;
+    }),
+    options,
+  );
+  for (let sequence = 7; sequence <= 1_006; sequence += 1) {
+    bounded.append(entityTurn(sequence, 'Scout'), sourceBinding(sequence));
+  }
+
+  assert.equal(projected, 1_000);
+  assert.equal(bounded.state().foldedThrough, 1_000);
+  assert.equal(bounded.state().visibleTurns, 6);
+});
+
+test('a streaming rebuild and later appends retain no payload-sized whole-history copy', async () => {
+  const payload = `PRIVATE_IRRELEVANT_${'x'.repeat(256_000)}`;
+  const turns = Array.from({ length: 80 }, (_, index) => {
+    const turn = entityTurn(index + 1, 'Scout');
+    (turn.observation as any).privateTransportPayload = `${index}:${payload}`;
+    return turn;
+  });
+  let yielded = 0;
+  const bounded = createLoomContextView(
+    boundedState(turns, 6, null, async function* () {
+      for (const turn of turns) {
+        yielded += 1;
+        yield turn;
+      }
+    }),
+    canonicalOptions(6),
+  );
+
+  await bounded.prepare();
+  assert.equal(yielded, 80);
+  assert.equal(bounded.view().turns.length, 6);
+  const disposable = JSON.stringify(bounded.view().fold);
+  assert.ok(disposable.length < 100_000);
+  assert.doesNotMatch(disposable, /PRIVATE_IRRELEVANT/);
+  assert.equal(bounded.state().totalTurns, 80);
+});
+
+function canonicalOptions(recentTurns: number) {
+  return {
+    entityId: 'Scout',
+    model: 'test/model',
+    recentTurns,
+    foldTriggerTurns: 1,
+    canonicalOnly: true,
+    now: () => 1234,
+    summarize: async () => 'must not run',
+  } as const;
+}
+
+function boundedState(
+  turns: EntityTurn[],
+  recentTurns: number,
+  fold: ReturnType<ReturnType<typeof createLoomContextView>['view']>['fold'],
+  rebuild: () => AsyncIterable<EntityTurn>,
+): BoundedLoomContextState {
+  const recent = turns.slice(-recentTurns);
+  const through = turns.length - recent.length;
+  return {
+    protocol: 'behold.bounded-loom-context.v1',
+    entityId: 'Scout',
+    totalTurns: turns.length,
+    recentTurns: recent,
+    recentSources: recent.map((turn) => sourceBinding(turn.sequence)),
+    fold,
+    foldSource:
+      fold && through > 0
+        ? {
+            tipTurn: turns[through - 1],
+            source: {
+              protocol: fold.source.canonicalChainProtocol!,
+              digest: fold.source.canonicalChainDigest!,
+            },
+          }
+        : null,
+    rebuild: async function* () {
+      for await (const turn of rebuild()) {
+        yield { turn, source: sourceBinding(turn.sequence) };
+      }
+    },
+  };
+}
+
+function sourceBinding(sequence: number) {
+  return {
+    protocol: 'lync.file-loom-chain.v1',
+    digest: sequence.toString(16).padStart(64, '0'),
+  } as const;
+}
 
 function entityTurn(sequence: number, entityId: string): EntityTurn {
   return {

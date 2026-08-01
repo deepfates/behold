@@ -20,8 +20,10 @@ import {
 import {
   createLoomContextView,
   foldMessage,
+  isCanonicalTurnBinding,
   projectTurnForFolding,
   type LoomContextIntervention,
+  type BoundedLoomContextState,
   type LoomFoldRequest,
   type LoomFoldSummarizer,
 } from '../entity/folding';
@@ -108,6 +110,8 @@ export type Options = {
   decisionScheduling?: 'world-events' | 'fixed-pilot-slots';
   allowTools?: string[] | null;
   history?: EntityTurn[];
+  /** Cursor-backed ordinary life; only its exact recent suffix is retained. */
+  loomContext?: BoundedLoomContextState;
   foldCacheFile?: string | null;
   /** Evidence replay may read an existing fold but must not create or update one. */
   foldReadOnly?: boolean;
@@ -426,7 +430,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const log = (s: string) => (opts.log ? opts.log(s) : void 0);
   const now = () => (opts.now ? opts.now() : Date.now());
   const entityId = environment.entityId;
-  const history = opts.history || [];
+  if (opts.history && opts.loomContext) {
+    throw new Error(
+      'resident policy accepts either eager history or bounded loom context, not both',
+    );
+  }
+  const history = opts.loomContext ? [...opts.loomContext.recentTurns] : opts.history || [];
   const tickMs = Math.max(500, Number(opts.tickMs ?? 3000));
   const maxTurnSteps = Math.max(1, Math.min(32, Number(opts.maxTurnSteps ?? 8)));
   const fixedPilotSlots = opts.decisionScheduling === 'fixed-pilot-slots';
@@ -516,7 +525,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let stopped = false;
   let stopPromise: Promise<void> | null = null;
   let resolveStop: (() => void) | null = null;
-  const loomContext = createLoomContextView(history, {
+  const loomContext = createLoomContextView(opts.loomContext ?? history, {
     entityId,
     model: opts.model,
     cacheFile: opts.foldCacheFile,
@@ -831,7 +840,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const initialAttention = attentionForObservation(initialView);
       const initialBodyUrgency =
         hasBodilyUrgency(initialAttention) || isCriticalBodyCondition(frame?.self?.condition);
-      if (opts.foldReadOnly && loomContext.state().needsFold) {
+      if ((opts.foldReadOnly || opts.loomContext) && loomContext.state().needsFold) {
         decisionCycle.enter('preparing_context');
         preparingContext = true;
         let preparationFailed = false;
@@ -1743,8 +1752,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       outcome,
       nextObservation,
     };
-    await opts.onEntityTurn?.(turn);
-    loomContext.append(turn);
+    const committed = await opts.onEntityTurn?.(turn);
+    loomContext.append(turn, isCanonicalTurnBinding(committed) ? committed : undefined);
     recordEmbodiedOutcome(turn.action.name, turn.outcome.ok);
     recordProjectContinuity(turn.action.name, turn.outcome.ok);
     rebuildMessagesFromLoom();
