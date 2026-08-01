@@ -1,6 +1,6 @@
 ---
 id: beh-n4fe
-status: in_progress
+status: closed
 deps: [beh-cqjs]
 links: []
 created: 2026-07-25T16:07:56Z
@@ -19,6 +19,28 @@ Compose the already-working Place Compiler artifact, Behold resident, ordinary M
 The ordinary documented `behold live` path supports dependable independent resident life in a persistent Place-served Minecraft world: truthful bounded perception, unsteered choice, timely faithful action and consequence, distinct identity and memory across stop/resume, ordinary human entry and interaction, and canonical Lync histories readable through Textile. Exact models and runtime conditions remain visible, shared weights never merge resident context, and ordinary failures stay part of the record. Resident conduct is observed rather than graded; a scripted exchange, prescribed consequence, packaging receipt, hidden reflex, scheduler treatment, or isolated subsystem test does not satisfy this epic.
 
 ## Notes
+
+**2026-08-01T02:28:00Z**
+
+Post-fix ordinary episodes 000044-000045 exercised current commit 17124cd with
+GPT-5.6 Luna/OxfordIris and Gemini 3.6 Flash/OxfordMoss. Across 164 model turns,
+every event window was complete with zero missing or omitted events. Moss chose
+32 Minecraft-confirmed block changes, moved from y=-50 to y=-60, and reopened
+there after clean stop with 14 dirt and only its own recent excavation
+consequences in its first request; Iris retained a separate body/history and 36
+failed actions. Episode 000044 saved cleanly but its opted-in native-human check
+failed because importdf did not join, so it is not human-entry evidence.
+Episode 000045 stopped cleanly without that assertion. Textile 60a17cf projected
+the final 147 MB union as 2,836 readable resident events plus two structural
+roots with zero diagnostics. Actual cost was $0.5672; known workshop aggregate
+is about $31.01. This crosses the demonstrated perception defect and current
+ordinary stop/resume. Read together with episodes 000031-000033's authenticated
+native human join, interaction, departure, return, shared-weight isolation,
+persistent Minecraft consequence, and visible Textile review, the ordinary
+path now meets this epic's exact acceptance criteria. Repetitive excavation
+remains observed conduct, not a claim of competence. Broader household-scale
+life, richer world-history views, survival competence, and social adaptation
+remain product horizons rather than retroactive conditions on this milestone.
 
 **2026-08-01T02:12:00Z**
 

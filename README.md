@@ -17,7 +17,8 @@ client. Each resident may use a different model or mind program, while world
 changes remain Minecraft-authoritative and resident/world histories remain
 portable Lync that can be inspected with tools such as Textile.
 
-The pieces are substantial but not yet a fully grounded living-world treatment.
+The First Life vertical slice now crosses its bounded living-Place acceptance,
+but the broader product is not a finished living-world treatment.
 `behold live` now composes an accepted Place release, persistent named lives,
 independently configured resident sessions, viewer discovery, a native-client
 endpoint, clean stop/resume, and an authenticated episode record in one foreground
@@ -80,6 +81,26 @@ structural roots with no diagnostics. This shows that the ordinary harness can
 carry distinct timely model trajectories and material continuity; it does not
 show rich open-ended agency, because repetitive excavation remained the
 dominant attractor.
+
+After the perception repair, episodes 000044-000045 exercised the current tree
+through the ordinary front door with Luna driving Iris and Gemini driving Moss.
+Across 164 model turns, every model-facing event window was complete with zero
+missing or omitted events. Moss chose and completed 32 Minecraft-confirmed
+block changes, moved from y=-50 to y=-60, and reopened there after clean stop
+with 14 dirt, coal and stone in view, and its own recent excavation consequences
+in the first request. Iris remained in her separate shaft and retained 36
+failures rather than receiving hidden recovery. Episode 000044's optional
+`--native-player importdf` assessment failed because the client did not join;
+the world still saved cleanly, but that episode is not human-entry evidence.
+Episode 000045 then stopped cleanly without that assertion. Textile projected
+their final 2,838-event, 147 MB Lync union as 2,836 readable resident events plus
+two structural roots with no diagnostics. The two episodes cost $0.5672, taking
+the known workshop aggregate to about $31.01. Together with episodes
+000031-000033's authenticated human join and return, shared-weight isolation,
+persistent Minecraft consequence, and visible Textile review, this satisfies
+the current First Life milestone without grading resident conduct. Longer
+household-scale life, richer world-history views, survival competence, and
+social adaptation remain open horizons.
 
 Persistent living Place
 

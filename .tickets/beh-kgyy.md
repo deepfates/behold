@@ -40,3 +40,11 @@ events with no holes. The repaired projection produced zero missing and zero
 omitted windows (old run: 22 incomplete windows, maximum missing 14), compacting
 sound on 16 Iris and 20 Moss turns. Peak unread batches were 26 and 21 events.
 `npm run check` passed 609 tests with one environment skip and no failures.
+
+Post-resolution live validation: episodes 000044-000045 ran the committed repair
+through ordinary `behold live`, clean stop, and resume. Across 164 model turns,
+both residents had zero incomplete, missing, or omitted event windows. The
+original pressure source was not active at their new positions, so no live sound
+sequence was needed; this complements rather than replaces the exact episode
+000039 pressure replay. Episode 000045 reopened Moss at its saved y=-60 body
+position with its own confirmed excavation history in the first request.

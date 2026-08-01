@@ -37,6 +37,24 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Current truth (updated 2026-08-01)
 
+- Episodes 000044-000045 exercised the perception repair and current ordinary
+  lifecycle with GPT-5.6 Luna driving Iris and Gemini 3.6 Flash driving Moss.
+  All 164 model turns had complete event windows with zero missing or omitted
+  events. Moss chose 32 Minecraft-confirmed block changes, descended from y=-50
+  to y=-60, and reopened there after clean stop with 14 dirt, coal and stone in
+  view, its own recent confirmed excavation history, and no Iris turns in its
+  request. Iris remained physically and historically separate and retained 36
+  failed actions without controller recovery. Episode 000044 saved cleanly but
+  its opted-in native-human assessment failed because `importdf` did not join;
+  it is not new human-entry evidence. Episode 000045 stopped cleanly without
+  that assertion. Textile read its 147 MB union as 2,836 resident events plus
+  two structural roots with zero diagnostics. These episodes cost $0.5672,
+  bringing the known workshop aggregate to about $31.01. Repetitive excavation
+  is model conduct, not an acceptance success or failure. Together with
+  episodes 000031-000033's authenticated human join and return, shared-weight
+  isolation, persistent Minecraft consequence, and visible Textile review,
+  this crosses the bounded living-Place milestone. It does not close the wider
+  product horizon.
 - Episodes 000042-000043 varied the mind while preserving the same Oxford
   world, bodies, resident identities, cadence, action contract, and isolated
   Lync lives. GPT-5.6 Luna drove Iris into a persistent shaft at y=-63; Gemini
@@ -498,24 +516,24 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ## Immediate priorities
 
-1. Exercise the repaired perception-to-action boundary through ordinary,
-   unsteered `behold live` use. Check that bounded information is correct, every
-   admitted choice receives its real consequence, and continuity is faithful;
-   do not grade which choices a resident makes.
-2. Take the strongest credible cognition condition into that path. Prefer LM
-   Studio when its latency and conduct earn it; retain the timely provider route
-   as a product comparator rather than delaying lived acceptance for local-model
-   ceremony.
-3. Keep the world open long enough for ordinary human entry, interaction,
-   departure, and return. Observe exact server and resident evidence without
-   making a declared username a precondition for resident life.
-4. Stop and resume normally, then inspect whether each distinct resident is
-   shown its own prior life and the world state that actually survived. What it
-   does with that information is conduct to observe. Read canonical Lync
-   histories through Textile without turning episode records into a second history.
-5. Add a ticket only when ordinary use exposes an owning defect. Longer soaks
-   follow once the short lived loop is coherent enough to make their failures
-   informative.
+The bounded First Life milestone is crossed. The next product move should be
+selected from real use rather than inferred from the old acceptance checklist:
+
+1. Run ordinary lives when there is a reason to watch or inhabit the world, and
+   fix only observed defects in information fidelity, action/consequence,
+   isolation, continuity, timing, or operation. Resident conduct remains data.
+2. Use a small ethological view over canonical histories to study longer-lived
+   household patterns without turning that view into a scheduler, score, or
+   second history. Build only the observability that changes an actual decision.
+3. Extend portable world-history navigation beyond resident viewpoints when a
+   concrete viewing question requires it; Minecraft and Place remain the world
+   authorities, Lync the causal history, and Textile the reader.
+4. Prefer LM Studio where a capable local condition meets the body horizon, and
+   retain timely provider conditions as comparators. Model choice is an
+   operating condition, not a redefinition of resident success.
+5. Add or prioritize a ticket only when ordinary use exposes an owning defect
+   or the owner selects the next product question. Do not keep the old milestone
+   alive by quietly adding richer society, survival, or city-scale criteria.
 
 Contrasting-world integration remains useful research after the Minecraft
 product composition is honest; it is not the current product definition or an
