@@ -42,7 +42,7 @@ import {
   publishLiveCheckpointJson,
 } from '../runtime/live-lync-checkpoint';
 
-const PLACE_SERVE_REVISION = '103deac629d8f784ea22d956c890de77334d730a' as const;
+const PLACE_SERVE_REVISION = 'b872237cbef4fed4e4a0dfdf5d472b24ab50a1d0' as const;
 const LIVE_SESSION_PROTOCOL = 'behold.live-session.v1' as const;
 const LIVE_RESIDENT_REVISION_PROTOCOL = 'behold.live-resident-revision.v1' as const;
 const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
