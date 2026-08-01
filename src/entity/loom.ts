@@ -291,6 +291,7 @@ export async function openEntityLoom(
   const boundCircleId = await ensureEntityCircleBinding(entityId, directory, circleId);
   const admission = controllerAdmissionFromEnvironment();
   const lease = await acquireEntityRuntimeLease(entityId, directory);
+  let openedLyncLoom: LyncEntityLoom | undefined;
 
   try {
     confirmControllerAdmission(admission);
@@ -323,6 +324,7 @@ export async function openEntityLoom(
 
     if (manifest) {
       lyncLoom = await looms.open(manifest.loomId);
+      openedLyncLoom = lyncLoom;
       presentationProfile = (await assertLoomIdentity(lyncLoom, entityId, boundCircleId)).meta
         .profile;
       tipTurnId = await recoverUniqueTip(lyncLoom, manifest.tipTurnId, warnings);
@@ -348,6 +350,7 @@ export async function openEntityLoom(
           });
       if (!info) throw new Error(`could not open Lync loom for ${entityId}`);
       lyncLoom = await looms.open(info.id);
+      openedLyncLoom = lyncLoom;
       presentationProfile = (await assertLoomIdentity(lyncLoom, entityId, boundCircleId)).meta
         .profile;
       tipTurnId = await findMigrationTip(lyncLoom, legacy.turns);
@@ -395,6 +398,10 @@ export async function openEntityLoom(
       connectionCapability,
       Object.freeze({ entityId, circleId: boundCircleId, lease }),
     );
+    let closed = false;
+    const assertOpen = () => {
+      if (closed) throw new Error(`entity loom ${entityId} is closed`);
+    };
     return {
       backend: 'lync',
       circleId: boundCircleId,
@@ -403,9 +410,16 @@ export async function openEntityLoom(
       file: lyncFile,
       foldFile,
       warnings,
-      turns: () => [...stored],
-      tail: (limit = 12) => stored.slice(-Math.max(0, Math.floor(limit))),
+      turns: () => {
+        assertOpen();
+        return [...stored];
+      },
+      tail: (limit = 12) => {
+        assertOpen();
+        return stored.slice(-Math.max(0, Math.floor(limit)));
+      },
       append: async (turn) => {
+        assertOpen();
         validateNextTurn(stored, turn, entityId);
         const appended = await appendLyncTurn(lyncLoom, tipTurnId, turn);
         const nextManifest: EntityLoomManifest = {
@@ -419,12 +433,22 @@ export async function openEntityLoom(
         stored.push(turn);
       },
       close: async () => {
+        if (closed) return;
+        closed = true;
         issuedEntityConnectionCapabilities.delete(connectionCapability);
-        await lease.close();
+        try {
+          lyncLoom.close();
+        } finally {
+          await lease.close();
+        }
       },
     };
   } catch (error) {
-    await lease.close();
+    try {
+      openedLyncLoom?.close();
+    } finally {
+      await lease.close();
+    }
     throw error;
   }
 }

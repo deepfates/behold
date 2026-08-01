@@ -29,3 +29,7 @@ Opening and continuing retained and generated large private lives does not retai
 **2026-08-01T13:55:40Z**
 
 Grounded 2026-08-01 audit: current live path retains whole history in Lync file store, Lync fold, Behold EntityLoom, and downstream policy/project views. The owning upstream ticket is lyn-hh9v. Unknowns to falsify before schema commitment: Node 22.12 SQLite support, restart verification cost at multi-day size, and a shared union-storage adapter that preserves current semantics.
+
+**2026-08-01T14:09:20Z**
+
+Closed-handle prerequisite landed with explicit ownership ordering: the current eager EntityLoom now closes its Lync handle before releasing the resident lease and refuses all post-close reads/appends. This removes a real stale-writer/leak edge but does not claim bounded memory; lyn-hh9v and this ticket remain open.

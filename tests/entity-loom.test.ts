@@ -290,6 +290,24 @@ test('entity history projects prior actions and their observations back into mod
   assert.match(messages[2]?.content, /action_completed/);
 });
 
+test('closing an entity life closes its Lync handle before releasing the runtime lease', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-close-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const life = await openEntityLoom('Scout', root);
+  await life.append(turn(1, null));
+
+  await life.close();
+  await life.close();
+
+  assert.throws(() => life.turns(), /entity loom Scout is closed/);
+  assert.throws(() => life.tail(), /entity loom Scout is closed/);
+  await assert.rejects(life.append(turn(2, 'Scout:turn:1')), /entity loom Scout is closed/);
+
+  const resumed = await openEntityLoom('Scout', root);
+  assert.equal(resumed.turns().length, 1);
+  await resumed.close();
+});
+
 test('model replay keeps the visible decision but not provider-private reasoning', () => {
   const remembered = turn(1, null);
   remembered.utterance.assistant = {
