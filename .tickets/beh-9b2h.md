@@ -1,7 +1,7 @@
 ---
 id: beh-9b2h
 status: open
-deps: [beh-e3jy]
+deps: [beh-e3jy, beh-61if]
 links: []
 created: 2026-08-01T09:35:31Z
 type: task
@@ -48,3 +48,7 @@ Read-only retained-memory audit during episode 000002 traced a verified whole-hi
 **2026-08-01T13:07:42Z**
 
 The shared upstream seam for bounded controller reads and bounded Textile projection is now tracked in Lync as lyn-6lzi. It is deliberately a re-readable-source streaming union index, not a second Behold or Textile parser. This ticket continues to own the resident-facing result: bounded truthful own-life continuity, isolated retrieval, restart behavior, and measured multi-day pressure.
+
+**2026-08-01T13:55:40Z**
+
+Added child beh-61if for the verified whole-history live-memory floor, with owning Lync seam lyn-hh9v. This is now a dependency because bounded resident working memory cannot be accepted while underlying Lync and Behold live layers retain complete payload history. The active six-hour epoch remains undisturbed and will provide the first real memory/reopen measurement.
