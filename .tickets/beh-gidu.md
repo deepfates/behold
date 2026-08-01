@@ -32,3 +32,7 @@ Seal one content-addressed manifest before the first call: the question and deci
 **2026-08-01T07:46:34Z**
 
 Authority-free gate sealed before calls at data/model-perception-gate-20260801/manifest.json (SHA-256 6050b1aeee3acf040c3d6f7cbfea0d8bcbd88fb334b964e71e9ebcdf918e439c) from OxfordReedCamera's exact first no-history camera request ed97ffc5.... Results are preserved at data/model-perception-gate-20260801/results.json. All 12 calls were HTTP 200, public-content, JSON-valid, exact-schema-valid, and under 3 seconds: Gemma 26B-A4B QAT chose look_direction in 6/6 across semantic and camera; Qwen 35B-A3B chose wait_for_event in 6/6 across semantic and camera. For this static experience, model identity separated the actions and perception form did not. This is eligibility and diagnostic evidence, not a conduct score or dynamic causal result. The sealed live sibling step is now warranted by the ticket's predeclared rule.
+
+**2026-08-01T08:08:43Z**
+
+The first live branch falsified a sealed runtime assumption before any resident decision: LM Studio's Gemma MLX runtime ignored requested context_length=32768 and reported 262144. The failed start was retained, then the same claimed world/session resumed only via explicit mind revision to the observed 262144 setting and produced one valid look action. Therefore the presealed 2x2 live comparison is not valid as written and must be resealed with actual loaded runtime settings before remaining branches; this is not a model-conduct result.
