@@ -118,9 +118,15 @@ export async function runLiveCli(argv: string[]) {
     ) {
       throw new Error('live session identity differs from its persistent release');
     }
-  } else if (fs.existsSync(paths.descriptor)) {
-    throw new Error('served-world genesis exists without its live session plan');
   }
+  const sessionEntry = classifyLiveSessionEntry({
+    planExists: existingPlan != null,
+    descriptorExists: fs.existsSync(paths.descriptor),
+    headExists: fs.existsSync(paths.head),
+    managedLifecycleCount: existingPlan
+      ? liveLifecycleFiles(paths.control, existingPlan.worldId).length
+      : 0,
+  });
   const requestedResidentFile = parsed.values.residents
     ? plainFile(String(parsed.values.residents), 'resident set')
     : null;
@@ -151,7 +157,17 @@ export async function runLiveCli(argv: string[]) {
   ) {
     throw new Error('--native-player must be distinct from every managed resident body');
   }
-  if (existingPlan && parsed.values.recover !== true) {
+  if (sessionEntry === 'first_start_retry' && parsed.values.recover === true) {
+    throw new Error(
+      'live session has no managed epoch to recover; retry normally without --recover',
+    );
+  }
+  if (sessionEntry === 'recovery_required' && parsed.values.recover !== true) {
+    throw new Error(
+      'live session has managed lifecycle evidence but no persistent head; retry with --recover',
+    );
+  }
+  if (sessionEntry === 'resume' && parsed.values.recover !== true) {
     assertPlaceServedResumeContinuity(paths.descriptor, paths.head);
   }
 
@@ -542,6 +558,32 @@ export async function runLiveCli(argv: string[]) {
       await authority.stop(cleanStop ? 'live_final_settlement' : 'live_failure').catch(() => {});
     boundary?.dispose();
   }
+}
+
+export function classifyLiveSessionEntry(input: {
+  planExists: boolean;
+  descriptorExists: boolean;
+  headExists: boolean;
+  managedLifecycleCount: number;
+}): 'new' | 'first_start_retry' | 'resume' | 'recovery_required' {
+  if (!Number.isSafeInteger(input.managedLifecycleCount) || input.managedLifecycleCount < 0) {
+    throw new Error('live session managed lifecycle count is invalid');
+  }
+  if (!input.planExists) {
+    if (input.descriptorExists) {
+      throw new Error('served-world genesis exists without its live session plan');
+    }
+    if (input.headExists) {
+      throw new Error('persistent live head exists without its live session plan');
+    }
+    return 'new';
+  }
+  if (!input.descriptorExists) {
+    throw new Error('live session plan exists without its served-world genesis');
+  }
+  if (input.headExists) return 'resume';
+  if (input.managedLifecycleCount > 0) return 'recovery_required';
+  return 'first_start_retry';
 }
 
 export function selectPendingLiveRecoveryEvidence(input: {

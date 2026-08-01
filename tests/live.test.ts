@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   assertLiveMindRevisionCompatible,
   assessNativeHumanEntry,
+  classifyLiveSessionEntry,
   createLiveBoundary,
   listPlaceServerLogs,
   liveEpisodeAccountingScope,
@@ -19,6 +20,55 @@ import {
   selectLiveResidentConfiguration,
   shouldRecordPlaceOnlyCleanup,
 } from '../src/cli/live';
+
+test('live distinguishes a retryable pre-head first start from resume and recovery', () => {
+  assert.equal(
+    classifyLiveSessionEntry({
+      planExists: false,
+      descriptorExists: false,
+      headExists: false,
+      managedLifecycleCount: 0,
+    }),
+    'new',
+  );
+  assert.equal(
+    classifyLiveSessionEntry({
+      planExists: true,
+      descriptorExists: true,
+      headExists: false,
+      managedLifecycleCount: 0,
+    }),
+    'first_start_retry',
+  );
+  assert.equal(
+    classifyLiveSessionEntry({
+      planExists: true,
+      descriptorExists: true,
+      headExists: true,
+      managedLifecycleCount: 1,
+    }),
+    'resume',
+  );
+  assert.equal(
+    classifyLiveSessionEntry({
+      planExists: true,
+      descriptorExists: true,
+      headExists: false,
+      managedLifecycleCount: 1,
+    }),
+    'recovery_required',
+  );
+  assert.throws(
+    () =>
+      classifyLiveSessionEntry({
+        planExists: false,
+        descriptorExists: true,
+        headExists: false,
+        managedLifecycleCount: 0,
+      }),
+    /genesis exists without its live session plan/,
+  );
+});
 
 test('live keeps terminal signal protection installed through caller-owned cleanup', async () => {
   const signals = new EventEmitter();
