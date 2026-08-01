@@ -585,7 +585,7 @@ export function shouldRecordPlaceOnlyCleanup(input: {
 }
 
 export function createLiveBoundary(
-  run: Pick<ManagedWorldRun, 'finished'>,
+  run: Pick<ManagedWorldRun, 'finished' | 'stopRequested'>,
   durationMs: number,
   signalSource: Pick<NodeJS.Process, 'on' | 'removeListener'> = process,
 ) {
@@ -603,6 +603,7 @@ export function createLiveBoundary(
   const timer = setTimeout(() => requestStop('duration_elapsed'), durationMs);
   const wait = Promise.race([
     requested,
+    run.stopRequested,
     run.finished.then(() => {
       throw new Error('a managed resident or server exited before the live boundary');
     }),

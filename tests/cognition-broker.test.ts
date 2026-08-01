@@ -496,6 +496,11 @@ test('resident-purpose provider quotas are durable, isolated, and usage-accounte
     ((await aDecisionRefused.json()) as any).error.code,
     'resident_purpose_quota_exhausted',
   );
+  assert.deepEqual(await first.decisionQuotaExhausted, {
+    residentKey: cognitionResidentKey('fixture-run', 'a'),
+    purpose: 'resident_decision',
+    limit: 1,
+  });
   const aFold = await brokerRequest(
     first,
     'a',

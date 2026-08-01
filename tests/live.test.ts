@@ -22,7 +22,10 @@ import {
 test('live keeps terminal signal protection installed through caller-owned cleanup', async () => {
   const signals = new EventEmitter();
   const boundary = createLiveBoundary(
-    { finished: new Promise<void>(() => {}) },
+    {
+      finished: new Promise<void>(() => {}),
+      stopRequested: new Promise<string>(() => {}),
+    },
     60_000,
     signals as any,
   );
@@ -38,6 +41,21 @@ test('live keeps terminal signal protection installed through caller-owned clean
   assert.equal(signals.listenerCount('SIGINT'), 0);
   assert.equal(signals.listenerCount('SIGTERM'), 0);
   assert.equal(signals.listenerCount('SIGHUP'), 0);
+});
+
+test('live turns an exhausted resident purpose quota into a normal boundary stop', async () => {
+  const signals = new EventEmitter();
+  const boundary = createLiveBoundary(
+    {
+      finished: new Promise<void>(() => {}),
+      stopRequested: Promise.resolve('resident_purpose_quota_exhausted'),
+    },
+    60_000,
+    signals as any,
+  );
+
+  assert.equal(await boundary.wait, 'resident_purpose_quota_exhausted');
+  boundary.dispose();
 });
 
 test('live mind revision preserves resident identity, body, charter, cadence, and steering', () => {

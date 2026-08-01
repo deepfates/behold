@@ -790,10 +790,7 @@ export async function runConsole(
         onModelError: (failure) => {
           appendJournal('model_call_failed', failure);
           if (failure.call?.response?.terminal === 'quota_exhausted') {
-            void requestShutdown?.(
-              'resident_purpose_quota_exhausted',
-              new Error('resident decision provider-attempt quota exhausted'),
-            );
+            policy?.suspend('resident_purpose_quota_exhausted');
           }
         },
         onModelInterrupted: (interruption) => appendJournal('model_call_interrupted', interruption),

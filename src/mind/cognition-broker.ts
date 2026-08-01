@@ -144,6 +144,13 @@ export type CognitionBroker = Readonly<{
   failed: Promise<Error>;
   admissionLimitReached: Promise<CognitionAdmissionLimitEvidence>;
   admissionLimitSettled: Promise<CognitionAdmissionLimitSettlementEvidence>;
+  decisionQuotaExhausted: Promise<
+    Readonly<{
+      residentKey: string;
+      purpose: CognitionPurpose;
+      limit: number;
+    }>
+  >;
   snapshot(): CognitionBrokerSnapshot;
   close(): Promise<CognitionBrokerSnapshot>;
 }>;
@@ -358,6 +365,19 @@ export async function startCognitionBroker(
       resolveAdmissionLimitSettlement = resolve;
     },
   );
+  let resolveDecisionQuotaExhausted!: (evidence: {
+    residentKey: string;
+    purpose: CognitionPurpose;
+    limit: number;
+  }) => void;
+  const decisionQuotaExhausted = new Promise<{
+    residentKey: string;
+    purpose: CognitionPurpose;
+    limit: number;
+  }>((resolve) => {
+    resolveDecisionQuotaExhausted = resolve;
+  });
+  let decisionQuotaExhaustionObserved = false;
   let admissionLimitSettlementEvidence: CognitionAdmissionLimitSettlementEvidence | null = null;
   const recordFatalFailure = (error: unknown) => {
     const failure = error instanceof Error ? error : new Error(String(error));
@@ -718,9 +738,9 @@ export async function startCognitionBroker(
       const accounting = accountingLedgers.get(job.client.residentKey);
       if (accounting) {
         let charged: ReturnType<QuotaLedger['charge']>;
+        const quotaPurpose =
+          job.purpose === 'resident_prefix_readiness' ? 'resident_decision' : job.purpose;
         try {
-          const quotaPurpose =
-            job.purpose === 'resident_prefix_readiness' ? 'resident_decision' : job.purpose;
           charged = accounting.charge(quotaPurpose, job.brokerRequestId, {
             clientRequestId: job.clientRequestId,
             residentKey: job.client.residentKey,
@@ -736,6 +756,14 @@ export async function startCognitionBroker(
           throw recordFatalFailure(error);
         }
         if (charged.ok === false) {
+          if (quotaPurpose === 'resident_decision' && !decisionQuotaExhaustionObserved) {
+            decisionQuotaExhaustionObserved = true;
+            resolveDecisionQuotaExhausted({
+              residentKey: job.client.residentKey,
+              purpose: job.purpose,
+              limit: charged.limit,
+            });
+          }
           job.state = 'completed';
           metrics.failed += 1;
           metrics.rejected += 1;
@@ -1537,6 +1565,7 @@ export async function startCognitionBroker(
     failed,
     admissionLimitReached,
     admissionLimitSettled,
+    decisionQuotaExhausted,
     snapshot,
     close,
   });

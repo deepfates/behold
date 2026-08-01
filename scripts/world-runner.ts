@@ -711,6 +711,8 @@ export type ManagedWorldRun = Readonly<{
     lifecycleSequence: number;
     lifecycleDigest: string;
   }> | null;
+  /** A normal managed stop requested by an owning runtime boundary. */
+  stopRequested: Promise<string>;
   finished: Promise<void>;
   quiesceResidents(reason?: string): Promise<void>;
   stop(reason?: string): Promise<void>;
@@ -2831,6 +2833,11 @@ export async function startManagedWorld(
     };
 
     const runningCognition = cognition;
+    const stopRequested = runningCognition
+      ? runningCognition.broker.decisionQuotaExhausted.then(
+          () => 'resident_purpose_quota_exhausted',
+        )
+      : new Promise<string>(() => {});
     return Object.freeze({
       runId: managedRunId,
       control,
@@ -2853,6 +2860,7 @@ export async function startManagedWorld(
           })
         : null,
       experimentRelease: committedExperimentRelease,
+      stopRequested,
       finished,
       quiesceResidents,
       stop,
