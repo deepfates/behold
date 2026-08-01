@@ -13,11 +13,11 @@ tags: [observability, operator, lync]
 
 # Project one live resident causal lens
 
-Let an operator see each resident current experience choice active bodily action returned consequence and next experience using already authoritative runtime journal and Lync state. This is a projection not a new recorder evaluator or proof framework.
+Let an operator see each resident's current `experience → choice → attempt → consequence → next experience` from the already authoritative run journal. A post-append entity-turn event marks durable Lync commitment; the lens does not subscribe to or rewrite Lync. Scheduler phase, latency, source gaps, and body status are controller telemetry around the loop, not additional stages of resident agency. This is a projection, not a new recorder, evaluator, or proof framework.
 
 ## Acceptance Criteria
 
-During an ordinary multi-resident run the operator can distinguish sees chooses doing consequence and waiting or stopped for each resident plus decision latency and body condition; the view derives from existing authenticated events and marks unavailable state honestly; it writes no competing canonical history; Textile remains the historical Lync reader; focused projection tests pass.
+During an ordinary multi-resident run the operator can distinguish the admitted experience, returned choice, active attempted control, transient and Lync-committed consequence, and next experience for each resident. Optional narration is metadata on the choice, not its substance. Separate controller telemetry shows decision latency, lifecycle phase, body condition, and unavailable source state. The view derives from existing authenticated events, accepts no control request, writes no competing canonical history, closes with the run, and leaves Textile as the historical Lync reader; focused projection tests pass.
 
 ## Implementation checkpoint
 

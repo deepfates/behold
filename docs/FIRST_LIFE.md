@@ -55,8 +55,11 @@ ordinary local-review UI directly opened that episode's 75 MB frozen Lync union
 as 1,450 readable turns with no projector diagnostics and a bounded 48-turn DOM.
 Episode 000030 then opened another ordinary native-client window but received no
 client connection, so its authoritative human assessment correctly failed while
-the world still stopped and saved cleanly. Actual native human co-presence and a
-genuinely long life remain unexercised.
+the world still stopped and saved cleanly. Episodes 000031 and 000032 later
+recorded `importdf` joining through the native Java client, moving and chatting
+with both residents, leaving on clean stop, and returning after resume. Native
+human co-presence is therefore exercised; genuinely long resident life remains
+open.
 
 ## The first live proof
 
@@ -388,6 +391,31 @@ This is why a successful tool response cannot silently become memory of a world
 fact, and why model-generated text cannot silently become an action. Results,
 consequences, memories, and evaluation claims are related records with different
 authorities.
+
+For the current ordinary resident path, the same ownership graph has a compact
+five-element waist:
+
+```text
+bounded experience → resident choice → admitted bodily attempt
+                   → Minecraft consequence → continuing own-life history
+```
+
+Experience is the exact bounded information supplied for one decision. Choice
+is one admitted action with arguments, or an explicit yield; it is not a task,
+controller recovery, progress score, or compulsory prediction. Attempt is the
+causally bound application of that choice to the same body. Consequence is the
+authenticated terminal result and later body observation, including failure,
+delay, interruption, death, or no visible change. Continuation appends those
+facts to that resident's own Lync-backed life and derives a bounded later view
+without replacing the canonical record or exposing another private life.
+
+Wake scheduling, context projection, and operator views surround this waist.
+They may decide when a choice is requested, which truthful facts fit in its
+bounded view, and how an operator sees the loop. On the ordinary path they do
+not choose a goal, preferred action, recovery, or judgment of progress. The
+live journal is operational state; a post-append entity turn marks durable Lync
+commitment; Textile presents completed history. These are cooperating owners,
+not competing records.
 
 ### Libraries are implementations, not the waist
 

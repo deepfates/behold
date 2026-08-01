@@ -11,13 +11,13 @@ parent: beh-kpqx
 tags: [resident-interface, continuity, prompt]
 ---
 
-# Falsify compulsory per-action narration before retaining it
+# Converge on the smallest ordinary resident choice contract
 
-The ordinary legible path requires an intention and expected observable consequence inside every action tool. This may support causal continuity, but it is also controller-imposed narration repeated across every schema. Determine whether it materially helps resident memory or operator understanding before carrying it into the converged interface.
+The current default path supplies strategy and progress machinery, while the ordinary legible path requires an intention and expected observable consequence inside every action tool. Converge on a versioned ordinary choice contract that returns one admitted action with its arguments or yields, preserves actual action and consequence for continuity, and contains no controller-supplied goal, recovery, progress judgment, or compulsory private/public reasoning. Preserve old treatment and history parsing under their existing names.
 
 ## Acceptance Criteria
 
-Before calls, seal one matched authority-free comparison of the same resident request/history with the current two-field commitment and the smallest action-only or reduced-commitment alternative; quantify exact request bytes, reported tokens, latency, schema validity, later own-action/consequence recognition, and operator causal legibility without grading the chosen action. If no material benefit appears, the ordinary interface records the selected action and authoritative consequence without compulsory prose; if a benefit appears, retain only the smallest field that produces it. Lync remains canonical and no private reasoning is requested or stored.
+One versioned ordinary treatment presents persistent identity, bounded own experience, independent others, bodily controls as attempts, and Minecraft consequences as authority; it asks for exactly one admitted action or an explicit yield. Its ordinary wire contains no task, project, progress guard, recovery choice, required action, intention, expected consequence, or private reasoning. Supported local and provider-compatible transports parse the same semantic choice while keeping resident sessions isolated. Lync retains the selected action, actual consequence, and next experience; old profile histories remain readable and explicitly non-default. Focused tests prove those absences and causal bindings. Before any model calls, record exact request-size and schema differences from `legible-resident-v1`; use a bounded recognition or operator-legibility probe only if it could reverse removal of compulsory narration, without grading conduct.
 
 ## Read-only audit checkpoint
 

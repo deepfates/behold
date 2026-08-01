@@ -8,6 +8,10 @@ Status: 0.1.0‑alpha.0 — See [ROADMAP](docs/ROADMAP.md) for current status an
 
 North star: make worlds agents can genuinely inhabit, and learn what becomes
 possible when they do. The current vertical slice is [First Life](docs/FIRST_LIFE.md).
+The smallest current-version composition is the
+[irreducible resident loop](docs/FIRST_LIFE.md#the-irreducible-loop): bounded
+experience, one choice, one bodily attempt, Minecraft consequence, and
+continuing own-life history.
 
 Product horizon: choose or compile a persistent world—including a geographic
 place such as San Francisco—start it with ordinary Minecraft ecology, attach

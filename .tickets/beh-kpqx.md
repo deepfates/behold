@@ -10,10 +10,10 @@ assignee: deepfates
 tags: [resident-interface, living-world, convergence]
 ---
 
-# Converge the ordinary resident interface on lived Minecraft
+# Converge the ordinary resident causal loop on lived Minecraft
 
-Make the ordinary Behold resident path a minimal truthful human-comparable composition of bounded experience, own-life continuity, stable bodily controls, one unsteered choice, authoritative Minecraft consequence, and canonical Lync append. Verification and operator machinery must remain outside cognition unless it materially serves perception, memory, choice, or action. This milestone advances the enduring living-world telos and does not grade resident conduct.
+Converge the ordinary Behold path on the five-element causal loop in `docs/FIRST_LIFE.md`: bounded experience, one unsteered choice, one causally bound bodily attempt, Minecraft-authoritative consequence, and canonical own-life continuation. Wake policy, history projection, and operator views support that loop without choosing desirable conduct. This milestone advances the enduring living-world telos; it is not a universal agent framework or a resident-behavior score.
 
 ## Acceptance Criteria
 
-Through the ordinary documented live path, each resident receives a non-duplicative truthful interface whose control semantics and observable preconditions agree across code tests and docs; exact resident-camera perception has been tested against the semantic body independently of model choice; the supported interface is adopted without hidden tasks or recovery; operators can inspect the live causal loop without a second authority; isolated lives survive clean stop/resume; and their canonical histories remain readable through Textile. Implemented exercised broken and unknown claims remain separate.
+Through the ordinary documented live path, at least two residents independently receive the supported bounded experience, return one action or yield without controller-supplied goals or recovery, have the exact attempted control and Minecraft consequence appended to separate lives, and later receive their own continuing history after clean stop/resume. An operator can inspect `experience / choice / attempt / consequence / next experience` without creating a second authority, and Textile can read the canonical Lync histories. Focused tests protect the causal invariants; one bounded live exercise establishes the composition. Camera and model comparisons remain diagnostics rather than mandatory product gates.

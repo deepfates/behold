@@ -2,7 +2,7 @@
 id: beh-gidu
 status: open
 deps: [beh-hi81, beh-58qg, beh-h69n]
-links: []
+links: [beh-rhxm]
 created: 2026-08-01T03:55:38Z
 type: task
 priority: 1
@@ -13,7 +13,7 @@ tags: [evaluation, perception, models]
 
 # Separate model effects from perception effects in one sealed comparison
 
-Use explicit cloned world lineage to vary model and semantic-only versus exact-camera perception independently. Supply no task preferred action recovery script or success grade. This comparison diagnoses the interface and does not become the resident product.
+Candidate diagnostic, not an ordinary-product blocker. If ordinary use leaves a decision that this comparison can resolve, use explicit cloned world lineage to vary model and semantic-only versus exact-camera perception independently. Supply no task, preferred action, recovery script, or success grade. The comparison diagnoses the interface and does not become the resident product. Do not run it merely because the matrix can be filled.
 
 ## Acceptance Criteria
 
