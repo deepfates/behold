@@ -36,3 +36,7 @@ Authority-free gate sealed before calls at data/model-perception-gate-20260801/m
 **2026-08-01T08:08:43Z**
 
 The first live branch falsified a sealed runtime assumption before any resident decision: LM Studio's Gemma MLX runtime ignored requested context_length=32768 and reported 262144. The failed start was retained, then the same claimed world/session resumed only via explicit mind revision to the observed 262144 setting and produced one valid look action. Therefore the presealed 2x2 live comparison is not valid as written and must be resealed with actual loaded runtime settings before remaining branches; this is not a model-conduct result.
+
+**2026-08-01T08:12:57Z**
+
+Replacement live comparison sealed before calls at ignored data/model-perception-live-20260801/r2-manifest.json SHA-256 008c352b.... It uses clean commit 1253e5f, one new verified four-child lineage at receipt ba775d38... and checkpoint b5875c3a..., actual 262144 loaded context for both MLX models, parallel/concurrency 1, one prefix-readiness plus at most two natural decisions via resident quota 3, fixed order Gemma semantic/camera then Qwen semantic/camera, 25-second post-ready wall, ordinary SIGINT immediately after first visible yield, no retries/repairs/fallbacks/tasks/preferences/grades. The invalid pilot remains excluded and preserved.
