@@ -22,6 +22,8 @@ export type ExperimentReleaseResident = Readonly<{
   bodyUsername: string;
   model: string;
   urgentModel: string | null;
+  /** Absent only in release records created before managed urgency was explicit. */
+  urgentDecisionTimeoutMs?: number;
   mind: 'direct' | 'ax';
   providerRoute?: OpenRouterRoutePolicy;
   ollamaLocal?: OllamaLocalPolicy;
@@ -589,6 +591,11 @@ function parseResident(value: unknown): ExperimentReleaseResident {
     typeof value === 'object' &&
     !Array.isArray(value) &&
     Object.prototype.hasOwnProperty.call(value, 'providerRoute');
+  const hasUrgentDecisionTimeout =
+    value != null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.prototype.hasOwnProperty.call(value, 'urgentDecisionTimeoutMs');
   const hasOllamaLocal =
     value != null &&
     typeof value === 'object' &&
@@ -611,6 +618,7 @@ function parseResident(value: unknown): ExperimentReleaseResident {
       'bodyUsername',
       'model',
       'urgentModel',
+      ...(hasUrgentDecisionTimeout ? ['urgentDecisionTimeoutMs'] : []),
       'mind',
       ...(hasProviderRoute ? ['providerRoute'] : []),
       ...(hasOllamaLocal ? ['ollamaLocal'] : []),
@@ -672,6 +680,11 @@ function parseResident(value: unknown): ExperimentReleaseResident {
       record.urgentModel == null
         ? null
         : boundedText(record.urgentModel, 'release urgent model', 300),
+    ...(hasUrgentDecisionTimeout
+      ? {
+          urgentDecisionTimeoutMs: boundedUrgentDecisionTimeout(record.urgentDecisionTimeoutMs),
+        }
+      : {}),
     mind: record.mind,
     ...(hasProviderRoute ? { providerRoute: openRouterRoutePolicy(record.providerRoute) } : {}),
     ...(localPolicy ? { ollamaLocal: localPolicy } : {}),
@@ -892,6 +905,7 @@ function sameResidentConfiguration(
     actual.bodyUsername === expected.bodyUsername &&
     actual.model === expected.model &&
     actual.urgentModel === expected.urgentModel &&
+    (actual.urgentDecisionTimeoutMs ?? 5_000) === (expected.urgentDecisionTimeoutMs ?? 5_000) &&
     actual.mind === expected.mind &&
     stableJson(actual.providerRoute ?? null) === stableJson(expected.providerRoute ?? null) &&
     stableJson(actual.ollamaLocal ?? null) === stableJson(expected.ollamaLocal ?? null) &&
@@ -1046,6 +1060,13 @@ function absolutePath(value: unknown, label: string) {
 function positiveInteger(value: unknown, label: string) {
   if (!Number.isSafeInteger(value) || Number(value) < 1) {
     throw new Error(`${label} must be a positive safe integer`);
+  }
+  return Number(value);
+}
+
+function boundedUrgentDecisionTimeout(value: unknown) {
+  if (!Number.isSafeInteger(value) || Number(value) < 100 || Number(value) > 60_000) {
+    throw new Error('release urgent decision timeout must be an integer from 100 through 60000');
   }
   return Number(value);
 }

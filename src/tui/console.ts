@@ -111,6 +111,7 @@ export async function runConsole(
       bodyUsername,
       model: cfg.llm.model,
       urgentModel: urgentModel ?? null,
+      urgentDecisionTimeoutMs,
       mind: mindAdapter,
       ...(providerRoute ? { providerRoute } : {}),
       ...(ollamaLocal ? { ollamaLocal } : {}),

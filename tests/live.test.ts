@@ -211,6 +211,7 @@ test('live mind revision preserves resident identity, body, charter, cadence, an
       actionProfile: 'minecraft-human-semantic-v1',
       safetyProfile: 'vanilla-player-v1',
       tickMs: 4000,
+      urgentDecisionTimeoutMs: 5000,
       providerQuotas: { residentDecisionAttempts: 8, auxiliaryContextAttempts: 2 },
       providerRoute: { protocol: 'provider' },
     },
@@ -220,6 +221,7 @@ test('live mind revision preserves resident identity, body, charter, cadence, an
       {
         ...original[0],
         model: 'local/model@4bit',
+        urgentDecisionTimeoutMs: 15_000,
         providerQuotas: { residentDecisionAttempts: 16, auxiliaryContextAttempts: 4 },
         providerRoute: undefined,
         lmStudioLocal: { protocol: 'local' },

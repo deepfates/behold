@@ -12,6 +12,7 @@ export const MANAGED_RESIDENT_CLI_OPTIONS = Object.freeze({
   body: { type: 'string' },
   model: { type: 'string' },
   urgentModel: { type: 'string' },
+  urgentDecisionTimeoutMs: { type: 'string' },
   policyProfile: { type: 'string' },
   bodyProfile: { type: 'string' },
   actionProfile: { type: 'string' },

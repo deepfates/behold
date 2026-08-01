@@ -234,6 +234,8 @@ export type ManagedResidentSpec = Readonly<{
   bodyUsername?: string;
   model: string;
   urgentModel?: string;
+  /** Hard wall-clock budget for an urgent resident decision. */
+  urgentDecisionTimeoutMs?: number;
   mind?: 'direct' | 'ax';
   policyProfile?: ResidentPolicyProfile;
   bodyProfile?: MinecraftBodyProfile;
@@ -274,6 +276,7 @@ const MANAGED_RESIDENT_SET_FIELDS = new Set([
   'bodyUsername',
   'model',
   'urgentModel',
+  'urgentDecisionTimeoutMs',
   'mind',
   'policyProfile',
   'bodyProfile',
@@ -299,6 +302,7 @@ const RESIDENT_LEVEL_CLI_FIELDS = [
   'body',
   'model',
   'urgentModel',
+  'urgentDecisionTimeoutMs',
   'mind',
   'paused',
   'policyProfile',
@@ -408,6 +412,7 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
     }
     for (const [field, min, max] of [
       ['tickMs', 500, Number.MAX_SAFE_INTEGER],
+      ['urgentDecisionTimeoutMs', 100, 60_000],
       ['maxTurnSteps', 1, 32],
     ] as const) {
       if (candidate[field] === undefined) continue;
@@ -708,6 +713,7 @@ export type ManagedWorldRun = Readonly<{
     bodyUsername: string;
     model: string;
     urgentModel: string | null;
+    urgentDecisionTimeoutMs: number;
     mind: 'direct' | 'ax';
     policyProfile: ResidentPolicyProfile;
     bodyProfile: MinecraftBodyProfile;
@@ -807,6 +813,7 @@ type NormalizedManagedResident = Readonly<{
   bodyUsername: string;
   model: string;
   urgentModel?: string;
+  urgentDecisionTimeoutMs: number;
   mind: 'direct' | 'ax';
   policyProfile: ResidentPolicyProfile;
   bodyProfile: MinecraftBodyProfile;
@@ -1048,6 +1055,18 @@ function normalizeManagedResidents(
           `Resident ${entityId} tickMs must be an integer of at least 500ms`,
           'resident_tick_budget_invalid',
           { index, entityId, tickMs },
+        );
+      }
+      const urgentDecisionTimeoutMs = candidate.urgentDecisionTimeoutMs ?? 5_000;
+      if (
+        !Number.isSafeInteger(urgentDecisionTimeoutMs) ||
+        urgentDecisionTimeoutMs < 100 ||
+        urgentDecisionTimeoutMs > 60_000
+      ) {
+        throw new WorldRunnerError(
+          `Resident ${entityId} urgentDecisionTimeoutMs must be an integer from 100 through 60000`,
+          'resident_urgent_decision_timeout_invalid',
+          { index, entityId, urgentDecisionTimeoutMs },
         );
       }
       const maxTurnSteps = candidate.maxTurnSteps;
@@ -1292,6 +1311,7 @@ function normalizeManagedResidents(
         safetyProfile,
         perceptionProfile,
         tickMs,
+        urgentDecisionTimeoutMs,
         ...(maxTurnSteps == null ? {} : { maxTurnSteps }),
         ...(candidate.resumeAfterBudget == null
           ? {}
@@ -1696,6 +1716,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         safetyProfile: entry.resident.safetyProfile,
         perceptionProfile: entry.resident.perceptionProfile,
         tickMs: entry.resident.tickMs,
+        urgentDecisionTimeoutMs: entry.resident.urgentDecisionTimeoutMs,
         maxTurnSteps: entry.resident.maxTurnSteps ?? null,
         resumeAfterBudget: entry.resident.resumeAfterBudget ?? null,
         providerQuotas: entry.resident.providerQuotas ?? null,
@@ -2212,6 +2233,7 @@ export async function startManagedWorld(
           safetyProfile: resident.safetyProfile,
           perceptionProfile: resident.perceptionProfile,
           tickMs: resident.tickMs,
+          urgentDecisionTimeoutMs: resident.urgentDecisionTimeoutMs,
           maxTurnSteps: resident.maxTurnSteps ?? null,
           resumeAfterBudget: resident.resumeAfterBudget ?? null,
           paused: resident.paused,
@@ -2495,6 +2517,7 @@ export async function startManagedWorld(
             bodyUsername: resident.bodyUsername,
             model: resident.model,
             urgentModel: resident.urgentModel ?? null,
+            urgentDecisionTimeoutMs: resident.urgentDecisionTimeoutMs,
             mind: resident.mind,
             ...(resident.providerRoute ? { providerRoute: resident.providerRoute } : {}),
             ...(resident.ollamaLocal ? { ollamaLocal: resident.ollamaLocal } : {}),
@@ -2600,6 +2623,7 @@ export async function startManagedWorld(
         lmStudioLocal: resident.lmStudioLocal ?? null,
         decisionSchedule: resident.decisionSchedule ?? null,
         tickMs: resident.tickMs,
+        urgentDecisionTimeoutMs: resident.urgentDecisionTimeoutMs,
         maxTurnSteps: resident.maxTurnSteps ?? null,
         resumeAfterBudget: resident.resumeAfterBudget ?? null,
         paused: resident.paused,
@@ -3855,6 +3879,8 @@ function spawnDefaultController(
     resident.perceptionProfile,
     '--tickMs',
     String(resident.tickMs),
+    '--urgentDecisionTimeoutMs',
+    String(resident.urgentDecisionTimeoutMs),
   ];
   if (resident.maxTurnSteps != null) {
     args.push('--maxTurnSteps', String(resident.maxTurnSteps));
@@ -4882,6 +4908,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       residents: { type: 'string' },
       model: { type: 'string' },
       urgentModel: { type: 'string' },
+      urgentDecisionTimeoutMs: { type: 'string' },
       policyProfile: { type: 'string' },
       bodyProfile: { type: 'string' },
       actionProfile: { type: 'string' },
@@ -5002,6 +5029,11 @@ export async function runCli(argv = process.argv.slice(2)) {
     const controllerProfile = managedControllerProfile(parsed.values.task, parsed.values.target);
     const model = String(parsed.values.model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL);
     const urgentModel = optionalText(parsed.values.urgentModel || process.env.LLM_URGENT_MODEL);
+    const urgentDecisionTimeoutMs = Number(
+      parsed.values.urgentDecisionTimeoutMs ||
+        process.env.BEHOLD_URGENT_DECISION_TIMEOUT_MS ||
+        5_000,
+    );
     const mind = String(parsed.values.mind || process.env.BEHOLD_MIND || 'direct') as
       'direct' | 'ax';
     const policyProfile = residentPolicyProfile(
@@ -5035,6 +5067,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       ...(controllerBodyUsernames[index] ? { bodyUsername: controllerBodyUsernames[index] } : {}),
       model,
       ...(urgentModel && urgentModel !== model ? { urgentModel } : {}),
+      urgentDecisionTimeoutMs,
       mind,
       policyProfile,
       bodyProfile,
@@ -5165,7 +5198,7 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1|legible-resident-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--perceptionProfile semantic-only-v1|semantic-plus-camera-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--lmStudioModelsRoot <dir>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--urgentDecisionTimeoutMs <100-60000>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1|legible-resident-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--perceptionProfile semantic-only-v1|semantic-plus-camera-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--lmStudioModelsRoot <dir>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Repeat --body in the same order only when a life ID differs from its Minecraft username.',

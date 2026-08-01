@@ -235,6 +235,7 @@ test('a versioned resident set carries heterogeneous operator configuration with
           bodyUsername: 'ScoutBody',
           model: 'provider/scout',
           urgentModel: 'provider/scout-urgent',
+          urgentDecisionTimeoutMs: 15_000,
           mind: 'direct',
           policyProfile: 'neutral-benchmark-v1',
           tickMs: 1200,
@@ -279,6 +280,7 @@ test('a versioned resident set carries heterogeneous operator configuration with
       bodyUsername: 'ScoutBody',
       model: 'provider/scout',
       urgentModel: 'provider/scout-urgent',
+      urgentDecisionTimeoutMs: 15_000,
       mind: 'direct',
       policyProfile: 'neutral-benchmark-v1',
       tickMs: 1200,
@@ -339,6 +341,19 @@ test('resident-set input fails closed on schema drift and mixed resident CLI fla
       {
         protocol: 'behold.managed-resident-set.v1',
         residents: [{ entityId: 'Scout', model: 'provider/model', tickMs: '1000' }],
+      },
+    ],
+    [
+      'wrong urgent timeout',
+      {
+        protocol: 'behold.managed-resident-set.v1',
+        residents: [
+          {
+            entityId: 'Scout',
+            model: 'provider/model',
+            urgentDecisionTimeoutMs: 60_001,
+          },
+        ],
       },
     ],
     [
@@ -1782,6 +1797,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
         ambientCloudCredentialPresent: process.env.AWS_SECRET_ACCESS_KEY != null,
         dotenvDisabled: process.env.BEHOLD_LOAD_DOTENV === '0',
         policyProfile: process.env.BEHOLD_POLICY_PROFILE,
+        urgentDecisionTimeoutMs: arg('--urgentDecisionTimeoutMs'),
         bodyProfile: process.env.BEHOLD_BODY_PROFILE,
         actionProfile: process.env.BEHOLD_ACTION_PROFILE,
         safetyProfile: process.env.BEHOLD_SAFETY_PROFILE,
@@ -1801,6 +1817,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
         bodyUsername: process.env.MINECRAFT_USERNAME,
         model: arg('--model'),
         urgentModel: arg('--urgentModel'),
+        urgentDecisionTimeoutMs: Number(arg('--urgentDecisionTimeoutMs')),
         mind: process.env.BEHOLD_MIND,
         providerRoute: JSON.parse(process.env.BEHOLD_OPENROUTER_ROUTE_POLICY),
         profiles: {
@@ -1910,6 +1927,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
         residents: fixture.options.residents.map((resident) => ({
           ...resident,
           urgentModel: 'fixture/urgent-model',
+          urgentDecisionTimeoutMs: 15_000,
           policyProfile: 'neutral-benchmark-v1' as const,
           maxTurnSteps: 1,
           resumeAfterBudget: false,
@@ -1935,6 +1953,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.equal(run.cognition.accountingSnapshot()?.accounts[0]?.used.resident_decision, 1);
   assert.equal(run.cognition.accountingSnapshot()?.accounts[0]?.remaining.resident_decision, 2);
   assert.equal(run.residents[0].policyProfile, 'neutral-benchmark-v1');
+  assert.equal(run.residents[0].urgentDecisionTimeoutMs, 15_000);
   assert.equal(run.residents[0].bodyProfile, 'minecraft-human-semantic-v1');
   assert.equal(run.residents[0].actionProfile, 'minecraft-human-semantic-v1');
   assert.equal(run.residents[0].safetyProfile, 'vanilla-player-v1');
@@ -1943,6 +1962,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.deepEqual(run.residents[0].providerRoute, providerRoute);
   const captured = JSON.parse(fs.readFileSync(captureFile, 'utf8'));
   assert.equal(captured.policyProfile, 'neutral-benchmark-v1');
+  assert.equal(captured.urgentDecisionTimeoutMs, '15000');
   assert.equal(captured.bodyProfile, 'minecraft-human-semantic-v1');
   assert.equal(captured.actionProfile, 'minecraft-human-semantic-v1');
   assert.equal(captured.safetyProfile, 'vanilla-player-v1');
@@ -1959,6 +1979,11 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.equal(captured.ambientCloudCredentialPresent, false);
   assert.equal(captured.dotenvDisabled, true);
   assert.ok(run.experimentRelease);
+  assert.equal(
+    JSON.parse(fs.readFileSync(run.experimentRelease.planFile, 'utf8')).residents[0]
+      .urgentDecisionTimeoutMs,
+    15_000,
+  );
   assert.equal(fs.existsSync(run.experimentRelease.releaseFile), true);
 
   let deliberateAssertion: Error | null = null;
@@ -2003,6 +2028,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.equal(verified.acceptedRemaining, null);
   const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile).events;
   const configured: any = lifecycle.find((event) => event.type === 'run_configured');
+  const controllerStarted: any = lifecycle.find((event) => event.type === 'controller_started');
   const brokerReady: any = lifecycle.find((event) => event.type === 'cognition_broker_ready');
   const frozen = lifecycle.findIndex(
     (event) =>
@@ -2025,6 +2051,8 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   );
   assert.equal(configured?.data?.population?.maxTotalModelCalls, null);
   assert.equal(configured?.data?.population?.residents?.[0]?.urgentModel, 'fixture/urgent-model');
+  assert.equal(configured?.data?.population?.residents?.[0]?.urgentDecisionTimeoutMs, 15_000);
+  assert.equal(controllerStarted?.data?.urgentDecisionTimeoutMs, 15_000);
   assert.equal(configured?.data?.population?.residents?.[0]?.policyProfile, 'neutral-benchmark-v1');
   assert.equal(
     configured?.data?.population?.residents?.[0]?.bodyProfile,

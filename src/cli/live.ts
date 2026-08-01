@@ -1329,7 +1329,7 @@ export function assertLiveMindRevisionCompatible(
     stableJson(next.map(liveResidentContinuityIdentity))
   ) {
     throw new Error(
-      'live --change-minds may change only model, mind transport, urgent model, and provider quotas; resident identity, body, charter, cadence, and steering must remain unchanged',
+      'live --change-minds may change only model, mind transport, urgent model, urgent decision timeout, and provider quotas; resident identity, body, charter, cadence, and steering must remain unchanged',
     );
   }
 }
@@ -1338,6 +1338,7 @@ function liveResidentContinuityIdentity(resident: Record<string, any>) {
   const {
     model: _model,
     urgentModel: _urgentModel,
+    urgentDecisionTimeoutMs: _urgentDecisionTimeoutMs,
     mind: _mind,
     providerQuotas: _providerQuotas,
     providerRoute: _providerRoute,
