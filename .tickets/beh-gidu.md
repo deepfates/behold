@@ -1,7 +1,7 @@
 ---
 id: beh-gidu
 status: open
-deps: [beh-hi81, beh-58qg]
+deps: [beh-hi81, beh-58qg, beh-h69n]
 links: []
 created: 2026-08-01T03:55:38Z
 type: task
