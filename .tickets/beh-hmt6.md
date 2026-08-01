@@ -1,0 +1,30 @@
+---
+id: beh-hmt6
+status: open
+deps: [beh-61if]
+links: []
+created: 2026-08-01T14:16:44Z
+type: task
+priority: 1
+assignee: deepfates
+parent: beh-9b2h
+tags: [lync, observability, storage, long-running]
+---
+
+# Stop live journals from copying canonical private resident turns
+
+Ordinary resident journals currently append each complete private entity_turn after the same turn is committed to canonical Lync. In the active Oxford epoch at 2026-08-01T14:16Z, those journal lines occupied 95,447,832 bytes while the two canonical Lync files occupied 106,799,372 bytes. This parallel private copy exists largely for the lens and historical evaluation readers, conflicts with Lync authority, and compounds multi-day storage.
+
+## Design
+
+After the selected-life cursor exists, journal only the operational settlement plus an authenticated Lync turn locator and the smallest public operator projection needed for live following. Resolve private history from canonical Lync when explicitly authorized; do not turn the journal, checkpoint, Textile, or a summary into another life authority. Preserve backward reading of old full-turn journals. Migrate or retire evaluators that silently treat journal copies as canonical.
+
+## Acceptance Criteria
+
+In an ordinary multi-resident run, each committed private turn exists once in canonical Lync; the run journal carries no private observation payload, camera frame, model request, or reconstructed entity turn; the live lens still shows timely experience choice attempt consequence and Lync progress from authenticated sources; old journals remain inspectable; exact transport capture remains separately bounded and named; and measured journal growth is operational-event sized rather than proportional to private turn payload bytes.
+
+## Notes
+
+**2026-08-01T14:16:57Z**
+
+Measured during ordinary episode 000002 at 2026-08-01T14:16:14Z: Ash journal entity_turn lines 71,601,208 bytes for 1,367 turns; Reed 23,846,624 bytes for 483 turns; canonical resident Lync files 77,935,366 and 28,864,006 bytes. Full run journals were larger still. No retention changed during the epoch.
