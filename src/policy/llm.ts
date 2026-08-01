@@ -2303,6 +2303,10 @@ function conversationForAttention(
           'The supplied bodily control surface is unchanged by this notice, and no response has been selected or recommended.',
         ].join('\n'),
       };
+  const continuityCoverage = residentContinuityCoverageNotice(
+    foldedContinuity,
+    recentActionContinuity,
+  );
   const recentActions = recentActionContinuity
     ? {
         role: 'system',
@@ -2313,6 +2317,7 @@ function conversationForAttention(
           recentActionContinuity.protocol === 'behold.resident-working-continuity.v1'
             ? 'Historical perception is deliberately not a replayed camera or current target. Re-observe before relying on changed state.'
             : 'Any first-person glimpses are past camera views retained as perceptual working memory. Compare their orientations, but do not treat them as current geometry, a panorama, or proof of safety.',
+          ...(continuityCoverage ? [continuityCoverage] : []),
           JSON.stringify(recentActionContinuity),
         ].join('\n'),
       }
@@ -2330,6 +2335,21 @@ function conversationForAttention(
     urgentHandoff,
     current,
   ].filter(Boolean);
+}
+
+export function residentContinuityCoverageNotice(
+  foldedContinuity: { content?: unknown } | null | undefined,
+  recentContinuity: RecentActionContinuity | ResidentWorkingContinuity | null | undefined,
+) {
+  if (!recentContinuity) return null;
+  const fromTurn = Number(recentContinuity.source?.fromTurn);
+  if (!Number.isSafeInteger(fromTurn) || fromTurn <= 1) return null;
+  const match = String(foldedContinuity?.content || '').match(
+    /^Folded view of your own loom, turns 1-(\d+)\./,
+  );
+  const foldedThrough = match ? Number(match[1]) : 0;
+  if (!Number.isSafeInteger(foldedThrough) || fromTurn <= foldedThrough + 1) return null;
+  return `Bounded memory coverage: turns ${foldedThrough + 1}-${fromTurn - 1} are not represented in this request; the full own Lync remains canonical.`;
 }
 
 function hasBodilyUrgency(attention: ResidentAttention) {

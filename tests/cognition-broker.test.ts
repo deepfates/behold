@@ -818,7 +818,25 @@ test('the transport gate rejects native resident envelope drift before upstream'
         body.tools[0].function.parameters.additionalProperties = true;
       },
       (body) => {
+        body.tools[0].function.description += ' drift';
+      },
+      (body) => {
+        body.tools.reverse();
+      },
+      (body) => {
         body.tool_choice = { type: 'function', function: { name: 'teleport' } };
+      },
+      (body) => {
+        body.messages[1].content = body.messages[1].content.replace(
+          '"requiredAction":null',
+          '"requiredAction":"move_controls"',
+        );
+      },
+      (body) => {
+        body.messages[1].content = body.messages[1].content.replace(
+          /"actionContractSha256":"[a-f0-9]{64}"/,
+          `"actionContractSha256":"${'0'.repeat(64)}"`,
+        );
       },
       (body) => {
         body.messages.at(-1).content += ' extra';

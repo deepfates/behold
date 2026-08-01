@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { cognitionClientHeaders, parseCognitionAdmission } from './cognition';
 import { directOpenRouterRequestBody } from './direct-wire';
 import {
-  createNativeToolResidentSessionEnvelope,
+  assertNativeToolResidentSessionEnvelope,
   parseNativeToolResidentDecision,
 } from './direct-native-tools';
 import { ResidentMindCallError, type ModelCallEvidence } from './evidence';
@@ -55,7 +55,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
         routePolicy?.protocol === 'behold.openrouter-route-policy.v3' ? routePolicy : null;
       const nativeToolSession =
         request.policyProfile === 'legible-resident-v1' && nativeRoutePolicy
-          ? createNativeToolResidentSessionEnvelope(request)
+          ? assertNativeToolResidentSessionEnvelope(body.messages, body.tools, body.tool_choice)
           : null;
       const residentSession =
         request.policyProfile === 'legible-resident-v1' && !nativeToolSession
@@ -100,7 +100,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
                 workingContinuityProtocol: nativeToolSession.workingContinuityProtocol,
                 actionContractSha256: nativeToolSession.actionContractSha256,
                 toolsSha256: nativeToolSession.toolsSha256,
-                stablePrefixSha256: nativeToolSession.stablePrefixSha256,
+                requestPrefixSha256: nativeToolSession.requestPrefixSha256,
                 reasoningEffort: nativeRoutePolicy!.reasoningEffort,
                 reasoningExcluded: true,
               },

@@ -2,11 +2,10 @@ import { createHash } from 'node:crypto';
 import type { ModelCallEvidence } from './evidence';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
 import {
-  assertStrictLocalResidentSessionEnvelope,
   createStrictLocalResidentSessionEnvelope,
   RESIDENT_SESSION_RESPONSE_REMINDER,
-  V2_CONTRACT_INSTRUCTION,
 } from './ollama-json-action';
+import { RESIDENT_WORKING_CONTINUITY_PROTOCOL } from './observation-context';
 import {
   RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
   RESIDENT_PUBLIC_ACTION_COMMITMENT_PROTOCOL,
@@ -16,7 +15,15 @@ import {
 import { validateResidentActionInput } from './schema';
 
 export const OPENROUTER_NATIVE_TOOL_RESIDENT_SESSION_PROTOCOL =
-  'behold.openrouter-native-tool-resident-session.v1' as const;
+  'behold.openrouter-native-tool-resident-session.v2' as const;
+export const OPENROUTER_NATIVE_TOOL_MESSAGE_LAYOUT_PROTOCOL =
+  'behold.openrouter-native-tool-message-layout.v1' as const;
+
+const NATIVE_ACTION_CONTRACT_PROTOCOL = 'behold.native-tool-action-contract.v1' as const;
+const NATIVE_ACTION_METADATA_PROTOCOL = 'behold.native-tool-action-metadata.v1' as const;
+const NATIVE_ACTION_RESPONSE_PROTOCOL = 'behold.native-tool-call.v1' as const;
+const NATIVE_ACTION_METADATA_BEGIN = 'BEHOLD_NATIVE_TOOL_ACTION_METADATA_V1_BEGIN\n';
+const NATIVE_ACTION_METADATA_END = '\nBEHOLD_NATIVE_TOOL_ACTION_METADATA_V1_END';
 
 const NATIVE_TOOL_INSTRUCTION =
   'Choose exactly one supplied bodily control by calling exactly one supplied function. Its presence authorizes an attempt but does not promise that world preconditions hold or that it will succeed. Put the two short public commitments and the unchanged action arguments inside that call. Do not add prose, corrections, or multiple candidates.\n';
@@ -25,17 +32,32 @@ const NATIVE_TOOL_RESPONSE_REMINDER =
 
 export function createNativeToolResidentSessionEnvelope(request: ResidentMindRequest) {
   const strict = createStrictLocalResidentSessionEnvelope(request);
-  const tools = toolsFromStrictSchema(strict.responseSchema);
-  const messages = nativeMessagesFromStrict(strict.messages);
+  const tools = nativeToolsFromActions(request.actions);
+  const toolsSha256 = sha256(stableJson(tools));
+  const contract = nativeActionContract({
+    policyProfile: request.policyProfile,
+    bodyProfile: request.bodyProfile,
+    actionProfile: request.actionProfile,
+    safetyProfile: request.safetyProfile,
+    actions: request.actions,
+    requiredAction: request.requiredAction,
+  });
+  const actionContractSha256 = sha256(stableJson(contract));
+  const metadata = nativeActionMetadata({
+    ...contract,
+    actionContractSha256,
+    toolsSha256,
+  });
+  const messages = nativeMessagesFromStrict(strict.messages, metadata);
   return deepFreeze({
     protocol: OPENROUTER_NATIVE_TOOL_RESIDENT_SESSION_PROTOCOL,
     messages,
     tools,
-    messageLayoutProtocol: strict.messageLayoutProtocol,
+    messageLayoutProtocol: OPENROUTER_NATIVE_TOOL_MESSAGE_LAYOUT_PROTOCOL,
     workingContinuityProtocol: strict.workingContinuityProtocol,
-    actionContractSha256: strict.actionContractSha256,
-    toolsSha256: sha256(stableJson(tools)),
-    stablePrefixSha256: sha256(stableJson(messages.slice(0, 2))),
+    actionContractSha256,
+    toolsSha256,
+    requestPrefixSha256: sha256(stableJson(messages.slice(0, 2))),
   });
 }
 
@@ -50,27 +72,40 @@ export function assertNativeToolResidentSessionEnvelope(
   if (!Array.isArray(toolsValue) || toolsValue.length < 1) {
     throw new Error('native-tool resident session tools are missing');
   }
-  const strictMessages = strictMessagesFromNative(messagesValue);
-  const strictSchema = strictSchemaFromTools(toolsValue);
-  const identity = assertStrictLocalResidentSessionEnvelope(strictMessages, strictSchema);
-  const selectedNames = toolsValue.map((tool, index) => nativeTool(tool, index).function.name);
-  if (toolChoiceValue !== 'required') {
+  const metadata = nativeMetadataFromMessages(messagesValue);
+  const actions = actionsFromNativeTools(toolsValue);
+  const selectedNames = actions.map((action) => action.name);
+  const toolsSha256 = sha256(stableJson(toolsValue));
+  if (metadata.toolsSha256 !== toolsSha256) {
+    throw new Error('native tool metadata differs from the supplied tools');
+  }
+  const contract = nativeActionContract({ ...metadata, actions });
+  const actionContractSha256 = sha256(stableJson(contract));
+  if (metadata.actionContractSha256 !== actionContractSha256) {
+    throw new Error('native tool action contract differs from its metadata');
+  }
+  if (metadata.requiredAction === null) {
+    if (toolChoiceValue !== 'required') {
+      throw new Error('native tool choice must require one supplied control');
+    }
+  } else {
     const choice = exactRecord(toolChoiceValue, ['type', 'function'], 'native tool choice');
     const fn = exactRecord(choice.function, ['name'], 'native tool choice function');
     if (
       choice.type !== 'function' ||
-      typeof fn.name !== 'string' ||
-      selectedNames.length !== 1 ||
-      selectedNames[0] !== fn.name
+      fn.name !== metadata.requiredAction ||
+      !selectedNames.includes(metadata.requiredAction)
     ) {
-      throw new Error('native tool choice does not select the sole required action');
+      throw new Error('native tool choice does not select the required control');
     }
   }
   return deepFreeze({
     protocol: OPENROUTER_NATIVE_TOOL_RESIDENT_SESSION_PROTOCOL,
-    ...identity,
-    toolsSha256: sha256(stableJson(toolsValue)),
-    stablePrefixSha256: sha256(stableJson(messagesValue.slice(0, 2))),
+    messageLayoutProtocol: OPENROUTER_NATIVE_TOOL_MESSAGE_LAYOUT_PROTOCOL,
+    workingContinuityProtocol: RESIDENT_WORKING_CONTINUITY_PROTOCOL,
+    actionContractSha256,
+    toolsSha256,
+    requestPrefixSha256: sha256(stableJson(messagesValue.slice(0, 2))),
   });
 }
 
@@ -155,84 +190,73 @@ export function parseNativeToolResidentDecision(
   });
 }
 
-function toolsFromStrictSchema(value: unknown) {
-  const schema = exactRecord(value, ['oneOf'], 'strict resident response schema');
-  if (!Array.isArray(schema.oneOf) || schema.oneOf.length < 1) {
-    throw new Error('strict resident response schema has no action variants');
+function nativeToolsFromActions(actions: ResidentMindRequest['actions']) {
+  if (!Array.isArray(actions) || actions.length < 1) {
+    throw new Error('native tool resident session requires at least one control');
   }
-  return schema.oneOf.map((value: unknown, index: number) => {
-    const variant = exactRecord(
-      value,
-      plainRecord(value) && Object.hasOwn(value, 'description')
-        ? ['description', 'type', 'properties', 'required', 'additionalProperties']
-        : ['type', 'properties', 'required', 'additionalProperties'],
-      `strict resident action variant ${index}`,
-    );
-    const properties = exactRecord(
-      variant.properties,
-      ['intention', 'expectedObservableConsequence', 'action', 'arguments'],
-      `strict resident action properties ${index}`,
-    );
-    const action = exactRecord(properties.action, ['const'], `strict resident action ${index}`);
-    if (typeof action.const !== 'string' || !action.const) {
-      throw new Error(`strict resident action ${index} has no name`);
-    }
-    return deepFreeze({
+  return actions.map((action) =>
+    deepFreeze({
       type: 'function' as const,
       function: {
-        name: action.const,
-        ...(variant.description == null ? {} : { description: variant.description }),
+        name: action.name,
+        ...(action.description == null ? {} : { description: action.description }),
         parameters: {
           type: 'object',
           properties: {
-            intention: cloneJson(properties.intention),
-            expectedObservableConsequence: cloneJson(properties.expectedObservableConsequence),
-            arguments: cloneJson(properties.arguments),
+            ...publicCommitmentSchemas(),
+            arguments: cloneJson(action.inputSchema),
           },
           required: ['intention', 'expectedObservableConsequence', 'arguments'],
           additionalProperties: false,
         },
       },
-    });
-  });
+    }),
+  );
 }
 
-function strictSchemaFromTools(value: unknown[]) {
-  return {
-    oneOf: value.map((item, index) => {
-      const tool = nativeTool(item, index);
-      const parameters = exactRecord(
-        tool.function.parameters,
-        ['type', 'properties', 'required', 'additionalProperties'],
-        `native tool parameters ${index}`,
-      );
-      const properties = exactRecord(
-        parameters.properties,
-        ['intention', 'expectedObservableConsequence', 'arguments'],
-        `native tool properties ${index}`,
-      );
-      if (
-        parameters.type !== 'object' ||
-        parameters.additionalProperties !== false ||
-        stableJson(parameters.required) !==
-          stableJson(['intention', 'expectedObservableConsequence', 'arguments'])
-      ) {
-        throw new Error(`native tool parameters ${index} differ from the resident contract`);
-      }
-      return {
-        ...(tool.function.description == null ? {} : { description: tool.function.description }),
-        type: 'object',
-        properties: {
-          intention: cloneJson(properties.intention),
-          expectedObservableConsequence: cloneJson(properties.expectedObservableConsequence),
-          action: { const: tool.function.name },
-          arguments: cloneJson(properties.arguments),
-        },
-        required: ['intention', 'expectedObservableConsequence', 'action', 'arguments'],
-        additionalProperties: false,
-      };
-    }),
-  };
+function actionsFromNativeTools(value: unknown[]) {
+  const names = new Set<string>();
+  return value.map((item, index) => {
+    const tool = nativeTool(item, index);
+    const parameters = exactRecord(
+      tool.function.parameters,
+      ['type', 'properties', 'required', 'additionalProperties'],
+      `native tool parameters ${index}`,
+    );
+    const properties = exactRecord(
+      parameters.properties,
+      ['intention', 'expectedObservableConsequence', 'arguments'],
+      `native tool properties ${index}`,
+    );
+    if (
+      parameters.type !== 'object' ||
+      parameters.additionalProperties !== false ||
+      stableJson(parameters.required) !==
+        stableJson(['intention', 'expectedObservableConsequence', 'arguments'])
+    ) {
+      throw new Error(`native tool parameters ${index} differ from the resident contract`);
+    }
+    const expectedCommitments = publicCommitmentSchemas();
+    if (
+      stableJson(properties.intention) !== stableJson(expectedCommitments.intention) ||
+      stableJson(properties.expectedObservableConsequence) !==
+        stableJson(expectedCommitments.expectedObservableConsequence)
+    ) {
+      throw new Error(`native tool public commitment schema ${index} differs`);
+    }
+    if (!plainRecord(properties.arguments)) {
+      throw new Error(`native tool action schema ${index} is invalid`);
+    }
+    if (names.has(tool.function.name)) {
+      throw new Error(`native tool ${index} duplicates a control name`);
+    }
+    names.add(tool.function.name);
+    return deepFreeze({
+      name: tool.function.name,
+      ...(tool.function.description == null ? {} : { description: tool.function.description }),
+      inputSchema: cloneJson(properties.arguments),
+    });
+  });
 }
 
 function nativeTool(value: unknown, index: number) {
@@ -247,47 +271,196 @@ function nativeTool(value: unknown, index: number) {
   if (tool.type !== 'function' || typeof fn.name !== 'string' || !fn.name) {
     throw new Error(`native tool ${index} is invalid`);
   }
+  if (fn.description != null && (typeof fn.description !== 'string' || fn.description.length < 1)) {
+    throw new Error(`native tool ${index} description is invalid`);
+  }
   return { type: 'function' as const, function: fn };
 }
 
-function nativeMessagesFromStrict(value: readonly unknown[]) {
+function nativeMessagesFromStrict(value: readonly unknown[], metadata: unknown) {
   const messages = cloneJson(value) as any[];
   const contract = exactRecord(messages[1], ['role', 'content'], 'resident action contract');
   const current = exactRecord(messages.at(-1), ['role', 'content'], 'resident current observation');
   if (
     typeof contract.content !== 'string' ||
-    !contract.content.startsWith(V2_CONTRACT_INSTRUCTION) ||
     typeof current.content !== 'string' ||
     !current.content.endsWith(RESIDENT_SESSION_RESPONSE_REMINDER)
   ) {
     throw new Error('strict resident session cannot be converted to native tools');
   }
-  contract.content =
-    NATIVE_TOOL_INSTRUCTION + contract.content.slice(V2_CONTRACT_INSTRUCTION.length);
+  contract.content = `${NATIVE_TOOL_INSTRUCTION}${NATIVE_ACTION_METADATA_BEGIN}${stableJson(metadata)}${NATIVE_ACTION_METADATA_END}`;
   current.content =
     current.content.slice(0, -RESIDENT_SESSION_RESPONSE_REMINDER.length) +
     NATIVE_TOOL_RESPONSE_REMINDER;
   return deepFreeze(messages);
 }
 
-function strictMessagesFromNative(value: readonly unknown[]) {
-  const messages = cloneJson(value) as any[];
-  const contract = exactRecord(messages[1], ['role', 'content'], 'native resident action contract');
-  const current = exactRecord(messages.at(-1), ['role', 'content'], 'native resident observation');
+function nativeMetadataFromMessages(value: readonly unknown[]) {
+  if (!Array.isArray(value) || value.length < 3) {
+    throw new Error('native-tool resident session message layout is incomplete');
+  }
+  const contract = exactRecord(value[1], ['role', 'content'], 'native resident action metadata');
+  const charter = exactRecord(value[0], ['role', 'content'], 'native resident charter');
+  const current = exactRecord(value.at(-1), ['role', 'content'], 'native resident observation');
   if (
+    charter.role !== 'system' ||
+    typeof charter.content !== 'string' ||
+    !charter.content ||
+    contract.role !== 'system' ||
     typeof contract.content !== 'string' ||
-    !contract.content.startsWith(NATIVE_TOOL_INSTRUCTION) ||
+    !contract.content.startsWith(`${NATIVE_TOOL_INSTRUCTION}${NATIVE_ACTION_METADATA_BEGIN}`) ||
+    !contract.content.endsWith(NATIVE_ACTION_METADATA_END) ||
+    current.role !== 'user' ||
     typeof current.content !== 'string' ||
-    !current.content.endsWith(NATIVE_TOOL_RESPONSE_REMINDER)
+    !current.content.endsWith(`\n\n${NATIVE_TOOL_RESPONSE_REMINDER}`)
   ) {
     throw new Error('native-tool resident session message layout differs');
   }
-  contract.content =
-    V2_CONTRACT_INSTRUCTION + contract.content.slice(NATIVE_TOOL_INSTRUCTION.length);
-  current.content =
-    current.content.slice(0, -NATIVE_TOOL_RESPONSE_REMINDER.length) +
-    RESIDENT_SESSION_RESPONSE_REMINDER;
-  return messages;
+  for (const [index, messageValue] of value.slice(2, -1).entries()) {
+    const message = exactRecord(
+      messageValue,
+      ['role', 'content'],
+      `native resident dynamic message ${index}`,
+    );
+    if (message.role !== 'system' || typeof message.content !== 'string') {
+      throw new Error('native resident dynamic context must use bounded system messages');
+    }
+    if (
+      message.content.startsWith('Recent lived action continuity from your own entity loom') ||
+      message.content.includes('behold.recent-action-continuity.v1')
+    ) {
+      throw new Error('native resident session contains superseded full-camera continuity');
+    }
+    if (
+      message.content.includes('Resident working continuity from your own entity loom') &&
+      !message.content.includes(`"protocol":"${RESIDENT_WORKING_CONTINUITY_PROTOCOL}"`)
+    ) {
+      throw new Error('native resident working continuity protocol drifted');
+    }
+  }
+  const json = contract.content.slice(
+    NATIVE_TOOL_INSTRUCTION.length + NATIVE_ACTION_METADATA_BEGIN.length,
+    contract.content.length - NATIVE_ACTION_METADATA_END.length,
+  );
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error('native resident action metadata is not valid JSON');
+  }
+  const metadata = parseNativeActionMetadata(parsed);
+  if (json !== stableJson(metadata)) {
+    throw new Error('native resident action metadata is not exact canonical JSON');
+  }
+  return metadata;
+}
+
+function publicCommitmentSchemas() {
+  return {
+    intention: {
+      type: 'string',
+      minLength: 1,
+      maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+      pattern: '^[^\\r\\n]+$',
+      description:
+        'One short public statement of what this action is for; never private reasoning.',
+    },
+    expectedObservableConsequence: {
+      type: 'string',
+      minLength: 1,
+      maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+      pattern: '^[^\\r\\n]+$',
+      description:
+        'One short public description of what the resident expects to observe if the action succeeds; never a claim that it already happened.',
+    },
+  };
+}
+
+function nativeActionContract(value: any) {
+  if (
+    value.policyProfile !== 'legible-resident-v1' ||
+    value.bodyProfile !== 'minecraft-human-semantic-v1' ||
+    value.actionProfile !== 'minecraft-human-semantic-v1' ||
+    value.safetyProfile !== 'vanilla-player-v1'
+  ) {
+    throw new Error('native tool resident profiles are not human-semantic v1');
+  }
+  if (!Array.isArray(value.actions) || value.actions.length < 1) {
+    throw new Error('native tool action contract is empty');
+  }
+  const names = value.actions.map((action: any) => String(action.name || ''));
+  if (names.some((name: string) => !name) || new Set(names).size !== names.length) {
+    throw new Error('native tool action contract names are invalid');
+  }
+  if (value.requiredAction !== null && !names.includes(value.requiredAction)) {
+    throw new Error('native tool required control is invalid');
+  }
+  return deepFreeze({
+    protocol: NATIVE_ACTION_CONTRACT_PROTOCOL,
+    policyProfile: value.policyProfile,
+    bodyProfile: value.bodyProfile,
+    actionProfile: value.actionProfile,
+    safetyProfile: value.safetyProfile,
+    actions: cloneJson(value.actions),
+    requiredAction: value.requiredAction,
+    responseProtocol: NATIVE_ACTION_RESPONSE_PROTOCOL,
+  });
+}
+
+function nativeActionMetadata(value: any) {
+  return deepFreeze({
+    protocol: NATIVE_ACTION_METADATA_PROTOCOL,
+    policyProfile: value.policyProfile,
+    bodyProfile: value.bodyProfile,
+    actionProfile: value.actionProfile,
+    safetyProfile: value.safetyProfile,
+    requiredAction: value.requiredAction,
+    responseProtocol: NATIVE_ACTION_RESPONSE_PROTOCOL,
+    actionContractSha256: digest(value.actionContractSha256, 'native action contract'),
+    toolsSha256: digest(value.toolsSha256, 'native tools'),
+  });
+}
+
+function parseNativeActionMetadata(value: unknown) {
+  const record = exactRecord(
+    value,
+    [
+      'protocol',
+      'policyProfile',
+      'bodyProfile',
+      'actionProfile',
+      'safetyProfile',
+      'requiredAction',
+      'responseProtocol',
+      'actionContractSha256',
+      'toolsSha256',
+    ],
+    'native resident action metadata',
+  );
+  if (
+    record.protocol !== NATIVE_ACTION_METADATA_PROTOCOL ||
+    record.responseProtocol !== NATIVE_ACTION_RESPONSE_PROTOCOL
+  ) {
+    throw new Error('native resident action metadata protocol is invalid');
+  }
+  if (
+    record.policyProfile !== 'legible-resident-v1' ||
+    record.bodyProfile !== 'minecraft-human-semantic-v1' ||
+    record.actionProfile !== 'minecraft-human-semantic-v1' ||
+    record.safetyProfile !== 'vanilla-player-v1'
+  ) {
+    throw new Error('native resident action metadata profiles are invalid');
+  }
+  if (record.requiredAction !== null && typeof record.requiredAction !== 'string') {
+    throw new Error('native resident action metadata required control is invalid');
+  }
+  return nativeActionMetadata(record);
+}
+
+function digest(value: unknown, label: string) {
+  const text = String(value || '');
+  if (!/^[a-f0-9]{64}$/.test(text)) throw new Error(`${label} must be a SHA-256 digest`);
+  return text;
 }
 
 function exactRecord(value: unknown, fields: readonly string[], label: string) {

@@ -293,7 +293,7 @@ test('the provider resident-session transport refuses another resident identity'
       content: JSON.stringify(residentRequest.observation),
     },
   ];
-  const body = directOpenRouterRequestBody(residentRequest, routePolicy);
+  const body = directOpenRouterRequestBody(residentRequest, routePolicy) as any;
 
   assert.doesNotThrow(() => assertOpenRouterRouteRequest(body, 'test/model', routePolicy, 'Scout'));
   assert.throws(
@@ -394,6 +394,11 @@ test('a v3 provider resident uses one exact native tool and retains its public c
   assert.equal(bodies[0].temperature, undefined);
   assert.equal(bodies[0].provider.require_parameters, false);
   assert.equal(bodies[0].tools.length, residentRequest.actions.length);
+  assert.match(bodies[0].messages[1].content, /BEHOLD_NATIVE_TOOL_ACTION_METADATA_V1_BEGIN/);
+  assert.doesNotMatch(
+    bodies[0].messages[1].content,
+    /BEHOLD_LOCAL_JSON_ACTION_CONTRACT|"actions"|"inputSchema"/,
+  );
   assert.deepEqual(bodies[0].tools[0].function.parameters.required, [
     'intention',
     'expectedObservableConsequence',
@@ -414,7 +419,49 @@ test('a v3 provider resident uses one exact native tool and retains its public c
   assert.equal(decision.publicCommitment?.intention, 'Step forward once');
   assert.equal(
     (decision.call.request as any).providerResidentSession.protocol,
-    'behold.openrouter-native-tool-resident-session.v1',
+    'behold.openrouter-native-tool-resident-session.v2',
+  );
+  assert.equal(
+    (decision.call.request as any).providerResidentSession.messageLayoutProtocol,
+    'behold.openrouter-native-tool-message-layout.v1',
+  );
+  assert.match(
+    (decision.call.request as any).providerResidentSession.requestPrefixSha256,
+    /^[a-f0-9]{64}$/,
+  );
+});
+
+test('a required native control keeps the full vocabulary and constrains only tool choice', () => {
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v3',
+    routes: [{ requestTag: 'openai', responseProvider: 'OpenAI' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+    residentDecisionFormat: 'native_tools',
+    reasoningEffort: 'none',
+  } as const;
+  const residentRequest = {
+    ...request(),
+    model: 'openai/gpt-5.6-luna',
+    policyProfile: 'legible-resident-v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+    requiredAction: 'wait_for_event',
+  } as any;
+
+  const body = directOpenRouterRequestBody(residentRequest, routePolicy) as any;
+
+  assert.equal(body.tools.length, residentRequest.actions.length);
+  assert.deepEqual(body.tool_choice, {
+    type: 'function',
+    function: { name: 'wait_for_event' },
+  });
+  assert.doesNotThrow(() => assertOpenRouterRouteRequest(body, residentRequest.model, routePolicy));
+  const drifted = structuredClone(body);
+  drifted.tool_choice.function.name = 'move_direction';
+  assert.throws(
+    () => assertOpenRouterRouteRequest(drifted, residentRequest.model, routePolicy),
+    /does not select the required control/,
   );
 });
 

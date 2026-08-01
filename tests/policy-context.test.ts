@@ -9,6 +9,29 @@ import {
 } from '../src/policy/context';
 import { residentTurnMayReplay } from '../src/mind/resident-visibility';
 import { projectHumanSemanticValue } from '../src/mind/minecraft-body';
+import { residentContinuityCoverageNotice } from '../src/policy/llm';
+
+test('bounded resident memory states the exact seam between a fold and recent continuity', () => {
+  const continuity = {
+    protocol: 'behold.resident-working-continuity.v1',
+    source: { fromTurn: 1402 },
+  } as any;
+
+  assert.equal(
+    residentContinuityCoverageNotice(
+      { content: 'Folded view of your own loom, turns 1-1391.\nNon-authoritative.' },
+      continuity,
+    ),
+    'Bounded memory coverage: turns 1392-1401 are not represented in this request; the full own Lync remains canonical.',
+  );
+  assert.equal(
+    residentContinuityCoverageNotice(
+      { content: 'Folded view of your own loom, turns 1-1401.\nNon-authoritative.' },
+      continuity,
+    ),
+    null,
+  );
+});
 
 test('model context suppresses only duplicated own-success lifecycle events without skipping them', () => {
   const frame = observation();
