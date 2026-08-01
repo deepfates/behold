@@ -147,6 +147,11 @@ Persistent living Place
   operator input file is not a second durability dependency. Use `--duration
 SECONDS` for a bounded episode; Ctrl-C requests the same clean drain, save,
   and stop path.
+- If the first attempt has already authenticated its session plan and immutable
+  genesis but fails before any managed epoch or persistent head exists, repeat
+  the same ordinary command without `--recover`. Behold reuses that exact basis
+  and preserves the failed episode evidence. Once any managed lifecycle exists,
+  a missing head fails closed and requires the distinct recovery path below.
 - If the owning process dies before that path publishes its terminal record,
   repeat the same command with `--recover`. Recovery starts no world or model:
   it releases only an exact dead local owner with clear process, lease, lock,
