@@ -1889,6 +1889,61 @@ test('an alternate mind receives one bounded observation and the exact admitted 
   }
 });
 
+test('camera perception fails before mind admission and never downgrades to semantic-only', async () => {
+  let mindCalls = 0;
+  let captures = 0;
+  const opportunities: any[] = [];
+  const errors: any[] = [];
+  const observation = experience(1, null, 0);
+  const mind: ResidentMind = {
+    id: 'camera-test-mind',
+    decide: async () => {
+      mindCalls += 1;
+      throw new Error('mind must not be called');
+    },
+  };
+  assert.throws(
+    () =>
+      startLLMPolicy(
+        { entityId: 'Scout', actions: [], attempt: () => true, observe: () => observation },
+        {
+          apiKey: 'unused',
+          model: 'test/model',
+          mind,
+          perceptionProfile: 'semantic-plus-camera-v1',
+          acceptEngineEvent: () => true,
+        },
+      ),
+    /requires an exact resident camera capture capability/,
+  );
+  const policy = startLLMPolicy(
+    { entityId: 'Scout', actions: [], attempt: () => true, observe: () => observation },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      perceptionProfile: 'semantic-plus-camera-v1',
+      capturePerception: async () => {
+        captures += 1;
+        throw new Error('camera unavailable');
+      },
+      acceptEngineEvent: () => true,
+      onDecisionOpportunity: (event) => opportunities.push(event),
+      onModelError: (error) => errors.push(error),
+    },
+  );
+  try {
+    await policy.tick();
+    assert.equal(captures, 1);
+    assert.equal(mindCalls, 0);
+    assert.deepEqual(opportunities, []);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /camera unavailable/);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('the world affordance boundary cannot introduce a capability outside its catalog', async () => {
   const requests: ResidentMindRequest[] = [];
   const logs: string[] = [];

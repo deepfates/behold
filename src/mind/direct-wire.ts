@@ -19,6 +19,9 @@ export function directOpenRouterRequestBody(
   routePolicy?: OpenRouterRoutePolicy | null,
 ) {
   if (request.policyProfile === 'resident-v2' || request.policyProfile === 'legible-resident-v1') {
+    if (request.perception) {
+      throw new Error('OpenRouter resident routes do not yet admit camera perception');
+    }
     if (
       request.policyProfile === 'legible-resident-v1' &&
       routePolicy?.protocol === 'behold.openrouter-route-policy.v3'

@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 
 export const RESIDENT_CAMERA_FRAME_PROTOCOL = 'behold.resident-camera-frame.v1' as const;
+export const RESIDENT_CAMERA_MAX_AGE_MS = 5_000;
+export const RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS = 15_000;
 export const RESIDENT_CAMERA_BINDING_PROTOCOL = 'behold.resident-camera-binding.v1' as const;
 export const RESIDENT_CAMERA_RENDERER_PROTOCOL = 'behold.resident-camera-renderer.v1' as const;
-export const MAX_RESIDENT_CAMERA_FRAME_BYTES = 3 * 1024 * 1024;
+export const MAX_RESIDENT_CAMERA_FRAME_BYTES = 2 * 1024 * 1024;
 
 export type ResidentCameraRenderer = Readonly<{
   protocol: typeof RESIDENT_CAMERA_RENDERER_PROTOCOL;
@@ -241,14 +243,6 @@ export function admitResidentCameraFrame(input: {
   maxCaptureDurationMs: number;
 }): ResidentCameraFrame {
   const frame = parseResidentCameraFrame(input.frame);
-  const now = timestamp(input.now, 'camera admission time');
-  const maxAgeMs = boundedInteger(input.maxAgeMs, 'camera maximum age', 0, 60_000);
-  const maxCaptureDurationMs = boundedInteger(
-    input.maxCaptureDurationMs,
-    'camera maximum capture duration',
-    0,
-    60_000,
-  );
   const expected = observationBinding(
     input.observation,
     frame.binding.camera,
@@ -261,6 +255,25 @@ export function admitResidentCameraFrame(input: {
       'resident camera frame belongs to another observation, resident body, or pose',
     );
   }
+  return admitResidentCameraFrameFreshness(input);
+}
+
+/** Recheck the already-bound frame immediately before an upstream model admission. */
+export function admitResidentCameraFrameFreshness(input: {
+  frame: unknown;
+  now: number;
+  maxAgeMs: number;
+  maxCaptureDurationMs: number;
+}): ResidentCameraFrame {
+  const frame = parseResidentCameraFrame(input.frame);
+  const now = timestamp(input.now, 'camera admission time');
+  const maxAgeMs = boundedInteger(input.maxAgeMs, 'camera maximum age', 0, 60_000);
+  const maxCaptureDurationMs = boundedInteger(
+    input.maxCaptureDurationMs,
+    'camera maximum capture duration',
+    0,
+    60_000,
+  );
   if (
     now < frame.binding.captureCompletedAt ||
     now - frame.binding.captureCompletedAt > maxAgeMs ||

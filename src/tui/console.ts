@@ -1,6 +1,6 @@
 import readline from 'node:readline';
 import type { ConfigEnvironment } from '../config';
-import { closeBotViewer, createBot } from '../bot';
+import { captureBotViewerFrame, closeBotViewer, createBot } from '../bot';
 import { buildInterpreter } from '../agent/interpreter';
 import { minecraftInhabitantActionsFor } from '../agent/affordances';
 import { minecraftActionsForProfile } from '../agent/action-profiles';
@@ -84,6 +84,7 @@ export async function runConsole(
   const bodyProfile = runtime.profiles.body;
   const actionProfile = runtime.profiles.actions;
   const safetyProfile = runtime.profiles.safety;
+  const perceptionProfile = runtime.profiles.perception;
   const mindAdapter = runtime.cognition.mind;
   const cognitionTransport = runtime.cognition.authenticatedTransport;
   const providerRoute = runtime.cognition.providerRoute;
@@ -108,6 +109,7 @@ export async function runConsole(
         body: bodyProfile,
         actions: actionProfile,
         safety: safetyProfile,
+        perception: perceptionProfile,
       },
       quotaAccountId: runtime.managed.quotaAccountId,
     },
@@ -164,6 +166,7 @@ export async function runConsole(
       bodyProfile,
       actionProfile,
       safetyProfile,
+      perceptionProfile,
       urgentModel: urgentModel ?? null,
       urgentDecisionTimeoutMs,
       tickMs: runtime.tickMs,
@@ -717,6 +720,13 @@ export async function runConsole(
         bodyProfile,
         actionProfile,
         safetyProfile,
+        perceptionProfile,
+        ...(perceptionProfile === 'semantic-plus-camera-v1'
+          ? {
+              capturePerception: (observation: unknown, options: { signal: AbortSignal }) =>
+                captureBotViewerFrame(bot, observation, options),
+            }
+          : {}),
         workingContinuity:
           (ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)) ||
           lmStudioLocal ||
@@ -849,7 +859,7 @@ export async function runConsole(
     );
     startPolicyIfReady();
     console.error(
-      `[console] LLM policy enabled (model ${model}${urgentModel ? `, bodily urgency ${urgentModel}` : ''}, mind ${mindAdapter}, policy ${policyProfile}, body ${bodyProfile}, actions ${actionProfile}, safety ${safetyProfile})`,
+      `[console] LLM policy enabled (model ${model}${urgentModel ? `, bodily urgency ${urgentModel}` : ''}, mind ${mindAdapter}, policy ${policyProfile}, body ${bodyProfile}, actions ${actionProfile}, safety ${safetyProfile}, perception ${perceptionProfile})`,
     );
   } else if (!apiKey) {
     console.error('[console] No admitted cognition credential; LLM autopilot disabled.');

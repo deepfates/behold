@@ -76,6 +76,17 @@ import {
 } from '../mind/minecraft-body';
 import type { OpenRouterRoutePolicy } from '../mind/openrouter-route';
 import { createResidentDecisionCycle, type ResidentWakeCause } from './decision-cycle';
+import {
+  residentPerceptionProfile,
+  usesResidentCamera,
+  type ResidentPerceptionProfile,
+} from '../perception/profile';
+import {
+  admitResidentCameraFrame,
+  RESIDENT_CAMERA_MAX_AGE_MS,
+  RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
+  type ResidentCameraFrame,
+} from '../perception/resident-camera-frame';
 
 export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
@@ -126,6 +137,13 @@ export type Options = {
   actionProfile?: MinecraftActionProfile;
   /** Versioned world/body risk policy selected by the world adapter. */
   safetyProfile?: MinecraftSafetyProfile;
+  /** Explicit sensory treatment; camera augments the same semantic observation. */
+  perceptionProfile?: ResidentPerceptionProfile;
+  /** Authority-free capture over the exact raw observation selected for this decision. */
+  capturePerception?: (
+    observation: unknown,
+    options: Readonly<{ signal: AbortSignal }>,
+  ) => Promise<ResidentCameraFrame>;
   /** Durable matched-population release observed by this resident process. */
   experimentRelease?: () => ExperimentReleaseReference | null;
   log?: (s: string) => void;
@@ -139,6 +157,8 @@ export type Options = {
     bodyProfile: MinecraftBodyProfile;
     actionProfile: MinecraftActionProfile;
     safetyProfile: MinecraftSafetyProfile;
+    perceptionProfile: ResidentPerceptionProfile;
+    perception: ReturnType<typeof cameraFrameSummary> | null;
     experimentRelease: ExperimentReleaseReference | null;
     observation: any;
     assistant: any;
@@ -223,6 +243,7 @@ type ValidatedModelDecision = {
 
 type ModelDecision = ValidatedModelDecision & {
   requestSha256: string;
+  perception: ReturnType<typeof cameraFrameSummary> | null;
 };
 
 type ActiveDecision = {
@@ -258,6 +279,20 @@ export const DEFAULT_URGENT_DECISION_TIMEOUT_MS = 5_000;
 export const DEFAULT_LOOM_FOLD_MAX_OUTPUT_TOKENS = 1_024;
 const WAIT_TOOL = 'wait_for_event';
 const COLLECT_TOOL = 'collect_nearby_item';
+
+function cameraFrameSummary(frame: ResidentCameraFrame) {
+  return Object.freeze({
+    frameDigest: frame.digest,
+    contentSha256: frame.content.sha256,
+    bindingSha256: frame.bindingSha256,
+    observationSha256: frame.binding.observationSha256,
+    bytes: frame.content.bytes,
+    width: frame.content.width,
+    height: frame.content.height,
+    captureStartedAt: frame.binding.captureStartedAt,
+    captureCompletedAt: frame.binding.captureCompletedAt,
+  });
+}
 const COMMUNICATION_TOOLS = new Set(['chat', 'whisper']);
 const SOCIAL_CAMERA_TOOLS = new Set([...COMMUNICATION_TOOLS, 'look_at', 'look_direction']);
 const PROJECT_PROGRESS_EVENT_TYPES = new Set([
@@ -390,6 +425,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     opts.safetyProfile ??
       (usesHumanSemanticPolicySurface(policyProfile) ? 'vanilla-player-v1' : 'resident-safe-v1'),
   );
+  const perceptionProfile = residentPerceptionProfile(opts.perceptionProfile);
+  if (usesResidentCamera(perceptionProfile) && !opts.capturePerception) {
+    throw new Error(`${perceptionProfile} requires an exact resident camera capture capability`);
+  }
   if (usesHumanSemanticBody(bodyProfile) !== (actionProfile === 'minecraft-human-semantic-v1')) {
     throw new Error(
       `body profile ${bodyProfile} must be paired with its matching action profile; received ${actionProfile}`,
@@ -862,6 +901,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
               );
             }, urgentDecisionTimeoutMs)
           : null;
+        const cameraFrame = usesResidentCamera(perceptionProfile)
+          ? admitResidentCameraFrame({
+              frame: await opts.capturePerception!(currentObservation, { signal }),
+              observation: currentObservation,
+              now: now(),
+              maxAgeMs: RESIDENT_CAMERA_MAX_AGE_MS,
+              maxCaptureDurationMs: RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
+            })
+          : null;
         const request: ResidentMindRequest = {
           protocol: 'behold.mind-request.v1',
           entityId,
@@ -872,6 +920,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           safetyProfile,
           ...(experimentRelease ? { experimentRelease } : {}),
           observation: cloneJson(modelObservation),
+          ...(cameraFrame
+            ? {
+                perception: {
+                  profile: 'semantic-plus-camera-v1' as const,
+                  camera: cameraFrame,
+                },
+              }
+            : {}),
           conversation: cloneJson(
             conversationForAttention(
               messages,
@@ -954,7 +1010,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             terminal: 'success',
             call: validated.call,
           });
-          return { ...validated, requestSha256 };
+          return {
+            ...validated,
+            requestSha256,
+            perception: cameraFrame ? cameraFrameSummary(cameraFrame) : null,
+          };
         } finally {
           if (deadline) clearTimeout(deadline);
         }
@@ -993,6 +1053,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         bodyProfile,
         actionProfile,
         safetyProfile,
+        perceptionProfile,
+        perception: decision.perception,
         experimentRelease,
         observation: modelObservation,
         assistant,

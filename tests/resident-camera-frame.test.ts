@@ -6,6 +6,7 @@ import {
   RESIDENT_CAMERA_FRAME_PROTOCOL,
   RESIDENT_CAMERA_RENDERER_PROTOCOL,
   admitResidentCameraFrame,
+  admitResidentCameraFrameFreshness,
   createResidentCameraFrame,
   createResidentCameraRenderer,
   parseResidentCameraFrame,
@@ -163,6 +164,26 @@ test('camera admission rejects aged, future, and overlong captures', () => {
   throwsCode(() => admitAt(1_035), 'resident_camera_stale');
   throwsCode(() => admitAt(1_013), 'resident_camera_stale');
   throwsCode(() => admitAt(1_020, 20, 3), 'resident_camera_stale');
+
+  assert.deepEqual(
+    admitResidentCameraFrameFreshness({
+      frame,
+      now: 1_034,
+      maxAgeMs: 20,
+      maxCaptureDurationMs: 10,
+    }),
+    frame,
+  );
+  throwsCode(
+    () =>
+      admitResidentCameraFrameFreshness({
+        frame,
+        now: 1_035,
+        maxAgeMs: 20,
+        maxCaptureDurationMs: 10,
+      }),
+    'resident_camera_stale',
+  );
 });
 
 test('perspective camera metadata derives horizontal FOV from the exact viewport', () => {

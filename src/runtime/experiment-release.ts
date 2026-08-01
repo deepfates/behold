@@ -32,6 +32,8 @@ export type ExperimentReleaseResident = Readonly<{
     body: string;
     actions: string;
     safety: string;
+    /** Absent only in release records created before explicit perception treatments. */
+    perception?: string;
   }>;
   quotaAccount: Readonly<{
     accountId: string;
@@ -619,9 +621,14 @@ function parseResident(value: unknown): ExperimentReleaseResident {
     ],
     'release resident',
   );
+  const hasPerception =
+    record.profiles != null &&
+    typeof record.profiles === 'object' &&
+    !Array.isArray(record.profiles) &&
+    Object.prototype.hasOwnProperty.call(record.profiles, 'perception');
   const profiles = exactRecord(
     record.profiles,
-    ['policy', 'body', 'actions', 'safety'],
+    ['policy', 'body', 'actions', 'safety', ...(hasPerception ? ['perception'] : [])],
     'release resident profiles',
   );
   const quota = exactRecord(
@@ -677,6 +684,9 @@ function parseResident(value: unknown): ExperimentReleaseResident {
       body: boundedId(profiles.body, 'release body profile'),
       actions: boundedId(profiles.actions, 'release action profile'),
       safety: boundedId(profiles.safety, 'release safety profile'),
+      ...(hasPerception
+        ? { perception: boundedId(profiles.perception, 'release perception profile') }
+        : {}),
     },
     quotaAccount: {
       accountId: digest(quota.accountId, 'release quota account'),

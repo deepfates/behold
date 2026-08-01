@@ -58,6 +58,7 @@ test('resident runtime resolves explicit launch inputs without mutating either e
     body: 'minecraft-human-semantic-v1',
     actions: 'minecraft-human-semantic-v1',
     safety: 'vanilla-player-v1',
+    perception: 'semantic-only-v1',
   });
   assert.deepEqual(runtime.allowTools, ['move_controls', 'dig_focused_block']);
   assert.equal(runtime.paused, true);
@@ -110,6 +111,7 @@ test('resident runtime uses one cadence default throughout composition', () => {
     body: 'minecraft-human-semantic-v1',
     actions: 'minecraft-human-semantic-v1',
     safety: 'vanilla-player-v1',
+    perception: 'semantic-only-v1',
   });
 });
 

@@ -6,6 +6,7 @@ import { assertEntityConnectionCapability, type EntityConnectionCapability } fro
 import { startResidentViewer, type ResidentViewerHandle } from './observability/resident-viewer';
 
 const viewerClosers = new WeakMap<Bot, () => Promise<void>>();
+const viewerHandles = new WeakMap<Bot, Promise<ResidentViewerHandle | null>>();
 
 export function createBot(
   config: Config,
@@ -91,6 +92,7 @@ function bindCoreEvents(bot: Bot, config: Config) {
             return null;
           })
       : Promise.resolve(null);
+    viewerHandles.set(bot, viewerStart);
 
     void Promise.all([bot.waitForChunksToLoad(), viewerStart])
       // Keep the lifecycle marker on its own stderr line. The interactive
@@ -133,6 +135,17 @@ function bindCoreEvents(bot: Bot, config: Config) {
 
 export async function closeBotViewer(bot: Bot) {
   await viewerClosers.get(bot)?.();
+}
+
+export async function captureBotViewerFrame(
+  bot: Bot,
+  observation: unknown,
+  options: Readonly<{ signal?: AbortSignal }> = {},
+) {
+  const viewer = await viewerHandles.get(bot);
+  if (!viewer) throw new Error('resident camera perception requires an active viewer');
+  if (!viewer.firstPerson) throw new Error('resident camera perception requires first-person view');
+  return viewer.captureFrame(observation, options);
 }
 
 export function restrictNavigationToLocomotion(movements: any) {

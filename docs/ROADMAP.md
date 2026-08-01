@@ -37,6 +37,18 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Current truth (updated 2026-08-01)
 
+- The separately named `semantic-plus-camera-v1` experiment now reaches the
+  actual resident mind boundary. It lazily captures one exact first-person
+  Prismarine frame, admits it against the selected raw body observation, binds
+  it into the request hash, preserves the unchanged semantic text and stable
+  resident prefix, and sends it only through an LM Studio model whose fresh
+  inventory declares vision support. Semantic-only remains the default; camera
+  failure never downgrades or calls a mind, and pixels remain outside Lync and
+  Textile. Matched no-world probes passed public strict-schema output for the
+  installed Gemma 4 12B and Qwen 3.6 35B-A3B with `reasoning_effort: none`;
+  omitting that admitted setting exposed only private reasoning and was
+  correctly rejected. The real persistent-world camera path, measured latency,
+  image-session isolation, and model-by-perception comparison remain open.
 - The compact action-only `resident-v2` interface has crossed an ordinary
   two-resident live/lens/stop/resume exercise with one shared local Gemma 4 12B
   weight and separate requests and Lync lives. Elm and Pine completed 5 and 6

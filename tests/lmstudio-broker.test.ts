@@ -52,6 +52,14 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
         lmStudioLocal: policy,
         lmStudioResidentIdentity: 'Birch',
       },
+      {
+        bearer: token('camera'),
+        residentKey: cognitionResidentKey('lmstudio-fixture', 'CameraAster'),
+        model: policy.modelKey,
+        lmStudioLocal: policy,
+        lmStudioResidentIdentity: 'Aster',
+        perceptionProfile: 'semantic-plus-camera-v1',
+      },
     ],
     maxConcurrent: 1,
     journalFile,
@@ -94,6 +102,42 @@ test('the cognition gate preserves exact LM Studio wire and rejects returned ins
     const refused = await request(broker.endpoint, JSON.stringify(driftedWire), 'wire-drift');
     assert.equal(refused.status, 400);
     assert.equal(((await refused.json()) as any).error.code, 'request_lmstudio_policy_mismatch');
+    assert.equal(calls, 0);
+
+    const cameraWire = structuredClone(serialized.body) as any;
+    const current = cameraWire.messages.at(-1);
+    current.content = [
+      { type: 'text', text: current.content },
+      {
+        type: 'image_url',
+        image_url: {
+          url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lZVQVAAAAABJRU5ErkJggg==',
+        },
+      },
+    ];
+    const imageOnSemantic = await request(
+      broker.endpoint,
+      JSON.stringify(cameraWire),
+      'image-on-semantic',
+    );
+    assert.equal(imageOnSemantic.status, 400);
+    assert.equal(
+      ((await imageOnSemantic.json()) as any).error.code,
+      'request_lmstudio_policy_mismatch',
+    );
+    const textOnCamera = await request(
+      broker.endpoint,
+      JSON.stringify(serialized.body),
+      'text-on-camera',
+      'resident_decision',
+      'deliberative',
+      token('camera'),
+    );
+    assert.equal(textOnCamera.status, 400);
+    assert.equal(
+      ((await textOnCamera.json()) as any).error.code,
+      'request_lmstudio_policy_mismatch',
+    );
     assert.equal(calls, 0);
 
     assert.equal(lmStudioResidentInstanceId(policy, 'Birch'), instanceId);

@@ -132,6 +132,26 @@ test('patched Prismarine renderer retains visible terrain below Y=0', () => {
   assert.ok(geometry.indices.length > 0, 'negative-Y terrain produced no visible faces');
 });
 
+test('an aborted camera request starts no renderer and returns no frame', async () => {
+  const bot = fakeBot('AbortBody');
+  const viewer = await startResidentViewer(bot as any, {
+    host: '127.0.0.1',
+    port: 0,
+    firstPerson: true,
+    viewDistance: 2,
+  });
+  try {
+    const abort = new AbortController();
+    abort.abort(new Error('decision opportunity ended'));
+    await assert.rejects(
+      viewer.captureFrame(residentObservation(bot), { signal: abort.signal }),
+      /decision opportunity ended/,
+    );
+  } finally {
+    await viewer.close();
+  }
+});
+
 test('capture renderer returns one frame bound to the exact current resident pose', async (t) => {
   const executablePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   if (!require('node:fs').existsSync(executablePath)) {

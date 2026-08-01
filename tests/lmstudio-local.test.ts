@@ -30,6 +30,10 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
 } from '../src/mind/ollama-json-action';
+import {
+  createResidentCameraFrame,
+  createResidentCameraRenderer,
+} from '../src/perception/resident-camera-frame';
 
 const TEMPLATE = 'fixture lm studio resident template';
 const APP_VERSION = '0.4.12+1';
@@ -378,6 +382,59 @@ test('LM Studio resident-v2 session is action-only while preserving the stable o
   assert.deepEqual(assertLmStudioLocalWireRequest(body, residentPolicy), serialized.identity);
 });
 
+test('LM Studio camera perception adds one bound image without changing semantic text or prefix', async (t) => {
+  const fixture = await artifactFixture(t);
+  const residentPolicy = policy(fixture);
+  const semanticRequest = request(residentPolicy.modelKey) as any;
+  const instanceId = expectedInstanceId(residentPolicy);
+  const semantic = createLmStudioLocalJsonActionRequest(
+    semanticRequest,
+    residentPolicy,
+    instanceId,
+  );
+  const camera = createLmStudioLocalJsonActionRequest(
+    {
+      ...semanticRequest,
+      perception: { profile: 'semantic-plus-camera-v1', camera: cameraFrame() },
+    },
+    residentPolicy,
+    instanceId,
+  );
+  const semanticBody: any = semantic.body;
+  const cameraBody: any = camera.body;
+  const semanticCurrent = semanticBody.messages.at(-1).content;
+  const cameraCurrent = cameraBody.messages.at(-1).content;
+
+  assert.equal(typeof semanticCurrent, 'string');
+  assert.equal(cameraCurrent.length, 2);
+  assert.deepEqual(cameraCurrent[0], { type: 'text', text: semanticCurrent });
+  assert.match(cameraCurrent[1].image_url.url, /^data:image\/png;base64,/);
+  assert.deepEqual(cameraBody.messages.slice(0, 2), semanticBody.messages.slice(0, 2));
+  assert.equal(camera.identity.stablePrefixSha256, semantic.identity.stablePrefixSha256);
+  assert.deepEqual(
+    assertLmStudioLocalJsonActionRequest(
+      cameraBody,
+      {
+        ...semanticRequest,
+        perception: { profile: 'semantic-plus-camera-v1', camera: cameraFrame() },
+      },
+      residentPolicy,
+      instanceId,
+    ),
+    camera.identity,
+  );
+  assert.deepEqual(
+    assertLmStudioLocalWireRequest(
+      cameraBody,
+      residentPolicy,
+      undefined,
+      undefined,
+      'semantic-plus-camera-v1',
+    ),
+    camera.identity,
+  );
+});
+
 test('LM Studio prefix readiness prefills only the exact stable contract without action authority', async (t) => {
   const fixture = await artifactFixture(t);
   const residentPolicy = policy(fixture);
@@ -507,6 +564,7 @@ test('LM Studio read-only preflight binds CLI, app, MLX engine, index, artifact 
   assert.equal(preflight.models[0].artifactTreeSha256, fixture.treeSha256);
   assert.equal(preflight.models[0].templateSha256, sha256(TEMPLATE));
   assert.equal(preflight.models[0].maxContextTokens, 65_536);
+  assert.equal(preflight.models[0].vision, true);
 
   await assert.rejects(
     preflightLmStudioLocal({
@@ -627,7 +685,7 @@ test('same-model residents share weights while retaining distinct resident bindi
           size_bytes: residentPolicy.artifact.sizeBytes,
           architecture: 'qwen3',
           max_context_length: 32768,
-          capabilities: { trained_for_tool_use: true },
+          capabilities: { trained_for_tool_use: true, vision: true },
           loaded_instances: [...loaded].map((id) => ({
             id,
             config: {
@@ -855,6 +913,95 @@ function request(model: string) {
   } as const;
 }
 
+function cameraFrame() {
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    circle: { id: 'minecraft:test-circle', substrate: 'minecraft', managedRunId: 'run-1' },
+    sequence: 7,
+    observedAt: 1_000,
+    eventWindow: {
+      requestedAfterSequence: 6,
+      oldestAvailableSequence: 7,
+      newestAvailableSequence: 7,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
+    task: null,
+    self: {
+      identity: 'OxfordAster',
+      body: {
+        substrate: 'minecraft',
+        username: 'AsterBot',
+        uuid: '00000000-0000-4000-8000-000000000001',
+      },
+      pose: {
+        position: { x: 12.25, y: 64, z: -3.5 },
+        yaw: 0.5,
+        pitch: -0.25,
+        velocity: { x: 0, y: 0, z: 0 },
+        onGround: true,
+      },
+      condition: {
+        health: 20,
+        food: 20,
+        oxygen: 20,
+        sleeping: false,
+        dimension: 'minecraft:overworld',
+        isDay: true,
+      },
+      heldItem: null,
+      inventory: [],
+      projects: [],
+      places: [],
+      placeConflicts: [],
+      currentAction: null,
+    },
+    scene: {
+      social: { source: 'server_roster', playersOnline: ['AsterBot'], note: '' },
+      focus: null,
+      entities: [],
+      terrain: {
+        source: 'vision',
+        horizontalFovDegrees: 100,
+        verticalFovDegrees: 70,
+        maxDistance: 24,
+        raysCast: 1,
+        raysHit: 0,
+        failedRays: 0,
+        materials: [],
+        targets: [],
+        visualField: { rows: [] },
+        note: '',
+      },
+    },
+    events: [],
+  };
+  return createResidentCameraFrame({
+    bytes: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC',
+      'base64',
+    ),
+    mediaType: 'image/png',
+    observation,
+    renderer: createResidentCameraRenderer({
+      name: 'deterministic-fixture',
+      version: '1',
+      implementationSha256: '12'.repeat(32),
+      verticalFovDegrees: 75,
+      width: 10,
+      height: 10,
+      viewDistanceChunks: 6,
+    }),
+    renderedCamera: {
+      position: { x: 12.25, y: 65.62, z: -3.5 },
+      yaw: 0.5,
+      pitch: -0.25,
+    },
+    captureStartedAt: 1_010,
+    captureCompletedAt: 1_014,
+  });
+}
+
 function preflightRunner(residentPolicy: LmStudioLocalPolicy) {
   return (args: readonly string[]) => {
     if (args[0] === '--version') return `CLI commit: ${CLI_COMMIT}\n`;
@@ -897,7 +1044,7 @@ function inventoryResponse(residentPolicy: LmStudioLocalPolicy, loaded: readonly
         max_context_length: 65_536,
         selected_variant:
           residentPolicy.modelKey === residentPolicy.catalogKey ? null : residentPolicy.modelKey,
-        capabilities: { trained_for_tool_use: true },
+        capabilities: { trained_for_tool_use: true, vision: true },
         loaded_instances: loaded.map((id) => ({
           id,
           config: { context_length: residentPolicy.settings.contextTokens, parallel: 1 },

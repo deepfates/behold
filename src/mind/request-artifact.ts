@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ResidentAttention, ResidentMindAction, ResidentMindRequest } from './interface';
 import { parseExperimentReleaseReference } from '../runtime/experiment-release';
+import { parseResidentCameraFrame } from '../perception/resident-camera-frame';
 
 export const RESIDENT_MIND_REQUEST_ARTIFACT_PROTOCOL = 'behold.mind-request-artifact.v1' as const;
 
@@ -20,6 +21,7 @@ const REQUEST_FIELDS = new Set([
   'safetyProfile',
   'experimentRelease',
   'observation',
+  'perception',
   'conversation',
   'actions',
   'requiredAction',
@@ -96,12 +98,37 @@ export function parseResidentMindRequest(value: unknown): Readonly<ResidentMindR
       ? {}
       : { experimentRelease: parseExperimentReleaseReference(request.experimentRelease) }),
     observation,
+    ...(request.perception == null
+      ? {}
+      : { perception: parseResidentPerception(request.perception) }),
     conversation,
     actions,
     requiredAction,
     ...(request.attention == null ? {} : { attention: parseAttention(request.attention) }),
   };
+  if (parsed.perception) {
+    const semanticSelf = plainRecord(parsed.observation)?.self;
+    const semanticIdentity = plainRecord(semanticSelf)?.identity;
+    if (
+      parsed.perception.camera.binding.entityId !== parsed.entityId ||
+      (semanticIdentity != null && semanticIdentity !== parsed.entityId)
+    ) {
+      throw new Error('resident camera perception belongs to another resident identity');
+    }
+  }
   return deepFreeze(parsed);
+}
+
+function parseResidentPerception(value: unknown): NonNullable<ResidentMindRequest['perception']> {
+  const perception = plainObject(value, 'resident mind perception');
+  assertExactFields(perception, new Set(['profile', 'camera']), 'resident mind perception');
+  if (perception.profile !== 'semantic-plus-camera-v1') {
+    throw new Error('unsupported resident mind perception profile');
+  }
+  return deepFreeze({
+    profile: 'semantic-plus-camera-v1' as const,
+    camera: parseResidentCameraFrame(perception.camera),
+  });
 }
 
 export function residentMindRequestSha256(value: unknown): string {
@@ -245,6 +272,12 @@ function plainObject(value: unknown, label: string): Record<string, any> {
     throw new Error(`${label} must be a plain object`);
   }
   return value as Record<string, any>;
+}
+
+function plainRecord(value: unknown): Record<string, any> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : null;
 }
 
 function assertAllowedFields(value: Record<string, unknown>, allowed: Set<string>, label: string) {

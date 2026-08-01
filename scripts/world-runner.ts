@@ -104,6 +104,10 @@ import {
   usesHumanSemanticBody,
   type MinecraftBodyProfile,
 } from '../src/mind/minecraft-body';
+import {
+  residentPerceptionProfile,
+  type ResidentPerceptionProfile,
+} from '../src/perception/profile';
 import { verifyQuotaLedger } from '../src/observability/quota-ledger';
 import {
   commitExperimentRelease,
@@ -235,6 +239,7 @@ export type ManagedResidentSpec = Readonly<{
   bodyProfile?: MinecraftBodyProfile;
   actionProfile?: MinecraftActionProfile;
   safetyProfile?: MinecraftSafetyProfile;
+  perceptionProfile?: ResidentPerceptionProfile;
   tickMs?: number;
   /** Maximum entity turns in one uninterrupted cognition burst. */
   maxTurnSteps?: number;
@@ -274,6 +279,7 @@ const MANAGED_RESIDENT_SET_FIELDS = new Set([
   'bodyProfile',
   'actionProfile',
   'safetyProfile',
+  'perceptionProfile',
   'tickMs',
   'maxTurnSteps',
   'resumeAfterBudget',
@@ -299,6 +305,7 @@ const RESIDENT_LEVEL_CLI_FIELDS = [
   'bodyProfile',
   'actionProfile',
   'safetyProfile',
+  'perceptionProfile',
   'tickMs',
   'task',
   'target',
@@ -387,6 +394,7 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
       ['bodyProfile', minecraftBodyProfile],
       ['actionProfile', minecraftActionProfile],
       ['safetyProfile', minecraftSafetyProfile],
+      ['perceptionProfile', residentPerceptionProfile],
     ] as const) {
       if (candidate[field] === undefined) continue;
       try {
@@ -703,6 +711,7 @@ export type ManagedWorldRun = Readonly<{
     bodyProfile: MinecraftBodyProfile;
     actionProfile: MinecraftActionProfile;
     safetyProfile: MinecraftSafetyProfile;
+    perceptionProfile: ResidentPerceptionProfile;
     tickMs: number;
     maxTurnSteps: number | null;
     resumeAfterBudget: boolean | null;
@@ -798,6 +807,7 @@ type NormalizedManagedResident = Readonly<{
   bodyProfile: MinecraftBodyProfile;
   actionProfile: MinecraftActionProfile;
   safetyProfile: MinecraftSafetyProfile;
+  perceptionProfile: ResidentPerceptionProfile;
   tickMs: number;
   maxTurnSteps?: number;
   resumeAfterBudget?: boolean;
@@ -981,6 +991,7 @@ function normalizeManagedResidents(
       let bodyProfile: MinecraftBodyProfile;
       let actionProfile: MinecraftActionProfile;
       let safetyProfile: MinecraftSafetyProfile;
+      let perceptionProfile: ResidentPerceptionProfile;
       try {
         policyProfile = residentPolicyProfile(candidate.policyProfile);
         bodyProfile = minecraftBodyProfile(
@@ -1009,6 +1020,7 @@ function normalizeManagedResidents(
               ? 'vanilla-player-v1'
               : 'resident-safe-v1'),
         );
+        perceptionProfile = residentPerceptionProfile(candidate.perceptionProfile);
       } catch (error: any) {
         throw new WorldRunnerError(
           `Invalid resident profile for ${entityId}: ${error?.message || String(error)}`,
@@ -1020,6 +1032,7 @@ function normalizeManagedResidents(
             bodyProfile: candidate.bodyProfile,
             actionProfile: candidate.actionProfile,
             safetyProfile: candidate.safetyProfile,
+            perceptionProfile: candidate.perceptionProfile,
           },
         );
       }
@@ -1271,6 +1284,7 @@ function normalizeManagedResidents(
         bodyProfile,
         actionProfile,
         safetyProfile,
+        perceptionProfile,
         tickMs,
         ...(maxTurnSteps == null ? {} : { maxTurnSteps }),
         ...(candidate.resumeAfterBudget == null
@@ -1525,6 +1539,7 @@ function managedProviderAccounting(
           bodyProfile: resident.bodyProfile,
           actionProfile: resident.actionProfile,
           safetyProfile: resident.safetyProfile,
+          perceptionProfile: resident.perceptionProfile,
         })),
       },
     );
@@ -1673,6 +1688,7 @@ function publicResidentRecords(residents: readonly ManagedResidentProcess[]) {
         bodyProfile: entry.resident.bodyProfile,
         actionProfile: entry.resident.actionProfile,
         safetyProfile: entry.resident.safetyProfile,
+        perceptionProfile: entry.resident.perceptionProfile,
         tickMs: entry.resident.tickMs,
         maxTurnSteps: entry.resident.maxTurnSteps ?? null,
         resumeAfterBudget: entry.resident.resumeAfterBudget ?? null,
@@ -1964,6 +1980,21 @@ export async function startManagedWorld(
           ...(dependencies.now ? { now: dependencies.now } : {}),
         })
       : null;
+  if (lmStudioPreflight) {
+    for (const resident of activeLmStudioResidents) {
+      if (resident.perceptionProfile !== 'semantic-plus-camera-v1') continue;
+      const model = lmStudioPreflight.models.find(
+        (candidate) => candidate.modelKey === resident.lmStudioLocal!.modelKey,
+      );
+      if (!model?.vision) {
+        throw new WorldRunnerError(
+          `Resident ${resident.entityId} camera perception requires an admitted LM Studio vision model`,
+          'resident_camera_model_not_vision_capable',
+          { entityId: resident.entityId, model: resident.model },
+        );
+      }
+    }
+  }
   const cognitionResidentCount = residents.filter((resident) => !resident.paused).length;
   const maxConcurrentModelCalls =
     cognitionResidentCount > 0 ? managedModelConcurrencyLimit(options, cognitionResidentCount) : 0;
@@ -2095,6 +2126,7 @@ export async function startManagedWorld(
                 residentKey: cognitionResidentKey(managedRunId, resident.entityId),
                 residentIdentity: resident.entityId,
                 policyProfile: resident.policyProfile,
+                perceptionProfile: resident.perceptionProfile,
                 model: resident.model,
                 ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
                 ...(resident.providerRoute ? { routePolicy: resident.providerRoute } : {}),
@@ -2168,6 +2200,7 @@ export async function startManagedWorld(
           bodyProfile: resident.bodyProfile,
           actionProfile: resident.actionProfile,
           safetyProfile: resident.safetyProfile,
+          perceptionProfile: resident.perceptionProfile,
           tickMs: resident.tickMs,
           maxTurnSteps: resident.maxTurnSteps ?? null,
           resumeAfterBudget: resident.resumeAfterBudget ?? null,
@@ -2460,6 +2493,7 @@ export async function startManagedWorld(
               body: resident.bodyProfile,
               actions: resident.actionProfile,
               safety: resident.safetyProfile,
+              perception: resident.perceptionProfile,
             },
             quotaAccount: {
               accountId: account.accountId,
@@ -3754,6 +3788,8 @@ function spawnDefaultController(
     resident.actionProfile,
     '--safetyProfile',
     resident.safetyProfile,
+    '--perceptionProfile',
+    resident.perceptionProfile,
     '--tickMs',
     String(resident.tickMs),
   ];
@@ -3864,6 +3900,7 @@ function managedControllerEnvironment(
   env.BEHOLD_BODY_PROFILE = resident.bodyProfile;
   env.BEHOLD_ACTION_PROFILE = resident.actionProfile;
   env.BEHOLD_SAFETY_PROFILE = resident.safetyProfile;
+  env.BEHOLD_PERCEPTION_PROFILE = resident.perceptionProfile;
   return Object.freeze(env);
 }
 
@@ -3899,6 +3936,7 @@ const RESERVED_RESIDENT_ENVIRONMENT = new Set([
   'BEHOLD_BODY_PROFILE',
   'BEHOLD_ACTION_PROFILE',
   'BEHOLD_SAFETY_PROFILE',
+  'BEHOLD_PERCEPTION_PROFILE',
 ]);
 
 function normalizeResidentEnvironment(
@@ -4750,6 +4788,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       bodyProfile: { type: 'string' },
       actionProfile: { type: 'string' },
       safetyProfile: { type: 'string' },
+      perceptionProfile: { type: 'string' },
       controller: { type: 'string', multiple: true },
       body: { type: 'string', multiple: true },
       mind: { type: 'string' },
@@ -4889,6 +4928,9 @@ export async function runCli(argv = process.argv.slice(2)) {
         process.env.BEHOLD_SAFETY_PROFILE ||
         (usesHumanSemanticPolicySurface(policyProfile) ? 'vanilla-player-v1' : 'resident-safe-v1'),
     );
+    const perceptionProfile = residentPerceptionProfile(
+      parsed.values.perceptionProfile || process.env.BEHOLD_PERCEPTION_PROFILE,
+    );
     const tickMs = Number(parsed.values.tickMs || process.env.AGENT_TICK_MS || 4000);
     residents = controllerEntityIds.map((entityId, index) => ({
       entityId,
@@ -4900,6 +4942,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       bodyProfile,
       actionProfile,
       safetyProfile,
+      perceptionProfile,
       tickMs,
       paused: parsed.values.paused,
       ...controllerProfile,
@@ -5023,7 +5066,7 @@ function usage() {
     'Usage:',
     '  world-runner status --config <file> --world <id>',
     '  world-runner recover --config <file> --world <id>',
-    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1|legible-resident-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--lmStudioModelsRoot <dir>] [--task <name>] [--target <player>]',
+    '  world-runner start --config <file> --world <id> [--residents <json-file> | --controller <life-id> ...] [--body <minecraft-username> ...] [--model <slug>] [--urgentModel <slug>] [--mind direct|ax] [--paused] [--policyProfile resident-v1|neutral-benchmark-v1|legible-resident-v1] [--bodyProfile minecraft-resident-v1|minecraft-human-semantic-v1] [--actionProfile resident-v1|minecraft-player-v1|minecraft-human-semantic-v1] [--safetyProfile resident-safe-v1|vanilla-player-v1] [--perceptionProfile semantic-only-v1|semantic-plus-camera-v1] [--tickMs <ms>] [--maxResidents <n>] [--maxModelConcurrency <n>] [--maxModelCalls <n>] [--accountingScope <id>] [--duration <live-seconds>] [--viewerBasePort <port>] [--viewerDistance <2-16>] [--lmStudioModelsRoot <dir>] [--task <name>] [--target <player>]',
     '',
     'Repeat --controller to start independently leased residents in one exact managed epoch.',
     'Repeat --body in the same order only when a life ID differs from its Minecraft username.',
@@ -5031,6 +5074,7 @@ function usage() {
     'Without profile flags, the foreground runner starts the continuing resident profile. neutral-benchmark-v1 and legible-resident-v1 default to the matching minecraft-human-semantic-v1 body/action surface and vanilla-player-v1 risk policy; legible-resident-v1 additionally requires the strict local JSON v2 transport.',
     'With --duration, graceful shutdown begins after that much post-readiness live time.',
     'With --viewerBasePort, each resident gets one loopback-only, first-person, read-only Prismarine Viewer endpoint on consecutive ports; --viewerDistance defaults to 6.',
+    "--perceptionProfile semantic-plus-camera-v1 augments the bounded semantic observation with that resident's exact first-person frame and currently requires a vision-capable LM Studio route plus viewer.",
     'With --maxModelCalls, the broker refuses calls past the exact population-wide admission ceiling and the owner then shuts down.',
     'With --accountingScope and resident-set providerQuotas, equal per-resident decision and auxiliary provider-attempt quotas persist across epochs.',
     'With --urgentModel, only newly urgent bodily/world evidence uses that model; ordinary and social decisions retain --model.',

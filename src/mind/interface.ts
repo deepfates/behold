@@ -1,6 +1,7 @@
 import type { ModelCallEvidence, ModelCallFailureEvidence } from './evidence';
 import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import type { ResidentPublicActionCommitment } from './public-commitment';
+import type { ResidentCameraFrame } from '../perception/resident-camera-frame';
 
 export type ResidentMindAction = {
   name: string;
@@ -55,6 +56,11 @@ export type ResidentMindRequest = {
   /** Operator-side release identity; adapters retain it for attribution, not world perception. */
   experimentRelease?: ExperimentReleaseReference;
   observation: unknown;
+  /** Optional exact sensory augmentation; semantic observation remains present and authoritative. */
+  perception?: Readonly<{
+    profile: 'semantic-plus-camera-v1';
+    camera: ResidentCameraFrame;
+  }>;
   /** Bounded lived context. Adapters may project it into their own prompt form. */
   conversation: readonly unknown[];
   /** The exact actions admitted for this decision, including explicit yield. */

@@ -6,6 +6,7 @@ import type { ModelCallEvidence } from './evidence';
 import type { LoomFoldRequest } from '../entity/folding';
 import { readGgufStringMetadataBytes } from './gguf';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
+import { usesResidentCamera, type ResidentPerceptionProfile } from '../perception/profile';
 import {
   assertStrictLocalResidentSessionPrefix,
   assertStrictLocalResidentSessionEnvelope,
@@ -15,6 +16,7 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
   parseStrictLocalJsonActionDecisionContent,
+  residentSessionCurrentText,
 } from './ollama-json-action';
 
 export const LMSTUDIO_LOCAL_POLICY_PROTOCOL = 'behold.lmstudio-local-policy.v1' as const;
@@ -92,6 +94,8 @@ export type LmStudioLocalPreflight = Readonly<{
     architecture: string | null;
     maxContextTokens: number;
     trainedForToolUse: boolean;
+    /** Absent only in preflight fixtures/evidence created before vision admission. */
+    vision?: boolean;
   }>[];
   digest: string;
 }>;
@@ -649,6 +653,7 @@ export function assertLmStudioLocalWireRequest(
   policyValue: LmStudioLocalPolicy,
   modelInstanceId?: string,
   residentIdentity?: string,
+  perceptionProfile: ResidentPerceptionProfile = 'semantic-only-v1',
 ): LmStudioLocalRequestIdentity {
   const policy = lmStudioLocalPolicy(policyValue);
   const instanceId =
@@ -693,6 +698,7 @@ export function assertLmStudioLocalWireRequest(
     throw new Error('LM Studio response format is not the exact strict resident schema wrapper');
   }
   const envelope = assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
+  assertLmStudioPerceptionLayout(record.messages, perceptionProfile);
   if (
     envelope.schemaProtocol !== policy.transport.schemaProtocol ||
     envelope.schemaSha256 !== policy.transport.schemaSha256
@@ -728,6 +734,24 @@ export function assertLmStudioLocalWireRequest(
     workingContinuityProtocol: envelope.workingContinuityProtocol,
     stablePrefixSha256: envelope.stablePrefixSha256,
   });
+}
+
+function assertLmStudioPerceptionLayout(
+  messagesValue: unknown,
+  perceptionProfile: ResidentPerceptionProfile,
+) {
+  if (!Array.isArray(messagesValue) || messagesValue.length < 3) {
+    throw new Error('LM Studio resident messages are malformed');
+  }
+  const current = exactRecord(
+    messagesValue.at(-1),
+    ['role', 'content'],
+    'LM Studio resident current observation',
+  );
+  const hasCamera = Array.isArray(current.content);
+  if (hasCamera !== usesResidentCamera(perceptionProfile)) {
+    throw new Error(`LM Studio wire perception differs from ${perceptionProfile}`);
+  }
 }
 
 export function createLmStudioLocalLoomFoldRequest(
@@ -972,17 +996,18 @@ function assertResidentWireOwner(messagesValue: unknown, residentIdentity: strin
     ['role', 'content'],
     'LM Studio resident current observation',
   );
-  if (current.role !== 'user' || typeof current.content !== 'string') {
+  if (current.role !== 'user') {
     throw new Error('LM Studio resident current observation is malformed');
   }
-  const jsonStart = current.content.indexOf('{');
-  const jsonEnd = current.content.lastIndexOf('\n\nRespond now with one JSON object');
+  const currentText = residentSessionCurrentText(current.content);
+  const jsonStart = currentText.indexOf('{');
+  const jsonEnd = currentText.lastIndexOf('\n\nRespond now with one JSON object');
   if (jsonStart < 0 || jsonEnd <= jsonStart) {
     throw new Error('LM Studio resident current observation is missing its exact body identity');
   }
   let observation: unknown;
   try {
-    observation = JSON.parse(current.content.slice(jsonStart, jsonEnd));
+    observation = JSON.parse(currentText.slice(jsonStart, jsonEnd));
   } catch {
     throw new Error('LM Studio resident current observation is not valid JSON');
   }
@@ -1239,6 +1264,7 @@ export async function preflightLmStudioLocal(input: {
         architecture: optionalText(inventoryEntry.architecture),
         maxContextTokens,
         trainedForToolUse: capabilities.trained_for_tool_use === true,
+        vision: capabilities.vision === true || inventoryEntry.vision === true,
       }),
     );
   }

@@ -24,7 +24,7 @@ export type ResidentCameraCapture = Readonly<{
   detach(socket: ResidentCameraCaptureSocket): void;
   captureFrame(
     observation: unknown,
-    options?: Readonly<{ executablePath?: string; timeoutMs?: number }>,
+    options?: Readonly<{ executablePath?: string; timeoutMs?: number; signal?: AbortSignal }>,
   ): Promise<ResidentCameraFrame>;
   close(): Promise<void>;
 }>;
@@ -95,14 +95,24 @@ export function createResidentCameraCapture(options: {
 
   const captureFrame = async (
     observation: unknown,
-    captureOptions: Readonly<{ executablePath?: string; timeoutMs?: number }> = {},
+    captureOptions: Readonly<{
+      executablePath?: string;
+      timeoutMs?: number;
+      signal?: AbortSignal;
+    }> = {},
   ) => {
     if (closed) throw new Error('resident camera capture is closed');
     if (!options.firstPerson) throw new Error('resident camera requires a first-person viewer');
     const timeoutMs = boundedTimeout(captureOptions.timeoutMs ?? 10_000);
     const camera = liveCameraForObservation(options.bot, observation);
-    await ensureBrowser(captureOptions.executablePath, timeoutMs);
-    await waitUntilReady(timeoutMs);
+    throwIfAborted(captureOptions.signal);
+    await withTimeout(
+      ensureBrowser(captureOptions.executablePath, timeoutMs),
+      timeoutMs,
+      'resident camera browser did not start',
+      captureOptions.signal,
+    );
+    await waitUntilReady(timeoutMs, captureOptions.signal);
     const socket = captureSocket;
     if (!socket || !rendererReady) throw new Error('resident camera renderer is unavailable');
 
@@ -115,6 +125,7 @@ export function createResidentCameraCapture(options: {
       }),
       timeoutMs,
       'resident camera render timed out',
+      captureOptions.signal,
     ).finally(() => pending.delete(id));
     const captureCompletedAt = Date.now();
     if (response?.error) throw new Error(`resident camera render failed: ${response.error}`);
@@ -199,7 +210,7 @@ export function createResidentCameraCapture(options: {
     }
   }
 
-  async function waitUntilReady(timeoutMs: number) {
+  async function waitUntilReady(timeoutMs: number, signal?: AbortSignal) {
     if (rendererReady && captureSocket) return;
     let wake: () => void = () => {};
     try {
@@ -210,6 +221,7 @@ export function createResidentCameraCapture(options: {
         }),
         timeoutMs,
         'resident camera renderer did not become ready',
+        signal,
       );
     } finally {
       readyWaiters.delete(wake);
@@ -302,21 +314,37 @@ function boundedTimeout(value: unknown) {
   return timeout;
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+  signal?: AbortSignal,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    throwIfAborted(signal);
+    let settled = false;
+    let timeout: NodeJS.Timeout;
+    const settle = <V>(callback: (value: V) => void, value: V) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const onAbort = () =>
+      settle(reject, signal?.reason ?? new Error('resident camera capture aborted'));
+    timeout = setTimeout(() => settle(reject, new Error(message)), timeoutMs);
     timeout.unref();
+    signal?.addEventListener('abort', onAbort, { once: true });
     promise.then(
-      (value) => {
-        clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timeout);
-        reject(error);
-      },
+      (value) => settle(resolve, value),
+      (error) => settle(reject, error),
     );
   });
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw signal.reason ?? new Error('resident camera capture aborted');
 }
 
 function finite(value: unknown) {

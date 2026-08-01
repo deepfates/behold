@@ -23,6 +23,11 @@ import {
 } from './lmstudio-local';
 import { residentMindRequestSha256 } from './request-artifact';
 import { attributeProviderRequestBody } from './request-attribution';
+import {
+  admitResidentCameraFrameFreshness,
+  RESIDENT_CAMERA_MAX_AGE_MS,
+  RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
+} from '../perception/resident-camera-frame';
 
 export type LmStudioLocalResidentMindOptions = Readonly<{
   /** Runner-owned broker credential; never forwarded to LM Studio. */
@@ -117,6 +122,14 @@ export function createLmStudioLocalResidentMind(
         );
       }
       const readiness = await ensurePrefixReadiness(request, signal);
+      if (request.perception) {
+        admitResidentCameraFrameFreshness({
+          frame: request.perception.camera,
+          now: now(),
+          maxAgeMs: RESIDENT_CAMERA_MAX_AGE_MS,
+          maxCaptureDurationMs: RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
+        });
+      }
       const body = serialized.body as Record<string, unknown>;
       const requestBody = JSON.stringify(body);
       const callRequest: LmStudioCallRequestEvidence = {

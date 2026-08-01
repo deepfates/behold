@@ -685,6 +685,7 @@ test('managed resident session loads while ticks are frozen and unloads after co
           body: process.env.BEHOLD_BODY_PROFILE,
           actions: process.env.BEHOLD_ACTION_PROFILE,
           safety: process.env.BEHOLD_SAFETY_PROFILE,
+          perception: process.env.BEHOLD_PERCEPTION_PROFILE,
         },
         quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
       });
@@ -924,6 +925,7 @@ test('managed LM Studio session binds its exact instance into release and contro
           body: process.env.BEHOLD_BODY_PROFILE,
           actions: process.env.BEHOLD_ACTION_PROFILE,
           safety: process.env.BEHOLD_SAFETY_PROFILE,
+          perception: process.env.BEHOLD_PERCEPTION_PROFILE,
         },
         quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
       });
@@ -1189,6 +1191,7 @@ test('managed release adopts an exact frozen external server authority without t
           body: process.env.BEHOLD_BODY_PROFILE,
           actions: process.env.BEHOLD_ACTION_PROFILE,
           safety: process.env.BEHOLD_SAFETY_PROFILE,
+          perception: process.env.BEHOLD_PERCEPTION_PROFILE,
         },
         quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
       });
@@ -1781,8 +1784,9 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
         policyProfile: process.env.BEHOLD_POLICY_PROFILE,
         bodyProfile: process.env.BEHOLD_BODY_PROFILE,
         actionProfile: process.env.BEHOLD_ACTION_PROFILE,
-        safetyProfile: process.env.BEHOLD_SAFETY_PROFILE
-        ,fixtureProofPhase: process.env.BEHOLD_FIXTURE_PROOF_PHASE,
+        safetyProfile: process.env.BEHOLD_SAFETY_PROFILE,
+        perceptionProfile: process.env.BEHOLD_PERCEPTION_PROFILE,
+        fixtureProofPhase: process.env.BEHOLD_FIXTURE_PROOF_PHASE,
         quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
         providerRoute: process.env.BEHOLD_OPENROUTER_ROUTE_POLICY == null
           ? null
@@ -1804,6 +1808,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
           body: process.env.BEHOLD_BODY_PROFILE,
           actions: process.env.BEHOLD_ACTION_PROFILE,
           safety: process.env.BEHOLD_SAFETY_PROFILE,
+          perception: process.env.BEHOLD_PERCEPTION_PROFILE,
         },
         quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
       });
@@ -2342,6 +2347,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
             body: process.env.BEHOLD_BODY_PROFILE,
             actions: process.env.BEHOLD_ACTION_PROFILE,
             safety: process.env.BEHOLD_SAFETY_PROFILE,
+            perception: process.env.BEHOLD_PERCEPTION_PROFILE,
           },
           quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
         });

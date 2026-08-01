@@ -35,6 +35,11 @@ import {
   fixedDecisionPilotSchedule,
   type FixedDecisionPilotSchedule,
 } from '../policy/fixed-decision-pilot';
+import {
+  residentPerceptionProfile,
+  usesResidentCamera,
+  type ResidentPerceptionProfile,
+} from '../perception/profile';
 
 export type ResidentMindAdapter = 'direct' | 'ax';
 
@@ -55,6 +60,7 @@ export type ResidentRuntimeOptions = Readonly<{
   bodyProfile?: MinecraftBodyProfile;
   actionProfile?: MinecraftActionProfile;
   safetyProfile?: MinecraftSafetyProfile;
+  perceptionProfile?: ResidentPerceptionProfile;
   allowTools?: string[] | null;
   task?: string;
   target?: string;
@@ -88,6 +94,7 @@ export type ResidentRuntimeConfig = Readonly<{
     body: MinecraftBodyProfile;
     actions: MinecraftActionProfile;
     safety: MinecraftSafetyProfile;
+    perception: ResidentPerceptionProfile;
   }>;
   cognition: Readonly<{
     mind: ResidentMindAdapter;
@@ -143,6 +150,9 @@ export function resolveResidentRuntimeConfig(
       environment.BEHOLD_SAFETY_PROFILE ??
       (usesHumanSemanticPolicySurface(policy) ? 'vanilla-player-v1' : 'resident-safe-v1'),
   );
+  const perception = residentPerceptionProfile(
+    options.perceptionProfile ?? environment.BEHOLD_PERCEPTION_PROFILE,
+  );
   const mind = residentMindAdapter(environment.BEHOLD_MIND);
   const authenticatedTransport = isCognitionTransportEnabled(
     environment.BEHOLD_COGNITION_TRANSPORT,
@@ -183,6 +193,17 @@ export function resolveResidentRuntimeConfig(
   }
   if ((providerRoute || ollamaLocal || lmStudioLocal) && mind !== 'direct') {
     throw new Error('Configured resident-session transport requires the direct mind adapter');
+  }
+  if (usesResidentCamera(perception) && (!lmStudioLocal || mind !== 'direct')) {
+    throw new Error(
+      `${perception} currently requires the exact direct LM Studio resident transport`,
+    );
+  }
+  if (
+    usesResidentCamera(perception) &&
+    (minecraft.viewer.enabled === false || minecraft.viewer.firstPerson !== true)
+  ) {
+    throw new Error(`${perception} requires an enabled first-person resident viewer`);
   }
   if (
     Number(Boolean(providerRoute)) + Number(Boolean(ollamaLocal)) + Number(Boolean(lmStudioLocal)) >
@@ -239,7 +260,7 @@ export function resolveResidentRuntimeConfig(
     allowTools: options.allowTools ? [...options.allowTools] : null,
     task: options.task,
     target: options.target,
-    profiles: { policy, body, actions, safety },
+    profiles: { policy, body, actions, safety, perception },
     cognition: {
       mind,
       authenticatedTransport,

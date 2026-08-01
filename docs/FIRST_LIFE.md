@@ -423,6 +423,13 @@ delay, interruption, death, or no visible change. Continuation appends those
 facts to that resident's own Lync-backed life and derives a bounded later view
 without replacing the canonical record or exposing another private life.
 
+Perception is a replaceable input to experience, not another agent layer. The
+ordinary condition is the bounded semantic body view. The experimental camera
+condition adds one exact current first-person frame to that same semantic view;
+it does not replace affordances, choose an action, or interpret the image for
+the resident. This lets us vary perception and mind capability independently
+while leaving the causal waist unchanged.
+
 The durable history and the present memory view are deliberately different
 objects. Lync preserves each original turn under the treatment that produced
 it. The ordinary resident projection may select bounded factual continuity from

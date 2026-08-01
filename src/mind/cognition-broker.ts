@@ -54,6 +54,7 @@ import {
   type LmStudioLocalPreflight,
 } from './lmstudio-local';
 import { residentPolicyProfile, type ResidentPolicyProfile } from '../policy/profile';
+import { residentPerceptionProfile, type ResidentPerceptionProfile } from '../perception/profile';
 
 export const COGNITION_BROKER_EVENT_PROTOCOL = 'behold.cognition-broker-event.v1' as const;
 export const COGNITION_ADMISSION_LIMIT_PROTOCOL = 'behold.cognition-admission-limit.v1' as const;
@@ -182,6 +183,8 @@ export type CognitionBrokerOptions = Readonly<{
     residentIdentity?: string;
     /** Exact resident treatment admitted for this authenticated client. */
     policyProfile?: ResidentPolicyProfile;
+    /** Exact semantic-only or camera-augmented treatment admitted for this client. */
+    perceptionProfile?: ResidentPerceptionProfile;
     /** Stable resident identity that owns this client's local model instance. */
     lmStudioResidentIdentity?: string;
     /** Durable per-purpose provider-attempt quota owned by this resident account. */
@@ -221,6 +224,7 @@ type Client = Readonly<{
   lmStudioLocal: LmStudioLocalPolicy | null;
   residentIdentity: string | null;
   policyProfile: ResidentPolicyProfile | null;
+  perceptionProfile: ResidentPerceptionProfile;
   lmStudioResidentIdentity: string | null;
   accounting: CognitionBrokerOptions['clients'][number]['accounting'] | null;
 }>;
@@ -600,6 +604,7 @@ export async function startCognitionBroker(
             client.lmStudioLocal,
             purpose,
             client.lmStudioResidentIdentity,
+            client.perceptionProfile,
           );
         } catch (error: any) {
           throw codedError(
@@ -967,6 +972,7 @@ export async function startCognitionBroker(
                     job.client.lmStudioLocal,
                     job.purpose,
                     job.client.lmStudioResidentIdentity,
+                    job.client.perceptionProfile,
                   ),
                 ),
               }
@@ -1639,6 +1645,7 @@ function assertLmStudioRequestForPurpose(
   policy: LmStudioLocalPolicy,
   purpose: CognitionPurpose,
   residentIdentity: string | null,
+  perceptionProfile: ResidentPerceptionProfile,
 ) {
   const instanceId = lmStudioResidentInstanceId(policy, residentIdentity ?? undefined);
   if (purpose === 'loom_fold') {
@@ -1652,7 +1659,13 @@ function assertLmStudioRequestForPurpose(
   if (purpose === 'resident_prefix_readiness') {
     return assertLmStudioLocalPrefixReadinessWireRequest(value, policy, instanceId);
   }
-  return assertLmStudioLocalWireRequest(value, policy, instanceId, residentIdentity ?? undefined);
+  return assertLmStudioLocalWireRequest(
+    value,
+    policy,
+    instanceId,
+    residentIdentity ?? undefined,
+    perceptionProfile,
+  );
 }
 
 function normalizeClients(values: CognitionBrokerOptions['clients']): readonly Client[] {
@@ -1709,6 +1722,12 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
       } catch {
         throw new Error(`invalid cognition client policy profile at index ${index}`);
       }
+      let perceptionProfile: ResidentPerceptionProfile;
+      try {
+        perceptionProfile = residentPerceptionProfile(value.perceptionProfile);
+      } catch {
+        throw new Error(`invalid cognition client perception profile at index ${index}`);
+      }
       if (routePolicy && policyProfile) {
         try {
           assertOpenRouterResidentTreatment(policyProfile, routePolicy);
@@ -1764,6 +1783,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         lmStudioLocal,
         residentIdentity,
         policyProfile,
+        perceptionProfile,
         lmStudioResidentIdentity,
         accounting,
       });

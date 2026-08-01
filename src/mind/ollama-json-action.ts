@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ModelCallEvidence } from './evidence';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
+import { MAX_RESIDENT_CAMERA_FRAME_BYTES } from '../perception/resident-camera-frame';
 import type { OllamaLocalPolicy } from './ollama-local';
 import {
   RESIDENT_FACTUAL_CONTINUITY_PROTOCOL,
@@ -209,6 +210,9 @@ export function createOllamaLocalJsonActionRequest(
   requestValue: ResidentMindRequest,
   policy: OllamaLocalPolicy,
 ) {
+  if (requestValue.perception) {
+    throw new Error('Ollama legacy transport does not admit camera perception');
+  }
   const request = parseResidentMindRequest(requestValue);
   if (request.model !== policy.modelTag) {
     throw new Error('Ollama request model differs from the admitted local model tag');
@@ -262,7 +266,12 @@ export function createStrictLocalResidentSessionEnvelope(
   const responseSchema = responseFormat(contract.actions, contract.requiredAction, version);
   const markers = contractMarkers(version);
   const contractContent = `${markers.instruction}${markers.begin}${contractJson}${markers.end}`;
-  const messages = residentSessionMessages(request.conversation, contractContent, version);
+  const messages = residentSessionMessages(
+    request.conversation,
+    contractContent,
+    version,
+    request.perception,
+  );
   assertResidentSessionMessageLayout(messages as unknown[], version);
   return deepFreeze({
     protocol:
@@ -847,6 +856,7 @@ function residentSessionMessages(
   conversationValue: ResidentMindRequest['conversation'],
   contractContent: string,
   version: 1 | 2 = 2,
+  perception?: ResidentMindRequest['perception'],
 ) {
   const conversation = cloneJson(conversationValue);
   if (!Array.isArray(conversation) || conversation.length < 2) {
@@ -882,13 +892,25 @@ function residentSessionMessages(
     version === 2
       ? RESIDENT_SESSION_RESPONSE_REMINDER
       : ACTION_ONLY_RESIDENT_SESSION_RESPONSE_REMINDER;
+  const currentText = `${current.content}\n\n${reminder}`;
+  const currentContent = perception
+    ? [
+        { type: 'text' as const, text: currentText },
+        {
+          type: 'image_url' as const,
+          image_url: {
+            url: `data:${perception.camera.content.mediaType};base64,${perception.camera.content.data}`,
+          },
+        },
+      ]
+    : currentText;
   return deepFreeze([
     charter,
     { role: 'system' as const, content: contractContent },
     ...dynamic,
     {
       role: 'user' as const,
-      content: `${current.content}\n\n${reminder}`,
+      content: currentContent,
     },
   ]);
 }
@@ -908,11 +930,8 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 = 2
     version === 2
       ? RESIDENT_SESSION_RESPONSE_REMINDER
       : ACTION_ONLY_RESIDENT_SESSION_RESPONSE_REMINDER;
-  if (
-    current.role !== 'user' ||
-    typeof current.content !== 'string' ||
-    !current.content.endsWith(`\n\n${reminder}`)
-  ) {
+  const currentText = residentSessionCurrentText(current.content);
+  if (current.role !== 'user' || !currentText.endsWith(`\n\n${reminder}`)) {
     throw new Error('Ollama resident session response reminder is missing or drifted');
   }
   const dynamicMessages = value
@@ -937,6 +956,37 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 = 2
       throw new Error('Ollama resident session working continuity protocol drifted');
     }
   }
+}
+
+/** Exact text channel from either the text-only or one-frame OpenAI message layout. */
+export function residentSessionCurrentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content) || content.length !== 2) {
+    throw new Error('Resident session current observation content is malformed');
+  }
+  const text = exactRecord(content[0], ['type', 'text'], 'Resident session text part');
+  const image = exactRecord(content[1], ['type', 'image_url'], 'Resident session image part');
+  const imageUrl = exactRecord(image.image_url, ['url'], 'Resident session image URL');
+  if (text.type !== 'text' || typeof text.text !== 'string' || !text.text) {
+    throw new Error('Resident session text part is malformed');
+  }
+  if (
+    image.type !== 'image_url' ||
+    typeof imageUrl.url !== 'string' ||
+    !/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(imageUrl.url)
+  ) {
+    throw new Error('Resident session image part is malformed');
+  }
+  const [, encoded = ''] = imageUrl.url.split(',', 2);
+  const bytes = Buffer.from(encoded, 'base64');
+  if (
+    bytes.length < 1 ||
+    bytes.toString('base64') !== encoded ||
+    bytes.length > MAX_RESIDENT_CAMERA_FRAME_BYTES
+  ) {
+    throw new Error('Resident session image bytes are invalid');
+  }
+  return text.text;
 }
 
 function assertHumanSemanticProfiles(request: Readonly<ResidentMindRequest>) {

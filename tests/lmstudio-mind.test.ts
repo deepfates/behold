@@ -11,6 +11,10 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
 } from '../src/mind/ollama-json-action';
+import {
+  createResidentCameraFrame,
+  createResidentCameraRenderer,
+} from '../src/perception/resident-camera-frame';
 
 const BEARER = 'resident-broker-bearer-that-is-long-enough';
 const BROKER = 'http://127.0.0.1:40123/v1/chat/completions';
@@ -177,6 +181,39 @@ test('LM Studio mind may prepare a new deliberative contract before its action r
     (decision.call.request as any).lmStudioPrefixReadiness.request.stablePrefixSha256,
     (decision.call.request as any).lmStudioActionTransport.stablePrefixSha256,
   );
+});
+
+test('LM Studio mind rechecks camera freshness after prefix readiness and before decision admission', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  let clock = 1_014;
+  let calls = 0;
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    now: () => clock,
+    fetch: async (_input, init) => {
+      calls += 1;
+      assert.equal(isPrefixReadiness(init), true);
+      clock = 7_000;
+      return response(instance, { ready: true });
+    },
+  });
+  const withCamera = {
+    ...request(),
+    perception: {
+      profile: 'semantic-plus-camera-v1' as const,
+      camera: cameraFrame(),
+    },
+  };
+
+  await assert.rejects(
+    mind.decide(withCamera, { signal: new AbortController().signal }),
+    /outside its admitted time horizon/,
+  );
+  assert.equal(calls, 1, 'stale frame reached the resident decision request');
 });
 
 test('LM Studio mind rejects instance drift distinctly and never retries', async () => {
@@ -483,6 +520,47 @@ function request(): ResidentMindRequest {
     ],
     requiredAction: null,
   };
+}
+
+function cameraFrame() {
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    circle: { id: 'minecraft:test', substrate: 'minecraft', managedRunId: 'run-1' },
+    sequence: 1,
+    observedAt: 1_000,
+    self: {
+      identity: 'OxfordAster',
+      body: { substrate: 'minecraft', username: 'AsterBot', uuid: null },
+      pose: {
+        position: { x: 0, y: 64, z: 0 },
+        yaw: 0,
+        pitch: 0,
+        velocity: { x: 0, y: 0, z: 0 },
+        onGround: true,
+      },
+      condition: { dimension: 'minecraft:overworld' },
+    },
+  };
+  return createResidentCameraFrame({
+    bytes: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC',
+      'base64',
+    ),
+    mediaType: 'image/png',
+    observation,
+    renderer: createResidentCameraRenderer({
+      name: 'fixture',
+      version: '1',
+      implementationSha256: '12'.repeat(32),
+      verticalFovDegrees: 75,
+      width: 10,
+      height: 10,
+      viewDistanceChunks: 6,
+    }),
+    renderedCamera: { position: { x: 0, y: 65.62, z: 0 }, yaw: 0, pitch: 0 },
+    captureStartedAt: 1_010,
+    captureCompletedAt: 1_014,
+  });
 }
 
 function validOutput() {

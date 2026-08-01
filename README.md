@@ -50,6 +50,16 @@ readable without exposing coordinates or private controller/provider fields.
 Old v1 lives and presentation remain unchanged. This establishes the compact
 causal composition, not the quality or long-term variety of resident conduct.
 
+An opt-in `semantic-plus-camera-v1` perception treatment now augments the same
+bounded semantic observation with one content-addressed frame from that
+resident's exact first-person camera. The ordinary default remains
+`semantic-only-v1`; camera mode is currently admitted only through a fresh
+vision-capable LM Studio inventory and fails closed rather than silently
+downgrading. No-world image-plus-schema gates pass for the installed Gemma 4
+12B and Qwen 3.6 35B-A3B when their exact non-reasoning setting is present.
+Persistent-world image delivery and the sealed model-by-perception comparison
+remain unexercised.
+
 The latest exercised local path has carried two Qwen 3.6 35B-A3B residents
 through ordinary live episodes and resumes with one shared LM Studio weight
 instance and isolated own-life context. A native Java client joined as

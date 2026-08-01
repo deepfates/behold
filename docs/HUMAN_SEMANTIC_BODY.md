@@ -148,13 +148,30 @@ because a product resident uses both.
    an armed all-ready barrier, exact media-ready transport evidence, and
    explicit fold/context/operator/native-human intervention records.
 
-Pixel input and raw inventory-screen clicking are intentionally outside v1.
-Their later addition must use content-addressed frame evidence and the same
-causal action boundary rather than widening this semantic contract silently.
-An experimental read-only camera seam now satisfies the first part: it can
-render one content-addressed Prismarine frame from the exact current resident
-body and eye pose, bind it to the raw observation and capture interval, and
-fail on body drift. It is not yet carried by `ResidentMindRequest`, has not been
-exercised against the persistent world or a multimodal model, and does not
-change the semantic v1 treatment. Its comparison arm must remain separately
-named; sharing a body pose does not imply an atomic Minecraft world snapshot.
+Pixel input and raw inventory-screen clicking remain outside the semantic v1
+body contract. The separately named experimental perception profile
+`semantic-plus-camera-v1` now augments the unchanged semantic observation with
+one content-addressed Prismarine frame from the exact current resident body and
+eye pose. The frame is admitted against that raw observation, included in the
+mind-request hash, and sent as the final user message's single `image_url` only
+on the exact LM Studio resident route. Stale, mismatched, aborted, non-vision,
+Ollama, Ax, and current OpenRouter routes fail before a model call; there is no
+silent semantic-only fallback. The authenticated broker admits only the
+declared semantic-only or camera layout, and frame freshness is rechecked after
+prefix readiness immediately before the resident request. `semantic-only-v1`
+remains the default and never starts the capture browser.
+
+Pixels and full frame artifacts stay out of EntityTurn, Lync, Textile, and
+resident continuity. Journals retain content-free frame, binding, observation,
+size, and capture-time identities. The private cognition transport retains the
+exact request bytes under its existing access boundary. Sharing a body pose
+still does not imply an atomic Minecraft world snapshot.
+
+On this host, compact matched LM Studio probes established the transport gate
+without starting a world. Gemma 4 12B Q4_K_M and Qwen 3.6 35B-A3B 4-bit both
+accepted one image plus the strict JSON schema and returned the action in public
+`content` when their already-admitted `reasoning_effort: none` setting was
+present. Without that setting both placed generation in private
+`reasoning_content`, which the resident parser correctly rejects. Persistent
+world capture, measured capture and inference latency, two-resident isolation
+under image input, and the model-by-perception comparison remain unexercised.

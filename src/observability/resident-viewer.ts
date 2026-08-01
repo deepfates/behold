@@ -30,7 +30,7 @@ export type ResidentViewerHandle = Readonly<{
   cameraCaptureProtocol: typeof RESIDENT_CAMERA_CAPTURE_PROTOCOL;
   captureFrame(
     observation: unknown,
-    options?: Readonly<{ executablePath?: string; timeoutMs?: number }>,
+    options?: Readonly<{ executablePath?: string; timeoutMs?: number; signal?: AbortSignal }>,
   ): Promise<ResidentCameraFrame>;
   close(): Promise<void>;
 }>;
