@@ -36,11 +36,14 @@ import {
   type FrozenPlaceServeAuthority,
 } from '../runtime/place-serve';
 import { stagePlaceHistorySeed } from '../runtime/place-history-seed';
+import {
+  captureLiveLyncCheckpoint,
+  LIVE_EPISODE_RECORD_V2_PROTOCOL,
+} from '../runtime/live-lync-checkpoint';
 
 const PLACE_SERVE_REVISION = '103deac629d8f784ea22d956c890de77334d730a' as const;
 const LIVE_SESSION_PROTOCOL = 'behold.live-session.v1' as const;
 const LIVE_RESIDENT_REVISION_PROTOCOL = 'behold.live-resident-revision.v1' as const;
-const LIVE_EPISODE_RECORD_PROTOCOL = 'behold.live-episode-record.v1' as const;
 const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
 const LIVE_LYNC_SNAPSHOT_PROTOCOL = 'behold.live-lync-snapshot.v1' as const;
 const LIVE_TEXTILE_IMPORT_PROTOCOL = 'behold.live-textile-import.v1' as const;
@@ -893,35 +896,33 @@ function writeEpisodeRecord(input: {
   residentRevision: ReturnType<typeof readLiveResidentRevision> | null;
 }) {
   const episodeRoot = path.dirname(path.resolve(input.file));
-  const lives = input.run.residents.map((resident) => {
-    const directory = path.join(input.entityRoot, sanitizeName(resident.entityId), 'lync');
-    const sourceFiles = preserveResidentLyncFiles({
+  const checkpoint = captureLiveLyncCheckpoint({
+    episodeRoot,
+    residents: input.run.residents.map((resident) => ({
       entityId: resident.entityId,
-      directory,
-      destinationRoot: path.join(episodeRoot, 'resident-lync'),
-    });
-    const profiles = [...new Set(sourceFiles.map((source) => source.presentationProfile))];
-    if (profiles.length !== 1) {
-      throw new Error(`resident ${resident.entityId} has mixed Lync presentation profiles`);
+      directory: path.join(input.entityRoot, sanitizeName(resident.entityId), 'lync'),
+    })),
+  });
+  const lives = input.run.residents.map((resident, index) => {
+    const directory = path.join(input.entityRoot, sanitizeName(resident.entityId), 'lync');
+    const captured = checkpoint.lives[index];
+    if (captured?.entityId !== resident.entityId) {
+      throw new Error('live Lync checkpoint resident order changed');
     }
     return {
       entityId: resident.entityId,
       bodyUsername: resident.bodyUsername,
-      profile: profiles[0],
-      lyncDirectory: directory,
+      profile: captured.profile,
+      lyncDirectory: captured.lyncDirectory,
       manifestFile: path.join(directory, 'manifest.json'),
-      sourceFiles,
+      sourceFiles: captured.sourceFiles,
       runJournalDirectory: resident.journalDirectory,
       runJournalFiles: listFiles(resident.journalDirectory, '.jsonl'),
     };
   });
-  const textileImport = preserveTextileImport({
-    sourceFiles: lives.flatMap((life) => life.sourceFiles),
-    destination: path.join(episodeRoot, 'textile-resident-lives.lync'),
-  });
   const presenterProfiles = [...new Set(lives.map((life) => life.profile))];
   const base = {
-    protocol: LIVE_EPISODE_RECORD_PROTOCOL,
+    protocol: LIVE_EPISODE_RECORD_V2_PROTOCOL,
     sessionId: input.sessionId,
     episodeId: input.episodeId,
     startedAt: input.startedAt,
@@ -963,8 +964,9 @@ function writeEpisodeRecord(input: {
     textile: {
       presenterProfile: presenterProfiles.length === 1 ? presenterProfiles[0] : null,
       presenterProfiles,
-      import: 'episode-local byte union of original Lync sources; no Behold-side rendering',
-      artifact: textileImport,
+      import:
+        'ordered immutable prefixes of canonical Lync sources; external readers may materialize them without Behold rewriting history',
+      artifact: checkpoint.artifact,
     },
   };
   const record = deepFreeze({ ...base, digest: sha256(stableJson(base)) });

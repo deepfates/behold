@@ -375,7 +375,12 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   sessions and symmetric viewers, prints the native-client endpoint, drains and
   saves on time or Ctrl-C, and resumes the exact world and lives. Its v2
   episode record preserves the Place-owned Minecraft server log byte-for-byte and
-  authenticates each resident's body journals beside the original Lync sources.
+  authenticates each resident's body journals beside exact immutable prefixes of
+  the original append-only Lync sources. Its ordered-source manifest avoids
+  copying cumulative lives and an eager Textile union; historical v1 snapshots
+  and unions remain verifiable. The v2 boundary has not yet been exercised
+  through an ordinary multi-hour live checkpoint, and the compatible
+  large-source Textile reader is still an unexercised cross-repository seam.
   Each episode receives a fresh declared attempt scope without refilling an old
   ledger or balancing unequal resident use. This is composition and history
   mechanics, not evidence of adaptive conduct or native human co-presence.

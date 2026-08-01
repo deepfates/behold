@@ -187,11 +187,11 @@ controller owns at most one current decision, and the serialized engine binds
 its proposal to one authenticated terminal. Only after that terminal does the
 resident append one turn to its own Lync life; restart continuity is rebuilt
 from those bytes. Project/place memory and bounded indexes are derived from that
-life, while run journals, the habitat lens, episode records, frozen Lync copies,
-and Textile are projections or authenticated bindings. They can expose missing
-or stale data but cannot rewrite world or life truth. Place and world control
-own the foreground server lifecycle; the content-bound stopped-world head is
-the only ordinary resume boundary.
+life, while run journals, the habitat lens, episode prefix bindings, historical
+frozen Lync copies, and Textile are projections or authenticated bindings. They
+can expose missing or stale data but cannot rewrite world or life truth. Place
+and world control own the foreground server lifecycle; the content-bound
+stopped-world head is the only ordinary resume boundary.
 
 Persistent living Place
 
@@ -240,11 +240,17 @@ SECONDS` for a bounded episode; Ctrl-C requests the same clean drain, save,
 - A clean stop records the new persistent world head and an authenticated episode
   record. The record binds the Place control transcript, byte-identical Place-owned
   Minecraft server log, cognition/accounting evidence, per-life body journals,
-  episode-local byte-identical Lync snapshots, and closed viewer endpoints. It
-  also emits one `textile-resident-lives.lync` byte union as a viewing convenience.
-  The original Lync multiversal logs remain canonical; Textile is an interface
-  for viewing them through profile `org.behold.inhabitant.v1`, and Behold does
-  not render or rewrite those histories.
+  exact `[0, N)` prefixes of the canonical append-only resident Lync sources,
+  and closed viewer endpoints. It emits a small authenticated
+  `textile-resident-lives.sources.json` ordered-source manifest rather than
+  copying each cumulative life or eagerly concatenating another union. The
+  original Lync multiversal logs remain canonical; a verifier still reads old
+  v1 episode snapshots and physical unions, and an explicit local operation can
+  stream either version into a viewing artifact. Textile is the interface for
+  viewing the declared resident profiles, but its large ordered-source import
+  remains a cross-repository reader seam; Behold does not render or rewrite the
+  histories. The v2 stop boundary is fixture-verified but has not yet been
+  exercised by a representative multi-hour ordinary live run.
 - Repeating the printed resume command and session name resumes the same stopped
   world, bodies, life looms, and resident configuration. Each new episode receives a
   fresh, explicitly bounded provider-attempt scope under the persistent session

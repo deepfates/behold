@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,6 +22,15 @@ import {
   selectLiveResidentConfiguration,
   shouldRecordPlaceOnlyCleanup,
 } from '../src/cli/live';
+import {
+  captureLiveLyncCheckpoint,
+  LIVE_EPISODE_RECORD_V1_PROTOCOL,
+  LIVE_EPISODE_RECORD_V2_PROTOCOL,
+  materializeLiveEpisodeLyncCheckpoint,
+  sha256,
+  stableJson,
+  verifyLiveEpisodeLyncCheckpoint,
+} from '../src/runtime/live-lync-checkpoint';
 
 test('live history selection is paired and fresh-session-only', () => {
   assert.deepEqual(
@@ -406,6 +416,249 @@ test('live episode record freezes lifelong Lync bytes and makes one direct Texti
   fs.appendFileSync(firstSource, '{"v":1,"id":"later-turn"}\n');
   assert.equal(fs.readFileSync(first[0]!.file, 'utf8'), firstBytes);
   assert.equal(fs.readFileSync(textile.file, 'utf8'), firstBytes + secondBytes);
+
+  const legacyRecord = authenticatedLyncEpisode(
+    LIVE_EPISODE_RECORD_V1_PROTOCOL,
+    [
+      {
+        entityId: 'First',
+        profile: 'org.behold.inhabitant.v1',
+        sourceFiles: first,
+      },
+      {
+        entityId: 'Second',
+        profile: 'org.behold.inhabitant.v2',
+        sourceFiles: second,
+      },
+    ],
+    textile,
+  );
+  const verified = verifyLiveEpisodeLyncCheckpoint(legacyRecord);
+  assert.equal(verified.version, 1);
+  assert.deepEqual(
+    verified.orderedSources.map((source) => source.entityId),
+    ['First', 'Second'],
+  );
+  const materialized = materializeLiveEpisodeLyncCheckpoint(
+    legacyRecord,
+    path.join(root, 'review', 'legacy.lync'),
+  );
+  assert.equal(fs.readFileSync(materialized.file, 'utf8'), firstBytes + secondBytes);
+});
+
+test('live v2 checkpoint binds ordered canonical prefixes without copying lives or a union', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-lync-v2-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const episodeRoot = path.join(root, 'episodes', '000002');
+  const secondDirectory = path.join(root, 'entities', 'Second', 'lync');
+  const firstDirectory = path.join(root, 'entities', 'First', 'lync');
+  fs.mkdirSync(secondDirectory, { recursive: true });
+  fs.mkdirSync(firstDirectory, { recursive: true });
+  const secondBytes = residentLyncBytes('Second', 'org.behold.inhabitant.v2', 'second-root');
+  const firstABytes = residentLyncBytes('First', 'org.behold.inhabitant.v1', 'first-a');
+  const firstZBytes = residentLyncBytes('First', 'org.behold.inhabitant.v1', 'first-z');
+  const secondSource = path.join(secondDirectory, 'second.lync');
+  const firstASource = path.join(firstDirectory, 'a-first.lync');
+  const firstZSource = path.join(firstDirectory, 'z-first.lync');
+  fs.writeFileSync(secondSource, secondBytes);
+  fs.writeFileSync(firstZSource, firstZBytes);
+  fs.writeFileSync(firstASource, firstABytes);
+
+  const checkpoint = captureLiveLyncCheckpoint({
+    episodeRoot,
+    residents: [
+      { entityId: 'Second', directory: secondDirectory },
+      { entityId: 'First', directory: firstDirectory },
+    ],
+  });
+  const record = authenticatedLyncEpisode(
+    LIVE_EPISODE_RECORD_V2_PROTOCOL,
+    checkpoint.lives,
+    checkpoint.artifact,
+  );
+
+  assert.deepEqual(fs.readdirSync(episodeRoot), ['textile-resident-lives.sources.json']);
+  assert.equal(fs.existsSync(path.join(episodeRoot, 'resident-lync')), false);
+  assert.equal(fs.existsSync(path.join(episodeRoot, 'textile-resident-lives.lync')), false);
+  const manifest = JSON.parse(fs.readFileSync(checkpoint.artifact.file, 'utf8'));
+  assert.equal(manifest.protocol, 'behold.live-textile-source-set.v2');
+  assert.equal(manifest.construction, 'ordered_prefix_set');
+  assert.equal(manifest.sourceCount, 3);
+  assert.equal(manifest.totalSizeBytes, Buffer.byteLength(secondBytes + firstABytes + firstZBytes));
+  assert.deepEqual(
+    manifest.sources.map((source: any) => [
+      source.order,
+      source.entityId,
+      path.basename(source.sourceFile),
+    ]),
+    [
+      [0, 'Second', 'second.lync'],
+      [1, 'First', 'a-first.lync'],
+      [2, 'First', 'z-first.lync'],
+    ],
+  );
+  for (const source of manifest.sources) {
+    assert.equal(source.protocol, 'behold.live-lync-prefix.v2');
+    assert.equal(source.startOffset, 0);
+    assert.equal(source.endOffset, source.sizeBytes);
+    assert.equal(source.preservation, 'immutable_prefix_of_canonical_append_only_source');
+  }
+
+  fs.appendFileSync(secondSource, '{"v":1,"id":"second-later"}\n');
+  fs.appendFileSync(firstASource, '{"v":1,"id":"first-later"}\n');
+  const verified = verifyLiveEpisodeLyncCheckpoint(record);
+  assert.equal(verified.version, 2);
+  assert.deepEqual(
+    verified.orderedSources.map((source) => path.basename(source.sourceFile)),
+    ['second.lync', 'a-first.lync', 'z-first.lync'],
+  );
+  const materialized = materializeLiveEpisodeLyncCheckpoint(
+    record,
+    path.join(root, 'review', 'v2.lync'),
+  );
+  assert.equal(fs.readFileSync(materialized.file, 'utf8'), secondBytes + firstABytes + firstZBytes);
+});
+
+test('live v2 checkpoint rejects prefix mutation, truncation, and source replacement', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-lync-v2-tamper-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const directory = path.join(root, 'entities', 'First', 'lync');
+  fs.mkdirSync(directory, { recursive: true });
+  const original = `${residentLyncBytes('First', 'org.behold.inhabitant.v1', 'first-root')}{"v":1,"id":"first-turn"}\n`;
+  const source = path.join(directory, 'first.lync');
+  fs.writeFileSync(source, original);
+  const checkpoint = captureLiveLyncCheckpoint({
+    episodeRoot: path.join(root, 'episode'),
+    residents: [{ entityId: 'First', directory }],
+  });
+  const record = authenticatedLyncEpisode(
+    LIVE_EPISODE_RECORD_V2_PROTOCOL,
+    checkpoint.lives,
+    checkpoint.artifact,
+  );
+
+  fs.writeFileSync(source, original.replace('first-turn', 'evil--turn'));
+  assert.throws(() => verifyLiveEpisodeLyncCheckpoint(record), /prefix digest mismatch/);
+
+  fs.writeFileSync(source, original.slice(0, -8));
+  assert.throws(() => verifyLiveEpisodeLyncCheckpoint(record), /prefix was truncated/);
+
+  fs.writeFileSync(source, original);
+  fs.renameSync(source, `${source}.replaced`);
+  fs.symlinkSync(`${source}.replaced`, source);
+  assert.throws(() => verifyLiveEpisodeLyncCheckpoint(record), /must be a plain file/);
+});
+
+test('live v2 checkpoint rejects reordered manifests and ambiguous resident sources', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-lync-v2-order-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const firstDirectory = path.join(root, 'First');
+  const secondDirectory = path.join(root, 'Second');
+  fs.mkdirSync(firstDirectory);
+  fs.mkdirSync(secondDirectory);
+  fs.writeFileSync(
+    path.join(firstDirectory, 'first.lync'),
+    residentLyncBytes('First', 'org.behold.inhabitant.v1', 'first-root'),
+  );
+  fs.writeFileSync(
+    path.join(secondDirectory, 'second.lync'),
+    residentLyncBytes('Second', 'org.behold.inhabitant.v2', 'second-root'),
+  );
+  const checkpoint = captureLiveLyncCheckpoint({
+    episodeRoot: path.join(root, 'episode'),
+    residents: [
+      { entityId: 'First', directory: firstDirectory },
+      { entityId: 'Second', directory: secondDirectory },
+    ],
+  });
+  const changedClaimLives = JSON.parse(JSON.stringify(checkpoint.lives));
+  changedClaimLives[0].sourceFiles[0].preservation = 'unbound_source';
+  assert.throws(
+    () =>
+      verifyLiveEpisodeLyncCheckpoint(
+        authenticatedLyncEpisode(
+          LIVE_EPISODE_RECORD_V2_PROTOCOL,
+          changedClaimLives,
+          checkpoint.artifact,
+        ),
+      ),
+    /malformed live v2 Lync prefix/,
+  );
+  const manifest = JSON.parse(fs.readFileSync(checkpoint.artifact.file, 'utf8'));
+  manifest.sources.reverse();
+  const { digest: _oldDigest, ...manifestBase } = manifest;
+  manifest.digest = sha256(stableJson(manifestBase));
+  fs.writeFileSync(checkpoint.artifact.file, `${JSON.stringify(manifest, null, 2)}\n`);
+  const reorderedArtifact = {
+    ...checkpoint.artifact,
+    sha256: fileSha256(checkpoint.artifact.file),
+    sizeBytes: fs.statSync(checkpoint.artifact.file).size,
+    manifestDigest: manifest.digest,
+  };
+  const reorderedRecord = authenticatedLyncEpisode(
+    LIVE_EPISODE_RECORD_V2_PROTOCOL,
+    checkpoint.lives,
+    reorderedArtifact,
+  );
+  assert.throws(
+    () => verifyLiveEpisodeLyncCheckpoint(reorderedRecord),
+    /order differs from resident sources/,
+  );
+
+  const ambiguousRoot = path.join(root, 'ambiguous');
+  const ambiguousFirst = path.join(ambiguousRoot, 'First');
+  const ambiguousSecond = path.join(ambiguousRoot, 'Second');
+  fs.mkdirSync(ambiguousFirst, { recursive: true });
+  fs.mkdirSync(ambiguousSecond, { recursive: true });
+  fs.writeFileSync(
+    path.join(ambiguousFirst, 'life.lync'),
+    residentLyncBytes('First', 'org.behold.inhabitant.v1', 'first-root'),
+  );
+  fs.writeFileSync(
+    path.join(ambiguousSecond, 'life.lync'),
+    residentLyncBytes('Second', 'org.behold.inhabitant.v2', 'second-root'),
+  );
+  assert.throws(
+    () =>
+      captureLiveLyncCheckpoint({
+        episodeRoot: path.join(root, 'ambiguous-episode'),
+        residents: [
+          { entityId: 'First', directory: ambiguousFirst },
+          { entityId: 'Second', directory: ambiguousSecond },
+        ],
+      }),
+    /basename is ambiguous/,
+  );
+});
+
+test('live v2 checkpoint refuses a symlink source or an incomplete Lync root line', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-lync-v2-source-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const symlinkDirectory = path.join(root, 'symlink');
+  fs.mkdirSync(symlinkDirectory);
+  const target = path.join(root, 'target.lync');
+  fs.writeFileSync(target, residentLyncBytes('First', 'org.behold.inhabitant.v1', 'root'));
+  fs.symlinkSync(target, path.join(symlinkDirectory, 'life.lync'));
+  assert.throws(
+    () =>
+      captureLiveLyncCheckpoint({
+        episodeRoot: path.join(root, 'symlink-episode'),
+        residents: [{ entityId: 'First', directory: symlinkDirectory }],
+      }),
+    /requires a Lync source/,
+  );
+
+  const incompleteDirectory = path.join(root, 'incomplete');
+  fs.mkdirSync(incompleteDirectory);
+  fs.writeFileSync(path.join(incompleteDirectory, 'life.lync'), '{"v":1');
+  assert.throws(
+    () =>
+      captureLiveLyncCheckpoint({
+        episodeRoot: path.join(root, 'incomplete-episode'),
+        residents: [{ entityId: 'First', directory: incompleteDirectory }],
+      }),
+    /no complete root line/,
+  );
 });
 
 test('native-human treatment requires the server and every resident to witness the declared join', (t) => {
@@ -532,3 +785,29 @@ test('live resume instruction retains the exact Place runtime and native-player 
     `behold live /places/oxford --accept-eula --session oxford-life --place-compiler-bin /bin/place-compiler --place-compiler-version 1.2.3 --place-compiler-distribution-sha256 ${'a'.repeat(64)}`,
   );
 });
+
+function residentLyncBytes(
+  entityId: string,
+  profile: 'org.behold.inhabitant.v1' | 'org.behold.inhabitant.v2',
+  id: string,
+) {
+  return `${JSON.stringify({
+    v: 1,
+    id,
+    kind: 'lync/loom',
+    payload: { meta: { protocol: 'behold.entity-loom.v1', profile, entityId } },
+  })}\n`;
+}
+
+function authenticatedLyncEpisode(protocol: string, lives: any, artifact: any) {
+  const base = {
+    protocol,
+    lives,
+    textile: { artifact },
+  };
+  return { ...base, digest: sha256(stableJson(base)) };
+}
+
+function fileSha256(file: string) {
+  return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
