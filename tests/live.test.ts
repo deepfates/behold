@@ -15,6 +15,7 @@ import {
   preserveResidentLyncFiles,
   preservePlaceServerLog,
   preserveTextileImport,
+  selectPendingLiveRecoveryEvidence,
   selectLiveResidentConfiguration,
   shouldRecordPlaceOnlyCleanup,
 } from '../src/cli/live';
@@ -56,6 +57,39 @@ test('live turns an exhausted resident purpose quota into a normal boundary stop
 
   assert.equal(await boundary.wait, 'resident_purpose_quota_exhausted');
   boundary.dispose();
+});
+
+test('live recovery can resume head publication after ownership was already released', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-recovery-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const worldId = 'fixture-world';
+  const controlDirectory = path.join(root, 'control', worldId);
+  fs.mkdirSync(controlDirectory, { recursive: true });
+  const headFile = path.join(root, 'head.json');
+  fs.writeFileSync(
+    headFile,
+    `${JSON.stringify({ worldId, lifecycle: { file: path.join(controlDirectory, 'lifecycle-8.jsonl') } })}\n`,
+  );
+  const completedEvidence = path.join(controlDirectory, 'recovery-9-aaaaaaaaaaaa.completed.json');
+  fs.writeFileSync(
+    completedEvidence,
+    `${JSON.stringify({
+      protocol: 'behold.world-recovery-evidence.v1',
+      phase: 'completed',
+      classification: 'abandoned_after_save_ack',
+      world: worldId,
+      epoch: 9,
+    })}\n`,
+  );
+
+  assert.deepEqual(
+    selectPendingLiveRecoveryEvidence({
+      controlRoot: path.join(root, 'control'),
+      worldId,
+      headFile,
+    }),
+    { epoch: 9, classification: 'abandoned_after_save_ack', completedEvidence },
+  );
 });
 
 test('live mind revision preserves resident identity, body, charter, cadence, and steering', () => {

@@ -20,6 +20,7 @@ import {
   assertPlaceServedResumeContinuity,
   establishPlaceServedWorldBasis,
   reconcileAbandonedPlaceServedWorldHead,
+  reconcileRecoveredPlaceServedWorldHead,
   recordPlaceServedWorldHead,
   recordPlaceOnlyCleanupHead,
   verifyPlaceServedWorldBasis,
@@ -165,13 +166,29 @@ export async function runLiveCli(argv: string[]) {
     if (established.descriptor.worldId !== existingPlan.worldId) {
       throw new Error('live recovery world differs from its persistent session');
     }
-    const recovered = await recoverAbandonedManagedWorld({
-      worldId: existingPlan.worldId,
-      world: established.world,
-      controlRoot: paths.control,
-      entityRoot: paths.entities,
-    });
-    const head = reconcileAbandonedPlaceServedWorldHead({
+    let recovered;
+    try {
+      recovered = await recoverAbandonedManagedWorld({
+        worldId: existingPlan.worldId,
+        world: established.world,
+        controlRoot: paths.control,
+        entityRoot: paths.entities,
+      });
+    } catch (error: any) {
+      if (error?.code !== 'world_control_not_recoverable' || error?.evidence?.state !== 'clear') {
+        throw error;
+      }
+      recovered = selectPendingLiveRecoveryEvidence({
+        controlRoot: paths.control,
+        worldId: existingPlan.worldId,
+        headFile: paths.head,
+      });
+    }
+    const reconcile =
+      recovered.classification === 'abandoned_after_save_ack'
+        ? reconcileRecoveredPlaceServedWorldHead
+        : reconcileAbandonedPlaceServedWorldHead;
+    const head = reconcile({
       descriptorFile: paths.descriptor,
       recoveryEvidenceFile: recovered.completedEvidence,
       headFile: paths.head,
@@ -492,6 +509,62 @@ export async function runLiveCli(argv: string[]) {
       await authority.stop(cleanStop ? 'live_final_settlement' : 'live_failure').catch(() => {});
     boundary?.dispose();
   }
+}
+
+export function selectPendingLiveRecoveryEvidence(input: {
+  controlRoot: string;
+  worldId: string;
+  headFile: string;
+}) {
+  const head = readJson(input.headFile);
+  const headEpochMatch = path
+    .basename(String(head.lifecycle?.file ?? ''))
+    .match(/^lifecycle-(\d+)\.jsonl$/);
+  if (head.worldId !== input.worldId || !headEpochMatch) {
+    throw new Error('live recovery cannot identify the current persistent head epoch');
+  }
+  const headEpoch = Number(headEpochMatch[1]);
+  const directory = path.join(input.controlRoot, input.worldId);
+  const candidates = fs
+    .readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      const match = entry.name.match(/^recovery-(\d+)-[0-9a-f]{12}\.completed\.json$/);
+      if (!entry.isFile() || !match) return [];
+      const file = path.join(directory, entry.name);
+      const evidence = readJson(file);
+      const epoch = Number(match[1]);
+      if (
+        evidence.protocol !== 'behold.world-recovery-evidence.v1' ||
+        evidence.phase !== 'completed' ||
+        evidence.world !== input.worldId ||
+        evidence.epoch !== epoch ||
+        !['abandoned_after_save_ack', 'abandoned_unclean_shutdown'].includes(
+          evidence.classification,
+        )
+      ) {
+        throw new Error(`live recovery evidence is malformed: ${file}`);
+      }
+      return epoch > headEpoch
+        ? [
+            {
+              epoch,
+              classification: evidence.classification as
+                'abandoned_after_save_ack' | 'abandoned_unclean_shutdown',
+              completedEvidence: file,
+            },
+          ]
+        : [];
+    })
+    .sort((left, right) => right.epoch - left.epoch);
+  if (candidates.length === 0) {
+    throw new Error('live session has no completed recovery newer than its persistent head');
+  }
+  if (candidates[1]?.epoch === candidates[0].epoch) {
+    throw new Error(
+      `live session has ambiguous completed recovery evidence for epoch ${candidates[0].epoch}`,
+    );
+  }
+  return Object.freeze(candidates[0]);
 }
 
 function printLiveReady(
