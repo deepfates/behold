@@ -62,11 +62,11 @@
     "cli": "ts-node --transpile-only src/tools/readline.ts"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.13.0"
   },
   "dependencies": {
     "@ax-llm/ax": "23.0.0",
-    "@deepfates/lync": "file:vendor/deepfates-lync-0.4.2.tgz",
+    "@deepfates/lync": "file:vendor/deepfates-lync-0.4.3.tgz",
     "canvas": "^3.2.3",
     "dotenv": "^16.4.5",
     "minecraft-data": "^3.66.0",
