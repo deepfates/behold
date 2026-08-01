@@ -334,7 +334,11 @@ function applyCommittedTurn(state: any, turn: any, committedAt: string) {
   if (turn?.outcome?.ok === true) state.ethogram.actions.succeeded += 1;
   else state.ethogram.actions.failed += 1;
 
-  const events = Array.isArray(nextObservation?.events) ? nextObservation.events : [];
+  // Count only the observation that actually informed this model choice.
+  // nextObservation is an auditable terminal snapshot, not experience shown
+  // to the resident during this turn; fresh events there become perceived
+  // only if a later decision admits them as its observation.
+  const events = Array.isArray(observation?.events) ? observation.events : [];
   for (const event of events) {
     const eventType = text(event?.type) ?? 'unknown';
     state.ethogram.perceivedEvents.total += 1;

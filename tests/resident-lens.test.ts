@@ -8,10 +8,16 @@ import {
 } from '../src/observability/resident-lens';
 
 test('resident lens folds the safe causal path without exposing private controller frames', () => {
-  const observation = humanObservation(10, 'before');
+  const phaseChange = {
+    sequence: 10,
+    type: 'day_phase_changed',
+    data: { previous: 'day', current: 'night' },
+  };
+  const observation = { ...humanObservation(10, 'before'), events: [phaseChange] };
   const nextObservation = {
     ...humanObservation(11, 'after'),
     events: [
+      phaseChange,
       {
         sequence: 11,
         type: 'chat_received',
@@ -149,7 +155,7 @@ test('resident lens folds the safe causal path without exposing private controll
   });
   assert.deepEqual(state.ethogram.perceivedEvents, {
     total: 1,
-    byType: { chat_received: 1 },
+    byType: { day_phase_changed: 1 },
   });
   assert.deepEqual(state.ethogram.verifiedWorldChanges, {
     total: 1,
@@ -157,11 +163,58 @@ test('resident lens folds the safe causal path without exposing private controll
   });
   assert.equal(state.ethogram.recent.length, 2);
   assert.equal(state.ethogram.recent[0].kind, 'perceived_event');
+  assert.equal(state.ethogram.recent[0].type, 'day_phase_changed');
   assert.equal(state.ethogram.recent[1].kind, 'verified_world_change');
   assert.equal(JSON.stringify(state).includes('private-before'), false);
   assert.equal(JSON.stringify(state).includes('private-after'), false);
   assert.ok(Object.isFrozen(state));
   assert.ok(Object.isFrozen(state.nextExperience));
+});
+
+test('resident lens counts a terminal world event only when a later decision perceives it', () => {
+  const phaseChange = {
+    sequence: 10,
+    type: 'day_phase_changed',
+    data: { previous: 'day', current: 'night' },
+  };
+  const chat = {
+    sequence: 11,
+    type: 'chat_received',
+    data: { sender: 'Neighbor', message: 'hello' },
+  };
+  const state = foldResidentLens([
+    event(1, 'entity_turn', {
+      id: 'Scout:turn:1',
+      sequence: 1,
+      parentId: null,
+      observationPresentation: {
+        protocol: 'behold.entity-turn-observation-presentation.v1',
+        bodyProfile: 'minecraft-human-semantic-v1',
+        observation: { ...humanObservation(10, 'before'), events: [phaseChange] },
+        nextObservation: { ...humanObservation(11, 'terminal'), events: [chat] },
+      },
+      action: { id: 'wait-1', name: 'wait_for_event', input: {}, source: 'llm' },
+      outcome: { ok: true, eventType: 'wait_for_event', result: { status: 'waiting' } },
+    }),
+    event(2, 'entity_turn', {
+      id: 'Scout:turn:2',
+      sequence: 2,
+      parentId: 'Scout:turn:1',
+      observationPresentation: {
+        protocol: 'behold.entity-turn-observation-presentation.v1',
+        bodyProfile: 'minecraft-human-semantic-v1',
+        observation: { ...humanObservation(11, 'later'), events: [chat] },
+        nextObservation: { ...humanObservation(11, 'terminal-again'), events: [chat] },
+      },
+      action: { id: 'wait-2', name: 'wait_for_event', input: {}, source: 'llm' },
+      outcome: { ok: true, eventType: 'wait_for_event', result: { status: 'waiting' } },
+    }),
+  ]);
+
+  assert.deepEqual(state.ethogram.perceivedEvents, {
+    total: 2,
+    byType: { day_phase_changed: 1, chat_received: 1 },
+  });
 });
 
 test('resident lens marks unsafe and missing projections unavailable instead of using raw frames', () => {
