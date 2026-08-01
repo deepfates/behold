@@ -504,7 +504,7 @@ async function runSource(entityId: string) {
         bodyProfile: PROFILE,
         actionProfile: PROFILE,
         safetyProfile: SAFETY_PROFILE,
-        history: loom.turns(),
+        history: await loom.readAll(),
         acceptEngineEvent: engine.acceptsEvent,
         onEntityTurn: async (turn) => {
           await loom.append(turn);

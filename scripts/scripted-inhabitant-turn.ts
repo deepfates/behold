@@ -19,8 +19,9 @@ export async function executeScriptedInhabitantTurn(input: {
   model?: string;
   onEntityTurn?: (turn: EntityTurn) => unknown | Promise<unknown>;
 }) {
-  const sequence = input.loom.turns().length + 1;
-  const parentId = input.loom.turns().at(-1)?.id ?? null;
+  const previous = (await input.loom.tail(1)).at(-1) ?? null;
+  const sequence = input.loom.length() + 1;
+  const parentId = previous?.id ?? null;
   const observation = input.experience.observe();
   const eventStart = input.events.length;
   const startedAt = Date.now();

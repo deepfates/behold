@@ -2351,24 +2351,24 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
           },
           quotaAccountId: process.env.BEHOLD_COGNITION_ACCOUNT_ID,
         });
-        const setupObservation = projectedObservation(loom.turns().length + 1);
+        const setupObservation = projectedObservation(loom.length() + 1);
         const arm = gate.arm({ journalFile: journal.file, setupObservation });
         journal.append('setup_experiment_release_armed', arm);
         console.error('[bot] Experiment release armed: ' + gate.prepared.plan.releaseId + ' ' + entityId);
         const release = await gate.waitAndClaim();
         journal.append('experiment_release_observed', release);
         const expectedPrior = phase === 'restart' ? 1 : 0;
-        if (loom.turns().length !== expectedPrior) {
-          throw new Error('expected ' + expectedPrior + ' prior Lync turns, found ' + loom.turns().length);
+        if (loom.length() !== expectedPrior) {
+          throw new Error('expected ' + expectedPrior + ' prior Lync turns, found ' + loom.length());
         }
-        journal.append('fixture_prior_history', { phase, turns: loom.turns().length });
+        journal.append('fixture_prior_history', { phase, turns: loom.length() });
         const mind = createDirectResidentMind({
           apiKey: process.env.OPENROUTER_API_KEY,
           model,
           endpoint: process.env.OPENROUTER_BASE_URL,
           cognitionTransport: true,
         });
-        const sequence = loom.turns().length + 1;
+        const sequence = loom.length() + 1;
         const valid = await oneDecision(
           mind,
           phase === 'restart' ? 'valid_restart' : 'valid_initial',
@@ -2377,7 +2377,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
           'success',
         );
         await loom.append(lifeTurn(sequence, release, valid));
-        journal.append('entity_turn', loom.turns().at(-1));
+        journal.append('entity_turn', (await loom.readAll()).at(-1));
         if (phase === 'initial' && entityId === 'Scout') {
           await oneDecision(mind, 'provider_failure', release, sequence + 1, 'provider_error');
           await oneDecision(mind, 'provider_failure_extra', release, sequence + 1, 'provider_error');
@@ -2409,7 +2409,7 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
           phase,
           entityId,
           bodyProfile: process.env.BEHOLD_BODY_PROFILE,
-          lyncTurns: loom.turns().length,
+          lyncTurns: loom.length(),
         });
       }
 

@@ -39,7 +39,7 @@ async function main() {
   const proofFile = path.resolve(requiredEnvironment('BEHOLD_PROOF_FILE'));
   const cfg = getConfig();
   const loom = await openEntityLoom(entityId, undefined, cfg.circle.id);
-  const priorTurns = loom.turns().length;
+  const priorTurns = loom.length();
   let bot: ReturnType<typeof createBot> | null = null;
   let experience: InhabitantExperience | null = null;
   let engine: ReturnType<typeof createEngine> | null = null;
@@ -227,7 +227,7 @@ async function main() {
       circleId: cfg.circle.id,
       runId: process.env.BEHOLD_RUN_ID || null,
       priorTurns,
-      resultingTurns: loom.turns().length,
+      resultingTurns: loom.length(),
       initialObservation,
       initialDroppedItems,
       observationPerformance,

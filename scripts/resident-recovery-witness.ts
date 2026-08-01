@@ -209,7 +209,7 @@ async function runWitness() {
 
   const cfg = getConfig();
   const loom = await openEntityLoom(entityId, undefined, cfg.circle.id);
-  const priorTurns = loom.turns().length;
+  const priorTurns = loom.length();
   let bot: ReturnType<typeof createBot> | null = null;
   let experience: InhabitantExperience | null = null;
   try {
@@ -259,7 +259,7 @@ async function runWitness() {
       visualField: after.scene.terrain.visualField,
       inspection,
       priorTurns,
-      resultingTurns: loom.turns().length,
+      resultingTurns: loom.length(),
       observationSequenceBefore: before.sequence,
       observationSequenceAfter: after.sequence,
       observedAt: Date.now(),

@@ -248,8 +248,8 @@ async function runResident() {
   );
   const cfg = getConfig();
   const loom = await openEntityLoom(entityId, undefined, cfg.circle.id);
-  const priorTurns = loom.turns().length;
-  let memory = createPlaceMemory(entityId, loom.turns());
+  const priorTurns = loom.length();
+  let memory = createPlaceMemory(entityId, await loom.readAll());
   let bot: ReturnType<typeof createBot> | null = null;
   let experience: InhabitantExperience | null = null;
   let engine: ReturnType<typeof createEngine> | null = null;
@@ -329,7 +329,7 @@ async function runResident() {
       onEntityTurn: (turn) => memory.record(turn),
     });
     const memoryAfterFirst = memory.snapshot();
-    memory = createPlaceMemory(entityId, loom.turns());
+    memory = createPlaceMemory(entityId, await loom.readAll());
     const memoryAfterRestart = memory.snapshot();
     const remembered = memoryAfterRestart[0];
     if (!remembered) throw new Error('first crossing produced no restart memory');
@@ -353,7 +353,7 @@ async function runResident() {
       worldId: cfg.circle.id,
       managedRunId: process.env.BEHOLD_RUN_ID || null,
       priorTurns,
-      resultingTurns: loom.turns().length,
+      resultingTurns: loom.length(),
       fixtureSetup: {
         kind: 'natural_spawn_and_first_person_look_before_recorded_action',
         origin: ORIGIN_SIDE,

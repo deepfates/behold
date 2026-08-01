@@ -22,6 +22,7 @@ import { usesOllamaResidentSessionTransport } from '../mind/ollama-json-action';
 import { usesResidentSessionPolicy } from '../policy/profile';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
+import { readLoomFoldCache, type BoundedLoomContextState } from '../entity/folding';
 import { createProjectMemory } from '../entity/projects';
 import { createPlaceMemory } from '../entity/places';
 import { InhabitantExperience, type TaskBrief } from '../agent/experience';
@@ -44,6 +45,7 @@ import {
 } from '../runtime/resident-config';
 
 const INITIAL_WORLD_SYNC_SETTLE_MS = 4_000;
+const LIVE_FOLD_RECENT_TURNS = 6;
 
 export type ConsoleOptions = ResidentRuntimeOptions & {
   /**
@@ -126,8 +128,31 @@ export async function runConsole(
     ),
   );
   const entityLoom = await openEntityLoom(name, undefined, cfg.circle.id);
-  const projects = createProjectMemory(name, entityLoom.turns());
-  const places = createPlaceMemory(name, entityLoom.turns());
+  const projects = createProjectMemory(name);
+  const places = createPlaceMemory(name);
+  for await (const priorTurn of entityLoom.scan()) {
+    projects.record(priorTurn);
+    places.record(priorTurn);
+  }
+  const priorEntityTurns = entityLoom.length();
+  const boundedTail = await entityLoom.tailBound(LIVE_FOLD_RECENT_TURNS + 1);
+  const recentBound = boundedTail.slice(-LIVE_FOLD_RECENT_TURNS);
+  const boundaryBound =
+    priorEntityTurns > recentBound.length
+      ? (boundedTail.at(-recentBound.length - 1) ?? null)
+      : null;
+  const residentLoomContext: BoundedLoomContextState = {
+    protocol: 'behold.bounded-loom-context.v1',
+    entityId: name,
+    totalTurns: priorEntityTurns,
+    recentTurns: recentBound.map((entry) => entry.turn),
+    recentSources: recentBound.map((entry) => entry.source),
+    fold: readLoomFoldCache(entityLoom.foldFile),
+    foldSource: boundaryBound
+      ? { tipTurn: boundaryBound.turn, source: boundaryBound.source }
+      : null,
+    rebuild: () => entityLoom.scanBound(),
+  };
   const journal = createRunJournal(name);
   let shutdownStarted = false;
   let shutdownPromise: Promise<void> | null = null;
@@ -188,7 +213,7 @@ export async function runConsole(
     target: taskTarget,
     entityLoom: entityLoom.file,
     entityLoomBackend: entityLoom.backend,
-    priorEntityTurns: entityLoom.turns().length,
+    priorEntityTurns,
     activeProjects: projects.snapshot(),
     knownPlaces: places.snapshot(),
   });
@@ -206,7 +231,7 @@ export async function runConsole(
   }
   console.error(`[journal] ${journal.file}`);
   console.error(
-    `[entity] ${entityLoom.file} (${entityLoom.turns().length} prior turns, ${entityLoom.backend})`,
+    `[entity] ${entityLoom.file} (${priorEntityTurns} prior turns, ${entityLoom.backend})`,
   );
   console.error(`[circle] ${cfg.circle.id} (${cfg.circle.source})`);
   for (const warning of entityLoom.warnings) console.error(`[entity] ${warning}`);
@@ -790,7 +815,7 @@ export async function runConsole(
         allowTools: runtime.allowTools as string[] | null,
         // The complete loom stays authoritative. The adjacent fold is only a
         // validated, disposable prompt view over older turns.
-        history: entityLoom.turns(),
+        loomContext: residentLoomContext,
         foldCacheFile: entityLoom.foldFile,
         log: (s) => console.error(s),
         acceptEngineEvent: engine.acceptsEvent,
@@ -851,10 +876,11 @@ export async function runConsole(
         onEntityTurn: async (turn) => {
           projects.validate(turn);
           places.validate(turn);
-          await entityLoom.append(turn);
+          const committed = await entityLoom.append(turn);
           projects.record(turn);
           places.record(turn);
           appendJournal('entity_turn', turn);
+          return { protocol: 'lync.file-loom-chain.v1' as const, digest: committed.chainDigest };
         },
       },
     );

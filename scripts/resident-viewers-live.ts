@@ -400,7 +400,7 @@ async function runResident() {
         actionProfile: PROFILE,
         safetyProfile: SAFETY_PROFILE,
         experimentRelease: () => release,
-        history: loom.turns(),
+        history: await loom.readAll(),
         acceptEngineEvent: engine.acceptsEvent,
         onEntityTurn: async (turn) => {
           await loom.append(turn);

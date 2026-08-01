@@ -18,6 +18,9 @@ import {
   encodeEntityTurnForLync,
   type EntityTurnObservationPresentation,
 } from './turn-observation-binding';
+import type { FileLoomCursor, FileLoomTurn } from '@deepfates/lync/file-loom-cursor' with {
+  'resolution-mode': 'import',
+};
 import {
   beginManagedControllerAdmission,
   beginUnmanagedControllerAdmission,
@@ -89,11 +92,55 @@ export type EntityLoom = {
   file: string;
   foldFile: string;
   warnings: string[];
-  turns: () => EntityTurn[];
-  tail: (limit?: number) => EntityTurn[];
-  append: (turn: EntityTurn) => Promise<void>;
+  /** Selected canonical turn count without materializing private payloads. */
+  length: () => number;
+  /** Current selected Lync tip. Branch selection remains Behold session state. */
+  tip: () => string | null;
+  /** Explicit whole-life read for non-live callers and compatibility tools. */
+  readAll: () => Promise<EntityTurn[]>;
+  /** Stream the selected life in order without retaining decoded predecessors. */
+  scan: () => AsyncIterable<EntityTurn>;
+  /** Stream turns with their cursor-authenticated canonical chain bindings. */
+  scanBound: () => AsyncIterable<BoundEntityTurn>;
+  /** Read only the bounded selected suffix. */
+  tail: (limit?: number) => Promise<EntityTurn[]>;
+  /** Read a bounded selected suffix with canonical chain bindings. */
+  tailBound: (limit?: number) => Promise<BoundEntityTurn[]>;
+  append: (turn: EntityTurn) => Promise<EntityTurnCommitReceipt>;
   close: () => Promise<void>;
 };
+
+export type EntityTurnCanonicalBinding = Readonly<{
+  protocol: 'lync.file-loom-chain.v1';
+  digest: string;
+}>;
+
+export type BoundEntityTurn = Readonly<{
+  turn: EntityTurn;
+  source: EntityTurnCanonicalBinding;
+}>;
+
+export type EntityTurnCommitReceipt = Readonly<{
+  protocol: 'behold.entity-turn-commit-receipt.v1';
+  entityId: string;
+  sequence: number;
+  legacyTurnId: string;
+  life: EntityLifeReference;
+  turn: EntityLifeTurnReference;
+  parentTurnId: string | null;
+  depth: number;
+  bodyDigest: string;
+  chainDigest: string;
+  canonical: Readonly<{
+    source: string;
+    line: number;
+    start: number;
+    end: number;
+    terminator: '' | '\n';
+    rawSha256: string;
+  }>;
+  observationBindingDigest: string | null;
+}>;
 
 export type BeholdInhabitantPresentationProfile =
   'org.behold.inhabitant.v1' | 'org.behold.inhabitant.v2';
@@ -259,6 +306,10 @@ type LyncStoredTurn = {
   meta?: EntityTurnMeta;
 };
 
+type LyncEncodedEntityTurn = ReturnType<typeof encodeEntityTurnForLync>;
+
+type LyncEntityCursor = FileLoomCursor<LyncEncodedEntityTurn, EntityLoomMeta, EntityTurnMeta>;
+
 type LyncEntityLoom = {
   id: string;
   info: () => Promise<{ meta?: EntityLoomMeta }>;
@@ -292,43 +343,39 @@ export async function openEntityLoom(
   const admission = controllerAdmissionFromEnvironment();
   const lease = await acquireEntityRuntimeLease(entityId, directory);
   let openedLyncLoom: LyncEntityLoom | undefined;
+  let openedCursor: LyncEntityCursor | undefined;
 
   try {
     confirmControllerAdmission(admission);
-    // Behold still emits CommonJS. Dynamic import is the narrow bridge to
-    // Lync's ESM package; it avoids converting the rest of the runtime.
-    const [{ createFileEventStore }, { createLyncLooms, loomRootId }] = await Promise.all([
-      import('@deepfates/lync/file-log'),
-      import('@deepfates/lync/looms'),
-    ]);
     const legacyFile = path.join(directory, 'loom.jsonl');
     const foldFile = path.join(directory, 'fold.json');
     const storageDirectory = path.join(directory, 'lync');
     const manifestFile = path.join(storageDirectory, 'manifest.json');
     await fsPromises.mkdir(storageDirectory, { recursive: true });
 
-    const legacy = readEntityLoom(legacyFile);
-    validateEntityTrajectory(legacy.turns, entityId, `legacy loom ${legacyFile}`);
-    const warnings = [...legacy.warnings];
+    const warnings: string[] = [];
     await recoverInvalidLyncSnapshot(storageDirectory, warnings);
-
-    const store = createFileEventStore(storageDirectory);
-    const looms = createLyncLooms<EntityTurn, EntityLoomMeta, EntityTurnMeta>({
-      store,
-      author: { actor: entityId, via: 'behold@0.1.0-alpha.0' },
-    });
     let manifest = await readManifest(manifestFile, entityId);
-    let lyncLoom: LyncEntityLoom;
     let tipTurnId: string | null;
     let presentationProfile: BeholdInhabitantPresentationProfile;
 
-    if (manifest) {
-      lyncLoom = await looms.open(manifest.loomId);
-      openedLyncLoom = lyncLoom;
-      presentationProfile = (await assertLoomIdentity(lyncLoom, entityId, boundCircleId)).meta
-        .profile;
-      tipTurnId = await recoverUniqueTip(lyncLoom, manifest.tipTurnId, warnings);
-    } else {
+    // Loom discovery and legacy migration are one-time compatibility work. An
+    // already-selected life must not hydrate the complete history on reopen.
+    if (!manifest) {
+      // Behold still emits CommonJS. Dynamic import is the narrow bridge to
+      // Lync's ESM package; it avoids converting the rest of the runtime.
+      const [{ createFileEventStore }, { createLyncLooms }] = await Promise.all([
+        import('@deepfates/lync/file-log'),
+        import('@deepfates/lync/looms'),
+      ]);
+      const legacy = readEntityLoom(legacyFile);
+      validateEntityTrajectory(legacy.turns, entityId, `legacy loom ${legacyFile}`);
+      warnings.push(...legacy.warnings);
+      const store = createFileEventStore(storageDirectory);
+      const looms = createLyncLooms<EntityTurn, EntityLoomMeta, EntityTurnMeta>({
+        store,
+        author: { actor: entityId, via: 'behold@0.1.0-alpha.0' },
+      });
       const roots = await store.roots('lync/loom');
       const matching = roots.filter((rootEvent) => {
         const meta = rootEvent.body.payload?.meta as Partial<EntityLoomMeta> | undefined;
@@ -349,44 +396,65 @@ export async function openEntityLoom(
             ...(boundCircleId ? { circleId: boundCircleId } : {}),
           });
       if (!info) throw new Error(`could not open Lync loom for ${entityId}`);
-      lyncLoom = await looms.open(info.id);
+      const lyncLoom: LyncEntityLoom = await looms.open(info.id);
       openedLyncLoom = lyncLoom;
       presentationProfile = (await assertLoomIdentity(lyncLoom, entityId, boundCircleId)).meta
         .profile;
       tipTurnId = await findMigrationTip(lyncLoom, legacy.turns);
-    }
-
-    const stored = await materializeThread(lyncLoom, tipTurnId, entityId);
-    if (legacy.turns.length > 0) {
-      assertLegacyCompatible(stored, legacy.turns);
-      for (const turn of legacy.turns.slice(stored.length)) {
-        const appended = await appendLyncTurn(lyncLoom, tipTurnId, turn);
-        tipTurnId = appended.id;
-        stored.push(turn);
+      const stored = await materializeThread(lyncLoom, tipTurnId, entityId);
+      if (legacy.turns.length > 0) {
+        assertLegacyCompatible(stored, legacy.turns);
+        for (const turn of legacy.turns.slice(stored.length)) {
+          const appended = await appendLyncTurn(lyncLoom, tipTurnId, turn);
+          tipTurnId = appended.id;
+          stored.push(turn);
+        }
+        warnings.push(`legacy ${path.basename(legacyFile)} preserved after Lync migration`);
       }
+      manifest = {
+        protocol: 'behold.entity-loom-manifest.v1',
+        entityId,
+        loomId: lyncLoom.id,
+        tipTurnId,
+      };
+      await writeManifest(manifestFile, manifest);
+      const diagnostics = await store.diagnostics();
+      if (diagnostics.conflicts || diagnostics.pending || diagnostics.garbage) {
+        warnings.push(
+          `Lync diagnostics: ${diagnostics.conflicts} conflicts, ${diagnostics.pending} pending, ${diagnostics.garbage} garbage`,
+        );
+      }
+      lyncLoom.close();
+      openedLyncLoom = undefined;
     }
 
-    manifest = {
-      protocol: 'behold.entity-loom-manifest.v1',
-      entityId,
-      loomId: lyncLoom.id,
-      tipTurnId,
-    };
-    await writeManifest(manifestFile, manifest);
-
-    const diagnostics = await store.diagnostics();
-    if (diagnostics.conflicts || diagnostics.pending || diagnostics.garbage) {
-      warnings.push(
-        `Lync diagnostics: ${diagnostics.conflicts} conflicts, ${diagnostics.pending} pending, ${diagnostics.garbage} garbage`,
-      );
+    if (!manifest) throw new Error(`could not select a Lync loom for ${entityId}`);
+    const { openFileLoomCursor } = await import('@deepfates/lync/file-loom-cursor');
+    const cursor = await openFileLoomCursor<LyncEncodedEntityTurn, EntityLoomMeta, EntityTurnMeta>({
+      dir: storageDirectory,
+      loomId: manifest.loomId,
+      author: { actor: entityId, via: 'behold@0.1.0-alpha.0' },
+    });
+    openedCursor = cursor;
+    presentationProfile = (await assertCursorIdentity(cursor, entityId, boundCircleId)).meta
+      .profile;
+    tipTurnId = await recoverUniqueCursorTip(cursor, manifest.tipTurnId, warnings);
+    if (tipTurnId !== manifest.tipTurnId) {
+      manifest = { ...manifest, tipTurnId };
+      await writeManifest(manifestFile, manifest);
     }
-    if (legacy.turns.length > 0) {
-      warnings.push(`legacy ${path.basename(legacyFile)} preserved after Lync migration`);
+    let selectedLength = tipTurnId === null ? 0 : await cursor.depth(tipTurnId);
+    let lastTurn: EntityTurn | null = null;
+    if (tipTurnId !== null) {
+      const suffix = await cursor.tail(tipTurnId, Math.min(2, selectedLength));
+      const decoded = suffix.map((item) => decodeCursorTurn(item, entityId));
+      validateEntityTrajectorySuffix(decoded, entityId, selectedLength);
+      lastTurn = decoded.at(-1) ?? null;
     }
 
     const lyncFile = path.join(
       storageDirectory,
-      `${encodeURIComponent(loomRootId(lyncLoom.id))}.lync`,
+      `${encodeURIComponent(loomRootIdFromLyncId(cursor.id))}.lync`,
     );
 
     const connectionCapability: EntityConnectionCapability = Object.freeze({
@@ -402,6 +470,8 @@ export async function openEntityLoom(
     const assertOpen = () => {
       if (closed) throw new Error(`entity loom ${entityId} is closed`);
     };
+    const decodeSelected = (item: FileLoomTurn<LyncEncodedEntityTurn, EntityTurnMeta>) =>
+      decodeCursorTurn(item, entityId);
     return {
       backend: 'lync',
       circleId: boundCircleId,
@@ -410,34 +480,67 @@ export async function openEntityLoom(
       file: lyncFile,
       foldFile,
       warnings,
-      turns: () => {
+      length: () => {
         assertOpen();
-        return [...stored];
+        return selectedLength;
       },
-      tail: (limit = 12) => {
+      tip: () => {
         assertOpen();
-        return stored.slice(-Math.max(0, Math.floor(limit)));
+        return tipTurnId;
+      },
+      readAll: async () => {
+        assertOpen();
+        const turns: EntityTurn[] = [];
+        for await (const turn of scanSelectedCursor(cursor, tipTurnId, entityId)) turns.push(turn);
+        return turns;
+      },
+      scan: () => {
+        assertOpen();
+        return scanSelectedCursor(cursor, tipTurnId, entityId);
+      },
+      scanBound: () => {
+        assertOpen();
+        return scanSelectedCursorBound(cursor, tipTurnId, entityId);
+      },
+      tail: async (limit = 12) => {
+        assertOpen();
+        if (tipTurnId === null || limit <= 0) return [];
+        const items = await cursor.tail(tipTurnId, Math.max(0, Math.floor(limit)));
+        return items.map(decodeSelected);
+      },
+      tailBound: async (limit = 12) => {
+        assertOpen();
+        if (tipTurnId === null || limit <= 0) return [];
+        const items = await cursor.tail(tipTurnId, Math.max(0, Math.floor(limit)));
+        return items.map((item) => boundCursorTurn(item, entityId));
       },
       append: async (turn) => {
         assertOpen();
-        validateNextTurn(stored, turn, entityId);
-        const appended = await appendLyncTurn(lyncLoom, tipTurnId, turn);
+        validateNextTurn(lastTurn ? [lastTurn] : [], turn, entityId, selectedLength);
+        const appended = await cursor.appendTurn(tipTurnId, encodeEntityTurnForLync(turn), {
+          protocol: 'behold.entity-turn-link.v1',
+          entityId: turn.entityId,
+          sequence: turn.sequence,
+          legacyId: turn.id,
+        });
         const nextManifest: EntityLoomManifest = {
           protocol: 'behold.entity-loom-manifest.v1',
           entityId,
-          loomId: lyncLoom.id,
+          loomId: cursor.id,
           tipTurnId: appended.id,
         };
         await writeManifest(manifestFile, nextManifest);
         tipTurnId = appended.id;
-        stored.push(turn);
+        selectedLength = appended.depth;
+        lastTurn = structuredClone(turn);
+        return entityTurnCommitReceipt(cursor.id, appended, turn);
       },
       close: async () => {
         if (closed) return;
         closed = true;
         issuedEntityConnectionCapabilities.delete(connectionCapability);
         try {
-          lyncLoom.close();
+          cursor.close();
         } finally {
           await lease.close();
         }
@@ -445,6 +548,7 @@ export async function openEntityLoom(
     };
   } catch (error) {
     try {
+      openedCursor?.close();
       openedLyncLoom?.close();
     } finally {
       await lease.close();
@@ -912,6 +1016,27 @@ async function assertLoomIdentity(loom: LyncEntityLoom, entityId: string, circle
   return info as { meta: EntityLoomMeta };
 }
 
+async function assertCursorIdentity(
+  cursor: LyncEntityCursor,
+  entityId: string,
+  circleId: string | null,
+) {
+  const info = await cursor.info();
+  if (
+    info.meta?.protocol !== 'behold.entity-loom.v1' ||
+    !isBeholdInhabitantPresentationProfile(info.meta?.profile) ||
+    info.meta?.entityId !== entityId
+  ) {
+    throw new Error(`Lync loom ${cursor.id} does not belong to ${entityId}`);
+  }
+  if (circleId && info.meta.circleId && info.meta.circleId !== circleId) {
+    throw new Error(
+      `Lync loom ${cursor.id} belongs to circle ${info.meta.circleId}, not ${circleId}`,
+    );
+  }
+  return info as { meta: EntityLoomMeta };
+}
+
 function isBeholdInhabitantPresentationProfile(
   value: unknown,
 ): value is BeholdInhabitantPresentationProfile {
@@ -963,6 +1088,145 @@ async function recoverUniqueTip(
   if (recovered > 0)
     warnings.push(`recovered ${recovered} committed Lync turn(s) after the manifest tip`);
   return tip;
+}
+
+async function recoverUniqueCursorTip(
+  cursor: LyncEntityCursor,
+  manifestTip: string | null,
+  warnings: string[],
+) {
+  if (manifestTip !== null && !(await cursor.hasTurn(manifestTip))) {
+    throw new Error(`Lync manifest references missing tip ${manifestTip}`);
+  }
+  let tip = manifestTip;
+  let recovered = 0;
+  while (true) {
+    const children = await cursor.childrenOf(tip, 2);
+    if (children.length === 0) break;
+    if (children.length > 1) {
+      throw new Error(
+        `Lync branch after active tip ${tip ?? '<root>'} is ambiguous; refusing to choose silently`,
+      );
+    }
+    tip = children[0].id;
+    recovered += 1;
+  }
+  if (recovered > 0) {
+    warnings.push(`recovered ${recovered} committed Lync turn(s) after the manifest tip`);
+  }
+  return tip;
+}
+
+function loomRootIdFromLyncId(loomId: string) {
+  if (!loomId.startsWith('lync:') || loomId.length === 'lync:'.length) {
+    throw new Error(`invalid Lync loom id ${loomId}`);
+  }
+  return loomId.slice('lync:'.length);
+}
+
+function decodeCursorTurn(
+  item: FileLoomTurn<LyncEncodedEntityTurn, EntityTurnMeta>,
+  entityId: string,
+) {
+  const turn = decodeEntityTurnFromLync(item.payload) as EntityTurn;
+  validateLyncTurnMeta({ ...item, payload: turn }, entityId);
+  return turn;
+}
+
+async function* scanSelectedCursor(
+  cursor: LyncEntityCursor,
+  tip: string | null,
+  entityId: string,
+): AsyncGenerator<EntityTurn> {
+  if (tip === null) return;
+  let previous: EntityTurn | null = null;
+  let count = 0;
+  for await (const item of cursor.scanThread({ tip })) {
+    const turn = decodeCursorTurn(item, entityId);
+    validateNextTurn(previous ? [previous] : [], turn, entityId, count);
+    previous = turn;
+    count += 1;
+    yield turn;
+  }
+}
+
+async function* scanSelectedCursorBound(
+  cursor: LyncEntityCursor,
+  tip: string | null,
+  entityId: string,
+): AsyncGenerator<BoundEntityTurn> {
+  if (tip === null) return;
+  let previous: EntityTurn | null = null;
+  let count = 0;
+  for await (const item of cursor.scanThread({ tip })) {
+    const bound = boundCursorTurn(item, entityId);
+    validateNextTurn(previous ? [previous] : [], bound.turn, entityId, count);
+    previous = bound.turn;
+    count += 1;
+    yield bound;
+  }
+}
+
+function boundCursorTurn(
+  item: FileLoomTurn<LyncEncodedEntityTurn, EntityTurnMeta>,
+  entityId: string,
+): BoundEntityTurn {
+  return deepFreeze({
+    turn: decodeCursorTurn(item, entityId),
+    source: { protocol: 'lync.file-loom-chain.v1', digest: item.chainDigest },
+  });
+}
+
+function validateEntityTrajectorySuffix(
+  turns: EntityTurn[],
+  entityId: string,
+  selectedLength: number,
+) {
+  if (turns.length === 0) {
+    if (selectedLength !== 0) throw new Error('selected Lync life has no readable tip');
+    return;
+  }
+  const expectedFirst = selectedLength - turns.length + 1;
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index];
+    const expectedSequence = expectedFirst + index;
+    if (
+      turn.protocol !== 'behold.entity-turn.v1' ||
+      turn.entityId !== entityId ||
+      turn.sequence !== expectedSequence ||
+      turn.id !== `${entityId}:turn:${expectedSequence}`
+    ) {
+      throw new Error(`Lync loom suffix has invalid turn ${turn.id || '<unknown>'}`);
+    }
+    assertEntityTurnPublicCommitment(turn);
+    if (index > 0 && turn.parentId !== turns[index - 1].id) {
+      throw new Error('Lync loom suffix parent does not match its predecessor');
+    }
+  }
+}
+
+function entityTurnCommitReceipt(
+  loomId: string,
+  appended: FileLoomTurn<LyncEncodedEntityTurn, EntityTurnMeta>,
+  turn: EntityTurn,
+): EntityTurnCommitReceipt {
+  return deepFreeze({
+    protocol: 'behold.entity-turn-commit-receipt.v1',
+    entityId: turn.entityId,
+    sequence: turn.sequence,
+    legacyTurnId: turn.id,
+    life: { v: 1, kind: 'loom', loomId },
+    turn: { v: 1, kind: 'turn', loomId, turnId: appended.id },
+    parentTurnId: appended.parentId,
+    depth: appended.depth,
+    bodyDigest: appended.bodyDigest,
+    chainDigest: appended.chainDigest,
+    canonical: { ...appended.locator },
+    observationBindingDigest:
+      typeof (appended.payload as any)?.observationBinding?.digest === 'string'
+        ? (appended.payload as any).observationBinding.digest
+        : null,
+  });
 }
 
 async function materializeThread(loom: LyncEntityLoom, tip: string | null, entityId: string) {
@@ -1038,9 +1302,14 @@ async function writeManifest(file: string, manifest: EntityLoomManifest) {
   }
 }
 
-function validateNextTurn(stored: EntityTurn[], turn: EntityTurn, entityId: string) {
+function validateNextTurn(
+  stored: EntityTurn[],
+  turn: EntityTurn,
+  entityId: string,
+  selectedLength = stored.length,
+) {
   const previous = stored.at(-1);
-  const expectedSequence = previous ? previous.sequence + 1 : 1;
+  const expectedSequence = previous ? previous.sequence + 1 : selectedLength + 1;
   if (turn.protocol !== 'behold.entity-turn.v1') {
     throw new Error('unsupported entity turn protocol');
   }

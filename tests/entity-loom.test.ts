@@ -294,17 +294,40 @@ test('closing an entity life closes its Lync handle before releasing the runtime
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-close-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const life = await openEntityLoom('Scout', root);
-  await life.append(turn(1, null));
+  const receipt = await life.append(turn(1, null));
+  assert.equal(life.length(), 1);
+  assert.equal(receipt.protocol, 'behold.entity-turn-commit-receipt.v1');
+  assert.equal(receipt.entityId, 'Scout');
+  assert.equal(receipt.sequence, 1);
+  assert.equal(receipt.depth, 1);
+  assert.equal(receipt.turn.loomId, receipt.life.loomId);
+  assert.equal(receipt.turn.turnId, life.tip());
+  assert.match(receipt.bodyDigest, /^[a-f0-9]{64}$/);
+  assert.match(receipt.chainDigest, /^[a-f0-9]{64}$/);
+  assert.match(receipt.canonical.rawSha256, /^[a-f0-9]{64}$/);
+  assert.equal(path.isAbsolute(receipt.canonical.source), false);
 
   await life.close();
   await life.close();
 
-  assert.throws(() => life.turns(), /entity loom Scout is closed/);
-  assert.throws(() => life.tail(), /entity loom Scout is closed/);
+  await assert.rejects(life.readAll(), /entity loom Scout is closed/);
+  await assert.rejects(life.tail(), /entity loom Scout is closed/);
   await assert.rejects(life.append(turn(2, 'Scout:turn:1')), /entity loom Scout is closed/);
 
   const resumed = await openEntityLoom('Scout', root);
-  assert.equal(resumed.turns().length, 1);
+  assert.equal(resumed.length(), 1);
+  assert.equal((await resumed.tail(1))[0]?.id, 'Scout:turn:1');
+  assert.deepEqual((await resumed.tailBound(1))[0]?.source, {
+    protocol: 'lync.file-loom-chain.v1',
+    digest: receipt.chainDigest,
+  });
+  const streamed: EntityTurn[] = [];
+  for await (const item of resumed.scan()) streamed.push(item);
+  assert.deepEqual(streamed, await resumed.readAll());
+  const boundStream = [];
+  for await (const item of resumed.scanBound()) boundStream.push(item);
+  assert.equal(boundStream[0]?.turn.id, 'Scout:turn:1');
+  assert.equal(boundStream[0]?.source.digest, receipt.chainDigest);
   await resumed.close();
 });
 
@@ -335,7 +358,7 @@ test('a manifest directory fsync failure leaves canonical life recoverable witho
   );
 
   const recovered = await openEntityLoom('Scout', root);
-  assert.equal(recovered.turns().length, 0);
+  assert.equal(recovered.length(), 0);
   await recovered.close();
 });
 
@@ -367,7 +390,7 @@ test('legible-resident public commitments persist and replay exactly while tampe
   await life.close();
 
   const reopened = await openEntityLoom(expected.entityId, root);
-  const stored = reopened.turns()[0];
+  const stored = (await reopened.readAll())[0];
   assert.deepEqual(stored?.utterance.publicCommitment, expected.utterance.publicCommitment);
   assert.deepEqual(assertEntityTurnPublicCommitment(stored!), expected.utterance.publicCommitment);
   const replay = historyMessages([stored!]);
@@ -428,9 +451,12 @@ test('human-semantic Lync turns bind a safe readable projection to unchanged pri
   await life.close();
 
   const reopened = await openEntityLoom(expected.entityId, root, expected.circleId);
-  assert.deepEqual(reopened.turns()[0]?.observation, expected.observation);
-  assert.deepEqual(reopened.turns()[0]?.nextObservation, expected.nextObservation);
-  assert.deepEqual(reopened.turns()[0]?.observationPresentation, expected.observationPresentation);
+  assert.deepEqual((await reopened.readAll())[0]?.observation, expected.observation);
+  assert.deepEqual((await reopened.readAll())[0]?.nextObservation, expected.nextObservation);
+  assert.deepEqual(
+    (await reopened.readAll())[0]?.observationPresentation,
+    expected.observationPresentation,
+  );
   await reopened.close();
 
   const tampered = structuredClone(sourceTurn);
@@ -513,19 +539,19 @@ test('Lync becomes authoritative without rewriting the legacy autobiography', as
 
   const migrated = await openEntityLoom('Scout', root);
   assert.equal(migrated.backend, 'lync');
-  assert.equal(migrated.turns().length, 2);
+  assert.equal(migrated.length(), 2);
   assert.match(migrated.file, /\.lync$/);
   assert.ok(fs.existsSync(migrated.file));
   assert.equal(fs.readFileSync(legacyFile, 'utf8'), legacyBytes);
 
   await migrated.append(turn(3, 'Scout:turn:2'));
-  assert.equal(migrated.turns().length, 3);
+  assert.equal(migrated.length(), 3);
   assert.equal(fs.readFileSync(legacyFile, 'utf8'), legacyBytes);
   await migrated.close();
 
   const reopened = await openEntityLoom('Scout', root);
-  assert.equal(reopened.turns().length, 3);
-  assert.equal(reopened.turns()[2]?.id, 'Scout:turn:3');
+  assert.equal(reopened.length(), 3);
+  assert.equal((await reopened.readAll())[2]?.id, 'Scout:turn:3');
   assert.equal(fs.readFileSync(legacyFile, 'utf8'), legacyBytes);
   await reopened.close();
 });
@@ -585,17 +611,17 @@ test('Lync recovers a committed turn after a stale tip manifest and keeps inhabi
   await scout.close();
 
   const recoveredScout = await openEntityLoom('Scout', root);
-  assert.equal(recoveredScout.turns().length, 1);
+  assert.equal(recoveredScout.length(), 1);
   assert.ok(recoveredScout.warnings.some((warning) => warning.includes('recovered 1 committed')));
 
   const builder = await openEntityLoom('Builder', root);
   await builder.append(turn(1, null, 'Builder'));
   assert.deepEqual(
-    recoveredScout.turns().map((item) => item.entityId),
+    (await recoveredScout.readAll()).map((item) => item.entityId),
     ['Scout'],
   );
   assert.deepEqual(
-    builder.turns().map((item) => item.entityId),
+    (await builder.readAll()).map((item) => item.entityId),
     ['Builder'],
   );
   assert.notEqual(recoveredScout.file, builder.file);
@@ -619,8 +645,8 @@ test('Lync recovers from an interrupted derived snapshot without discarding its 
   fs.writeFileSync(snapshotFile, '', 'utf8');
 
   const recovered = await openEntityLoom('Scout', root);
-  assert.equal(recovered.turns().length, 1);
-  assert.equal(recovered.turns()[0]?.id, 'Scout:turn:1');
+  assert.equal(recovered.length(), 1);
+  assert.equal((await recovered.readAll())[0]?.id, 'Scout:turn:1');
   assert.equal(fs.readFileSync(lyncFile, 'utf8'), durableBytes);
   assert.ok(
     recovered.warnings.some((warning) =>
@@ -639,7 +665,7 @@ test('Lync recovers from an interrupted derived snapshot without discarding its 
     assert.doesNotThrow(() => JSON.parse(fs.readFileSync(snapshotFile, 'utf8')));
   }
   assert.ok(fs.readFileSync(lyncFile, 'utf8').length > durableBytes.length);
-  assert.equal(recovered.turns().length, 2);
+  assert.equal(recovered.length(), 2);
   await recovered.close();
 });
 
@@ -650,12 +676,12 @@ test('Lync runtime lease permits one incarnation per entity and independent inha
   await assert.rejects(openEntityLoom('Scout', root), /Scout is already running in pid/);
 
   const builder = await openEntityLoom('Builder', root);
-  assert.equal(builder.turns().length, 0);
+  assert.equal(builder.length(), 0);
   await builder.close();
   await scout.close();
 
   const resumedScout = await openEntityLoom('Scout', root);
-  assert.equal(resumedScout.turns().length, 0);
+  assert.equal(resumedScout.length(), 0);
   await resumedScout.close();
 });
 
@@ -709,7 +735,7 @@ test('Lync runtime lease recovers only a demonstrably dead same-host holder', as
   );
 
   const recovered = await openEntityLoom('Scout', root);
-  assert.equal(recovered.turns().length, 0);
+  assert.equal(recovered.length(), 0);
   await recovered.close();
   assert.equal(fs.existsSync(path.join(directory, 'runtime.lock')), false);
 });

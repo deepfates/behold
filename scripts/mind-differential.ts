@@ -107,7 +107,7 @@ async function main() {
   let policy: ReturnType<typeof startLLMPolicy> | null = null;
   try {
     const priorTurnCount = Number(matchingTurn.data.sequence) - 1;
-    const history = loom.turns().slice(0, priorTurnCount);
+    const history = (await loom.readAll()).slice(0, priorTurnCount);
     if (history.length !== priorTurnCount) {
       throw new Error(`Expected ${priorTurnCount} prior turns, found ${history.length}`);
     }

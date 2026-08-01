@@ -229,7 +229,7 @@ export async function materializePopulationTrajectories(input: {
     for (const entityId of input.entityIds) {
       const loom = await openEntityLoom(entityId, input.fixture.entityRoot, OWNED_WORLD_ID);
       try {
-        const turns = structuredClone(loom.turns());
+        const turns = structuredClone(await loom.readAll());
         const trajectoryFile = path.join(
           input.fixture.evidenceRoot,
           `${entityId}-${input.label}-trajectory.json`,
@@ -282,7 +282,7 @@ export async function compareAuthoritativePopulationTrajectories(input: {
       try {
         integrity[`${resident.entityId}.trajectoryMatchesLync`] =
           path.resolve(loom.file) === path.resolve(resident.loomFile) &&
-          JSON.stringify(loom.turns()) === JSON.stringify(resident.trajectory);
+          JSON.stringify(await loom.readAll()) === JSON.stringify(resident.trajectory);
       } finally {
         await loom.close();
       }

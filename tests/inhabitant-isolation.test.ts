@@ -56,12 +56,12 @@ test('two inhabitants restart from their own looms and folded views without leak
     await runOneLife(reopenedScout, true);
     await runOneLife(reopenedBuilder, true);
 
-    assert.equal(reopenedScout.turns().length, 14);
-    assert.equal(reopenedBuilder.turns().length, 14);
-    assert.ok(reopenedScout.turns().every((turn) => turn.entityId === 'Scout'));
-    assert.ok(reopenedBuilder.turns().every((turn) => turn.entityId === 'Builder'));
-    assert.equal(reopenedScout.turns().at(-1)?.parentId, 'Scout:turn:13');
-    assert.equal(reopenedBuilder.turns().at(-1)?.parentId, 'Builder:turn:13');
+    assert.equal(reopenedScout.length(), 14);
+    assert.equal(reopenedBuilder.length(), 14);
+    assert.ok((await reopenedScout.readAll()).every((turn) => turn.entityId === 'Scout'));
+    assert.ok((await reopenedBuilder.readAll()).every((turn) => turn.entityId === 'Builder'));
+    assert.equal((await reopenedScout.readAll()).at(-1)?.parentId, 'Scout:turn:13');
+    assert.equal((await reopenedBuilder.readAll()).at(-1)?.parentId, 'Builder:turn:13');
 
     const scoutRestartRequest = requests[2];
     const builderRestartRequest = requests[3];
@@ -80,7 +80,7 @@ test('two inhabitants restart from their own looms and folded views without leak
 });
 
 async function runOneLife(loom: EntityLoom, rejectSummarizer = false) {
-  const entityId = loom.turns()[0]?.entityId;
+  const entityId = (await loom.readAll())[0]?.entityId;
   assert.ok(entityId);
   let summaryCalls = 0;
   const policy = startLLMPolicy(
@@ -96,7 +96,7 @@ async function runOneLife(loom: EntityLoom, rejectSummarizer = false) {
       apiKey: 'test-key',
       model: 'test/model',
       acceptEngineEvent: () => true,
-      history: loom.turns(),
+      history: await loom.readAll(),
       foldCacheFile: path.join(path.dirname(loom.file), 'fold.json'),
       foldRecentTurns: 4,
       foldBatchTurns: 4,
