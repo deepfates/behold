@@ -29,18 +29,22 @@ repetitive, ineffective, and consequential choices; those choices are observed
 conduct, not a product score. Passing the mechanics stack is therefore not
 presented as a finished living world.
 
-The latest exercised local path ran two Qwen 3.6 35B-A3B residents through an
-ordinary ten-minute live episode and two resumes with one shared LM Studio
-weight instance and isolated own-life context. A native Java client joined as
+The latest exercised local path has carried two Qwen 3.6 35B-A3B residents
+through ordinary live episodes and resumes with one shared LM Studio weight
+instance and isolated own-life context. A native Java client joined as
 `importdf`, moved and chatted with both residents, left on clean stop, and
 returned after resume; both resident journals and the Place server log witnessed
 the joins. Moss later chose to dig one gray-concrete block, and a second restart
-reopened the saved chunk with air at that coordinate and dirt below. Textile's
-ordinary raw-Lync projector reads the 84 MB episode-000033 frozen union as 1,707
-readable turns plus two structural roots with no unsupported, nonconforming, or
-warning results. Exact recall of the human's pre-stop request was weak, episode
-000033 correctly failed its optional human-witness check when the client did not
-rejoin that window, and a genuinely long soak remains unexercised.
+reopened the saved chunk with air at that coordinate and dirt below. Episodes
+000036-000037 then exercised long-life context maintenance: each resident built
+a separate bounded index over more than 900 canonical turns without a provider
+fold call, continued choosing actions, stopped cleanly, and received that index
+in its first decision request after resume. Both indexes retained the human's
+exact earlier request and Minecraft-confirmed block changes. Textile's ordinary
+raw-Lync projector reads episode 000037's 96 MB frozen union as 1,880 readable
+turns plus two structural roots with no unsupported, nonconforming, or warning
+results. The residents' repetitive social choices remain observed conduct; a
+genuinely long soak remains unexercised.
 
 Persistent living Place
 

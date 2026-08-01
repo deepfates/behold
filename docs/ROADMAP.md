@@ -37,6 +37,21 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Current truth (updated 2026-07-31)
 
+- Episodes 000034-000037 exposed and repaired the long-life context boundary.
+  Episode 000034 showed that budget resumption accidentally preempted the
+  resident's own memory work. Episode 000035 proved the scheduler repair but
+  exhausted eight model-fold calls and filled Iris's derived view with
+  `summary unavailable` placeholders. The ordinary episode-000036 path then
+  gave Iris and Moss separate grounded canonical indexes through turns 907 and
+  914 without any model-fold request; both continued receiving model decisions
+  afterward. Each index retained literal older human dialogue, including
+  `wanna show me around town and how you can do stuff?`, and that resident's
+  Minecraft-confirmed block changes. After a clean stop, each resident's first
+  decision request in episode 000037 already contained its own saved index.
+  The canonical Lync remained the authority, and the derived views neither
+  chose actions nor judged conduct. This exercises timely memory progress and
+  stop/resume persistence over roughly 900-turn lives, not a long soak or
+  competent autobiographical reasoning by the model.
 - Episodes 000031-000033 crossed the first complete ordinary live acceptance.
   Two Qwen 3.6 35B-A3B residents shared one LM Studio weight instance while
   retaining separate controllers, requests, quotas, and Lync lives. The native
@@ -149,8 +164,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   app-layer projector reads episode 000033's 84 MB union as 1,709 source events,
   1,707 readable turns, two structural roots, and zero unsupported,
   nonconforming, or warning results. Graphical history readability and
-  authenticated native human co-presence are exercised; long-duration
-  operability and richer world-history views remain open.
+  authenticated native human co-presence are exercised. Its same real
+  projector reads episode 000037's 96 MB union as 1,882 source events, 1,880
+  readable turns, two structural roots, and the same zero-diagnostic result.
+  Long-duration operability and richer world-history views remain open.
 
 ### Supported foundations and retained history
 
@@ -375,8 +392,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 - A scalable cognition cadence: the first explicit-model bounded household run
   used 254,099 prompt tokens and $0.28757775 in 30 seconds for two residents;
   one disposable Lync fold accounted for 67,319 prompt tokens and $0.1049295.
-  Causal fold projection and a hard call ceiling are implemented, but no new
-  paid run has established their token and cost effect
+  The local episode-000036 catch-up advanced both roughly 900-turn lives with
+  zero model-fold calls, and episode 000037 loaded those views across resume.
+  Longer operation has not established resident-decision throughput, memory
+  growth, or cost at household scale
 - Competent long-life survival: one untasked resident now chose an ordinary
   player-relative swim during a genuine oxygen crisis, recovered, saved, and
   remained recovered in a fresh managed epoch. That bounded corridor proof does

@@ -810,6 +810,7 @@ test('critical body condition keeps urgency through failure then deliberates aft
   let currentAction: any = null;
   const attempted: any[] = [];
   const requests: ResidentMindRequest[] = [];
+  const logs: string[] = [];
   let foldCalls = 0;
   const mind: ResidentMind = {
     id: 'continuing-body-mind',
@@ -918,6 +919,7 @@ test('critical body condition keeps urgency through failure then deliberates aft
       foldRecentTurns: 1,
       foldBatchTurns: 1,
       foldTriggerTurns: 1,
+      log: (message) => logs.push(message),
       summarizeLoom: async () => {
         foldCalls += 1;
         return 'Older body history folded after urgency ended.';
@@ -1030,10 +1032,11 @@ test('critical body condition keeps urgency through failure then deliberates aft
       requests[4].actions.some((action) => action.name === 'manage_project'),
       true,
     );
-    await until(() => foldCalls >= 1);
-    assert.ok(
-      foldCalls >= 1,
-      'deferred maintenance resumes only after the recovered resident yields',
+    await until(() => logs.some((message) => message.includes('folded own loom through turn 6')));
+    assert.equal(
+      foldCalls,
+      0,
+      'a large deferred catch-up uses grounded canonical anchors without provider work',
     );
   } finally {
     await policy.stop();
@@ -1492,7 +1495,7 @@ test('stopping also interrupts a custom loom fold that cannot accept an AbortSig
         }),
       },
       acceptEngineEvent: () => true,
-      history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
+      history: [failedTurn(1, 'move_to')],
       foldRecentTurns: 1,
       foldBatchTurns: 1,
       foldTriggerTurns: 1,
@@ -1587,7 +1590,7 @@ test('urgent bodily evidence cancels a background loom fold before the resident 
       acceptEngineEvent: () => true,
       history: [failedTurn(1, 'move_to'), failedTurn(2, 'move_to')],
       foldRecentTurns: 1,
-      foldBatchTurns: 1,
+      foldBatchTurns: 2,
       foldTriggerTurns: 1,
       onEntityTurn: (turn) => turns.push(turn),
     },
@@ -4660,9 +4663,13 @@ test('controller context remains bounded across a continuing life', async () => 
       Math.max(...requests.map((request) => request.messages.length)) <= 4,
       'deliberative working context should remain independent of trajectory length',
     );
-    await until(() => policy.state().loomContext.foldedThrough >= 8);
-    assert.ok(foldCalls > 0, 'bounded maintenance begins after the resident yields');
-    assert.ok(policy.state().loomContext.foldedThrough >= 8);
+    await until(() => policy.state().loomContext.foldedThrough >= 13);
+    assert.equal(
+      foldCalls,
+      0,
+      'a large continuing-life catch-up stays bounded without provider maintenance',
+    );
+    assert.ok(policy.state().loomContext.foldedThrough >= 13);
   } finally {
     policy.stop();
     globalThis.fetch = originalFetch;
@@ -4741,7 +4748,7 @@ test('bounded event projection drains oldest unread batches without skipping the
   }
 });
 
-test('controller resumes from a generic folded view of its own older loom', async () => {
+test('controller resumes from canonical material consequences in its older loom', async () => {
   const turns = Array.from({ length: 40 }, (_, index) => {
     const sequence = index + 1;
     const playerText =
@@ -4859,9 +4866,12 @@ test('controller resumes from a generic folded view of its own older loom', asyn
     await policy.tick();
     assert.equal(foldRequests.length, 0, 'startup maintenance must not delay foreground thought');
     assert.equal(requests.length, 1);
-    await until(() => foldRequests.length === 3);
-    assert.equal(foldRequests.length, 3);
-    assert.ok(foldRequests.every((request) => request.entityId === 'Scout'));
+    await until(() => policy.state().loomContext.foldedThrough === 33);
+    assert.equal(
+      foldRequests.length,
+      0,
+      'large old-life catch-up uses literal canonical anchors without provider work',
+    );
     assert.equal(policy.state().loomContext.foldedThrough, 33);
     assert.equal(policy.state().loomContext.visibleTurns, 8);
 
@@ -4871,9 +4881,7 @@ test('controller resumes from a generic folded view of its own older loom', asyn
       String(message.content || '').includes('Folded view of your own loom'),
     );
     assert.ok(folded);
-    assert.match(folded.content, /coordinates 314 69 36/);
-    assert.match(folded.content, /prefers short messages/);
-    assert.match(folded.content, /crafting table at 3513 1 641/);
+    assert.match(folded.content, /crafting_table.*3513.*641/);
     assert.equal(policy.state().loomContext.foldedThrough, 33);
   } finally {
     policy.stop();
