@@ -33,3 +33,7 @@ Grounded 2026-08-01 audit: current live path retains whole history in Lync file 
 **2026-08-01T14:09:20Z**
 
 Closed-handle prerequisite landed with explicit ownership ordering: the current eager EntityLoom now closes its Lync handle before releasing the resident lease and refuses all post-close reads/appends. This removes a real stale-writer/leak edge but does not claim bounded memory; lyn-hh9v and this ticket remain open.
+
+**2026-08-01T14:12:04Z**
+
+The current selected-tip manifest is now durably published (temp fsync, rename, directory fsync) and its post-rename failure boundary is exercised. This establishes the crash ordering the future cursor must preserve; it does not change the current whole-history working set.

@@ -40,3 +40,7 @@ Episode 000001 (2026-08-01T11:16:45Z–11:47:14Z) exposed a duration/quota compo
 **2026-08-01T14:09:20Z**
 
 2026-08-01 owning lifecycle defect fixed on current main: EntityLoom.close previously released the durable runtime lease without closing its underlying Lync Loom, so a stale closed object could still append after another incarnation acquired the same identity. Close is now exact-idempotent, closes Lync before releasing the lease, makes turns/tail/append fail after close, and also closes an opened Lync handle on failed admission/open. Focused 18/18 and full check 654 pass with one existing skip.
+
+**2026-08-01T14:12:04Z**
+
+Manifest durability follow-up: the selected resident tip manifest now writes an exclusive temp file, fsyncs it, renames atomically, and fsyncs the containing directory. An injected post-rename directory-fsync failure leaves the canonical empty life and renamed manifest recoverable, removes the runtime lease, leaks no temp, and reopens exactly. Focused 19/19 and full check 655 pass with one existing skip.

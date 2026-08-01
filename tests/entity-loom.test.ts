@@ -308,6 +308,37 @@ test('closing an entity life closes its Lync handle before releasing the runtime
   await resumed.close();
 });
 
+test('a manifest directory fsync failure leaves canonical life recoverable without a lease', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-manifest-fsync-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const originalFsync = fs.fsyncSync;
+  let directoryFsyncs = 0;
+  fs.fsyncSync = ((descriptor: number) => {
+    directoryFsyncs += 1;
+    if (directoryFsyncs === 2) {
+      fs.fsyncSync = originalFsync;
+      throw new Error('injected manifest directory fsync failure');
+    }
+    return originalFsync(descriptor);
+  }) as typeof fs.fsyncSync;
+  t.after(() => {
+    fs.fsyncSync = originalFsync;
+  });
+
+  await assert.rejects(openEntityLoom('Scout', root), /manifest directory fsync failure/);
+  const directory = path.join(root, 'Scout');
+  assert.equal(fs.existsSync(path.join(directory, 'runtime.lock')), false);
+  assert.equal(fs.existsSync(path.join(directory, 'lync', 'manifest.json')), true);
+  assert.deepEqual(
+    fs.readdirSync(path.join(directory, 'lync')).filter((name) => name.endsWith('.tmp')),
+    [],
+  );
+
+  const recovered = await openEntityLoom('Scout', root);
+  assert.equal(recovered.turns().length, 0);
+  await recovered.close();
+});
+
 test('model replay keeps the visible decision but not provider-private reasoning', () => {
   const remembered = turn(1, null);
   remembered.utterance.assistant = {

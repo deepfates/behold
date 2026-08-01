@@ -1017,9 +1017,25 @@ async function readManifest(file: string, entityId: string) {
 }
 
 async function writeManifest(file: string, manifest: EntityLoomManifest) {
-  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await fsPromises.writeFile(temporary, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  await fsPromises.rename(temporary, file);
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    const handle = await fsPromises.open(temporary, 'wx', 0o600);
+    try {
+      await handle.writeFile(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await fsPromises.rename(temporary, file);
+    fsyncDirectorySync(path.dirname(file));
+  } catch (error) {
+    try {
+      await fsPromises.unlink(temporary);
+    } catch (cleanupError: any) {
+      if (cleanupError?.code !== 'ENOENT') throw cleanupError;
+    }
+    throw error;
+  }
 }
 
 function validateNextTurn(stored: EntityTurn[], turn: EntityTurn, entityId: string) {
