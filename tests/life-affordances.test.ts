@@ -205,6 +205,35 @@ test('bounded human controls never invoke pathfinding and always release on succ
   assert.ok(clears >= 4, 'controls are cleared before and after both bounded intervals');
 });
 
+test('bounded human controls classify meaningful motion from exact endpoint displacement', async () => {
+  const exercise = async (startX: number, endX: number) => {
+    const bot = baseBot();
+    bot.entity.position = new Vec3(startX, 64, 0);
+    bot.setControlState = (name: string, enabled: boolean) => {
+      if (name === 'forward' && enabled) bot.entity.position = new Vec3(endX, 64, 0);
+    };
+    bot.clearControlStates = () => {};
+    const result = await buildInterpreter(bot).run('move_controls', {
+      direction: 'forward',
+      durationMs: 100,
+    });
+    return result;
+  };
+
+  assert.equal((await exercise(0.1, 0.1)).bodyMoved, false, 'exact no-op stays false');
+  assert.equal(
+    (await exercise(0.1, 0.6)).bodyMoved,
+    true,
+    'material movement within one block is visible',
+  );
+  assert.equal(
+    (await exercise(0.99, 1.01)).bodyMoved,
+    false,
+    'a sub-threshold block-boundary crossing stays false',
+  );
+  assert.equal((await exercise(0, 1.1)).bodyMoved, true, 'block-scale movement stays true');
+});
+
 test('a focused human action fails closed when the crosshair target changed after admission', async () => {
   const bot = baseBot();
   bot.game = { dimension: 'overworld' };

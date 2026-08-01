@@ -2524,7 +2524,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         return { ok: false, error: 'unknown_movement_direction' };
       }
       const heldForMs = clamp(Number(durationMs), 100, 2000);
-      const before = integerFeetPosition((bot as any).entity?.position);
+      const before = positionOf(bot);
       (bot as any).clearControlStates?.();
       try {
         (bot as any).setControlState(movement, true);
@@ -2538,10 +2538,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           direction: movement,
           heldForMs,
           controls: { jump: !!jump, sprint: !!sprint, sneak: !!sneak },
-          bodyMoved: !sameNullablePosition(
-            before,
-            integerFeetPosition((bot as any).entity?.position),
-          ),
+          bodyMoved: movedMeaningfully(before, positionOf(bot)),
           confirmation: 'mineflayer:bounded_control_interval',
         };
       } finally {
@@ -5791,6 +5788,13 @@ function sameBlockPosition(first: any, second: any) {
 function positionOf(bot: Bot) {
   const position = (bot as any).entity?.position;
   return position ? { x: position.x, y: position.y, z: position.z } : null;
+}
+
+function movedMeaningfully(
+  before: { x: number; y: number; z: number } | null,
+  after: { x: number; y: number; z: number } | null,
+) {
+  return before !== null && after !== null && distance(before, after) >= 0.1;
 }
 
 function positionRecord(position: { x: number; y: number; z: number }) {
