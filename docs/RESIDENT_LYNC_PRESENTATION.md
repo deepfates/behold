@@ -1,8 +1,7 @@
 # Resident Lync presentation contract
 
-Status: Behold-owned domain and storage-boundary contract for the ratified
-`Hac-i4by` Textile presentation work. It does not authorize a generic renderer
-to infer meaning from unknown JSON.
+Status: Behold-owned domain and storage-boundary contract. It does not
+authorize a generic renderer to infer meaning from unknown JSON.
 
 ## Source and non-mutation boundary
 
@@ -42,8 +41,9 @@ an explicitly derived, non-mutating projection is requested.
 Behold resident presentation is admitted only when both conditions hold:
 
 1. The root is `kind: "lync/loom"` with
-   `payload.meta.protocol: "behold.entity-loom.v1"` and
-   `payload.meta.profile: "org.behold.inhabitant.v1"`.
+   `payload.meta.protocol: "behold.entity-loom.v1"` and a supported exact
+   profile: `org.behold.inhabitant.v1` for retained lives or the additive
+   `org.behold.inhabitant.v2` for new lives.
 2. A child is `kind: "lync/turn"` with
    `payload.meta.protocol: "behold.entity-turn-link.v1"` and
    `payload.payload.protocol: "behold.entity-turn.v1"`.
@@ -59,7 +59,8 @@ The transport-neutral result is conceptually:
 
 ```ts
 type ResidentPresentation = {
-  protocol: 'org.behold.presentation.inhabitant-turn.v1';
+  protocol:
+    'org.behold.presentation.inhabitant-turn.v1' | 'org.behold.presentation.inhabitant-turn.v2';
   source: {
     id: string;
     parents: string[];
@@ -121,6 +122,15 @@ The structure block may expose the envelope identities; loom
 `entityId`/`circleId`; turn `sequence`, `model`, `profiles`, and timing; and the
 release ID/digest and resident-observed order. These fields establish whose
 life, world, configuration, and release the account belongs to.
+
+The additive v2 presenter keeps that same boundary while accounting for the
+ordinary resident vocabulary demonstrated after v1 was frozen: public chat and
+whisper input/results; `sound_heard`, `sound_sequence_heard`, and `time_passed`;
+and action-specific bodily results and safe observed block changes. It may show
+the semantic verb, material before/after, success or failure, and named
+Minecraft confirmation source. It still withholds absolute positions, private
+controller frames, provider material, and unrecognized nested fields. A new
+profile extends presentation; it never relabels or regenerates a v1 life.
 
 ## Forbidden inference and private fields
 

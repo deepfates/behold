@@ -39,15 +39,20 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 - The compact action-only `resident-v2` interface has crossed an ordinary
   two-resident live/lens/stop/resume exercise with one shared local Gemma 4 12B
-  weight and separate requests and Lync lives. Birch and Cedar each completed
-  eight initial turns, reopened at saved positions, and received only their own
-  pre-stop factual continuity; their resumed lives reached 12 and 13 turns and
-  stopped cleanly. Median decision latency was about 11 seconds initially and
-  12-13 seconds after resume. Textile accepted the exact 27-event union but
-  exposed 45 genuine v1 presentation-coverage diagnostics for whisper and
-  ordinary sound/time events. Behold and Lync now implement an additive
-  `org.behold.inhabitant.v2` pact for new lives while preserving v1 bytes and
-  output; a fresh v2 live/resume/Textile exercise remains before closure.
+  weight and separate requests and Lync lives. Elm and Pine completed 5 and 6
+  initial turns, reopened at their saved positions, and received only their own
+  pre-stop factual continuity; they then reached 7 and 8 turns. Pine's own
+  resumed choice produced a Minecraft-confirmed mud-bricks-to-air change.
+  Successful decision latency had medians of about 9.7 seconds initially and
+  12.4 seconds after resume. Both episodes stopped cleanly. Textile independently
+  reconstructed all 17 objects in the exact 563,992-byte resumed union and
+  rendered 15 turns plus two roots with no unsupported, nonconforming, or
+  warning results. The additive `org.behold.inhabitant.v2` pact and Lync 0.4.2
+  render the demonstrated sound, time, whisper, action, failure, and material
+  consequence vocabulary while withholding private coordinates and controller
+  or provider fields. Existing v1 bytes and presentation remain unchanged.
+  This crosses the compact causal-loop milestone without grading the choices or
+  claiming sustained rich conduct.
 - Episodes 000044-000045 exercised the perception repair and current ordinary
   lifecycle with GPT-5.6 Luna driving Iris and Gemini 3.6 Flash driving Moss.
   All 164 model turns had complete event windows with zero missing or omitted

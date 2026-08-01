@@ -437,6 +437,11 @@ live journal is operational state; a post-append entity turn marks durable Lync
 commitment; Textile presents completed history. These are cooperating owners,
 not competing records.
 
+Add surrounding machinery only to repair a demonstrated break in this loop.
+Model comparison, camera work, memory projection, and richer observability are
+diagnostics or repairs when evidence calls for them; they are not standing
+layers that every resident must acquire.
+
 ### Libraries are implementations, not the waist
 
 - Minecraft and Mineflayer implement the world and body boundary.
