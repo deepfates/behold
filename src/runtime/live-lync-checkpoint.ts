@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -115,7 +115,7 @@ export function captureLiveLyncCheckpoint(input: {
     path.resolve(input.episodeRoot),
     'textile-resident-lives.sources.json',
   );
-  writeJsonExclusive(manifestFile, manifest);
+  publishLiveCheckpointJson(manifestFile, manifest);
   const artifact = deepFreeze({
     protocol: LIVE_TEXTILE_SOURCE_SET_PROTOCOL,
     file: manifestFile,
@@ -224,13 +224,8 @@ function capturePrefix(fileValue: string, entityId: string): LiveLyncPrefix {
     }
     const sizeBytes = exactFileSize(before.size, `${entityId} Lync source`);
     const captured = hashDescriptorPrefix(descriptor, sizeBytes, true);
-    const middle = regularFileStats(descriptor, `${entityId} Lync source`);
-    if (!sameSnapshot(before, middle)) {
-      throw new Error(`Lync source changed incompatibly while capturing ${entityId}`);
-    }
-    const confirmed = hashDescriptorPrefix(descriptor, sizeBytes, true);
     const after = regularFileStats(descriptor, `${entityId} Lync source`);
-    if (!sameSnapshot(before, after) || captured.sha256 !== confirmed.sha256) {
+    if (!sameSnapshot(before, after)) {
       throw new Error(`Lync source was not stable while capturing ${entityId}`);
     }
     assertPathStillNamesExactSnapshot(sourceFile, before, `${entityId} Lync source`);
@@ -586,15 +581,57 @@ function plainFile(value: string, label: string) {
   return fs.realpathSync.native(resolved);
 }
 
-function writeJsonExclusive(file: string, value: unknown) {
+export function publishLiveCheckpointJson(fileValue: string, value: unknown) {
+  const file = path.resolve(fileValue);
+  const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const descriptor = fs.openSync(
-    file,
-    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
-    0o600,
-  );
+  if (fs.existsSync(file)) {
+    assertExactPublishedBytes(file, bytes);
+    syncDirectory(path.dirname(file));
+    return file;
+  }
+  const temporary = `${file}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+  let published = false;
   try {
-    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`);
+    const descriptor = fs.openSync(
+      temporary,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      fs.writeFileSync(descriptor, bytes);
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    try {
+      fs.linkSync(temporary, file);
+      published = true;
+      syncDirectory(path.dirname(file));
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') throw error;
+      assertExactPublishedBytes(file, bytes);
+      published = true;
+      syncDirectory(path.dirname(file));
+    }
+  } finally {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
+  if (!published) throw new Error('live checkpoint JSON was not published');
+  return file;
+}
+
+function assertExactPublishedBytes(file: string, expected: Buffer) {
+  const published = plainFile(file, 'published live checkpoint JSON');
+  const actual = fs.readFileSync(published);
+  if (!actual.equals(expected)) {
+    throw new Error('existing live checkpoint JSON differs from the exact retry');
+  }
+}
+
+function syncDirectory(directory: string) {
+  const descriptor = fs.openSync(directory, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
     fs.fsyncSync(descriptor);
   } finally {
     fs.closeSync(descriptor);

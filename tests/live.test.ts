@@ -27,6 +27,7 @@ import {
   LIVE_EPISODE_RECORD_V1_PROTOCOL,
   LIVE_EPISODE_RECORD_V2_PROTOCOL,
   materializeLiveEpisodeLyncCheckpoint,
+  publishLiveCheckpointJson,
   sha256,
   stableJson,
   verifyLiveEpisodeLyncCheckpoint,
@@ -476,6 +477,14 @@ test('live v2 checkpoint binds ordered canonical prefixes without copying lives 
     checkpoint.lives,
     checkpoint.artifact,
   );
+  const retriedCheckpoint = captureLiveLyncCheckpoint({
+    episodeRoot,
+    residents: [
+      { entityId: 'Second', directory: secondDirectory },
+      { entityId: 'First', directory: firstDirectory },
+    ],
+  });
+  assert.deepEqual(retriedCheckpoint, checkpoint);
 
   assert.deepEqual(fs.readdirSync(episodeRoot), ['textile-resident-lives.sources.json']);
   assert.equal(fs.existsSync(path.join(episodeRoot, 'resident-lync')), false);
@@ -659,6 +668,30 @@ test('live v2 checkpoint refuses a symlink source or an incomplete Lync root lin
       }),
     /no complete root line/,
   );
+});
+
+test('live checkpoint JSON publication is atomic and exact-idempotent', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-checkpoint-json-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'checkpoint.json');
+  const value = { protocol: 'fixture.v1', sources: [{ sizeBytes: 42 }] };
+
+  assert.equal(publishLiveCheckpointJson(file, value), file);
+  assert.equal(publishLiveCheckpointJson(file, value), file);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), value);
+  assert.throws(
+    () => publishLiveCheckpointJson(file, { ...value, sources: [] }),
+    /differs from the exact retry/,
+  );
+  assert.deepEqual(
+    fs.readdirSync(root).filter((name) => name.endsWith('.tmp')),
+    [],
+  );
+
+  const partial = path.join(root, 'partial.json');
+  fs.writeFileSync(partial, '{"protocol":');
+  assert.throws(() => publishLiveCheckpointJson(partial, value), /differs from the exact retry/);
+  assert.equal(fs.readFileSync(partial, 'utf8'), '{"protocol":');
 });
 
 test('native-human treatment requires the server and every resident to witness the declared join', (t) => {

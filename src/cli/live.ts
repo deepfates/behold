@@ -39,6 +39,7 @@ import { stagePlaceHistorySeed } from '../runtime/place-history-seed';
 import {
   captureLiveLyncCheckpoint,
   LIVE_EPISODE_RECORD_V2_PROTOCOL,
+  publishLiveCheckpointJson,
 } from '../runtime/live-lync-checkpoint';
 
 const PLACE_SERVE_REVISION = '103deac629d8f784ea22d956c890de77334d730a' as const;
@@ -970,7 +971,7 @@ function writeEpisodeRecord(input: {
     },
   };
   const record = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
-  writeJsonExclusive(input.file, record);
+  publishLiveCheckpointJson(input.file, record);
   return Object.freeze({ file: input.file, record });
 }
 

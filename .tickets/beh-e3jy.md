@@ -37,6 +37,9 @@ write only a small Textile source-set manifest. Its verifier accepts both that
 v2 form and historical v1 snapshots/unions, and explicit local materialization
 streams only the declared prefixes. Focused fixture coverage proves later-append
 stability and tamper, truncation, replacement, reordering, and isolation failure.
+Small checkpoint JSON files publish atomically and exact retries reuse them,
+while capture hashes each already-drained canonical prefix once rather than
+doubling the growing stop-time read.
 Keep this ticket open until repeated checkpoints of a representative multi-hour
 two-resident life demonstrate the storage acceptance criterion and Textile's
 tex-wrif reader consumes the manifest in ordinary review.
