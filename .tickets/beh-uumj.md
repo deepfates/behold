@@ -1,8 +1,8 @@
 ---
 id: beh-uumj
-status: closed
+status: in_progress
 deps: []
-links: [beh-5vwp]
+links: [beh-5vwp, beh-wssv, beh-kgyy, beh-1h3a]
 created: 2026-08-01T08:44:12Z
 type: bug
 priority: 1
@@ -59,3 +59,7 @@ before closure.
 **2026-08-01T09:06:09Z**
 
 Ordinary post-fix resume passed in mp-r3-qwen-camera episode 000003 at commit c1d20a6. Qwen independently chose move_controls forward for 1000 ms. Minecraft reported bodyMoved=true; the shared exact-pose gate settled after 8 samples / 411 ms; the turn appended as R3QwenCamera turn 2; and the following camera-bound mind request reached the broker without resident-camera observation mismatch. Its predeclared resident_decision quota then returned a visible 429. Episode fe113b85..., world e8319cf5..., journal 1b693998..., Lync 3d763912... all saved; model/listeners unloaded. Textile projected 3 source events as 2 readable + 1 structural, with zero unsupported, nonconforming, or warnings.
+
+**2026-08-01T23:13:36Z**
+
+Episode oxford-qualified-habitat-a-qwen36-camera-v1/000001 exposed the missing external-motion case. Exact camera pose admission correctly rejected stale knockback frames, but the only bounded settlement boundary runs after resident-owned bodyMoved actions. Ordinary combat produced 4 Lark and 7 Sedge pre-provider camera/body mismatches. Extend the same bounded truthful settlement concept to one pre-decision external-pose-drift reacquisition; retain exact gate, allow no unbounded retry or stale pixels.

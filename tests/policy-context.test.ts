@@ -176,6 +176,63 @@ test('repetitive ordinary sounds cannot crowd later lived changes out of a causa
   assert.equal(projected.eventWindow.complete, true);
 });
 
+test('combat sound pressure retains exact high occurrences and tail social consequences', () => {
+  const frame: any = observation();
+  const sounds = Array.from({ length: 20 }, (_, index) => ({
+    sequence: index + 1,
+    at: 2_000 + index * 100,
+    type: 'sound_heard',
+    salience: index % 3 === 0 ? 'high' : 'normal',
+    source: 'sound',
+    isNew: true,
+    data: {
+      sound: index % 3 === 0 ? 'entity.zombie.hurt' : 'entity.zombie.step',
+      distanceBand: 'nearby',
+      relativeDirection: index < 10 ? 'ahead' : 'right',
+      volume: 1,
+      pitch: 1,
+    },
+  }));
+  frame.sequence = 24;
+  frame.events = [
+    ...sounds,
+    event(21, 'visible_entity_hurt', { id: 'player:importdf', name: 'importdf' }),
+    event(22, 'visible_entity_died', { id: 'entity:215', name: 'Zombie' }),
+    event(23, 'chat_received', { from: 'importdf', text: "sedge! you're back" }),
+    event(24, 'chat_received', { from: 'importdf', text: 'can you help us' }),
+  ];
+  frame.eventWindow = {
+    requestedAfterSequence: 0,
+    oldestAvailableSequence: 1,
+    newestAvailableSequence: 24,
+    missingBeforeOldest: 0,
+    complete: true,
+  };
+
+  const projected = projectCurrentModelObservation(frame, 5);
+  assert.deepEqual(
+    projected.events.map((item: any) => item.type),
+    [
+      'sound_sequence_heard',
+      'visible_entity_hurt',
+      'visible_entity_died',
+      'chat_received',
+      'chat_received',
+    ],
+  );
+  assert.equal(projected.events[0].salience, 'high');
+  assert.equal(projected.events[0].data.fromSequence, 1);
+  assert.equal(projected.events[0].data.throughSequence, 20);
+  assert.equal(projected.events[0].data.omittedIndividualEvents, 20);
+  assert.deepEqual(
+    projected.events.slice(-2).map((item: any) => item.data.text),
+    ["sedge! you're back", 'can you help us'],
+  );
+  assert.equal(projected.eventWindow.deliveredNewestSequence, 24);
+  assert.equal(projected.eventWindow.omittedNewEvents, 0);
+  assert.equal(projected.eventWindow.complete, true);
+});
+
 test('later historical frames retain self changes and omit only state identical to the prior result', () => {
   const previous: any = observation();
   previous.self.pose = {
@@ -754,6 +811,46 @@ test('resident continuity distinguishes dispatched input and movement without co
   assert.equal(
     projected?.experiences[1].actualConsequence,
     'Minecraft completed the movement input but confirmed no body movement.',
+  );
+});
+
+test('resident continuity never turns submitted chat input into confirmed delivery', () => {
+  const chat = continuityTurn(
+    1,
+    'Scout',
+    'chat',
+    { text: 'Can anyone hear me?' },
+    { ok: true, status: 'chat_input_dispatched', message: 'Can anyone hear me?' },
+  );
+  chat.profiles = {
+    policy: 'resident-v2',
+    body: 'minecraft-human-semantic-v1',
+    actions: 'minecraft-human-semantic-v1',
+    safety: 'vanilla-player-v1',
+  };
+
+  const projected = projectResidentWorkingContinuity(
+    [chat],
+    6,
+    6_000,
+    residentTurnMayReplay,
+    projectHumanSemanticValue,
+  );
+  const factual = projectResidentFactualContinuity(
+    [chat],
+    6,
+    6_000,
+    residentTurnMayReplay,
+    projectHumanSemanticValue,
+  );
+
+  assert.deepEqual(factual?.experiences[0].settled, {
+    terminal: 'input_dispatched',
+    eventType: 'action_completed',
+  });
+  assert.equal(
+    projected?.experiences[0].actualConsequence,
+    'Minecraft accepted the chat_input_dispatched input; no world consequence was confirmed.',
   );
 });
 

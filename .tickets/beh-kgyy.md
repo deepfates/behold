@@ -1,8 +1,8 @@
 ---
 id: beh-kgyy
-status: closed
+status: in_progress
 deps: []
-links: []
+links: [beh-uumj, beh-wssv, beh-1h3a]
 created: 2026-08-01T02:02:25Z
 type: bug
 priority: 0
@@ -48,3 +48,9 @@ original pressure source was not active at their new positions, so no live sound
 sequence was needed; this complements rather than replaces the exact episode
 000039 pressure replay. Episode 000045 reopened Moss at its saved y=-60 body
 position with its own confirmed excavation history in the first request.
+
+## Notes
+
+**2026-08-01T23:13:36Z**
+
+Episode oxford-qualified-habitat-a-qwen36-camera-v1/000001 falsified the closed pressure fix as sufficient. During ordinary zombie/skeleton combat, repeated same-entity visibility edges overflowed the 40-event raw history while the model was in flight and the 12-visible-event prefix prevented tail delivery. OxfordLark model turn 46 omitted two importdf chat messages; missingBeforeOldest reached 50 and omittedNewEvents 28. This is a Behold information defect, not resident conduct. Repair must bound/coalesce ambient visibility oscillation and preserve chat, hurt/death, body/material changes, current scene truth, and exact represented cursor ranges; do not merely raise constants.

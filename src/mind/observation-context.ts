@@ -895,9 +895,10 @@ function selectModelEventBatch(unread: any[], visibleLimit: number) {
 }
 
 function rawCompactableSound(event: any) {
-  return (
-    event?.type === 'sound_heard' && event?.salience !== 'high' && event?.salience !== 'urgent'
-  );
+  // Urgent sounds remain individual bodily-attention triggers. High sounds do
+  // not reclaim the body and can be represented exactly by the existing typed
+  // causal sequence just like normal and ambient repetitions.
+  return event?.type === 'sound_heard' && event?.salience !== 'urgent';
 }
 
 function compactableSoundProjection(event: any) {
@@ -921,9 +922,7 @@ function compactSoundSequence(previous: any, event: any) {
     sequence: throughSequence,
     at: occurrences.at(-1).lastAt,
     type: 'sound_sequence_heard',
-    salience: occurrences.some((occurrence: any) => occurrence.salience === 'normal')
-      ? 'normal'
-      : 'ambient',
+    salience: strongestSalience(occurrences.map((occurrence: any) => occurrence.salience)),
     source: 'sound',
     isNew: true,
     data: {
@@ -937,6 +936,19 @@ function compactSoundSequence(previous: any, event: any) {
       occurrences,
     },
   };
+}
+
+function strongestSalience(values: readonly unknown[]) {
+  const rank = new Map([
+    ['ambient', 0],
+    ['normal', 1],
+    ['high', 2],
+    ['urgent', 3],
+  ]);
+  return values.reduce<string>((strongest, value) => {
+    const candidate = String(value || 'normal');
+    return (rank.get(candidate) ?? 1) > (rank.get(strongest) ?? 1) ? candidate : strongest;
+  }, 'ambient');
 }
 
 function soundOccurrence(event: any) {

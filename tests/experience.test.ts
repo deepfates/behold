@@ -412,6 +412,88 @@ test('visual scene diffs notice a stationary entity when the body turns away and
   experience.destroy();
 });
 
+test('movement-packet visibility flicker is bounded by stable observation edges', () => {
+  const bot = fakeBot();
+  bot.entities[2].username = undefined;
+  bot.entities[2].name = 'zombie';
+  bot.entities[2].type = 'hostile';
+  bot.entities[2].position = new Vec3(0, 64, -12);
+  const experience = new InhabitantExperience(bot);
+  const initial = experience.observe();
+  assert.equal(initial.scene.entities[0]?.id, 'entity:2');
+
+  for (let index = 0; index < 90; index += 1) {
+    bot.entity.yaw = index % 2 === 0 ? Math.PI : 0;
+    bot.emit('entityMoved', bot.entities[2]);
+    if (index === 21) {
+      bot.emit('chat', 'importdf', 'can you help us');
+      bot.emit('entityHurt', bot.entities[2]);
+      bot.health = 15;
+      bot.emit('health');
+      experience.record(
+        'visible_block_changed',
+        { position: { x: 0, y: 64, z: -2 }, before: 'stone', after: 'air' },
+        'normal',
+        'vision',
+      );
+    }
+  }
+  const duringFlicker = experience.observe(initial.sequence);
+  assert.equal(duringFlicker.scene.entities[0]?.id, 'entity:2');
+  assert.equal(
+    duringFlicker.events.filter(
+      (event) => event.isNew && ['entity_became_visible', 'entity_left_view'].includes(event.type),
+    ).length,
+    0,
+  );
+  assert.deepEqual(
+    duringFlicker.events.filter((event) => event.isNew).map((event) => event.type),
+    ['chat_received', 'visible_entity_hurt', 'condition_changed', 'visible_block_changed'],
+  );
+  assert.equal(duringFlicker.eventWindow.complete, true);
+
+  bot.entity.yaw = Math.PI;
+  const stableExit = experience.observe(duringFlicker.sequence);
+  assert.deepEqual(stableExit.scene.entities, []);
+  assert.deepEqual(
+    stableExit.events.filter((event) => event.isNew).map((event) => event.type),
+    ['entity_left_view'],
+  );
+
+  bot.entity.yaw = 0;
+  const stableEntry = experience.observe(stableExit.sequence);
+  assert.equal(stableEntry.scene.entities[0]?.id, 'entity:2');
+  assert.deepEqual(
+    stableEntry.events.filter((event) => event.isNew).map((event) => event.type),
+    ['entity_became_visible'],
+  );
+  experience.destroy();
+});
+
+test('a newly visible interaction-range body still emits immediate high attention once', () => {
+  const bot = fakeBot();
+  bot.entities[2].username = undefined;
+  bot.entities[2].name = 'zombie';
+  bot.entities[2].type = 'hostile';
+  bot.entities[2].position = new Vec3(0, 64, -3);
+  bot.entity.yaw = Math.PI;
+  const experience = new InhabitantExperience(bot);
+  const hidden = experience.observe();
+  assert.deepEqual(hidden.scene.entities, []);
+
+  bot.entity.yaw = 0;
+  bot.emit('entityMoved', bot.entities[2]);
+  bot.emit('entityMoved', bot.entities[2]);
+  const revealed = experience.observe(hidden.sequence);
+  const entries = revealed.events.filter(
+    (event) => event.isNew && event.type === 'entity_became_visible',
+  );
+  assert.equal(revealed.scene.entities[0]?.id, 'entity:2');
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].salience, 'high');
+  experience.destroy();
+});
+
 test('hidden lifecycle packets do not leak entity or block state, while sound stays egocentric', () => {
   let now = 1000;
   const bot = fakeBot();

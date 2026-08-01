@@ -89,6 +89,7 @@ import {
   RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
   type ResidentCameraFrame,
 } from '../perception/resident-camera-frame';
+import { isResidentCameraObservationChangedError } from '../perception/resident-camera-capture';
 
 export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
@@ -182,7 +183,7 @@ export type Options = {
   onPerceptionSettlement?: (
     event: Readonly<{
       protocol: 'behold.perception-settlement.v1';
-      cause: 'post_body_motion';
+      cause: 'post_body_motion' | 'pre_decision_pose_drift';
       tool: string;
       status: 'settled' | 'exhausted' | 'stopped';
       attempts: number;
@@ -701,6 +702,52 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     return admitted;
   }
 
+  async function captureSettledDecisionPerception(
+    initialFrame: ResidentDecisionFrame,
+    signal: AbortSignal,
+  ): Promise<Readonly<{ frame: ResidentDecisionFrame; camera: ResidentCameraFrame | null }>> {
+    if (!usesResidentCamera(perceptionProfile)) {
+      return { frame: initialFrame, camera: null };
+    }
+    try {
+      return {
+        frame: initialFrame,
+        camera: await captureDecisionPerception(initialFrame, signal),
+      };
+    } catch (error) {
+      if (!isResidentCameraObservationChangedError(error)) throw error;
+    }
+
+    const settlement = await settleBodyPose('pre_decision_pose_drift', 'camera_capture', false);
+    if (settlement.status !== 'settled') {
+      publishPerceptionSettlement(settlement);
+      if (settlement.status === 'stopped') throw abortError('policy stopped');
+      throw new Error(
+        `pre-decision camera pose settlement exhausted after ${settlement.attempts} samples`,
+      );
+    }
+
+    // The old semantic projection, attention, actions, and pixels were one
+    // indivisible decision frame. Once its exact camera binding drifts, none of
+    // it may be mixed into the retry. Publish the fresh observation into the
+    // current conversation and derive the complete frame again before one last
+    // capture attempt.
+    appendWorldUpdate(settlement.observation, 'World after pre-decision pose settlement');
+    const frame = createResidentDecisionFrame(currentExperience!, true);
+    try {
+      const camera = await captureDecisionPerception(frame, signal);
+      publishPerceptionSettlement(settlement);
+      return { frame, camera };
+    } catch (error) {
+      if (!isResidentCameraObservationChangedError(error)) {
+        publishPerceptionSettlement(settlement);
+        throw error;
+      }
+      publishPerceptionSettlement({ ...settlement, status: 'exhausted' });
+      throw new Error('pre-decision camera pose drift recurred after one bounded settlement cycle');
+    }
+  }
+
   function createResidentMindRequest(
     frame: ResidentDecisionFrame,
     conversation: readonly unknown[],
@@ -976,7 +1023,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       turnSteps += 1;
       const startedAt = now();
       if (!currentExperience) throw new Error('resident decision has no current experience');
-      const frame = createResidentDecisionFrame(currentExperience, true);
+      let frame = createResidentDecisionFrame(currentExperience, true);
       activeDecision = {
         model: frame.model,
         attention: frame.attention,
@@ -989,37 +1036,43 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         throw new Error('resident cognition cannot begin before experiment release');
       }
       const decision = await withModelRequest(async (signal) => {
-        const deadline = hasBodilyUrgency(frame.attention)
-          ? setTimeout(() => {
-              activeModelRequest?.abort(
-                abortError(`urgent_decision_deadline_exceeded:${urgentDecisionTimeoutMs}ms`),
-              );
-            }, urgentDecisionTimeoutMs)
-          : null;
-        const cameraFrame = await captureDecisionPerception(frame, signal);
-        const request = createResidentMindRequest(
-          frame,
-          conversationForAttention(
-            messages,
-            frame.attention,
-            frame.actions,
-            projectWorkingContinuity(
-              frame.attention.context === 'bounded_loom'
-                ? DELIBERATIVE_CONTINUITY_TURNS
-                : URGENT_CONTINUITY_TURNS,
-              frame.attention.context === 'bounded_loom'
-                ? DELIBERATIVE_CONTINUITY_BYTES
-                : URGENT_CONTINUITY_BYTES,
-            ),
-            policyProfile,
-          ),
-          experimentRelease,
-          cameraFrame,
-        );
-        // ResidentMind owns acknowledgement of its AbortSignal. Do not race it
-        // with a synthetic rejection: aggregate compute remains occupied until
-        // the adapter promise actually settles.
+        let deadline = armUrgentDecisionDeadline(frame, startedAt);
         try {
+          const perception = await captureSettledDecisionPerception(frame, signal);
+          frame = perception.frame;
+          if (deadline) clearTimeout(deadline);
+          deadline = armUrgentDecisionDeadline(frame, startedAt);
+          if (signal.aborted) throw signal.reason ?? abortError('urgent decision expired');
+          activeDecision = {
+            model: frame.model,
+            attention: frame.attention,
+            startedAt,
+            observationSequence: Number(frame.experience.raw?.sequence) || lastSequence,
+            interruption: activeDecision?.interruption ?? null,
+          };
+          const cameraFrame = perception.camera;
+          const request = createResidentMindRequest(
+            frame,
+            conversationForAttention(
+              messages,
+              frame.attention,
+              frame.actions,
+              projectWorkingContinuity(
+                frame.attention.context === 'bounded_loom'
+                  ? DELIBERATIVE_CONTINUITY_TURNS
+                  : URGENT_CONTINUITY_TURNS,
+                frame.attention.context === 'bounded_loom'
+                  ? DELIBERATIVE_CONTINUITY_BYTES
+                  : URGENT_CONTINUITY_BYTES,
+              ),
+              policyProfile,
+            ),
+            experimentRelease,
+            cameraFrame,
+          );
+          // ResidentMind owns acknowledgement of its AbortSignal. Do not race it
+          // with a synthetic rejection: aggregate compute remains occupied until
+          // the adapter promise actually settles.
           const requestSha256 = residentMindRequestSha256(request);
           const opportunity = {
             protocol: 'behold.resident-decision-opportunity.v1' as const,
@@ -1581,7 +1634,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     try {
       const settlement =
         event.type === 'action_completed' && event.data?.result?.bodyMoved === true
-          ? await settlePostActionPose(finished.intent.tool)
+          ? await settleBodyPose('post_body_motion', finished.intent.tool)
           : null;
       const nextObservation = settlement?.observation ?? observe();
       await closeTurn(
@@ -1639,7 +1692,21 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     return environment.observe(lastSequence);
   }
 
-  async function settlePostActionPose(tool: string) {
+  function armUrgentDecisionDeadline(frame: ResidentDecisionFrame, startedAt: number) {
+    if (!hasBodilyUrgency(frame.attention)) return null;
+    const remainingMs = Math.max(0, urgentDecisionTimeoutMs - Math.max(0, now() - startedAt));
+    return setTimeout(() => {
+      activeModelRequest?.abort(
+        abortError(`urgent_decision_deadline_exceeded:${urgentDecisionTimeoutMs}ms`),
+      );
+    }, remainingMs);
+  }
+
+  async function settleBodyPose(
+    cause: 'post_body_motion' | 'pre_decision_pose_drift',
+    tool: string,
+    publish = true,
+  ) {
     const startedAt = now();
     let previous = observe();
     let attempts = 0;
@@ -1661,21 +1728,36 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
     const receipt = {
       protocol: 'behold.perception-settlement.v1' as const,
-      cause: 'post_body_motion' as const,
+      cause,
       tool,
       status,
       attempts: Math.min(attempts, POST_ACTION_SETTLEMENT_MAX_ATTEMPTS),
       elapsedMs: Math.max(0, now() - startedAt),
     };
+    if (publish) publishPerceptionSettlement(receipt);
+    return { ...receipt, observation: previous };
+  }
+
+  function publishPerceptionSettlement(
+    receipt: Readonly<{
+      protocol: 'behold.perception-settlement.v1';
+      cause: 'post_body_motion' | 'pre_decision_pose_drift';
+      tool: string;
+      status: 'settled' | 'exhausted' | 'stopped';
+      attempts: number;
+      elapsedMs: number;
+    }>,
+  ) {
     opts.onPerceptionSettlement?.(receipt);
-    if (status === 'settled') {
-      log(`[policy] body pose settled after ${receipt.attempts} perception samples`);
-    } else if (status === 'exhausted') {
+    if (receipt.status === 'settled') {
       log(
-        `[policy] body pose did not settle within ${POST_ACTION_SETTLEMENT_MAX_ATTEMPTS} perception samples`,
+        `[policy] body pose settled for ${receipt.cause} after ${receipt.attempts} perception samples`,
+      );
+    } else if (receipt.status === 'exhausted') {
+      log(
+        `[policy] body pose did not settle for ${receipt.cause} within ${POST_ACTION_SETTLEMENT_MAX_ATTEMPTS} perception samples`,
       );
     }
-    return { ...receipt, observation: previous };
   }
 
   async function waitForSettlementSample() {

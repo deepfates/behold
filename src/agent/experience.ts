@@ -749,33 +749,36 @@ export class InhabitantExperience {
     const previous = this.visibleEntities.get(reference);
     const visible = visibleEntityEvent(this.bot, entity);
     if (visible) {
+      if (previous) {
+        // Keep the sampled entity current without turning every movement packet
+        // near an occlusion boundary into another lived enter/leave edge.
+        this.visibleEntities.set(reference, visible);
+        return;
+      }
+      const salience = visible.kind === 'player' || visible.distance <= 6 ? 'high' : 'ambient';
+      // Ambient visibility is sampled by syncVisibleEntities when the body
+      // observes. Mineflayer can emit many entityMoved packets while the same
+      // distant body flickers across a ray or frustum edge; recording each one
+      // can evict chat, harm, and material consequences before cognition sees
+      // them. A newly visible player or interaction-range body remains an
+      // immediate high-salience event and establishes the sampled baseline so
+      // the following observation cannot duplicate it.
+      if (salience !== 'high') return;
       this.visibleEntities.set(reference, visible);
-      if (previous) return;
       this.record(
         'entity_became_visible',
         {
           ...visible,
           observationPhase: this.localWorldReady ? 'live_world' : 'initial_world_sync',
         },
-        visible.kind === 'player' || visible.distance <= 6 ? 'high' : 'ambient',
+        salience,
         'vision',
       );
       return;
     }
-    if (!previous) return;
-    this.visibleEntities.delete(reference);
-    this.record(
-      'entity_left_view',
-      {
-        id: previous.id,
-        name: previous.name,
-        kind: previous.kind,
-        lastSeenDistance: previous.distance,
-        reason: 'outside_current_view',
-      },
-      'ambient',
-      'vision',
-    );
+    // Absence on one movement packet is not a stable exit. Retain the last
+    // sampled membership until observe() compares the complete current scene,
+    // or entityGone reports that the body actually left the rendered world.
   }
 
   private captureSound(soundName: string, position: any, volume: number, pitch: number) {

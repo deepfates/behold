@@ -32,6 +32,7 @@ import {
   createResidentCameraFrame,
   createResidentCameraRenderer,
 } from '../src/perception/resident-camera-frame';
+import { ResidentCameraObservationChangedError } from '../src/perception/resident-camera-capture';
 
 function withMinecraftActionSurface<T extends { actions: readonly any[] }>(environment: T) {
   return {
@@ -2022,6 +2023,215 @@ test('camera perception fails before mind admission and never downgrades to sema
     assert.deepEqual(opportunities, []);
     assert.equal(errors.length, 1);
     assert.match(errors[0].error, /camera unavailable/);
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('camera pose drift settles once and admits one coherent rebuilt decision frame', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const captureInputs: any[] = [];
+  const actionsInputs: any[] = [];
+  const settlements: any[] = [];
+  const opportunities: any[] = [];
+  const errors: any[] = [];
+  let authorized = 0;
+  let drifting = false;
+  let sequence = 0;
+  const settlingZ = [1, 2, 2];
+  const observe = () => settlementExperience(drifting ? (settlingZ.shift() ?? 2) : 0, ++sequence);
+  const move = settlementMoveTool();
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [move],
+      actionsFor: (observation) => {
+        actionsInputs.push(observation);
+        return [move];
+      },
+      attempt: () => assert.fail('the test mind waits; no action should be attempted'),
+      observe,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      policyProfile: 'resident-v2',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      perceptionProfile: 'semantic-plus-camera-v1',
+      capturePerception: async (observation: any) => {
+        captureInputs.push(observation);
+        if (captureInputs.length === 1) {
+          drifting = true;
+          throw new ResidentCameraObservationChangedError('body moved before capture');
+        }
+        return settlementCameraFrame(observation);
+      },
+      mind: {
+        id: 'settled-camera-frame',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'wait',
+            utterance: null,
+            action: null,
+            call: modelCallEvidence('settled-camera-frame'),
+          };
+        },
+      },
+      acceptEngineEvent: () => true,
+      authorizeDecisionOpportunity: () => {
+        authorized += 1;
+      },
+      onDecisionOpportunity: (event) => opportunities.push(event),
+      onPerceptionSettlement: (event) => settlements.push(event),
+      onModelError: (error) => errors.push(error),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(captureInputs.length, 2);
+    assert.equal(requests.length, 1);
+    assert.equal(authorized, 1);
+    assert.equal(opportunities.filter((event) => event.phase === 'scheduled').length, 1);
+    assert.deepEqual(errors, []);
+    assert.equal(settlements.length, 1);
+    assert.equal(settlements[0].cause, 'pre_decision_pose_drift');
+    assert.equal(settlements[0].tool, 'camera_capture');
+    assert.equal(settlements[0].status, 'settled');
+    assert.equal(settlements[0].attempts, 2);
+    assert.strictEqual(actionsInputs.at(-1), captureInputs[1]);
+    assert.equal((requests[0].observation as any).sequence, captureInputs[1].sequence);
+    assert.equal(
+      requests[0].perception?.camera.binding.observationSequence,
+      captureInputs[1].sequence,
+    );
+    assert.equal(requests[0].perception?.camera.binding.pose.position.z, 2);
+    assert.match(
+      String((requests[0].conversation as any[]).at(-1)?.content),
+      new RegExp(`"sequence":${captureInputs[1].sequence}`),
+    );
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('continuous pre-decision camera motion exhausts one settlement without mind admission', async () => {
+  let captureCalls = 0;
+  let mindCalls = 0;
+  let authorized = 0;
+  let moving = false;
+  let z = 0;
+  let sequence = 0;
+  const settlements: any[] = [];
+  const opportunities: any[] = [];
+  const errors: any[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => assert.fail('no model action may be admitted'),
+      observe: () => settlementExperience(moving ? ++z : 0, ++sequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      perceptionProfile: 'semantic-plus-camera-v1',
+      capturePerception: async () => {
+        captureCalls += 1;
+        moving = true;
+        throw new ResidentCameraObservationChangedError('body remains in motion');
+      },
+      mind: {
+        id: 'continuous-camera-motion',
+        decide: async () => {
+          mindCalls += 1;
+          throw new Error('mind must not be called');
+        },
+      },
+      acceptEngineEvent: () => true,
+      authorizeDecisionOpportunity: () => {
+        authorized += 1;
+      },
+      onDecisionOpportunity: (event) => opportunities.push(event),
+      onPerceptionSettlement: (event) => settlements.push(event),
+      onModelError: (error) => errors.push(error),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(captureCalls, 1);
+    assert.equal(mindCalls, 0);
+    assert.equal(authorized, 0);
+    assert.deepEqual(opportunities, []);
+    assert.equal(settlements.length, 1);
+    assert.equal(settlements[0].cause, 'pre_decision_pose_drift');
+    assert.equal(settlements[0].status, 'exhausted');
+    assert.equal(settlements[0].attempts, 20);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /pre-decision camera pose settlement exhausted/);
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('a second camera pose drift terminates after one settlement without mind admission', async () => {
+  let captureCalls = 0;
+  let mindCalls = 0;
+  let authorized = 0;
+  let drifting = false;
+  let sequence = 0;
+  const settlingZ = [1, 2, 2];
+  const settlements: any[] = [];
+  const opportunities: any[] = [];
+  const errors: any[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => assert.fail('no model action may be admitted'),
+      observe: () => settlementExperience(drifting ? (settlingZ.shift() ?? 2) : 0, ++sequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      perceptionProfile: 'semantic-plus-camera-v1',
+      capturePerception: async () => {
+        captureCalls += 1;
+        drifting = true;
+        throw new ResidentCameraObservationChangedError(`camera drift ${captureCalls}`);
+      },
+      mind: {
+        id: 'repeated-camera-drift',
+        decide: async () => {
+          mindCalls += 1;
+          throw new Error('mind must not be called');
+        },
+      },
+      acceptEngineEvent: () => true,
+      authorizeDecisionOpportunity: () => {
+        authorized += 1;
+      },
+      onDecisionOpportunity: (event) => opportunities.push(event),
+      onPerceptionSettlement: (event) => settlements.push(event),
+      onModelError: (error) => errors.push(error),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(captureCalls, 2);
+    assert.equal(mindCalls, 0);
+    assert.equal(authorized, 0);
+    assert.deepEqual(opportunities, []);
+    assert.equal(settlements.length, 1);
+    assert.equal(settlements[0].cause, 'pre_decision_pose_drift');
+    assert.equal(settlements[0].status, 'exhausted');
+    assert.equal(settlements[0].attempts, 2);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /drift recurred after one bounded settlement cycle/);
   } finally {
     await policy.stop();
   }
