@@ -2,8 +2,15 @@ import { EventEmitter } from 'node:events';
 import { createServer, type Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import type { Bot } from 'mineflayer';
+import {
+  createResidentCameraCapture,
+  RESIDENT_CAMERA_CAPTURE_PROTOCOL,
+  type ResidentCameraCaptureSocket,
+} from '../perception/resident-camera-capture';
+import type { ResidentCameraFrame } from '../perception/resident-camera-frame';
 
 export const RESIDENT_VIEWER_PROTOCOL = 'behold.prismarine-resident-viewer.v1' as const;
+export { RESIDENT_CAMERA_CAPTURE_PROTOCOL };
 
 export type ResidentViewerOptions = Readonly<{
   host: '127.0.0.1';
@@ -20,13 +27,15 @@ export type ResidentViewerHandle = Readonly<{
   viewDistance: number;
   firstPerson: boolean;
   readOnly: true;
+  cameraCaptureProtocol: typeof RESIDENT_CAMERA_CAPTURE_PROTOCOL;
+  captureFrame(
+    observation: unknown,
+    options?: Readonly<{ executablePath?: string; timeoutMs?: number }>,
+  ): Promise<ResidentCameraFrame>;
   close(): Promise<void>;
 }>;
 
-type ViewerSocket = EventEmitter & {
-  emit(event: string, ...args: any[]): boolean;
-  disconnect(close?: boolean): void;
-};
+type ViewerSocket = ResidentCameraCaptureSocket;
 
 type WorldView = EventEmitter & {
   init(position: any): Promise<void>;
@@ -64,6 +73,14 @@ export async function startResidentViewer(
   const views = new Map<ViewerSocket, WorldView>();
   const io = new SocketServer(server, { path: '/socket.io' });
   let closed = false;
+  let endpoint: string | null = null;
+  const cameraCapture = createResidentCameraCapture({
+    bot,
+    firstPerson: options.firstPerson,
+    viewDistance: options.viewDistance,
+    viewerPackageRoot,
+    endpoint: () => endpoint,
+  });
 
   io.on('connection', (socket: ViewerSocket) => {
     if (closed) {
@@ -71,6 +88,7 @@ export async function startResidentViewer(
       return;
     }
     sockets.add(socket);
+    cameraCapture.attach(socket);
     socket.emit('version', bot.version);
     const worldView = new PrismarineWorldView(
       bot.world,
@@ -100,6 +118,7 @@ export async function startResidentViewer(
       worldView.removeListenersFromBot(bot);
       views.delete(socket);
       sockets.delete(socket);
+      cameraCapture.detach(socket);
     });
 
     // Intentionally no bridge from renderer mouseClick, keyboard, chat,
@@ -117,13 +136,14 @@ export async function startResidentViewer(
   if (!address || typeof address === 'string')
     throw new Error('viewer listener has no TCP address');
   const port = address.port;
-  const endpoint = `http://${options.host}:${port}`;
+  endpoint = `http://${options.host}:${port}`;
 
   let closePromise: Promise<void> | null = null;
   const close = () => {
     if (closePromise) return closePromise;
     closed = true;
     closePromise = (async () => {
+      await cameraCapture.close();
       for (const socket of sockets) socket.disconnect(true);
       for (const [socket, worldView] of views) {
         worldView.removeListenersFromBot(bot);
@@ -137,12 +157,14 @@ export async function startResidentViewer(
 
   return Object.freeze({
     protocol: RESIDENT_VIEWER_PROTOCOL,
-    endpoint,
+    endpoint: endpoint!,
     host: options.host,
     port,
     viewDistance: options.viewDistance,
     firstPerson: options.firstPerson,
     readOnly: true as const,
+    cameraCaptureProtocol: RESIDENT_CAMERA_CAPTURE_PROTOCOL,
+    captureFrame: cameraCapture.captureFrame,
     close,
   });
 }

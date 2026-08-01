@@ -49,6 +49,11 @@ export type ResidentCameraFrame = Readonly<{
       yaw: number;
       pitch: number;
     }>;
+    camera: Readonly<{
+      position: Readonly<{ x: number; y: number; z: number }>;
+      yaw: number;
+      pitch: number;
+    }>;
     captureStartedAt: number;
     captureCompletedAt: number;
   }>;
@@ -111,6 +116,11 @@ export function createResidentCameraFrame(input: {
   mediaType: 'image/png' | 'image/jpeg';
   observation: unknown;
   renderer: ResidentCameraRenderer;
+  renderedCamera: Readonly<{
+    position: Readonly<{ x: number; y: number; z: number }>;
+    yaw: number;
+    pitch: number;
+  }>;
   captureStartedAt: number;
   captureCompletedAt: number;
 }): ResidentCameraFrame {
@@ -128,7 +138,12 @@ export function createResidentCameraFrame(input: {
   if (captureCompletedAt < captureStartedAt) {
     fail('resident_camera_invalid', 'camera capture completed before it started');
   }
-  const binding = observationBinding(input.observation, captureStartedAt, captureCompletedAt);
+  const binding = observationBinding(
+    input.observation,
+    input.renderedCamera,
+    captureStartedAt,
+    captureCompletedAt,
+  );
   const content = deepFreeze({
     mediaType: input.mediaType,
     encoding: 'base64' as const,
@@ -236,6 +251,7 @@ export function admitResidentCameraFrame(input: {
   );
   const expected = observationBinding(
     input.observation,
+    frame.binding.camera,
     frame.binding.captureStartedAt,
     frame.binding.captureCompletedAt,
   );
@@ -257,6 +273,7 @@ export function admitResidentCameraFrame(input: {
 
 function observationBinding(
   observationValue: unknown,
+  renderedCameraValue: unknown,
   captureStartedAt: number,
   captureCompletedAt: number,
 ): ResidentCameraFrame['binding'] {
@@ -286,6 +303,16 @@ function observationBinding(
   );
   const position = exactRecord(pose.position, ['x', 'y', 'z'], 'camera resident position');
   const condition = self?.condition;
+  const renderedCamera = exactRecord(
+    renderedCameraValue,
+    ['position', 'yaw', 'pitch'],
+    'rendered resident camera',
+  );
+  const cameraPosition = exactRecord(
+    renderedCamera.position,
+    ['x', 'y', 'z'],
+    'rendered resident camera position',
+  );
   const binding = {
     protocol: RESIDENT_CAMERA_BINDING_PROTOCOL,
     circleId: nonEmpty(circle.id, 'camera circle id'),
@@ -315,12 +342,22 @@ function observationBinding(
       yaw: finite(pose.yaw, 'camera yaw'),
       pitch: finite(pose.pitch, 'camera pitch'),
     },
+    camera: {
+      position: {
+        x: finite(cameraPosition.x, 'rendered camera position x'),
+        y: finite(cameraPosition.y, 'rendered camera position y'),
+        z: finite(cameraPosition.z, 'rendered camera position z'),
+      },
+      yaw: finite(renderedCamera.yaw, 'rendered camera yaw'),
+      pitch: finite(renderedCamera.pitch, 'rendered camera pitch'),
+    },
     captureStartedAt: timestamp(captureStartedAt, 'camera capture start'),
     captureCompletedAt: timestamp(captureCompletedAt, 'camera capture completion'),
   };
   if (binding.captureStartedAt < binding.observedAt) {
     fail('resident_camera_invalid', 'camera capture started before its bound observation');
   }
+  assertRenderedCameraMatchesPose(binding.pose, binding.camera);
   return deepFreeze(binding);
 }
 
@@ -338,6 +375,7 @@ function parseBinding(value: unknown): ResidentCameraFrame['binding'] {
       'entityId',
       'body',
       'pose',
+      'camera',
       'captureStartedAt',
       'captureCompletedAt',
     ],
@@ -352,6 +390,16 @@ function parseBinding(value: unknown): ResidentCameraFrame['binding'] {
   const body = exactRecord(binding.body, ['username', 'uuid', 'dimension'], 'camera binding body');
   const pose = exactRecord(binding.pose, ['position', 'yaw', 'pitch'], 'camera binding pose');
   const position = exactRecord(pose.position, ['x', 'y', 'z'], 'camera binding position');
+  const camera = exactRecord(
+    binding.camera,
+    ['position', 'yaw', 'pitch'],
+    'rendered camera binding',
+  );
+  const cameraPosition = exactRecord(
+    camera.position,
+    ['x', 'y', 'z'],
+    'rendered camera binding position',
+  );
   const parsed = {
     protocol: RESIDENT_CAMERA_BINDING_PROTOCOL,
     circleId: nonEmpty(binding.circleId, 'camera circle id'),
@@ -381,6 +429,15 @@ function parseBinding(value: unknown): ResidentCameraFrame['binding'] {
       yaw: finite(pose.yaw, 'camera yaw'),
       pitch: finite(pose.pitch, 'camera pitch'),
     },
+    camera: {
+      position: {
+        x: finite(cameraPosition.x, 'rendered camera position x'),
+        y: finite(cameraPosition.y, 'rendered camera position y'),
+        z: finite(cameraPosition.z, 'rendered camera position z'),
+      },
+      yaw: finite(camera.yaw, 'rendered camera yaw'),
+      pitch: finite(camera.pitch, 'rendered camera pitch'),
+    },
     captureStartedAt: timestamp(binding.captureStartedAt, 'camera capture start'),
     captureCompletedAt: timestamp(binding.captureCompletedAt, 'camera capture completion'),
   };
@@ -390,7 +447,25 @@ function parseBinding(value: unknown): ResidentCameraFrame['binding'] {
   ) {
     fail('resident_camera_invalid', 'resident camera binding times are impossible');
   }
+  assertRenderedCameraMatchesPose(parsed.pose, parsed.camera);
   return deepFreeze(parsed);
+}
+
+function assertRenderedCameraMatchesPose(
+  pose: ResidentCameraFrame['binding']['pose'],
+  camera: ResidentCameraFrame['binding']['camera'],
+) {
+  const eyeHeight = camera.position.y - pose.position.y;
+  if (
+    camera.position.x !== pose.position.x ||
+    camera.position.z !== pose.position.z ||
+    camera.yaw !== pose.yaw ||
+    camera.pitch !== pose.pitch ||
+    eyeHeight < 0.1 ||
+    eyeHeight > 3
+  ) {
+    fail('resident_camera_observation_mismatch', 'rendered camera differs from resident body pose');
+  }
 }
 
 function parseResidentCameraRenderer(

@@ -91,6 +91,18 @@ patch(path.join(root, 'viewer/lib/viewer.js'), [
 
 patch(path.join(root, 'public/index.js'), [
   [
+    'o=i(8007)({path:window.location.pathname+"socket.io"});',
+    'o=i(8007)({path:window.location.pathname+"socket.io",auth:{beholdCaptureToken:window.__BEHOLD_CAPTURE_TOKEN||null}});',
+  ],
+  [
+    'const u=new r(l);',
+    'const u=new r(l);o.on("behold_capture_frame",(async t=>{try{const e=t.camera;u.camera.position.set(e.position.x,e.position.y,e.position.z),u.camera.rotation.set(e.pitch,e.yaw,0,"ZYX"),await u.waitForChunksToRender(),u.update(),l.render(u.scene,u.camera),o.emit("behold_capture_frame_ready",{id:t.id,camera:e,data:l.domElement.toDataURL("image/jpeg",.9)})}catch(e){o.emit("behold_capture_frame_ready",{id:t.id,error:String(e&&e.message||e)})}}));',
+  ],
+  [
+    's=!0,u.listen(o),o.on("position",',
+    's=!0,u.listen(o),window.__BEHOLD_CAPTURE_TOKEN&&o.emit("behold_capture_ready"),o.on("position",',
+  ],
+  [
     'addColumn(t,e,i){this.loadedChunks[`${t},${e}`]=!0;',
     'addColumn(t,e,i){const s=i.minY??0,o=i.worldHeight??256;this.loadedChunks[`${t},${e}`]={minY:s,worldHeight:o};',
   ],
@@ -123,6 +135,12 @@ patch(path.join(root, 'public/worker.js'), [
   ['if(n.position.y<0)continue', 'if(!1&&n.position.y<0)continue'],
 ]);
 
+assertContains(path.join(root, 'public/index.js'), [
+  'beholdCaptureToken',
+  'behold_capture_frame',
+  'behold_capture_ready',
+]);
+
 console.log('[viewer:patch] World-height rendering and cockpit-friendly entities enabled.');
 
 function patch(file, replacements) {
@@ -140,4 +158,13 @@ function patch(file, replacements) {
   }
 
   if (changed) fs.writeFileSync(file, source);
+}
+
+function assertContains(file, markers) {
+  const source = fs.readFileSync(file, 'utf8');
+  for (const marker of markers) {
+    if (!source.includes(marker)) {
+      throw new Error(`Prismarine Viewer patch did not install required marker ${marker}`);
+    }
+  }
 }

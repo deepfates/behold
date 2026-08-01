@@ -4,6 +4,7 @@ import test from 'node:test';
 import { Vec3 } from 'vec3';
 import { io as connectViewer } from 'socket.io-client';
 import {
+  RESIDENT_CAMERA_CAPTURE_PROTOCOL,
   RESIDENT_VIEWER_PROTOCOL,
   startResidentViewer,
 } from '../src/observability/resident-viewer';
@@ -131,6 +132,53 @@ test('patched Prismarine renderer retains visible terrain below Y=0', () => {
   assert.ok(geometry.indices.length > 0, 'negative-Y terrain produced no visible faces');
 });
 
+test('capture renderer returns one frame bound to the exact current resident pose', async (t) => {
+  const executablePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  if (!require('node:fs').existsSync(executablePath)) {
+    t.skip('installed Chrome is unavailable');
+    return;
+  }
+  const bot = fakeBot('CameraBody');
+  const viewer = await startResidentViewer(bot as any, {
+    host: '127.0.0.1',
+    port: 0,
+    firstPerson: true,
+    viewDistance: 2,
+  });
+  try {
+    const observation = residentObservation(bot);
+    const mismatched = structuredClone(observation);
+    mismatched.self.pose.yaw += 0.1;
+    await assert.rejects(
+      viewer.captureFrame(mismatched, { executablePath }),
+      /differs from the current body pose/,
+    );
+
+    const frame = await viewer.captureFrame(observation, { executablePath, timeoutMs: 15_000 });
+    assert.equal(viewer.cameraCaptureProtocol, RESIDENT_CAMERA_CAPTURE_PROTOCOL);
+    assert.equal(frame.content.mediaType, 'image/jpeg');
+    assert.equal(frame.content.width, 512);
+    assert.equal(frame.content.height, 512);
+    assert.ok(frame.content.bytes > 100);
+    assert.equal(frame.binding.body.username, 'CameraBody');
+    assert.deepEqual(frame.binding.pose, {
+      position: { x: 2, y: 64, z: 1 },
+      yaw: 0,
+      pitch: 0,
+    });
+    assert.deepEqual(frame.binding.camera, {
+      position: { x: 2, y: 65.62, z: 1 },
+      yaw: 0,
+      pitch: 0,
+    });
+    assert.equal(frame.renderer.name, 'prismarine-viewer-browser');
+    assert.equal(frame.renderer.firstPerson, true);
+    assert.equal(frame.renderer.readOnly, true);
+  } finally {
+    await viewer.close();
+  }
+});
+
 function socketOnce(socket: ReturnType<typeof connectViewer>, event: string): Promise<any> {
   return new Promise((resolve) => socket.once(event, resolve));
 }
@@ -138,11 +186,14 @@ function socketOnce(socket: ReturnType<typeof connectViewer>, event: string): Pr
 function fakeBot(username: string) {
   const bot: any = new EventEmitter();
   bot.username = username;
+  bot.player = { uuid: '00000000-0000-4000-8000-000000000001' };
   bot.version = '1.21.4';
   bot.entity = {
     position: new Vec3(username === 'Aster' ? 1 : 2, 64, 1),
     yaw: 0,
     pitch: 0,
+    eyeHeight: 1.62,
+    uuid: '00000000-0000-4000-8000-000000000001',
   };
   bot.entities = {};
   bot.world = {
@@ -150,4 +201,26 @@ function fakeBot(username: string) {
     raycast: () => null,
   };
   return bot;
+}
+
+function residentObservation(bot: any) {
+  return {
+    protocol: 'behold.inhabitant.v2',
+    circle: { id: 'minecraft:camera-test', substrate: 'minecraft', managedRunId: 'run-camera' },
+    sequence: 1,
+    observedAt: Date.now(),
+    self: {
+      identity: 'CameraResident',
+      body: { substrate: 'minecraft', username: bot.username, uuid: bot.player.uuid },
+      pose: {
+        position: { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z },
+        yaw: bot.entity.yaw,
+        pitch: bot.entity.pitch,
+        velocity: { x: 0, y: 0, z: 0 },
+        onGround: true,
+      },
+      condition: { dimension: 'minecraft:overworld' },
+    },
+    events: [],
+  };
 }

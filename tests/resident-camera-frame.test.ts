@@ -30,6 +30,7 @@ test('camera frame binds exact bytes, viewport, renderer, body pose, and observa
     mediaType: 'image/png',
     observation,
     renderer,
+    renderedCamera: fixtureCamera(),
     captureStartedAt: 1_010,
     captureCompletedAt: 1_014,
   });
@@ -64,6 +65,7 @@ test('camera frame binds exact bytes, viewport, renderer, body pose, and observa
     yaw: 0.5,
     pitch: -0.25,
   });
+  assert.deepEqual(parsed.binding.camera, fixtureCamera());
   assert.match(parsed.binding.observationSha256, /^[0-9a-f]{64}$/);
   assert.match(parsed.bindingSha256, /^[0-9a-f]{64}$/);
   assert.match(parsed.digest, /^[0-9a-f]{64}$/);
@@ -80,6 +82,7 @@ test('camera frame creation is deterministic and rejects content or renderer dri
     mediaType: 'image/png' as const,
     observation: residentObservation(),
     renderer: fixtureRenderer(),
+    renderedCamera: fixtureCamera(),
     captureStartedAt: 1_010,
     captureCompletedAt: 1_014,
   };
@@ -100,6 +103,10 @@ test('camera frame creation is deterministic and rejects content or renderer dri
   const falseProjection: any = structuredClone(first);
   falseProjection.renderer.horizontalFovDegrees = 90;
   throwsCode(() => parseResidentCameraFrame(falseProjection), 'resident_camera_invalid');
+
+  const falseCamera: any = structuredClone(first);
+  falseCamera.binding.camera.position.x += 1;
+  throwsCode(() => parseResidentCameraFrame(falseCamera), 'resident_camera_observation_mismatch');
 });
 
 test('camera admission fails closed for another observation, resident body, or pose', () => {
@@ -109,6 +116,7 @@ test('camera admission fails closed for another observation, resident body, or p
     mediaType: 'image/png',
     observation,
     renderer: fixtureRenderer(),
+    renderedCamera: fixtureCamera(),
     captureStartedAt: 1_010,
     captureCompletedAt: 1_014,
   });
@@ -144,6 +152,7 @@ test('camera admission rejects aged, future, and overlong captures', () => {
     mediaType: 'image/png',
     observation,
     renderer: fixtureRenderer(),
+    renderedCamera: fixtureCamera(),
     captureStartedAt: 1_010,
     captureCompletedAt: 1_014,
   });
@@ -181,6 +190,14 @@ function fixtureRenderer() {
     height: 10,
     viewDistanceChunks: 6,
   });
+}
+
+function fixtureCamera() {
+  return {
+    position: { x: 12.25, y: 65.62, z: -3.5 },
+    yaw: 0.5,
+    pitch: -0.25,
+  };
 }
 
 function residentObservation() {

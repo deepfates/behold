@@ -151,3 +151,10 @@ because a product resident uses both.
 Pixel input and raw inventory-screen clicking are intentionally outside v1.
 Their later addition must use content-addressed frame evidence and the same
 causal action boundary rather than widening this semantic contract silently.
+An experimental read-only camera seam now satisfies the first part: it can
+render one content-addressed Prismarine frame from the exact current resident
+body and eye pose, bind it to the raw observation and capture interval, and
+fail on body drift. It is not yet carried by `ResidentMindRequest`, has not been
+exercised against the persistent world or a multimodal model, and does not
+change the semantic v1 treatment. Its comparison arm must remain separately
+named; sharing a body pose does not imply an atomic Minecraft world snapshot.

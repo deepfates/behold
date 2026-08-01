@@ -220,7 +220,8 @@ Key files
 - `src/index.ts` — Legacy tick/reasoner entry retained for compatibility; not the resident product path
 - `src/config.ts` — Reads env vars and validates runtime config
 - `src/bot.ts` — Creates the Mineflayer bot and binds core events
-- Viewer: when enabled, starts a local web viewer (prismarine-viewer) on spawn
+- `src/observability/resident-viewer.ts` — Loopback-only read-only resident POV; its optional capture seam lazily renders one exact pose-bound frame through installed Chrome without adding a control bridge
+- `src/perception/resident-camera-frame.ts` — Content-addressed resident frame, renderer, observation, body/eye-pose, and freshness binding
 - `src/agent/loop.ts` — Legacy tick loop retained for compatibility
 - `src/agent/reasoner.ts` — Legacy mention-oriented reasoner; not used by the embodied resident path
 - `src/agent/observation.ts` — Shared observation builder for bot state
@@ -237,7 +238,7 @@ Key files
 
 Prerequisites
 
-- Node.js 22 or newer (the package engine floor)
+- Node.js 22.12 or newer (the package engine floor)
 - `npm ci` installs the tracked Lync 0.4.0 release-candidate artifact under
   `vendor/`. It is built from clean owning revision `cb4f45f`; this temporary
   pin keeps the repaired canonical writer reproducible without publishing it.
@@ -245,6 +246,7 @@ Prerequisites
 - For online mode: a valid account and correct `MINECRAFT_AUTH`
 - OpenRouter API key if you want LLM chat replies
 - Optional: local browser for the viewer
+- Optional for the camera-perception comparison: installed Chrome, Chromium, or Edge; `BEHOLD_CHROME_EXECUTABLE` selects a nonstandard executable. Semantic-only residents never launch it.
 - For the viewer on Node: `canvas` native module. You may need system packages.
   - macOS (Homebrew): `brew install pkg-config cairo pango libpng jpeg giflib librsvg`
   - Ubuntu/Debian: `sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev`
@@ -298,6 +300,7 @@ Environment Variables
 - `BEHOLD_ACTION_PROFILE` — `resident-v1`, legacy `minecraft-player-v1`, or the cursor/key-like `minecraft-human-semantic-v1` surface
 - `BEHOLD_SAFETY_PROFILE` — `resident-safe-v1` or `vanilla-player-v1`; the latter exposes risky actions that ordinary Minecraft permits
 - `BEHOLD_RECORD_MODEL_IO=1` — opt in to storing full provider request/response bodies for exact replay; the default records hashes and byte attribution without copying private lived context
+- `BEHOLD_CHROME_EXECUTABLE` — optional installed Chrome/Chromium/Edge path used only when an exact resident-camera frame is explicitly requested
 - `BEHOLD_OLLAMA_SERVER_CONFIG` — optional path to the plain local Ollama server config; local managed admission defaults to `~/.ollama/server.json` and requires `disable_ollama_cloud: true`
 
 LLM Autopilot (optional)
