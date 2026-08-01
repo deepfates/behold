@@ -55,3 +55,7 @@ stop. Combined resume-candidate check after this change and the admitted-camera
 lens change passes 672/673 tests with one intentional environment skip. Keep
 this ticket open until the ordinary post-boundary resume measures actual journal
 and transport growth and the live lens consumes the bounded public commit.
+
+**2026-08-01T19:42:00Z**
+
+Episode 000004 exercised the integrated ordinary default for 20 minutes: 94 new canonical private turns extended immutable prefixes of the two 204.1 MB lives, while the two operational journals totaled about 6.2 MB and contained bounded `behold.resident-life-commit.v1` projections plus authenticated Lync locators. No cognition transport directory or exact request/response bodies were retained; the broker kept hashes, timing, usage, and 97/97 terminal settlements. This is positive ordinary growth evidence. The ticket remains open until the live lens path and longer-run growth criterion are checked directly rather than inferred from the record.
