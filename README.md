@@ -200,9 +200,16 @@ SECONDS` for a bounded episode; Ctrl-C requests the same clean drain, save,
   port, and unchanged runtime evidence, and keeps the interrupted run distinct
   from a clean episode.
 - The foreground output prints the loopback native Minecraft endpoint and one
-  read-only first-person viewer URL per resident. Joining with a compatible
-  native client is optional and does not transfer world ownership away from the
-  foreground command.
+  read-only first-person viewer URL per resident. It also prints one loopback
+  habitat-lens URL. That disposable projection follows the managed lifecycle
+  and resident journals to show population and body state, decision cadence and
+  latency, current action and exact terminal, recent social and material facts,
+  Lync tips, world health, and missing or stale sources without appending any
+  history. Its capability-bearing URL can pause or resume resident cognition and
+  request the ordinary managed stop; those controls acknowledge through the
+  already-owned controller and Place lifecycle rather than mutating the
+  projection. Joining with a compatible native client is optional and does not
+  transfer world ownership away from the foreground command.
 - Any compatible Minecraft client may join the printed endpoint while the world
   is live; no declaration releases or directs the residents. The optional
   `--native-player USERNAME` flag adds a post-episode observation check for one

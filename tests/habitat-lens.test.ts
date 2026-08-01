@@ -51,9 +51,9 @@ test('habitat lens folds authoritative lifecycle health without inventing runtim
     stopped: true,
   });
   assert.deepEqual(state.cognition, {
-    state: 'running',
+    state: 'stopped',
     requested: null,
-    at: new Date(12_000).toISOString(),
+    at: new Date(18_000).toISOString(),
     error: null,
   });
   assert.deepEqual(state.terminal, {

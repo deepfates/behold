@@ -56,6 +56,26 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Current truth (updated 2026-08-01)
 
+- The ordinary `behold live` foreground now prints a compact habitat lens over
+  its existing lifecycle and resident journals. It exposes body and population
+  state, decision timing, causal action progress and terminals, Lync tips,
+  provenance-preserving action/event/material counts, source staleness, and
+  world health without another writable store or a conduct score. Capability-
+  authenticated loopback controls pause and resume cognition through both
+  resident controllers and stop through the existing managed save boundary.
+  A four-minute two-resident episode exercised the complete surface: a
+  39.8-second pause admitted no new decision or resident turn after each
+  already-in-flight decision settled; resume immediately advanced both lives;
+  lens stop exited both controllers zero, received Minecraft's save
+  acknowledgement, recorded terminal world digest
+  `783997263ea3ad3b178cfb47ca4adc80b8a098847c649c7a6f3d469af8a454e5`,
+  released control, closed listeners, and unloaded the shared LM Studio model.
+  Textile independently projected the 37-event frozen union as 35 resident
+  turns plus two roots with no diagnostics. Replaying the same lens over the
+  earlier 30-minute episode 000039 reconstructed all 340 committed turns, 342
+  scheduled decisions, and four Minecraft-verified digs without journal gaps.
+  This exercises the projection and controls, but does not yet close the
+  long-running live observability checkpoint or the multi-day habitat telos.
 - The separately named `semantic-plus-camera-v1` experiment now reaches the
   actual resident mind boundary. It lazily captures one exact first-person
   Prismarine frame, admits it against the selected raw body observation, binds

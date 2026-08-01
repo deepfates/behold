@@ -29,7 +29,7 @@ export type HabitatLensState = Readonly<{
     stopped: boolean;
   }>;
   cognition: Readonly<{
-    state: 'unknown' | 'running' | 'paused' | 'transitioning' | 'failed';
+    state: 'unknown' | 'running' | 'paused' | 'transitioning' | 'stopped' | 'failed';
     requested: 'running' | 'paused' | null;
     at: string | null;
     error: string | null;
@@ -140,6 +140,9 @@ export function applyHabitatLensEvent(
       break;
     case 'run_stopped':
       state.phase = 'stopped';
+      state.cognition.state = 'stopped';
+      state.cognition.requested = null;
+      state.cognition.at = event.at;
       state.terminal.reason = text(event.data?.reason) ?? state.terminal.reason;
       break;
     case 'run_start_failed':
