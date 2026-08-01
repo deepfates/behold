@@ -787,7 +787,15 @@ export async function runConsole(
           taskRuntime?.verifier.recordControllerDecision(turn.intent, turn.observation);
           appendJournal('model_turn', turn);
         },
-        onModelError: (failure) => appendJournal('model_call_failed', failure),
+        onModelError: (failure) => {
+          appendJournal('model_call_failed', failure);
+          if (failure.call?.response?.terminal === 'quota_exhausted') {
+            void requestShutdown?.(
+              'resident_purpose_quota_exhausted',
+              new Error('resident decision provider-attempt quota exhausted'),
+            );
+          }
+        },
         onModelInterrupted: (interruption) => appendJournal('model_call_interrupted', interruption),
         authorizeDecisionOpportunity: decisionSchedule
           ? (opportunity) => {

@@ -684,6 +684,7 @@ function admissionEvidence(response: Response) {
 function brokerFailureTerminal(text: string) {
   try {
     const code = String(JSON.parse(text)?.error?.code || '');
+    if (code === 'resident_purpose_quota_exhausted') return 'quota_exhausted';
     if (code === 'lmstudio_identity_mismatch') return 'lmstudio_identity_mismatch';
     if (/admission|quota|queue|request_lmstudio/.test(code)) return 'admission_rejected';
   } catch {

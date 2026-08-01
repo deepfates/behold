@@ -212,6 +212,39 @@ test('LM Studio mind rejects instance drift distinctly and never retries', async
   assert.equal(calls, 2);
 });
 
+test('LM Studio mind identifies an exhausted resident decision quota', async () => {
+  const instance = lmStudioResidentInstanceId(policy());
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: policy(),
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    fetch: async (_input, init) =>
+      isPrefixReadiness(init)
+        ? response(instance, { ready: true })
+        : new Response(
+            JSON.stringify({
+              error: {
+                code: 'resident_purpose_quota_exhausted',
+                message: 'resident resident_decision provider-attempt quota is exhausted',
+              },
+            }),
+            { status: 429, headers: { 'content-type': 'application/json' } },
+          ),
+  });
+
+  await assert.rejects(
+    mind.decide(request(), { signal: new AbortController().signal }),
+    (error: any) => {
+      assert.ok(error instanceof ResidentMindCallError);
+      assert.equal(error.call.response.terminal, 'quota_exhausted');
+      assert.equal(error.call.response.status, 429);
+      return true;
+    },
+  );
+});
+
 test('LM Studio mind retains malformed output without correction, normalization, or retry', async () => {
   const instance = lmStudioResidentInstanceId(policy());
   let calls = 0;

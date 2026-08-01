@@ -236,6 +236,7 @@ function admissionEvidence(response: Response) {
 function brokerFailureTerminal(text: string) {
   try {
     const code = String(JSON.parse(text)?.error?.code || '');
+    if (code === 'resident_purpose_quota_exhausted') return 'quota_exhausted' as const;
     if (code === 'ollama_identity_mismatch') return 'ollama_identity_mismatch' as const;
     if (/admission|quota|queue|request_ollama/.test(code)) return 'admission_rejected' as const;
   } catch {

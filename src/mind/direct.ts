@@ -378,6 +378,7 @@ function parseToolArguments(value: unknown) {
 function brokerFailureTerminal(text: string) {
   try {
     const code = String(JSON.parse(text)?.error?.code || '');
+    if (code === 'resident_purpose_quota_exhausted') return 'quota_exhausted' as const;
     if (code === 'route_identity_mismatch') return 'route_identity_mismatch' as const;
     if (/admission|quota|queue|request_route_policy/.test(code)) {
       return 'admission_rejected' as const;

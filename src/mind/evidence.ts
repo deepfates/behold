@@ -20,6 +20,7 @@ export type ModelCallTerminal =
   | 'malformed_output'
   | 'adapter_rejected'
   | 'admission_rejected'
+  | 'quota_exhausted'
   | 'route_identity_mismatch'
   | 'ollama_identity_mismatch'
   | 'lmstudio_identity_mismatch';
