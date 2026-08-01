@@ -44,6 +44,7 @@ import {
 } from '../src/mind/cognition-broker';
 import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 import {
+  assertOpenRouterResidentTreatment,
   openRouterRoutePolicy,
   serializeOpenRouterRoutePolicy,
   type OpenRouterRoutePolicy,
@@ -63,6 +64,7 @@ import {
   usesOllamaResidentSessionTransport,
 } from '../src/mind/ollama-json-action';
 import {
+  assertLmStudioLocalResidentTreatment,
   lmStudioLocalPolicy,
   lmStudioResidentInstanceId,
   preflightLmStudioLocal,
@@ -507,8 +509,34 @@ export function loadManagedResidentSet(fileValue: string): readonly ManagedResid
     if (result.target && !result.task) {
       throw residentConfigInvalid(file, `resident ${index} target requires task`);
     }
+    const policyProfile = residentPolicyProfile(result.policyProfile);
+    try {
+      if (result.providerRoute) {
+        assertOpenRouterResidentTreatment(
+          policyProfile,
+          result.providerRoute as OpenRouterRoutePolicy,
+        );
+      }
+      if (result.ollamaLocal) {
+        assertOllamaLocalJsonActionTreatment(
+          { policyProfile },
+          result.ollamaLocal as OllamaLocalPolicy,
+        );
+      }
+      if (result.lmStudioLocal) {
+        assertLmStudioLocalResidentTreatment(
+          { policyProfile },
+          result.lmStudioLocal as LmStudioLocalPolicy,
+        );
+      }
+    } catch (error: any) {
+      throw residentConfigInvalid(
+        file,
+        `resident ${index} policy and cognition transport differ: ${error?.message || String(error)}`,
+      );
+    }
     if (
-      residentPolicyProfile(result.policyProfile) === 'legible-resident-v1' &&
+      policyProfile === 'legible-resident-v1' &&
       (result.providerRoute as OpenRouterRoutePolicy | undefined)?.protocol !==
         'behold.openrouter-route-policy.v2' &&
       (result.providerRoute as OpenRouterRoutePolicy | undefined)?.protocol !==
@@ -1054,6 +1082,17 @@ function normalizeManagedResidents(
           { index, entityId, mind },
         );
       }
+      if (providerRoute) {
+        try {
+          assertOpenRouterResidentTreatment(policyProfile, providerRoute);
+        } catch (error: any) {
+          throw new WorldRunnerError(
+            `Resident ${entityId} policy and OpenRouter route differ: ${error?.message || String(error)}`,
+            'resident_provider_treatment_mismatch',
+            { index, entityId, policyProfile, protocol: providerRoute.protocol },
+          );
+        }
+      }
       let ollamaLocal: OllamaLocalPolicy | undefined;
       try {
         ollamaLocal =
@@ -1134,12 +1173,16 @@ function normalizeManagedResidents(
           { index, entityId },
         );
       }
-      if (lmStudioLocal && policyProfile !== 'legible-resident-v1') {
-        throw new WorldRunnerError(
-          `Resident ${entityId} LM Studio resident-session transport requires legible-resident-v1`,
-          'resident_lmstudio_treatment_mismatch',
-          { index, entityId, policyProfile },
-        );
+      if (lmStudioLocal) {
+        try {
+          assertLmStudioLocalResidentTreatment({ policyProfile }, lmStudioLocal);
+        } catch (error: any) {
+          throw new WorldRunnerError(
+            `Resident ${entityId} policy and LM Studio transport differ: ${error?.message || String(error)}`,
+            'resident_lmstudio_treatment_mismatch',
+            { index, entityId, policyProfile, transport: lmStudioLocal.transport.protocol },
+          );
+        }
       }
       if (
         policyProfile === 'legible-resident-v1' &&
@@ -2051,6 +2094,7 @@ export async function startManagedWorld(
                 bearer: randomBytes(32).toString('base64url'),
                 residentKey: cognitionResidentKey(managedRunId, resident.entityId),
                 residentIdentity: resident.entityId,
+                policyProfile: resident.policyProfile,
                 model: resident.model,
                 ...(resident.urgentModel ? { models: Object.freeze([resident.urgentModel]) } : {}),
                 ...(resident.providerRoute ? { routePolicy: resident.providerRoute } : {}),

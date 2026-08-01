@@ -236,6 +236,21 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Supported foundations and retained history
 
+- `resident-v2` is now the ordinary policy default at the runtime front door.
+  It combines the human-semantic body and vanilla risk with one action-or-yield
+  decision, stable own-life continuity, and no controller task, project,
+  progress guard, recovery choice, required action, intention, expected
+  consequence, or private reasoning field. Its separately versioned LM Studio
+  and OpenRouter v2 strict-session wires preserve the same action-only meaning and
+  reject profile/schema drift before action admission. Focused no-world tests
+  exercise both wires and the default runtime composition. Authenticated broker
+  clients pin that treatment rather than inferring it from each request; current
+  Ollama transports remain legacy-only. Mixed legacy histories are projected
+  through a deterministic facts-only continuity/cache identity, preserving
+  chosen controls, typed settlements, communication, and coarse later perception
+  without replaying commitments or controller prose. Persistent-world
+  live, lens, stop/resume, and Textile exercise remain open under `beh-rhxm`;
+  this implementation checkpoint is not yet that ordinary acceptance.
 - A separately named `legible-resident-v1` treatment now combines the ratified
   human-semantic body with a small identity and bounded-information charter
   and a strict public intention plus expected-observable-consequence response.

@@ -5,6 +5,7 @@ import {
   projectCurrentModelObservation,
   projectHistoricalModelObservation,
   projectRecentActionContinuity,
+  projectResidentFactualContinuity,
   projectResidentWorkingContinuity,
 } from '../src/policy/context';
 import { residentTurnMayReplay } from '../src/mind/resident-visibility';
@@ -635,6 +636,77 @@ test('resident working continuity preserves lived public tuples without replayin
   assert.doesNotMatch(
     serialized,
     /materialRows|depthRows|block:overworld|entity:99|"x"|"y"|"z"|"input"|"result"|eventType|mineflayer:/,
+  );
+});
+
+test('resident factual continuity preserves lived facts without legacy steering or controller prose', () => {
+  const turn = continuityTurn(
+    1,
+    'Scout',
+    'move_controls',
+    { direction: 'forward', durationMs: 500 },
+    {
+      ok: true,
+      bodyMoved: false,
+      reason: 'CANARY_CONTROLLER_REASON',
+      message: 'CANARY_CONTROLLER_MESSAGE',
+    },
+  );
+  turn.profiles = {
+    policy: 'legible-resident-v1',
+    body: 'minecraft-human-semantic-v1',
+    actions: 'minecraft-human-semantic-v1',
+    safety: 'vanilla-player-v1',
+  };
+  turn.utterance.assistant.content = 'CANARY_ASSISTANT_NARRATION';
+  turn.utterance.publicCommitment = {
+    protocol: 'behold.resident-public-action-commitment.v1',
+    policyProfile: 'legible-resident-v1',
+    intention: 'CANARY_LEGACY_INTENTION',
+    expectedObservableConsequence: 'CANARY_EXPECTED_CONSEQUENCE',
+  };
+  turn.nextObservation = {
+    task: { name: 'CANARY_CONTROLLER_TASK', progress: 'CANARY_PROGRESS' },
+    self: { condition: { health: 17, food: 16, isDay: true } },
+    scene: { social: { playersOnline: ['Wren'] } },
+    events: [
+      {
+        sequence: 2,
+        type: 'chat_received',
+        isNew: true,
+        data: { from: 'Wren', text: 'Are you still there?' },
+      },
+    ],
+  };
+
+  const projected = projectResidentFactualContinuity(
+    [turn],
+    6,
+    6_000,
+    residentTurnMayReplay,
+    projectHumanSemanticValue,
+  );
+  assert.equal(projected?.protocol, 'behold.resident-factual-continuity.v1');
+  assert.deepEqual(projected?.experiences[0].chosen, {
+    control: 'move_controls',
+    arguments: { direction: 'forward', durationMs: 500 },
+  });
+  assert.deepEqual(projected?.experiences[0].settled, {
+    terminal: 'completed',
+    eventType: 'action_completed',
+    bodyMoved: false,
+  });
+  assert.deepEqual(projected?.experiences[0].communication?.heard, [
+    { from: 'Wren', text: 'Are you still there?' },
+  ]);
+  assert.deepEqual(projected?.experiences[0].after?.condition, {
+    health: 17,
+    food: 16,
+    daylight: 'day',
+  });
+  assert.doesNotMatch(
+    JSON.stringify(projected),
+    /CANARY_|intention|expectedObservableConsequence|progress|project|reason|message/,
   );
 });
 

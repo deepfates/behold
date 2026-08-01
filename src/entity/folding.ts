@@ -100,6 +100,8 @@ type LoomContextOptions = {
   now?: () => number;
   projectionProfile?: string;
   summarizerProtocol?: string;
+  /** Build only the literal canonical anchor index; never call a model summarizer. */
+  canonicalOnly?: boolean;
   /** Durable operator evidence written before a fallback context can be used. */
   onContextIntervention?: (intervention: LoomContextIntervention) => void;
   projectTurn?: (
@@ -185,7 +187,7 @@ export function createLoomContextView(
     // dialogue and material consequences instead of blocking the body or
     // manufacturing "summary unavailable" progress. Later small increments
     // can be folded by the configured summarizer from this grounded base.
-    if (target - cursor > foldBatchTurns) {
+    if (options.canonicalOnly || target - cursor > foldBatchTurns) {
       const indexed = canonicalAnchorSummary(
         turns.slice(0, target),
         summaryMaxChars,
@@ -363,6 +365,8 @@ export function projectTurnForFolding(
     ) => any;
     projectValue?: (value: any) => any;
     mayReplayAction?: (turn: EntityTurn) => boolean;
+    includePublicCommitment?: boolean;
+    factsOnly?: boolean;
   } = {},
 ) {
   const projectObservation = options.projectObservation ?? projectHistoricalModelObservation;
@@ -381,7 +385,9 @@ export function projectTurnForFolding(
       FOLD_EVENT_BATCH,
     ),
     publicCommitment:
-      residentVisible && turn.utterance?.publicCommitment
+      options.includePublicCommitment !== false &&
+      residentVisible &&
+      turn.utterance?.publicCommitment
         ? compactValue(projectValue(turn.utterance.publicCommitment))
         : null,
     action: residentVisible
@@ -393,7 +399,9 @@ export function projectTurnForFolding(
           reason: 'not_resident_observable',
         },
     outcome: residentVisible
-      ? compactValue(projectValue(turn.outcome))
+      ? options.factsOnly
+        ? factualFoldOutcome(turn)
+        : compactValue(projectValue(turn.outcome))
       : {
           ok: turn.outcome.ok,
           eventType: turn.outcome.eventType,
@@ -406,6 +414,27 @@ export function projectTurnForFolding(
       'same_turn_observation',
       FOLD_EVENT_BATCH,
     ),
+  };
+}
+
+function factualFoldOutcome(turn: EntityTurn) {
+  const token = (value: unknown) => {
+    const text = String(value ?? '');
+    return /^[a-z0-9_:-]{1,80}$/i.test(text) ? text : null;
+  };
+  const result =
+    turn.outcome.result && typeof turn.outcome.result === 'object'
+      ? (turn.outcome.result as Record<string, unknown>)
+      : null;
+  return {
+    ok: turn.outcome.ok,
+    eventType: token(turn.outcome.eventType) ?? 'unknown',
+    ...(token(turn.outcome.error) ? { error: token(turn.outcome.error) } : {}),
+    ...(typeof result?.bodyMoved === 'boolean'
+      ? { result: { bodyMoved: result.bodyMoved } }
+      : token(result?.status)
+        ? { result: { status: token(result?.status) } }
+        : {}),
   };
 }
 

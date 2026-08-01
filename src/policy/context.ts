@@ -6,7 +6,10 @@ export {
   projectHistoricalModelObservation,
   projectRecentActionContinuity,
   projectResidentWorkingContinuity,
+  projectResidentFactualContinuity,
+  RESIDENT_FACTUAL_CONTINUITY_PROTOCOL,
   RESIDENT_WORKING_CONTINUITY_PROTOCOL,
   type RecentActionContinuity,
   type ResidentWorkingContinuity,
+  type ResidentFactualContinuity,
 } from '../mind/observation-context';

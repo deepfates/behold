@@ -25,6 +25,8 @@ import {
   type LmStudioLocalPolicy,
 } from '../src/mind/lmstudio-local';
 import {
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
 } from '../src/mind/ollama-json-action';
@@ -158,7 +160,7 @@ test('GGUF admission binds the exact artifact tree and embedded chat template th
 test('LM Studio loom folding has one exact non-authoritative wire with no action authority', async (t) => {
   const fixture = await artifactFixture(t);
   const residentPolicy = policy(fixture);
-  const instanceId = expectedInstanceId(residentPolicy);
+  const instanceId = lmStudioResidentInstanceId(residentPolicy);
   const foldRequest = {
     entityId: 'OxfordAster',
     fromSequence: 1,
@@ -316,6 +318,64 @@ test('LM Studio wire preserves the exact strict resident schema and stable prefi
       ),
     /differs from the exact admitted resident request/,
   );
+});
+
+test('LM Studio resident-v2 session is action-only while preserving the stable own-life prefix', async (t) => {
+  const fixture = await artifactFixture(t);
+  const legacyPolicy = policy(fixture);
+  const residentPolicy: LmStudioLocalPolicy = {
+    ...legacyPolicy,
+    transport: {
+      ...legacyPolicy.transport,
+      protocol: 'behold.lmstudio-local-resident-session.v2',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+    },
+  };
+  const residentRequest = {
+    ...request(residentPolicy.modelKey),
+    policyProfile: 'resident-v2',
+  } as any;
+  const instanceId = lmStudioResidentInstanceId(residentPolicy);
+  const serialized = createLmStudioLocalJsonActionRequest(
+    residentRequest,
+    residentPolicy,
+    instanceId,
+  );
+  const body: any = serialized.body;
+
+  assert.throws(
+    () =>
+      createLmStudioLocalJsonActionRequest(
+        residentRequest,
+        legacyPolicy,
+        lmStudioResidentInstanceId(legacyPolicy),
+      ),
+    /does not admit policyProfile resident-v2/,
+  );
+
+  assert.equal(body.response_format.json_schema.name, 'behold_resident_action_v1');
+  assert.equal(serialized.identity.transportProtocol, 'behold.lmstudio-local-resident-session.v2');
+  assert.equal(serialized.identity.schemaProtocol, OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL);
+  assert.equal(
+    serialized.identity.workingContinuityProtocol,
+    'behold.resident-factual-continuity.v1',
+  );
+  assert.match(body.messages[1].content, /BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_BEGIN/);
+  assert.match(body.messages.at(-1).content, /including wait_for_event when you choose to yield/);
+  assert.doesNotMatch(
+    JSON.stringify(body),
+    /expectedObservableConsequence|"intention"|public commitments|private reasoning/,
+  );
+  for (const variant of body.response_format.json_schema.schema.oneOf) {
+    assert.deepEqual(variant.required, ['action', 'arguments']);
+    assert.deepEqual(Object.keys(variant.properties).sort(), ['action', 'arguments']);
+  }
+  assert.deepEqual(
+    assertLmStudioLocalJsonActionRequest(body, residentRequest, residentPolicy, instanceId),
+    serialized.identity,
+  );
+  assert.deepEqual(assertLmStudioLocalWireRequest(body, residentPolicy), serialized.identity);
 });
 
 test('LM Studio prefix readiness prefills only the exact stable contract without action authority', async (t) => {

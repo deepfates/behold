@@ -9,6 +9,8 @@ import { boundedUrgentDecisionTimeoutMs } from '../policy/llm';
 import {
   residentPolicyProfile,
   usesHumanSemanticPolicySurface,
+  usesMinimalResidentChoice,
+  usesResidentSessionPolicy,
   type ResidentPolicyProfile,
 } from '../policy/profile';
 import {
@@ -18,11 +20,13 @@ import {
 } from '../mind/minecraft-body';
 import { isCognitionTransportEnabled } from '../mind/cognition';
 import {
+  assertOpenRouterResidentTreatment,
   openRouterRoutePolicyFromEnvironment,
   type OpenRouterRoutePolicy,
 } from '../mind/openrouter-route';
 import { ollamaLocalPolicyFromEnvironment, type OllamaLocalPolicy } from '../mind/ollama-local';
 import {
+  assertLmStudioLocalResidentTreatment,
   lmStudioLocalPolicyFromEnvironment,
   type LmStudioLocalPolicy,
 } from '../mind/lmstudio-local';
@@ -146,20 +150,37 @@ export function resolveResidentRuntimeConfig(
   const providerRoute = openRouterRoutePolicyFromEnvironment(
     environment.BEHOLD_OPENROUTER_ROUTE_POLICY,
   );
+  if (providerRoute) assertOpenRouterResidentTreatment(policy, providerRoute);
   const ollamaLocal = ollamaLocalPolicyFromEnvironment(environment.BEHOLD_OLLAMA_LOCAL_POLICY);
   const lmStudioLocal = lmStudioLocalPolicyFromEnvironment(
     environment.BEHOLD_LMSTUDIO_LOCAL_POLICY,
   );
   if (
+    policy === 'resident-v2' &&
+    Boolean(environment.OPENROUTER_API_KEY) &&
+    providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
+    !ollamaLocal &&
+    !lmStudioLocal
+  ) {
+    throw new Error(`${policy} requires a strict resident-session transport`);
+  }
+  if (
     policy === 'legible-resident-v1' &&
+    Boolean(environment.OPENROUTER_API_KEY) &&
     providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
     providerRoute?.protocol !== 'behold.openrouter-route-policy.v3' &&
     !ollamaLocal &&
     !lmStudioLocal
   ) {
-    throw new Error('legible-resident-v1 requires a strict resident-session transport');
+    throw new Error(`${policy} requires a strict resident-session transport`);
+  }
+  if (usesMinimalResidentChoice(policy) && options.task != null) {
+    throw new Error('resident-v2 ordinary life does not accept a controller-supplied task');
   }
   if (ollamaLocal) assertOllamaLocalJsonActionTreatment({ policyProfile: policy }, ollamaLocal);
+  if (lmStudioLocal) {
+    assertLmStudioLocalResidentTreatment({ policyProfile: policy }, lmStudioLocal);
+  }
   if ((providerRoute || ollamaLocal || lmStudioLocal) && mind !== 'direct') {
     throw new Error('Configured resident-session transport requires the direct mind adapter');
   }

@@ -10,6 +10,8 @@ import {
   assertStrictLocalResidentSessionPrefix,
   assertStrictLocalResidentSessionEnvelope,
   createStrictLocalResidentSessionEnvelope,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
   parseStrictLocalJsonActionDecisionContent,
@@ -18,6 +20,8 @@ import {
 export const LMSTUDIO_LOCAL_POLICY_PROTOCOL = 'behold.lmstudio-local-policy.v1' as const;
 export const LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL =
   'behold.lmstudio-local-resident-session.v1' as const;
+export const LMSTUDIO_LOCAL_ACTION_ONLY_RESIDENT_SESSION_TRANSPORT_PROTOCOL =
+  'behold.lmstudio-local-resident-session.v2' as const;
 export const LMSTUDIO_LOCAL_PREFLIGHT_PROTOCOL = 'behold.lmstudio-local-preflight.v1' as const;
 export const LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL =
   'behold.lmstudio-local-request-identity.v1' as const;
@@ -48,9 +52,15 @@ export type LmStudioLocalPolicy = Readonly<{
     sizeBytes: number;
   }>;
   transport: Readonly<{
-    protocol: typeof LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL;
-    schemaProtocol: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
-    schemaSha256: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256;
+    protocol:
+      | typeof LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL
+      | typeof LMSTUDIO_LOCAL_ACTION_ONLY_RESIDENT_SESSION_TRANSPORT_PROTOCOL;
+    schemaProtocol:
+      | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL
+      | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
+    schemaSha256:
+      | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256
+      | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256;
     templateSha256: string;
   }>;
   runtime: Readonly<{
@@ -88,9 +98,9 @@ export type LmStudioLocalPreflight = Readonly<{
 
 export type LmStudioLocalRequestIdentity = Readonly<{
   protocol: typeof LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL;
-  transportProtocol: typeof LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL;
-  schemaProtocol: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
-  schemaSha256: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256;
+  transportProtocol: LmStudioLocalPolicy['transport']['protocol'];
+  schemaProtocol: LmStudioLocalPolicy['transport']['schemaProtocol'];
+  schemaSha256: LmStudioLocalPolicy['transport']['schemaSha256'];
   modelKey: string;
   catalogKey: string;
   indexedModelIdentifier: string;
@@ -102,7 +112,8 @@ export type LmStudioLocalRequestIdentity = Readonly<{
   responseSchemaSha256: string;
   responseFormatSha256: string;
   messageLayoutProtocol: 'behold.ollama-local-resident-session-message-layout.v1';
-  workingContinuityProtocol: 'behold.resident-working-continuity.v1';
+  workingContinuityProtocol:
+    'behold.resident-working-continuity.v1' | 'behold.resident-factual-continuity.v1';
   stablePrefixSha256: string;
 }>;
 
@@ -236,16 +247,27 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
     ['protocol', 'schemaProtocol', 'schemaSha256', 'templateSha256'],
     'LM Studio resident transport',
   );
-  if (transport.protocol !== LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL) {
+  if (
+    transport.protocol !== LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL &&
+    transport.protocol !== LMSTUDIO_LOCAL_ACTION_ONLY_RESIDENT_SESSION_TRANSPORT_PROTOCOL
+  ) {
     throw new Error(
-      `LM Studio transport protocol must be ${LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL}`,
+      `LM Studio transport protocol must be ${LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL} or ${LMSTUDIO_LOCAL_ACTION_ONLY_RESIDENT_SESSION_TRANSPORT_PROTOCOL}`,
     );
   }
+  const actionOnly =
+    transport.protocol === LMSTUDIO_LOCAL_ACTION_ONLY_RESIDENT_SESSION_TRANSPORT_PROTOCOL;
+  const expectedSchemaProtocol = actionOnly
+    ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL
+    : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
+  const expectedSchemaSha256 = actionOnly
+    ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256
+    : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256;
   if (
-    transport.schemaProtocol !== OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL ||
-    transport.schemaSha256 !== OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256
+    transport.schemaProtocol !== expectedSchemaProtocol ||
+    transport.schemaSha256 !== expectedSchemaSha256
   ) {
-    throw new Error('LM Studio transport must preserve the exact strict resident schema v2');
+    throw new Error('LM Studio transport schema differs from its versioned resident treatment');
   }
   const runtime = exactRecord(
     record.runtime,
@@ -320,9 +342,9 @@ export function lmStudioLocalPolicy(value: unknown): LmStudioLocalPolicy {
       ),
     },
     transport: {
-      protocol: LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
-      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
-      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+      protocol: transport.protocol,
+      schemaProtocol: expectedSchemaProtocol,
+      schemaSha256: expectedSchemaSha256,
       templateSha256: sha256Digest(transport.templateSha256, 'LM Studio template'),
     },
     runtime: {
@@ -357,21 +379,49 @@ export function serializeLmStudioLocalPolicy(value: LmStudioLocalPolicy) {
   return JSON.stringify(lmStudioLocalPolicy(value));
 }
 
+export function assertLmStudioLocalResidentTreatment(
+  request: Pick<ResidentMindRequest, 'policyProfile'>,
+  policyValue: LmStudioLocalPolicy,
+) {
+  const policy = lmStudioLocalPolicy(policyValue);
+  const expected =
+    request.policyProfile === 'resident-v2'
+      ? LMSTUDIO_LOCAL_ACTION_ONLY_RESIDENT_SESSION_TRANSPORT_PROTOCOL
+      : request.policyProfile === 'legible-resident-v1'
+        ? LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL
+        : null;
+  if (expected == null || policy.transport.protocol !== expected) {
+    throw new Error(
+      `LM Studio transport ${policy.transport.protocol} does not admit policyProfile ${String(request.policyProfile)}`,
+    );
+  }
+}
+
 export function createLmStudioLocalJsonActionRequest(
   requestValue: ResidentMindRequest,
   policyValue: LmStudioLocalPolicy,
   modelInstanceId: string,
 ) {
   const policy = lmStudioLocalPolicy(policyValue);
+  assertLmStudioLocalResidentTreatment(requestValue, policy);
   if (requestValue.model !== policy.modelKey) {
     throw new Error('LM Studio request model differs from the admitted model key');
   }
   const instanceId = exactInstanceId(modelInstanceId);
   const envelope = createStrictLocalResidentSessionEnvelope(requestValue);
+  if (
+    envelope.schemaProtocol !== policy.transport.schemaProtocol ||
+    envelope.schemaSha256 !== policy.transport.schemaSha256
+  ) {
+    throw new Error('LM Studio policy transport differs from the resident treatment schema');
+  }
   const responseFormat = deepFreeze({
     type: 'json_schema' as const,
     json_schema: {
-      name: 'behold_resident_action_v2',
+      name:
+        envelope.schemaProtocol === 'behold.ollama-local-json-action-schema.v1'
+          ? 'behold_resident_action_v1'
+          : 'behold_resident_action_v2',
       strict: true as const,
       schema: envelope.responseSchema,
     },
@@ -389,7 +439,7 @@ export function createLmStudioLocalJsonActionRequest(
   });
   const identity: LmStudioLocalRequestIdentity = deepFreeze({
     protocol: LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL,
-    transportProtocol: LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
+    transportProtocol: policy.transport.protocol,
     schemaProtocol: envelope.schemaProtocol,
     schemaSha256: envelope.schemaSha256,
     modelKey: policy.modelKey,
@@ -420,6 +470,12 @@ export function createLmStudioLocalPrefixReadinessRequest(
   }
   const instanceId = exactInstanceId(modelInstanceId);
   const envelope = createStrictLocalResidentSessionEnvelope(requestValue);
+  if (
+    envelope.schemaProtocol !== policy.transport.schemaProtocol ||
+    envelope.schemaSha256 !== policy.transport.schemaSha256
+  ) {
+    throw new Error('LM Studio prefix policy differs from the resident treatment schema');
+  }
   const messages = deepFreeze([
     ...envelope.messages.slice(0, 2),
     { role: 'user' as const, content: LMSTUDIO_PREFIX_READINESS_PROMPT },
@@ -631,18 +687,31 @@ export function assertLmStudioLocalWireRequest(
   );
   if (
     responseFormat.type !== 'json_schema' ||
-    jsonSchema.name !== 'behold_resident_action_v2' ||
+    !['behold_resident_action_v1', 'behold_resident_action_v2'].includes(String(jsonSchema.name)) ||
     jsonSchema.strict !== true
   ) {
     throw new Error('LM Studio response format is not the exact strict resident schema wrapper');
   }
   const envelope = assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
+  if (
+    envelope.schemaProtocol !== policy.transport.schemaProtocol ||
+    envelope.schemaSha256 !== policy.transport.schemaSha256
+  ) {
+    throw new Error('LM Studio wire schema differs from the admitted resident policy');
+  }
+  const expectedSchemaName =
+    envelope.schemaProtocol === 'behold.ollama-local-json-action-schema.v1'
+      ? 'behold_resident_action_v1'
+      : 'behold_resident_action_v2';
+  if (jsonSchema.name !== expectedSchemaName) {
+    throw new Error('LM Studio response schema name differs from its resident treatment');
+  }
   if (residentIdentity != null) {
     assertResidentWireOwner(record.messages, residentIdentity);
   }
   return deepFreeze({
     protocol: LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL,
-    transportProtocol: LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
+    transportProtocol: policy.transport.protocol,
     schemaProtocol: envelope.schemaProtocol,
     schemaSha256: envelope.schemaSha256,
     modelKey: policy.modelKey,
@@ -1015,7 +1084,13 @@ export function parseLmStudioLocalJsonActionDecision(
   if (request.model !== policy.modelKey) {
     throw new Error('LM Studio response was decoded under another resident model policy');
   }
-  return parseStrictLocalJsonActionDecisionContent(message.content, message, request, call, 2);
+  return parseStrictLocalJsonActionDecisionContent(
+    message.content,
+    message,
+    request,
+    call,
+    request.policyProfile === 'resident-v2' ? 1 : 2,
+  );
 }
 
 /**

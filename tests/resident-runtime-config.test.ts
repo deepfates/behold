@@ -105,4 +105,59 @@ test('resident runtime uses one cadence default throughout composition', () => {
 
   assert.equal(runtime.minecraft.agent.tickMs, 4000);
   assert.equal(runtime.tickMs, 4000);
+  assert.deepEqual(runtime.profiles, {
+    policy: 'resident-v2',
+    body: 'minecraft-human-semantic-v1',
+    actions: 'minecraft-human-semantic-v1',
+    safety: 'vanilla-player-v1',
+  });
+});
+
+test('ordinary resident-v2 refuses a controller task and requires an explicit provider session', () => {
+  const base = {
+    SERVER_HOST: '127.0.0.1',
+    SERVER_PORT: '25565',
+    MINECRAFT_USERNAME: 'Body',
+  };
+  assert.throws(
+    () => resolveResidentRuntimeConfig({ task: 'come-see-do-report' }, base),
+    /does not accept a controller-supplied task/,
+  );
+  assert.throws(
+    () =>
+      resolveResidentRuntimeConfig(
+        {},
+        { ...base, OPENROUTER_API_KEY: 'provider-key', LLM_MODEL: 'test/model' },
+      ),
+    /requires a strict resident-session transport/,
+  );
+  const routeV3 = JSON.stringify({
+    protocol: 'behold.openrouter-route-policy.v3',
+    routes: [{ requestTag: 'fixture', responseProvider: 'Fixture' }],
+    allowFallbacks: false,
+    maxOutputTokens: 256,
+    residentDecisionFormat: 'native_tools',
+    reasoningEffort: 'none',
+  });
+  assert.throws(
+    () =>
+      resolveResidentRuntimeConfig(
+        {},
+        { ...base, LLM_MODEL: 'test/model', BEHOLD_OPENROUTER_ROUTE_POLICY: routeV3 },
+      ),
+    /resident-v2 requires OpenRouter resident-session route v2/,
+  );
+  const routeV2 = JSON.stringify({
+    protocol: 'behold.openrouter-route-policy.v2',
+    routes: [{ requestTag: 'fixture', responseProvider: 'Fixture' }],
+    allowFallbacks: false,
+    maxOutputTokens: 256,
+  });
+  assert.equal(
+    resolveResidentRuntimeConfig(
+      {},
+      { ...base, LLM_MODEL: 'test/model', BEHOLD_OPENROUTER_ROUTE_POLICY: routeV2 },
+    ).profiles.policy,
+    'resident-v2',
+  );
 });

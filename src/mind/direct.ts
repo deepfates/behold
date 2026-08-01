@@ -58,7 +58,9 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
           ? assertNativeToolResidentSessionEnvelope(body.messages, body.tools, body.tool_choice)
           : null;
       const residentSession =
-        request.policyProfile === 'legible-resident-v1' && !nativeToolSession
+        (request.policyProfile === 'legible-resident-v1' ||
+          request.policyProfile === 'resident-v2') &&
+        !nativeToolSession
           ? createStrictLocalResidentSessionEnvelope(request)
           : null;
       const requestBody = JSON.stringify(body);
@@ -275,7 +277,7 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
             message,
             request,
             call,
-            2,
+            request.policyProfile === 'resident-v2' ? 1 : 2,
           );
         }
         return responseDecision(data, request, call);

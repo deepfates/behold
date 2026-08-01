@@ -1,5 +1,6 @@
 import { assertStrictLocalResidentSessionEnvelope } from './ollama-json-action';
 import { assertNativeToolResidentSessionEnvelope } from './direct-native-tools';
+import type { ResidentPolicyProfile } from '../policy/profile';
 
 export const OPENROUTER_ROUTE_POLICY_PROTOCOL = 'behold.openrouter-route-policy.v1' as const;
 export const OPENROUTER_ROUTE_POLICY_V2_PROTOCOL = 'behold.openrouter-route-policy.v2' as const;
@@ -45,6 +46,23 @@ export type OpenRouterResponseIdentity = Readonly<{
   admittedProviders: readonly string[];
   reason: 'matched' | 'model_missing' | 'model_mismatch' | 'provider_missing' | 'provider_mismatch';
 }>;
+
+export function assertOpenRouterResidentTreatment(
+  policyProfile: ResidentPolicyProfile,
+  policyValue: OpenRouterRoutePolicy,
+) {
+  const policy = openRouterRoutePolicy(policyValue);
+  if (policyProfile === 'resident-v2' && policy.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL) {
+    throw new Error('resident-v2 requires OpenRouter resident-session route v2');
+  }
+  if (
+    policyProfile === 'legible-resident-v1' &&
+    policy.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL &&
+    policy.protocol !== OPENROUTER_ROUTE_POLICY_V3_PROTOCOL
+  ) {
+    throw new Error('legible-resident-v1 requires OpenRouter resident-session route v2 or v3');
+  }
+}
 
 const MAX_PROVIDERS = 16;
 const MAX_PROVIDER_LENGTH = 200;
@@ -166,6 +184,7 @@ export function assertOpenRouterRouteRequest(
   expectedModel: string,
   expectedPolicy: OpenRouterRoutePolicy,
   residentIdentity?: string | null,
+  expectedPolicyProfile?: ResidentPolicyProfile | null,
 ) {
   const policy = openRouterRoutePolicy(expectedPolicy);
   if (!plainRecord(value)) throw new Error('request body must be an object');
@@ -213,15 +232,35 @@ export function assertOpenRouterRouteRequest(
     );
     if (
       responseFormat.type !== 'json_schema' ||
-      jsonSchema.name !== 'behold_resident_action_v2' ||
+      !['behold_resident_action_v1', 'behold_resident_action_v2'].includes(
+        String(jsonSchema.name),
+      ) ||
       jsonSchema.strict !== true
     ) {
       throw new Error('OpenRouter resident-session schema wrapper differs');
     }
-    assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
+    const envelope = assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
+    const expectedSchemaName =
+      envelope.schemaProtocol === 'behold.ollama-local-json-action-schema.v1'
+        ? 'behold_resident_action_v1'
+        : 'behold_resident_action_v2';
+    if (jsonSchema.name !== expectedSchemaName) {
+      throw new Error('OpenRouter response schema name differs from its resident treatment');
+    }
+    if (
+      (expectedPolicyProfile === 'resident-v2' &&
+        envelope.schemaProtocol !== 'behold.ollama-local-json-action-schema.v1') ||
+      (expectedPolicyProfile === 'legible-resident-v1' &&
+        envelope.schemaProtocol !== 'behold.ollama-local-json-action-schema.v2')
+    ) {
+      throw new Error('OpenRouter resident treatment differs from the admitted policy profile');
+    }
     if (residentIdentity != null) assertResidentWireOwner(record.messages, residentIdentity);
   }
   if (policy.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL) {
+    if (expectedPolicyProfile != null && expectedPolicyProfile !== 'legible-resident-v1') {
+      throw new Error('OpenRouter native-tools treatment requires legible-resident-v1');
+    }
     const generationFields = expectedModel.includes('gpt-5') ? [] : ['temperature'];
     const record = exactRecord(
       value,

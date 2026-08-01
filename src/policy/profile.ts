@@ -1,4 +1,5 @@
 export const RESIDENT_POLICY_PROFILES = [
+  'resident-v2',
   'resident-v1',
   'neutral-benchmark-v1',
   'legible-resident-v1',
@@ -6,13 +7,23 @@ export const RESIDENT_POLICY_PROFILES = [
 export type ResidentPolicyProfile = (typeof RESIDENT_POLICY_PROFILES)[number];
 
 export function residentPolicyProfile(value: unknown): ResidentPolicyProfile {
-  const normalized = String(value || 'resident-v1').trim();
+  const normalized = String(value || 'resident-v2').trim();
   if (RESIDENT_POLICY_PROFILES.includes(normalized as ResidentPolicyProfile)) {
     return normalized as ResidentPolicyProfile;
   }
   throw new Error(
     `Unsupported resident policy profile ${JSON.stringify(value)}; expected ${RESIDENT_POLICY_PROFILES.join(' or ')}`,
   );
+}
+
+/** The ordinary uncoached action-or-yield treatment. */
+export function usesMinimalResidentChoice(profile: ResidentPolicyProfile) {
+  return profile === 'resident-v2';
+}
+
+/** Profiles whose stable charter and bounded own-life context form a resident session. */
+export function usesResidentSessionPolicy(profile: ResidentPolicyProfile) {
+  return profile === 'resident-v2' || profile === 'legible-resident-v1';
 }
 
 export function isNeutralPolicy(profile: ResidentPolicyProfile) {

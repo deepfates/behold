@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import type { ModelCallEvidence } from './evidence';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
 import type { OllamaLocalPolicy } from './ollama-local';
-import { RESIDENT_WORKING_CONTINUITY_PROTOCOL } from './observation-context';
+import {
+  RESIDENT_FACTUAL_CONTINUITY_PROTOCOL,
+  RESIDENT_WORKING_CONTINUITY_PROTOCOL,
+} from './observation-context';
 import {
   RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
   RESIDENT_PUBLIC_ACTION_COMMITMENT_PROTOCOL,
@@ -44,6 +47,8 @@ export const V2_CONTRACT_INSTRUCTION =
   'Choose exactly one supplied bodily control. Its presence authorizes an attempt but does not promise that world preconditions hold or that it will succeed. Return only one JSON object with exactly the fields "intention", "expectedObservableConsequence", "action", and "arguments". The first two fields are short public commitments, not private reasoning or claims of success. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
 export const RESIDENT_SESSION_RESPONSE_REMINDER =
   'Respond now with one JSON object matching the resident action contract above. Publish a short intention and expected observable consequence, then choose exactly one supplied bodily control. Do not repeat the contract or add prose.';
+export const ACTION_ONLY_RESIDENT_SESSION_RESPONSE_REMINDER =
+  'Respond now with one JSON object matching the resident action contract above. Choose exactly one supplied bodily control, including wait_for_event when you choose to yield. Do not repeat the contract or add prose.';
 
 const schemaDescriptor = deepFreeze({
   protocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
@@ -120,7 +125,8 @@ export type OllamaLocalJsonActionRequestIdentity = Readonly<{
   actionContractSha256: string;
   responseFormatSha256: string;
   messageLayoutProtocol?: typeof OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
-  workingContinuityProtocol?: typeof RESIDENT_WORKING_CONTINUITY_PROTOCOL;
+  workingContinuityProtocol?:
+    typeof RESIDENT_WORKING_CONTINUITY_PROTOCOL | typeof RESIDENT_FACTUAL_CONTINUITY_PROTOCOL;
   stablePrefixSha256?: string;
 }>;
 
@@ -130,11 +136,18 @@ export type OllamaLocalJsonActionRequestIdentity = Readonly<{
  * but must not reinterpret the action contract or response.
  */
 export type StrictLocalResidentSessionEnvelope = Readonly<{
-  protocol: 'behold.strict-local-resident-session-envelope.v1';
-  schemaProtocol: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
-  schemaSha256: typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256;
+  protocol:
+    | 'behold.strict-local-resident-session-envelope.v1'
+    | 'behold.strict-local-resident-session-envelope.v2';
+  schemaProtocol:
+    | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL
+    | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
+  schemaSha256:
+    | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256
+    | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256;
   messageLayoutProtocol: typeof OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
-  workingContinuityProtocol: typeof RESIDENT_WORKING_CONTINUITY_PROTOCOL;
+  workingContinuityProtocol:
+    typeof RESIDENT_WORKING_CONTINUITY_PROTOCOL | typeof RESIDENT_FACTUAL_CONTINUITY_PROTOCOL;
   messages: readonly unknown[];
   responseSchema: unknown;
   actionContractSha256: string;
@@ -243,22 +256,30 @@ export function createStrictLocalResidentSessionEnvelope(
 ): StrictLocalResidentSessionEnvelope {
   const request = parseResidentMindRequest(requestValue);
   assertHumanSemanticProfiles(request);
-  if (request.policyProfile !== 'legible-resident-v1') {
-    throw new Error('Strict local resident session requires policyProfile legible-resident-v1');
-  }
-  const contract = actionContract(request, 2);
+  const version = residentSessionSchemaVersion(request.policyProfile);
+  const contract = actionContract(request, version);
   const contractJson = stableJson(contract);
-  const responseSchema = responseFormat(contract.actions, contract.requiredAction, 2);
-  const markers = contractMarkers(2);
+  const responseSchema = responseFormat(contract.actions, contract.requiredAction, version);
+  const markers = contractMarkers(version);
   const contractContent = `${markers.instruction}${markers.begin}${contractJson}${markers.end}`;
-  const messages = residentSessionMessages(request.conversation, contractContent);
-  assertResidentSessionMessageLayout(messages as unknown[]);
+  const messages = residentSessionMessages(request.conversation, contractContent, version);
+  assertResidentSessionMessageLayout(messages as unknown[], version);
   return deepFreeze({
-    protocol: 'behold.strict-local-resident-session-envelope.v1' as const,
-    schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
-    schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+    protocol:
+      version === 2
+        ? ('behold.strict-local-resident-session-envelope.v1' as const)
+        : ('behold.strict-local-resident-session-envelope.v2' as const),
+    schemaProtocol:
+      version === 2
+        ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL
+        : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+    schemaSha256:
+      version === 2
+        ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256
+        : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
     messageLayoutProtocol: OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL,
-    workingContinuityProtocol: RESIDENT_WORKING_CONTINUITY_PROTOCOL,
+    workingContinuityProtocol:
+      version === 1 ? RESIDENT_FACTUAL_CONTINUITY_PROTOCOL : RESIDENT_WORKING_CONTINUITY_PROTOCOL,
     messages,
     responseSchema,
     actionContractSha256: sha256(contractJson),
@@ -285,7 +306,8 @@ export function assertStrictLocalResidentSessionEnvelope(
     ['role', 'content'],
     'Strict local resident action contract message',
   );
-  const markers = contractMarkers(2);
+  const version = residentSessionSchemaVersionFromContractMessage(contractMessage.content);
+  const markers = contractMarkers(version);
   if (
     contractMessage.role !== 'system' ||
     typeof contractMessage.content !== 'string' ||
@@ -304,20 +326,27 @@ export function assertStrictLocalResidentSessionEnvelope(
   } catch {
     throw new Error('Strict local resident action contract is not valid JSON');
   }
-  const contract = parseActionContract(contractValue, 2);
+  const contract = parseActionContract(contractValue, version);
   if (contractJson !== stableJson(contract)) {
     throw new Error('Strict local resident action contract is not exact canonical JSON');
   }
-  const expectedSchema = responseFormat(contract.actions, contract.requiredAction, 2);
+  const expectedSchema = responseFormat(contract.actions, contract.requiredAction, version);
   if (stableJson(responseSchemaValue) !== stableJson(expectedSchema)) {
     throw new Error('Strict local resident response schema differs from its action contract');
   }
-  assertResidentSessionMessageLayout(messages);
+  assertResidentSessionMessageLayout(messages, version);
   return deepFreeze({
-    schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
-    schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
+    schemaProtocol:
+      version === 2
+        ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL
+        : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+    schemaSha256:
+      version === 2
+        ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256
+        : OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
     messageLayoutProtocol: OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL,
-    workingContinuityProtocol: RESIDENT_WORKING_CONTINUITY_PROTOCOL,
+    workingContinuityProtocol:
+      version === 1 ? RESIDENT_FACTUAL_CONTINUITY_PROTOCOL : RESIDENT_WORKING_CONTINUITY_PROTOCOL,
     actionContractSha256: sha256(contractJson),
     responseSchemaSha256: sha256(stableJson(expectedSchema)),
     stablePrefixSha256: sha256(stableJson(messages.slice(0, 2))),
@@ -345,7 +374,8 @@ export function assertStrictLocalResidentSessionPrefix(
     ['role', 'content'],
     'Strict local resident action contract message',
   );
-  const markers = contractMarkers(2);
+  const version = residentSessionSchemaVersionFromContractMessage(contractMessage.content);
+  const markers = contractMarkers(version);
   if (
     contractMessage.role !== 'system' ||
     typeof contractMessage.content !== 'string' ||
@@ -364,7 +394,7 @@ export function assertStrictLocalResidentSessionPrefix(
   } catch {
     throw new Error('Strict local resident action contract is not valid JSON');
   }
-  const contract = parseActionContract(contractValue, 2);
+  const contract = parseActionContract(contractValue, version);
   if (contractJson !== stableJson(contract)) {
     throw new Error('Strict local resident action contract is not exact canonical JSON');
   }
@@ -769,6 +799,23 @@ function contractMarkers(version: 1 | 2) {
       };
 }
 
+function residentSessionSchemaVersion(policyProfile: unknown): 1 | 2 {
+  if (policyProfile === 'resident-v2') return 1;
+  if (policyProfile === 'legible-resident-v1') return 2;
+  throw new Error(
+    'Strict local resident session requires policyProfile resident-v2 or legible-resident-v1',
+  );
+}
+
+function residentSessionSchemaVersionFromContractMessage(value: unknown): 1 | 2 {
+  if (typeof value !== 'string') {
+    throw new Error('Strict local resident action contract content is not text');
+  }
+  if (value.startsWith(`${V1_CONTRACT_INSTRUCTION}${V1_CONTRACT_BEGIN}`)) return 1;
+  if (value.startsWith(`${V2_CONTRACT_INSTRUCTION}${V2_CONTRACT_BEGIN}`)) return 2;
+  throw new Error('Strict local resident action contract markers are invalid');
+}
+
 export function assertOllamaLocalJsonActionTreatment(
   request: Pick<ResidentMindRequest, 'policyProfile'>,
   policy: OllamaLocalPolicy,
@@ -781,6 +828,9 @@ function assertTransportTreatment(
   policy: OllamaLocalPolicy,
 ) {
   const version = transportVersion(policy);
+  if (request.policyProfile === 'resident-v2') {
+    throw new Error('resident-v2 is not admitted by the legacy Ollama transport');
+  }
   if (version === 2 && request.policyProfile !== 'legible-resident-v1') {
     throw new Error('Ollama local JSON action v2 requires policyProfile legible-resident-v1');
   }
@@ -796,6 +846,7 @@ export function usesOllamaResidentSessionTransport(policy: Pick<OllamaLocalPolic
 function residentSessionMessages(
   conversationValue: ResidentMindRequest['conversation'],
   contractContent: string,
+  version: 1 | 2 = 2,
 ) {
   const conversation = cloneJson(conversationValue);
   if (!Array.isArray(conversation) || conversation.length < 2) {
@@ -827,18 +878,22 @@ function residentSessionMessages(
     );
   }
   const dynamic = conversation.slice(1, -1);
+  const reminder =
+    version === 2
+      ? RESIDENT_SESSION_RESPONSE_REMINDER
+      : ACTION_ONLY_RESIDENT_SESSION_RESPONSE_REMINDER;
   return deepFreeze([
     charter,
     { role: 'system' as const, content: contractContent },
     ...dynamic,
     {
       role: 'user' as const,
-      content: `${current.content}\n\n${RESIDENT_SESSION_RESPONSE_REMINDER}`,
+      content: `${current.content}\n\n${reminder}`,
     },
   ]);
 }
 
-function assertResidentSessionMessageLayout(value: unknown[]) {
+function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 = 2) {
   if (value.length < 3) throw new Error('Ollama resident session message layout is incomplete');
   const charter = exactRecord(value[0], ['role', 'content'], 'Resident session charter');
   const current = exactRecord(
@@ -849,10 +904,14 @@ function assertResidentSessionMessageLayout(value: unknown[]) {
   if (charter.role !== 'system' || typeof charter.content !== 'string' || !charter.content) {
     throw new Error('Ollama resident session charter must be a nonempty system message');
   }
+  const reminder =
+    version === 2
+      ? RESIDENT_SESSION_RESPONSE_REMINDER
+      : ACTION_ONLY_RESIDENT_SESSION_RESPONSE_REMINDER;
   if (
     current.role !== 'user' ||
     typeof current.content !== 'string' ||
-    !current.content.endsWith(`\n\n${RESIDENT_SESSION_RESPONSE_REMINDER}`)
+    !current.content.endsWith(`\n\n${reminder}`)
   ) {
     throw new Error('Ollama resident session response reminder is missing or drifted');
   }

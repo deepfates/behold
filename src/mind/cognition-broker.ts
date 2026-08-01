@@ -25,6 +25,7 @@ import {
 } from './transport-capture';
 import {
   assertOpenRouterRouteRequest,
+  assertOpenRouterResidentTreatment,
   inspectOpenRouterResponseIdentity,
   openRouterRoutePolicy,
   type OpenRouterRoutePolicy,
@@ -52,6 +53,7 @@ import {
   type LmStudioLocalPolicy,
   type LmStudioLocalPreflight,
 } from './lmstudio-local';
+import { residentPolicyProfile, type ResidentPolicyProfile } from '../policy/profile';
 
 export const COGNITION_BROKER_EVENT_PROTOCOL = 'behold.cognition-broker-event.v1' as const;
 export const COGNITION_ADMISSION_LIMIT_PROTOCOL = 'behold.cognition-admission-limit.v1' as const;
@@ -178,6 +180,8 @@ export type CognitionBrokerOptions = Readonly<{
     lmStudioLocal?: LmStudioLocalPolicy;
     /** Stable resident identity that owns every request authenticated by this client. */
     residentIdentity?: string;
+    /** Exact resident treatment admitted for this authenticated client. */
+    policyProfile?: ResidentPolicyProfile;
     /** Stable resident identity that owns this client's local model instance. */
     lmStudioResidentIdentity?: string;
     /** Durable per-purpose provider-attempt quota owned by this resident account. */
@@ -216,6 +220,7 @@ type Client = Readonly<{
   ollamaLocal: OllamaLocalPolicy | null;
   lmStudioLocal: LmStudioLocalPolicy | null;
   residentIdentity: string | null;
+  policyProfile: ResidentPolicyProfile | null;
   lmStudioResidentIdentity: string | null;
   accounting: CognitionBrokerOptions['clients'][number]['accounting'] | null;
 }>;
@@ -563,6 +568,7 @@ export async function startCognitionBroker(
             model,
             client.routePolicy,
             client.residentIdentity,
+            client.policyProfile,
           );
         } catch (error: any) {
           throw codedError(
@@ -1696,6 +1702,20 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
           : null;
       const residentIdentity =
         value.residentIdentity == null ? null : String(value.residentIdentity).trim();
+      let policyProfile: ResidentPolicyProfile | null = null;
+      try {
+        policyProfile =
+          value.policyProfile == null ? null : residentPolicyProfile(value.policyProfile);
+      } catch {
+        throw new Error(`invalid cognition client policy profile at index ${index}`);
+      }
+      if (routePolicy && policyProfile) {
+        try {
+          assertOpenRouterResidentTreatment(policyProfile, routePolicy);
+        } catch {
+          throw new Error(`cognition client route treatment differs at index ${index}`);
+        }
+      }
       if ([routePolicy, ollamaLocal, lmStudioLocal].filter(Boolean).length > 1) {
         throw new Error(
           `cognition client cannot combine OpenRouter, Ollama, and LM Studio policy at index ${index}`,
@@ -1716,6 +1736,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         models.length > 16 ||
         models.some((item) => !item || item.length > 300) ||
         (residentIdentity != null && (!residentIdentity || residentIdentity.length > 300)) ||
+        (routePolicy != null && policyProfile == null) ||
         (lmStudioResidentIdentity != null &&
           (!lmStudioResidentIdentity || lmStudioResidentIdentity.length > 300)) ||
         (lmStudioLocal == null && value.lmStudioResidentIdentity != null) ||
@@ -1742,6 +1763,7 @@ function normalizeClients(values: CognitionBrokerOptions['clients']): readonly C
         ollamaLocal,
         lmStudioLocal,
         residentIdentity,
+        policyProfile,
         lmStudioResidentIdentity,
         accounting,
       });

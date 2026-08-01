@@ -18,8 +18,11 @@ export function directOpenRouterRequestBody(
   request: ResidentMindRequest,
   routePolicy?: OpenRouterRoutePolicy | null,
 ) {
-  if (request.policyProfile === 'legible-resident-v1') {
-    if (routePolicy?.protocol === 'behold.openrouter-route-policy.v3') {
+  if (request.policyProfile === 'resident-v2' || request.policyProfile === 'legible-resident-v1') {
+    if (
+      request.policyProfile === 'legible-resident-v1' &&
+      routePolicy?.protocol === 'behold.openrouter-route-policy.v3'
+    ) {
       const envelope = createNativeToolResidentSessionEnvelope(request);
       return {
         model: request.model,
@@ -42,7 +45,10 @@ export function directOpenRouterRequestBody(
       response_format: {
         type: 'json_schema' as const,
         json_schema: {
-          name: 'behold_resident_action_v2',
+          name:
+            request.policyProfile === 'resident-v2'
+              ? 'behold_resident_action_v1'
+              : 'behold_resident_action_v2',
           strict: true as const,
           schema: envelope.responseSchema,
         },

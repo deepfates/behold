@@ -409,6 +409,12 @@ delay, interruption, death, or no visible change. Continuation appends those
 facts to that resident's own Lync-backed life and derives a bounded later view
 without replacing the canonical record or exposing another private life.
 
+The durable history and the present memory view are deliberately different
+objects. Lync preserves each original turn under the treatment that produced
+it. The ordinary resident projection may select bounded factual continuity from
+that life, but it does not rewrite old turns, replay old controller commitments,
+or promote a generated summary into authority.
+
 Wake scheduling, context projection, and operator views surround this waist.
 They may decide when a choice is requested, which truthful facts fit in its
 bounded view, and how an operator sees the loop. On the ordinary path they do

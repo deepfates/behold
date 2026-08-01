@@ -10,8 +10,11 @@ import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interf
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
 import {
   projectRecentActionContinuity,
+  projectResidentFactualContinuity,
   projectResidentWorkingContinuity,
+  RESIDENT_FACTUAL_CONTINUITY_PROTOCOL,
   type RecentActionContinuity,
+  type ResidentFactualContinuity,
   type ResidentWorkingContinuity,
 } from './context';
 import {
@@ -58,6 +61,7 @@ import {
   isNeutralPolicy,
   residentPolicyProfile,
   usesHumanSemanticPolicySurface,
+  usesMinimalResidentChoice,
   usesResidentProgressSafeguards,
   usesResidentV1Behavior,
   type ResidentPolicyProfile,
@@ -366,7 +370,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const tickMs = Math.max(500, Number(opts.tickMs ?? 3000));
   const maxTurnSteps = Math.max(1, Math.min(32, Number(opts.maxTurnSteps ?? 8)));
   const fixedPilotSlots = opts.decisionScheduling === 'fixed-pilot-slots';
-  const policyProfile = residentPolicyProfile(opts.policyProfile);
+  // Preserve the low-level constructor's historical treatment for callers and
+  // retained fixtures. Ordinary front doors always pass the profile resolved
+  // by resident-config, whose default is resident-v2.
+  const policyProfile = residentPolicyProfile(opts.policyProfile ?? 'resident-v1');
   const bodyProfile = minecraftBodyProfile(
     opts.bodyProfile ??
       (usesHumanSemanticPolicySurface(policyProfile)
@@ -457,14 +464,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     foldBatchTurns: opts.foldBatchTurns ?? 6,
     foldTriggerTurns: opts.foldTriggerTurns ?? 6,
     now,
-    projectionProfile: bodyProfile,
+    projectionProfile: usesMinimalResidentChoice(policyProfile)
+      ? [RESIDENT_FACTUAL_CONTINUITY_PROTOCOL, policyProfile, bodyProfile, actionProfile].join(':')
+      : bodyProfile,
     summarizerProtocol: opts.foldSummarizerProtocol,
+    canonicalOnly: usesMinimalResidentChoice(policyProfile),
     onContextIntervention: opts.onContextIntervention,
     projectTurn: (turn, previousTurn) =>
       projectTurnForFolding(turn, previousTurn, {
         projectObservation: projectHistoricalObservation,
         ...(usesHumanSemanticBody(bodyProfile) ? { projectValue: projectHumanSemanticValue } : {}),
         mayReplayAction: mayReplayTurn,
+        includePublicCommitment: !usesMinimalResidentChoice(policyProfile),
+        factsOnly: usesMinimalResidentChoice(policyProfile),
       }),
     summarize: opts.summarizeLoom
       ? (request, signal) =>
@@ -476,15 +488,23 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const projectWorkingContinuity = (
     turnLimit: number,
     byteLimit: number,
-  ): RecentActionContinuity | ResidentWorkingContinuity | null =>
+  ): RecentActionContinuity | ResidentWorkingContinuity | ResidentFactualContinuity | null =>
     opts.workingContinuity === 'resident-session-v1'
-      ? projectResidentWorkingContinuity(
-          loomContext.view().turns,
-          Math.min(turnLimit, 6),
-          Math.min(byteLimit, 6_000),
-          mayReplayTurn,
-          usesHumanSemanticBody(bodyProfile) ? projectHumanSemanticValue : (value) => value,
-        )
+      ? usesMinimalResidentChoice(policyProfile)
+        ? projectResidentFactualContinuity(
+            loomContext.view().turns,
+            Math.min(turnLimit, 6),
+            Math.min(byteLimit, 6_000),
+            mayReplayTurn,
+            usesHumanSemanticBody(bodyProfile) ? projectHumanSemanticValue : (value) => value,
+          )
+        : projectResidentWorkingContinuity(
+            loomContext.view().turns,
+            Math.min(turnLimit, 6),
+            Math.min(byteLimit, 6_000),
+            mayReplayTurn,
+            usesHumanSemanticBody(bodyProfile) ? projectHumanSemanticValue : (value) => value,
+          )
       : usesHumanSemanticBody(bodyProfile)
         ? projectHumanSemanticValue(
             projectRecentActionContinuity(
@@ -1734,6 +1754,15 @@ export function controllerSystemPrompt(
   specs: readonly ToolSpec[],
   profile: ResidentPolicyProfile = 'resident-v1',
 ) {
+  if (usesMinimalResidentChoice(profile)) {
+    return [
+      'You are a persistent embodied Minecraft resident. Your own lived trajectory is your continuing identity.',
+      'Current experience is bounded first-person information from this body. No task, project, next goal, preferred conduct, or recovery choice is supplied.',
+      'Other residents are independent beings with their own bodies, information, and lives.',
+      'Choose exactly one supplied bodily control, or explicitly yield. A supplied control authorizes an attempt; it does not promise that current world preconditions hold or that the attempt will succeed.',
+      'Minecraft consequences are authoritative. Do not turn an expectation, absence from view, or unobserved consequence into fact.',
+    ].join('\n');
+  }
   if (isNeutralPolicy(profile)) {
     return [
       'You are embodied in Minecraft with only this body’s bounded lived observation.',
@@ -2236,7 +2265,8 @@ function conversationForAttention(
   messages: readonly any[],
   attention: ResidentAttention,
   availableTools?: readonly ToolSpec[],
-  recentActionContinuity?: RecentActionContinuity | ResidentWorkingContinuity | null,
+  recentActionContinuity?:
+    RecentActionContinuity | ResidentWorkingContinuity | ResidentFactualContinuity | null,
   profile: ResidentPolicyProfile = 'resident-v1',
 ) {
   const bodilyUrgency = hasBodilyUrgency(attention);
@@ -2311,9 +2341,12 @@ function conversationForAttention(
     ? {
         role: 'system',
         content: [
-          recentActionContinuity.protocol === 'behold.resident-working-continuity.v1'
-            ? 'Resident working continuity from your own entity loom. These are your prior public commitments, chosen actions, Minecraft-confirmed success or failure, and coarse perceptions afterward—not examples or recommendations. The current observation always wins.'
-            : 'Recent lived action continuity from your own entity loom. This is bounded historical evidence; the current observation wins whenever state has changed.',
+          recentActionContinuity.protocol === RESIDENT_FACTUAL_CONTINUITY_PROTOCOL
+            ? 'Factual continuity from your own entity loom: chosen controls, typed terminal settlements, communication, and coarse perceptions afterward. It contains no inferred project, intention, or recommendation. The current observation always wins.'
+            : recentActionContinuity.protocol === 'behold.resident-working-continuity.v1'
+              ? 'Resident working continuity from your own entity loom. These are your prior public commitments, chosen actions, Minecraft-confirmed success or failure, and coarse perceptions afterward—not examples or recommendations. The current observation always wins.'
+              : 'Recent lived action continuity from your own entity loom. This is bounded historical evidence; the current observation wins whenever state has changed.',
+          recentActionContinuity.protocol === RESIDENT_FACTUAL_CONTINUITY_PROTOCOL ||
           recentActionContinuity.protocol === 'behold.resident-working-continuity.v1'
             ? 'Historical perception is deliberately not a replayed camera or current target. Re-observe before relying on changed state.'
             : 'Any first-person glimpses are past camera views retained as perceptual working memory. Compare their orientations, but do not treat them as current geometry, a panorama, or proof of safety.',
@@ -2339,7 +2372,12 @@ function conversationForAttention(
 
 export function residentContinuityCoverageNotice(
   foldedContinuity: { content?: unknown } | null | undefined,
-  recentContinuity: RecentActionContinuity | ResidentWorkingContinuity | null | undefined,
+  recentContinuity:
+    | RecentActionContinuity
+    | ResidentWorkingContinuity
+    | ResidentFactualContinuity
+    | null
+    | undefined,
 ) {
   if (!recentContinuity) return null;
   const fromTurn = Number(recentContinuity.source?.fromTurn);
@@ -2713,6 +2751,10 @@ function validateMindDecision(
     }
   } else if (decision.publicCommitment != null) {
     fail('mind returned a legible-resident public commitment under another policy treatment');
+  }
+
+  if (usesMinimalResidentChoice(policyProfile) && decision.disposition === 'no_action') {
+    fail('resident-v2 must choose one supplied bodily control or explicitly yield');
   }
 
   if (decision.disposition === 'no_action') {

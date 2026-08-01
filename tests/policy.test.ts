@@ -3512,6 +3512,117 @@ test('the neutral policy prompt states protocol only and contains no Minecraft s
   );
 });
 
+test('resident-v2 charter supplies identity and causal truth without strategy or narration', () => {
+  const system = controllerSystemPrompt(
+    [tool('dig_focused_block'), tool('chat'), tool('wait_for_event')],
+    'resident-v2',
+  );
+
+  assert.match(system, /persistent embodied Minecraft resident/i);
+  assert.match(system, /own lived trajectory.*continuing identity/i);
+  assert.match(system, /bounded first-person information/i);
+  assert.match(system, /no task, project, next goal, preferred conduct, or recovery choice/i);
+  assert.match(system, /other residents are independent beings/i);
+  assert.match(system, /choose exactly one supplied bodily control, or explicitly yield/i);
+  assert.match(system, /authorizes an attempt.*does not promise/i);
+  assert.match(system, /Minecraft consequences are authoritative/i);
+  assert.doesNotMatch(
+    system,
+    /intention|expected observable|private reasoning|survival|shelter|food|materials|crafting|progress|repeat|inspect first|manage_project/i,
+  );
+});
+
+test('resident-v2 restart projects mixed legacy history as facts without legacy steering', async () => {
+  const prior = failedTurn(1, 'move_controls');
+  prior.profiles = {
+    policy: 'legible-resident-v1',
+    body: 'minecraft-human-semantic-v1',
+    actions: 'minecraft-human-semantic-v1',
+    safety: 'vanilla-player-v1',
+  };
+  prior.utterance.assistant.content =
+    'Intention: CANARY_LEGACY_INTENTION\nExpected observable consequence: CANARY_EXPECTED_CONSEQUENCE';
+  prior.utterance.publicCommitment = {
+    protocol: 'behold.resident-public-action-commitment.v1',
+    policyProfile: 'legible-resident-v1',
+    intention: 'CANARY_LEGACY_INTENTION',
+    expectedObservableConsequence: 'CANARY_EXPECTED_CONSEQUENCE',
+  };
+  prior.outcome.result = {
+    reason: 'CANARY_CONTROLLER_REASON',
+    message: 'CANARY_CONTROLLER_MESSAGE',
+    bodyMoved: false,
+  };
+  prior.nextObservation = {
+    task: { name: 'CANARY_OLD_TASK', progress: 'CANARY_PROGRESS' },
+    self: { condition: { health: 18, food: 17, isDay: true } },
+    events: [
+      {
+        sequence: 2,
+        type: 'chat_received',
+        isNew: true,
+        data: { from: 'Wren', text: 'Remember the oak tree.' },
+      },
+    ],
+  };
+  let captured: ResidentMindRequest | null = null;
+  const mind: ResidentMind = {
+    id: 'resident-v2-history-fixture',
+    decide: async (request) => {
+      captured = request;
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: null,
+        action: { name: 'wait_for_event', input: { reason: 'listen' } },
+        call: modelCallEvidence('resident-v2-history-fixture'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('look_direction')],
+      attempt: () => true,
+      observe: () => ({
+        protocol: 'behold.inhabitant.v2',
+        sequence: 3,
+        observedAt: 30,
+        self: { identity: 'Scout', condition: { health: 18, food: 17, isDay: true } },
+        scene: { entities: [] },
+        events: [],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'resident-v2',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      workingContinuity: 'resident-session-v1',
+      history: [prior],
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.ok(captured);
+    const serialized = JSON.stringify((captured as ResidentMindRequest).conversation);
+    assert.match(serialized, /behold\.resident-factual-continuity\.v1/);
+    assert.match(serialized, /move_controls/);
+    assert.match(serialized, /Remember the oak tree/);
+    assert.doesNotMatch(
+      serialized,
+      /CANARY_|expectedObservableConsequence|publicCommitment|"progress"/,
+    );
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('legible-resident-v1 admits own concern continuity without supplying a goal', () => {
   const system = controllerSystemPrompt(
     [tool('manage_project'), tool('dig_block'), tool('chat'), tool('wait_for_event')],
@@ -3537,6 +3648,7 @@ test('legible-resident-v1 admits own concern continuity without supplying a goal
 
 test('only the explicitly coached legacy profile substitutes controller progress judgments', () => {
   assert.equal(usesResidentProgressSafeguards('resident-v1'), true);
+  assert.equal(usesResidentProgressSafeguards('resident-v2'), false);
   assert.equal(usesResidentProgressSafeguards('legible-resident-v1'), false);
   assert.equal(usesResidentProgressSafeguards('neutral-benchmark-v1'), false);
 });

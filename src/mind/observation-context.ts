@@ -110,6 +110,29 @@ export type ResidentWorkingContinuity = {
   }>;
 };
 
+export const RESIDENT_FACTUAL_CONTINUITY_PROTOCOL =
+  'behold.resident-factual-continuity.v1' as const;
+
+export type ResidentFactualContinuity = {
+  protocol: typeof RESIDENT_FACTUAL_CONTINUITY_PROTOCOL;
+  source: ResidentWorkingContinuity['source'];
+  experiences: Array<{
+    turn: number;
+    chosen?: { control: string; arguments?: any };
+    settled: {
+      terminal: 'completed' | 'failed' | 'blocked' | 'yielded' | 'input_dispatched';
+      eventType: string;
+      code?: string;
+      bodyMoved?: boolean;
+    };
+    after?: ResidentWorkingContinuity['experiences'][number]['perceptionAfter'];
+    communication?: {
+      said?: string;
+      heard?: Array<{ from: string; text: string }>;
+    };
+  }>;
+};
+
 type HistoricalFirstPersonVisualField = {
   protocol: 'behold.visual-field.v1';
   available: boolean;
@@ -226,6 +249,142 @@ export function projectResidentWorkingContinuity(
     selected = [minimalWorkingContinuityTurn(turns.at(-1)!)];
   }
   return workingContinuityEnvelope(entityId, selected, boundedTurns, boundedBytes);
+}
+
+/** Facts-only recent life for the minimal resident contract. */
+export function projectResidentFactualContinuity(
+  turns: readonly EntityTurn[],
+  turnLimit = RESIDENT_WORKING_TURN_LIMIT,
+  byteLimit = RESIDENT_WORKING_BYTE_LIMIT,
+  mayReplayTurn: (turn: EntityTurn) => boolean = () => true,
+  projectValue: (value: any) => any = (value) => value,
+): ResidentFactualContinuity | null {
+  if (!turns.length) return null;
+  const boundedTurns = integerInRange(turnLimit, 1, 8, RESIDENT_WORKING_TURN_LIMIT);
+  const boundedBytes = integerInRange(byteLimit, 1_000, 12_000, RESIDENT_WORKING_BYTE_LIMIT);
+  const entityId = String(turns.at(-1)?.entityId || '').trim();
+  if (!entityId || turns.some((turn) => turn.entityId !== entityId)) {
+    throw new Error('resident factual continuity cannot mix inhabitant identities');
+  }
+  const candidates = turns
+    .slice(-boundedTurns)
+    .map((turn) =>
+      factualContinuityTurn(turn, mayReplayTurn(turn), (value) =>
+        compactContinuityValue(projectValue(projectResidentVisibleValue(value))),
+      ),
+    );
+  let selected: ResidentFactualContinuity['experiences'] = [];
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const proposed = [candidates[index], ...selected];
+    if (
+      Buffer.byteLength(
+        JSON.stringify(factualContinuityEnvelope(entityId, proposed, boundedTurns, boundedBytes)),
+        'utf8',
+      ) > boundedBytes
+    ) {
+      break;
+    }
+    selected = proposed;
+  }
+  if (!selected.length) selected = [factualContinuityTurn(turns.at(-1)!, false, projectValue)];
+  return factualContinuityEnvelope(entityId, selected, boundedTurns, boundedBytes);
+}
+
+function factualContinuityEnvelope(
+  entityId: string,
+  experiences: ResidentFactualContinuity['experiences'],
+  turnLimit: number,
+  byteLimit: number,
+): ResidentFactualContinuity {
+  return {
+    protocol: RESIDENT_FACTUAL_CONTINUITY_PROTOCOL,
+    source: {
+      entityId,
+      fromTurn: experiences[0].turn,
+      throughTurn: experiences.at(-1)!.turn,
+      includedTurns: experiences.length,
+      omittedOlderTurns: Math.max(0, experiences[0].turn - 1),
+      turnLimit,
+      byteLimit,
+      authority: 'entity_loom',
+      currency: 'historical_current_observation_wins',
+      perceptualDetail: 'coarse_human_memory_not_current_scene',
+    },
+    experiences,
+  };
+}
+
+function factualContinuityTurn(
+  turn: EntityTurn,
+  mayReplay: boolean,
+  projectValue: (value: any) => any,
+): ResidentFactualContinuity['experiences'][number] {
+  const remembered = rememberedPerception(turn.nextObservation).perceptionAfter;
+  const heard = historicalChat(turn.nextObservation);
+  const said =
+    mayReplay && turn.action.name === 'chat' && typeof turn.action.input?.text === 'string'
+      ? boundedContinuityText(turn.action.input.text, 300)
+      : '';
+  return {
+    turn: turn.sequence,
+    ...(mayReplay
+      ? {
+          chosen: {
+            control: boundedContinuityText(turn.action.name, 80),
+            arguments: projectValue(turn.action.input),
+          },
+        }
+      : {}),
+    settled: factualSettlement(turn),
+    ...(remembered ? { after: remembered } : {}),
+    ...(said || heard.length
+      ? { communication: { ...(said ? { said } : {}), ...(heard.length ? { heard } : {}) } }
+      : {}),
+  };
+}
+
+function factualSettlement(
+  turn: EntityTurn,
+): ResidentFactualContinuity['experiences'][number]['settled'] {
+  const eventType = boundedMachineToken(turn.outcome.eventType, 'unknown');
+  const code = boundedMachineToken(turn.outcome.error, '');
+  const result =
+    turn.outcome.result && typeof turn.outcome.result === 'object'
+      ? (turn.outcome.result as Record<string, unknown>)
+      : null;
+  const status = boundedMachineToken(result?.status, '');
+  const terminal =
+    eventType === 'wait_for_event'
+      ? ('yielded' as const)
+      : eventType === 'intent_blocked'
+        ? ('blocked' as const)
+        : /_input_dispatched$/.test(status)
+          ? ('input_dispatched' as const)
+          : turn.outcome.ok
+            ? ('completed' as const)
+            : ('failed' as const);
+  return {
+    terminal,
+    eventType,
+    ...(code ? { code } : {}),
+    ...(typeof result?.bodyMoved === 'boolean' ? { bodyMoved: result.bodyMoved } : {}),
+  };
+}
+
+function historicalChat(observation: any) {
+  return (Array.isArray(observation?.events) ? observation.events : [])
+    .filter((event: any) => event?.type === 'chat_received')
+    .slice(-8)
+    .map((event: any) => ({
+      from: boundedContinuityText(event?.data?.from ?? event?.data?.user ?? 'someone', 80),
+      text: boundedContinuityText(event?.data?.text ?? '', 300),
+    }))
+    .filter((entry: any) => entry.text);
+}
+
+function boundedMachineToken(value: unknown, fallback: string) {
+  const token = String(value ?? '');
+  return /^[a-z0-9_:-]{1,80}$/i.test(token) ? token : fallback;
 }
 
 function workingContinuityEnvelope(

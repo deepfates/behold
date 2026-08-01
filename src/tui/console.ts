@@ -19,6 +19,7 @@ import {
   lmStudioResidentInstanceId,
 } from '../mind/lmstudio-local';
 import { usesOllamaResidentSessionTransport } from '../mind/ollama-json-action';
+import { usesResidentSessionPolicy } from '../policy/profile';
 import { createRunJournal } from '../observability/journal';
 import { openEntityLoom } from '../entity/loom';
 import { createProjectMemory } from '../entity/projects';
@@ -719,7 +720,7 @@ export async function runConsole(
         workingContinuity:
           (ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)) ||
           lmStudioLocal ||
-          (policyProfile === 'legible-resident-v1' &&
+          (usesResidentSessionPolicy(policyProfile) &&
             (providerRoute?.protocol === 'behold.openrouter-route-policy.v2' ||
               providerRoute?.protocol === 'behold.openrouter-route-policy.v3'))
             ? 'resident-session-v1'

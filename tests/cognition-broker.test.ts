@@ -681,7 +681,7 @@ test('the transport gate admits only the resident exact OpenRouter route policy'
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
     allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
-    clients: [{ ...client('a'), routePolicy } as any],
+    clients: [{ ...client('a'), routePolicy, policyProfile: 'neutral-benchmark-v1' } as any],
     maxConcurrent: 1,
     fetch: async (_input, init) => {
       upstreamCalls += 1;
@@ -781,6 +781,86 @@ test('the transport gate admits only the resident exact OpenRouter route policy'
   }
 });
 
+test('an authenticated resident-v2 client rejects the narrated treatment before upstream', async () => {
+  let upstreamCalls = 0;
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v2',
+    routes: [{ requestTag: 'fixture', responseProvider: 'Fixture' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+  } as const;
+  const legibleRequest = nativeResidentRequest();
+  const factualRequest = { ...legibleRequest, policyProfile: 'resident-v2' as const };
+  const narratedBody = directOpenRouterRequestBody(legibleRequest as any, routePolicy);
+  const factualBody = directOpenRouterRequestBody(factualRequest as any, routePolicy);
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [
+      {
+        ...client('a'),
+        routePolicy,
+        residentIdentity: 'Scout',
+        policyProfile: 'resident-v2',
+      },
+    ],
+    maxConcurrent: 1,
+    fetch: async () => {
+      upstreamCalls += 1;
+      return jsonResponse({
+        id: 'resident-v2-route-bound',
+        model: 'fixture/model',
+        provider: 'Fixture',
+        choices: [{ message: { role: 'assistant', content: '{}' } }],
+      });
+    },
+  });
+
+  try {
+    const rejected = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify(narratedBody),
+      'deliberative',
+      'narrated-treatment',
+    );
+    assert.equal(rejected.status, 400);
+    assert.equal(upstreamCalls, 0);
+
+    const admitted = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify(factualBody),
+      'deliberative',
+      'factual-treatment',
+    );
+    assert.equal(admitted.status, 200);
+    assert.equal(upstreamCalls, 1);
+  } finally {
+    await broker.close();
+  }
+
+  const routeV3 = {
+    protocol: 'behold.openrouter-route-policy.v3',
+    routes: [{ requestTag: 'fixture', responseProvider: 'Fixture' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+    residentDecisionFormat: 'native_tools',
+    reasoningEffort: 'none',
+  } as const;
+  await assert.rejects(
+    startCognitionBroker({
+      upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+      allowedUpstreamOrigins: ['https://upstream.invalid'],
+      upstreamApiKey: UPSTREAM_KEY,
+      clients: [{ ...client('a'), routePolicy: routeV3, policyProfile: 'resident-v2' }],
+      maxConcurrent: 1,
+    }),
+    /route treatment differs/,
+  );
+});
+
 test('the transport gate rejects native resident envelope drift before upstream', async () => {
   let upstreamCalls = 0;
   const routePolicy = {
@@ -796,7 +876,14 @@ test('the transport gate rejects native resident envelope drift before upstream'
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
     allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
-    clients: [{ ...client('a'), routePolicy, residentIdentity: 'Scout' } as any],
+    clients: [
+      {
+        ...client('a'),
+        routePolicy,
+        residentIdentity: 'Scout',
+        policyProfile: 'legible-resident-v1',
+      } as any,
+    ],
     maxConcurrent: 1,
     fetch: async () => {
       upstreamCalls += 1;
@@ -892,7 +979,7 @@ test('the transport gate retains and refuses successful upstream route identity 
     upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
     allowedUpstreamOrigins: ['https://upstream.invalid'],
     upstreamApiKey: UPSTREAM_KEY,
-    clients: [{ ...client('a'), routePolicy } as any],
+    clients: [{ ...client('a'), routePolicy, policyProfile: 'neutral-benchmark-v1' } as any],
     maxConcurrent: 1,
     journalFile,
     transportCaptureDirectory,

@@ -236,6 +236,7 @@ test('a versioned resident set carries heterogeneous operator configuration with
           model: 'provider/scout',
           urgentModel: 'provider/scout-urgent',
           mind: 'direct',
+          policyProfile: 'neutral-benchmark-v1',
           tickMs: 1200,
           providerRoute: {
             protocol: 'behold.openrouter-route-policy.v1',
@@ -279,6 +280,7 @@ test('a versioned resident set carries heterogeneous operator configuration with
       model: 'provider/scout',
       urgentModel: 'provider/scout-urgent',
       mind: 'direct',
+      policyProfile: 'neutral-benchmark-v1',
       tickMs: 1200,
       providerRoute: {
         protocol: 'behold.openrouter-route-policy.v1',
@@ -470,6 +472,7 @@ test('resident-set input binds a separately named strict-JSON Ollama transport',
           entityId: 'LocalLife',
           model: 'llama3.2:3b',
           mind: 'direct',
+          policyProfile: 'neutral-benchmark-v1',
           ollamaLocal,
           providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
         },
@@ -481,6 +484,7 @@ test('resident-set input binds a separately named strict-JSON Ollama transport',
       entityId: 'LocalLife',
       model: 'llama3.2:3b',
       mind: 'direct',
+      policyProfile: 'neutral-benchmark-v1',
       ollamaLocal,
       providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
     },
@@ -528,12 +532,14 @@ test('managed Ollama population settings fail before world or daemon inspection'
             {
               entityId: 'LocalA',
               model: 'llama3.2:3b',
+              policyProfile: 'neutral-benchmark-v1',
               providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
               ollamaLocal: { ...base, modelTag: 'llama3.2:3b', modelDigest: 'a'.repeat(64) },
             },
             {
               entityId: 'LocalB',
               model: 'llama3.3:latest',
+              policyProfile: 'neutral-benchmark-v1',
               providerQuotas: { residentDecisionAttempts: 4, auxiliaryContextAttempts: 1 },
               ollamaLocal: {
                 ...base,
@@ -1338,6 +1344,7 @@ test('managed route control covers every active resident with one output cap bef
       bodyUsername: 'ScoutBody',
       model: 'fixture/scout',
       mind: 'direct' as const,
+      policyProfile: 'neutral-benchmark-v1' as const,
       providerRoute: route('Fixture Scout', 512),
     },
     {
@@ -1345,6 +1352,7 @@ test('managed route control covers every active resident with one output cap bef
       bodyUsername: 'BuilderBody',
       model: 'fixture/builder',
       mind: 'direct' as const,
+      policyProfile: 'neutral-benchmark-v1' as const,
     },
   ];
 

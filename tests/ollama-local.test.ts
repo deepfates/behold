@@ -15,6 +15,7 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_V2_PROTOCOL,
   OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL,
   OLLAMA_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL,
+  assertOllamaLocalJsonActionTreatment,
 } from '../src/mind/ollama-json-action';
 import {
   assertOllamaLocalRequest,
@@ -31,6 +32,23 @@ const DIGEST_3B = 'a'.repeat(64);
 const DIGEST_70B = 'b'.repeat(64);
 const TEMPLATE_3B = 'fixture installed template for 3b';
 const TEMPLATE_70B = 'fixture installed template for 70b';
+
+test('legacy Ollama transports do not admit resident-v2', () => {
+  assert.throws(
+    () =>
+      assertOllamaLocalJsonActionTreatment(
+        { policyProfile: 'resident-v2' },
+        policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
+      ),
+    /not admitted by the legacy Ollama transport/,
+  );
+  assert.doesNotThrow(() =>
+    assertOllamaLocalJsonActionTreatment(
+      { policyProfile: 'neutral-benchmark-v1' },
+      policy('llama3.2:3b', DIGEST_3B, TEMPLATE_3B),
+    ),
+  );
+});
 
 test('Ollama v2 policy admits only exact loopback JSON action transport identities', () => {
   assert.deepEqual(

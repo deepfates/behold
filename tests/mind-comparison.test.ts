@@ -431,6 +431,108 @@ test('a v3 provider resident uses one exact native tool and retains its public c
   );
 });
 
+test('resident-v2 uses one action-only resident session with no narration or controller choice', async () => {
+  const bodies: any[] = [];
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v2',
+    routes: [{ requestTag: 'google', responseProvider: 'Google' }],
+    allowFallbacks: false,
+    maxOutputTokens: 256,
+  } as const;
+  const residentRequest = {
+    ...request(),
+    model: 'google/gemini-flash-fixture',
+    policyProfile: 'resident-v2',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+    requiredAction: null,
+    observation: {
+      protocol: 'behold.minecraft-human-semantic-observation.v1',
+      self: { identity: 'Scout' },
+    },
+  } as any;
+  residentRequest.conversation = [
+    {
+      role: 'system',
+      content:
+        'You are a persistent embodied Minecraft resident. Choose one supplied bodily control or yield.',
+    },
+    { role: 'user', content: JSON.stringify(residentRequest.observation) },
+  ];
+  const mind = createDirectResidentMind({
+    apiKey: 'test-key',
+    model: residentRequest.model,
+    routePolicy,
+    recordModelIO: true,
+    endpoint: 'https://models.example.test/v1/chat/completions',
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          id: 'action-only-generation',
+          model: residentRequest.model,
+          provider: 'Google',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  action: 'move_direction',
+                  arguments: { direction: 'forward', distance: 2 },
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+  });
+
+  const decision = await mind.decide(residentRequest, {
+    signal: new AbortController().signal,
+  });
+
+  const body = bodies[0];
+  assert.equal(body.tools, undefined);
+  assert.equal(body.response_format.json_schema.name, 'behold_resident_action_v1');
+  assert.doesNotMatch(
+    JSON.stringify(body),
+    /expectedObservableConsequence|"intention"|private reasoning|preferred action/,
+  );
+  assert.doesNotThrow(() =>
+    assertOpenRouterRouteRequest(body, residentRequest.model, routePolicy, 'Scout', 'resident-v2'),
+  );
+  assert.throws(
+    () =>
+      assertOpenRouterRouteRequest(
+        body,
+        residentRequest.model,
+        routePolicy,
+        'Scout',
+        'legible-resident-v1',
+      ),
+    /treatment differs/,
+  );
+  assert.equal(decision.utterance, null);
+  assert.equal(decision.publicCommitment, undefined);
+  assert.deepEqual(decision.action, {
+    name: 'move_direction',
+    input: { direction: 'forward', distance: 2 },
+    callId: null,
+  });
+  assert.equal(
+    (decision.call.request as any).providerResidentSession.protocol,
+    'behold.openrouter-resident-session.v1',
+  );
+  assert.equal(
+    (decision.call.request as any).providerResidentSession.workingContinuityProtocol,
+    'behold.resident-factual-continuity.v1',
+  );
+});
+
 test('a required native control keeps the full vocabulary and constrains only tool choice', () => {
   const routePolicy = {
     protocol: 'behold.openrouter-route-policy.v3',

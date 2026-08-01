@@ -332,6 +332,53 @@ test('a fold cache cannot cross an embodied observation profile', async () => {
   assert.equal(human.view().fold?.projectionProfile, 'minecraft-human-semantic-v1');
 });
 
+test('facts-only resident projection rejects a legacy fold and rebuilds without a model', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-factual-'));
+  const cacheFile = path.join(root, 'fold.json');
+  const turns = Array.from({ length: 6 }, (_, index) => entityTurn(index + 1, 'Scout'));
+  const canonicalBefore = JSON.stringify(turns);
+  const legacy = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    cacheFile,
+    recentTurns: 2,
+    foldBatchTurns: 4,
+    projectionProfile: 'minecraft-human-semantic-v1',
+    summarize: async () => 'CANARY_LEGACY_FOLD',
+  });
+  await legacy.prepare();
+  assert.match(legacy.view().fold!.summary, /CANARY_LEGACY_FOLD/);
+
+  let calls = 0;
+  const projectionProfile =
+    'behold.resident-factual-continuity.v1:resident-v2:minecraft-human-semantic-v1:minecraft-human-semantic-v1';
+  const factual = createLoomContextView(turns, {
+    entityId: 'Scout',
+    model: 'test/model',
+    cacheFile,
+    recentTurns: 2,
+    foldBatchTurns: 4,
+    projectionProfile,
+    canonicalOnly: true,
+    projectTurn: (turn, previous) =>
+      projectTurnForFolding(turn, previous, {
+        includePublicCommitment: false,
+        factsOnly: true,
+      }),
+    summarize: async () => {
+      calls += 1;
+      return 'must not run';
+    },
+  });
+  assert.equal(factual.state().foldedThrough, 0);
+  await factual.prepare();
+  assert.equal(calls, 0);
+  assert.equal(factual.view().fold?.projectionProfile, projectionProfile);
+  assert.equal(factual.view().fold?.generation.kind, 'canonical_index');
+  assert.doesNotMatch(factual.view().fold!.summary, /CANARY_LEGACY_FOLD/);
+  assert.equal(JSON.stringify(turns), canonicalBefore);
+});
+
 test('a fold cache cannot cross summarizer protocols', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-summarizer-'));
   const cacheFile = path.join(root, 'fold.json');
