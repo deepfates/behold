@@ -37,3 +37,7 @@ Closed-handle prerequisite landed with explicit ownership ordering: the current 
 **2026-08-01T14:12:04Z**
 
 The current selected-tip manifest is now durably published (temp fsync, rename, directory fsync) and its post-rename failure boundary is exercised. This establishes the crash ordering the future cursor must preserve; it does not change the current whole-history working set.
+
+**2026-08-01T14:57:01Z**
+
+Bounded downstream reducer landed at 2303ea0. ProjectMemory no longer retains full EntityTurn history: it streams into compact per-active-project baselines and exact evidence witnesses, deleting state on complete/abandon. Focused 15/15 and candidate full check 657 pass with one opt-in skip. A generated 96 MiB irrelevant-private-history pressure case retained about 226 KiB versus about 101 MiB in the old reducer. This removes one downstream copy but does not close beh-61if: EntityLoom and policy/fold hydration still materialize or rescan the complete life until the Lync cursor integration lands.
