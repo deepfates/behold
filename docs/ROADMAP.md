@@ -576,6 +576,9 @@ selected from real use rather than inferred from the old acceptance checklist:
 3. Extend portable world-history navigation beyond resident viewpoints when a
    concrete viewing question requires it; Minecraft and Place remain the world
    authorities, Lync the causal history, and Textile the reader.
+   A fresh ordinary live session can now enter one authenticated unused child
+   of a stopped live-world fork without copying residents or bypassing Place;
+   longer navigation and life-crossing remain distinct questions.
 4. Prefer LM Studio where a capable local condition meets the body horizon, and
    retain timely provider conditions as comparators. Model choice is an
    operating condition, not a redefinition of resident success.

@@ -35,6 +35,7 @@ import {
   verifyPlaceServeTranscript,
   type FrozenPlaceServeAuthority,
 } from '../runtime/place-serve';
+import { stagePlaceHistorySeed } from '../runtime/place-history-seed';
 
 const PLACE_SERVE_REVISION = '103deac629d8f784ea22d956c890de77334d730a' as const;
 const LIVE_SESSION_PROTOCOL = 'behold.live-session.v1' as const;
@@ -65,6 +66,8 @@ export async function runLiveCli(argv: string[]) {
       'max-model-concurrency': { type: 'string' },
       'lmstudio-models-root': { type: 'string' },
       'native-player': { type: 'string' },
+      'world-history-receipt': { type: 'string' },
+      history: { type: 'string' },
       'change-minds': { type: 'boolean', default: false },
       recover: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
@@ -126,6 +129,11 @@ export async function runLiveCli(argv: string[]) {
     managedLifecycleCount: existingPlan
       ? liveLifecycleFiles(paths.control, existingPlan.worldId).length
       : 0,
+  });
+  const historySeed = selectLiveHistorySeed({
+    receipt: parsed.values['world-history-receipt'],
+    history: parsed.values.history,
+    sessionEntry,
   });
   const requestedResidentFile = parsed.values.residents
     ? plainFile(String(parsed.values.residents), 'resident set')
@@ -300,6 +308,28 @@ export async function runLiveCli(argv: string[]) {
   const admittedPort = existingPlan?.endpoint.port ?? requestedPort ?? 25565;
   if (requestedPort != null && requestedPort !== admittedPort) {
     throw new Error(`live session uses port ${admittedPort}; requested ${requestedPort}`);
+  }
+  const placePreflight = (runtimeRoot: string) =>
+    preflightFrozenPlaceServeAuthority({
+      ...placeCompilerInput,
+      releaseRoot,
+      runtimeRoot,
+      profileId: 'living',
+      acceptEula: true,
+      port: admittedPort,
+      serverJar,
+    });
+  if (historySeed) {
+    await stagePlaceHistorySeed(
+      {
+        receiptFile: historySeed.receipt,
+        historyId: historySeed.history,
+        releaseRoot,
+        serverJar,
+        destinationRuntimeRoot: paths.placeRuntime,
+      },
+      { validateStagedRuntime: placePreflight },
+    );
   }
   preflightFrozenPlaceServeAuthority({
     ...placeCompilerInput,
@@ -1539,10 +1569,29 @@ export function liveUsage() {
     '  --max-model-concurrency N      Concurrent local cognition (default min(2, residents))',
     '  --lmstudio-models-root DIR     Exact local LM Studio artifact root',
     '  --native-player USERNAME       Check one username in post-episode join observations',
+    '  --world-history-receipt FILE    Verified stopped-world fork for a fresh session',
+    '  --history ID                    One unused child in that receipt for a fresh session',
     '  --change-minds                 Explicitly revise only model/mind transport for the same lives',
     '  --recover                      Release an exact abandoned stopped epoch without starting Place',
     '',
     'Residents keep their declared human-semantic body, charter, model transport, and durable',
     'attempt ceilings. The ceiling is safety/resource governance, not a fairness claim.',
   ].join('\n');
+}
+
+export function selectLiveHistorySeed(input: {
+  receipt: unknown;
+  history: unknown;
+  sessionEntry: ReturnType<typeof classifyLiveSessionEntry>;
+}) {
+  const receipt = typeof input.receipt === 'string' && input.receipt.trim() ? input.receipt : null;
+  const history = typeof input.history === 'string' && input.history.trim() ? input.history : null;
+  if ((receipt == null) !== (history == null)) {
+    throw new Error('--world-history-receipt and --history must be supplied together');
+  }
+  if (!receipt) return null;
+  if (input.sessionEntry !== 'new') {
+    throw new Error('world-history selection is allowed only for a fresh live session');
+  }
+  return Object.freeze({ receipt: path.resolve(receipt), history });
 }

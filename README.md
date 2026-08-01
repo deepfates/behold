@@ -152,6 +152,13 @@ SECONDS` for a bounded episode; Ctrl-C requests the same clean drain, save,
   the same ordinary command without `--recover`. Behold reuses that exact basis
   and preserves the failed episode evidence. Once any managed lifecycle exists,
   a missing head fails closed and requires the distinct recovery path below.
+- A fresh session may begin from exactly one unused child of an authenticated
+  stopped-world fork with `--world-history-receipt FILE --history ID`. Behold
+  verifies the fork's Lync lineage, unchanged child, source live descriptor and
+  clean head, release, server, and living profile; atomically stages only the
+  child world and Place restart files; then hands the result to the unchanged
+  Place/live lifecycle. Source residents, lives, controllers, episodes, logs,
+  caches, and sibling worlds are not copied. The flags are refused on resume.
 - If the owning process dies before that path publishes its terminal record,
   repeat the same command with `--recover`. Recovery starts no world or model:
   it releases only an exact dead local owner with clear process, lease, lock,
@@ -270,6 +277,7 @@ Key files
 - `src/cli/main.ts` — Transitional CLI (`tools`, `agent --stdio`)
 - `src/loop/*` — Arbiter + engine skeleton
 - `src/runtime/world-control.ts` — Durable, token-checked ownership record for a managed world process
+- `src/runtime/place-history-seed.ts` — Narrow verified adapter from one stopped world-history child to a fresh Place-owned live runtime
 - `src/tui/*` — Console REPL (preview)
 - `src/input/keyboard.ts` — Terminal keyboard controls (WASD, jump, crouch, sprint, look, chat)
 - `src/tools/index.ts` — Registry of callable tools the reasoner can invoke

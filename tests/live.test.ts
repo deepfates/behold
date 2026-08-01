@@ -17,9 +17,39 @@ import {
   preservePlaceServerLog,
   preserveTextileImport,
   selectPendingLiveRecoveryEvidence,
+  selectLiveHistorySeed,
   selectLiveResidentConfiguration,
   shouldRecordPlaceOnlyCleanup,
 } from '../src/cli/live';
+
+test('live history selection is paired and fresh-session-only', () => {
+  assert.deepEqual(
+    selectLiveHistorySeed({
+      receipt: './fork.json',
+      history: 'qwen-camera',
+      sessionEntry: 'new',
+    }),
+    { receipt: path.resolve('./fork.json'), history: 'qwen-camera' },
+  );
+  assert.equal(
+    selectLiveHistorySeed({ receipt: undefined, history: undefined, sessionEntry: 'resume' }),
+    null,
+  );
+  assert.throws(
+    () =>
+      selectLiveHistorySeed({ receipt: './fork.json', history: undefined, sessionEntry: 'new' }),
+    /must be supplied together/,
+  );
+  assert.throws(
+    () =>
+      selectLiveHistorySeed({
+        receipt: './fork.json',
+        history: 'qwen-camera',
+        sessionEntry: 'resume',
+      }),
+    /only for a fresh live session/,
+  );
+});
 
 test('live distinguishes a retryable pre-head first start from resume and recovery', () => {
   assert.equal(

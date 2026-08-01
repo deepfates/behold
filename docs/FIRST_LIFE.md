@@ -370,6 +370,13 @@ through three epochs in one branch while its mind adapter changed. A packaged
 city is therefore a possible beginning, not a timeline, and an epoch restart is
 not a world fork.
 
+An ordinary fresh `behold live` session can now name one verified, still-unused
+child with a fork receipt and history ID. The adapter authenticates the stopped
+source live head and stages only the child world plus Place's restart identity;
+the ordinary Place owner, resident composition, and episode lifecycle take over
+from there. This is a crossing for a world continuation, not a copied resident
+life or an alternate server lifecycle.
+
 Forking a world history, crossing into an existing history, and forking an
 inhabitant are separate acts. The same resident may cross while remaining one
 non-concurrent life; independently active copies require new identities,

@@ -18,6 +18,7 @@ async function main(argv = process.argv.slice(2)) {
       config: { type: 'string' },
       world: { type: 'string' },
       root: { type: 'string' },
+      'control-root': { type: 'string' },
       operation: { type: 'string' },
       history: { type: 'string', multiple: true },
       actor: { type: 'string', default: 'local-operator' },
@@ -54,7 +55,7 @@ async function main(argv = process.argv.slice(2)) {
     operationId,
     worldId,
     world,
-    controlRoot: path.resolve('.behold-runtime/world-control'),
+    controlRoot: path.resolve(parsed.values['control-root'] ?? '.behold-runtime/world-control'),
     historyRoot,
     actor: String(parsed.values.actor),
     histories: requested.map((id) => ({
@@ -86,10 +87,10 @@ function required(value: unknown, flag: string) {
 function usage() {
   return [
     'Usage:',
-    '  world-history fork --config <worlds.json> --world <id> --root <history-root> --operation <id> --history <id> [--history <id> ...] --receipt <file>',
+    '  world-history fork --config <worlds.json> --world <id> --control-root <control-root> --root <history-root> --operation <id> --history <id> [--history <id> ...] --receipt <file>',
     '  world-history verify --receipt <file>',
     '',
-    'Fork requires an actually stopped managed Minecraft runtime. It seals one immutable checkpoint, creates isolated writable histories, records their Lync lineage, and leaves the source unchanged.',
+    'Fork requires an actually stopped managed Minecraft runtime. --control-root must name the source runtime owner (a live session uses its control directory). It seals one immutable checkpoint, creates isolated writable histories, records their Lync lineage, and leaves the source unchanged.',
   ].join('\n');
 }
 
