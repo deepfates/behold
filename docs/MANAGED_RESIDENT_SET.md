@@ -182,5 +182,9 @@ resident's model, mind, profiles, timing, body, and paused state. This makes the
 heterogeneous population inspectable without treating the operator file as
 runtime evidence by itself. Equal quotas are resource controls, not a claim
 that heterogeneous providers or models form a fair comparison. On drain, the
-runner verifies the private `_cognition/transport` evidence for exact coverage
-of every admitted physical attempt before reporting terminal and usage totals.
+runner always verifies the authenticated broker journal, quota settlement, and
+content identities for every admitted physical attempt before reporting
+terminal and usage totals. A sealed run with `BEHOLD_RECORD_MODEL_IO=1` also
+retains and verifies exact request/response bodies under the private
+`_cognition/transport` boundary; ordinary runs retain no body files or file
+references.

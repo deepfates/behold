@@ -163,9 +163,11 @@ remains the default and never starts the capture browser.
 
 Pixels and full frame artifacts stay out of EntityTurn, Lync, Textile, and
 resident continuity. Journals retain content-free frame, binding, observation,
-size, and capture-time identities. The private cognition transport retains the
-exact request bytes under its existing access boundary. Sharing a body pose
-still does not imply an atomic Minecraft world snapshot.
+size, and capture-time identities. A sealed run may set
+`BEHOLD_RECORD_MODEL_IO=1` to retain exact request bytes under the private
+cognition-transport boundary; ordinary runs retain only their authenticated
+content identities. Sharing a body pose still does not imply an atomic
+Minecraft world snapshot.
 
 On this host, compact matched LM Studio probes established the transport gate
 without starting a world. Gemma 4 12B Q4_K_M and Qwen 3.6 35B-A3B 4-bit both

@@ -652,6 +652,8 @@ export type ManagedWorldRunOptions = Readonly<{
   maxResidents?: number;
   maxConcurrentModelCalls?: number;
   maxTotalModelCalls?: number;
+  /** Retain exact request/response bodies for sealed research or replay. */
+  retainCognitionBodies?: boolean;
   /** Stable experiment identity required when per-resident provider quotas are configured. */
   accountingScopeId?: string;
   /** Plain local config proving Ollama cloud routes are disabled. */
@@ -731,7 +733,8 @@ export type ManagedWorldRun = Readonly<{
     concurrencyLimit: number;
     maxTotalModelCalls: number | null;
     journalFile: string;
-    transportCaptureDirectory: string;
+    transportCaptureDirectory: string | null;
+    bodyRetention: 'none' | 'full';
     accountingSnapshot(): ReturnType<CognitionBroker['snapshot']>['accounting'];
     admissionLimitReached: CognitionBroker['admissionLimitReached'];
     admissionLimitSettled: CognitionBroker['admissionLimitSettled'];
@@ -2156,7 +2159,9 @@ export async function startManagedWorld(
           }),
       );
       const journalFile = path.join(runRoot, managedRunId, '_cognition', 'broker.jsonl');
-      const transportCaptureDirectory = path.join(runRoot, managedRunId, '_cognition', 'transport');
+      const transportCaptureDirectory = options.retainCognitionBodies
+        ? path.join(runRoot, managedRunId, '_cognition', 'transport')
+        : null;
       const broker = await startCognitionBroker({
         upstreamEndpoint: ollamaPreflight
           ? activeOllamaPolicies[0].endpoint
@@ -2172,7 +2177,7 @@ export async function startManagedWorld(
         maxConcurrent: maxConcurrentModelCalls,
         ...(maxTotalModelCalls == null ? {} : { maxAccepted: maxTotalModelCalls }),
         journalFile,
-        transportCaptureDirectory,
+        ...(transportCaptureDirectory ? { transportCaptureDirectory } : {}),
         ...(dependencies.cognitionFetch ? { fetch: dependencies.cognitionFetch } : {}),
       });
       cognition = Object.freeze({
@@ -2272,6 +2277,7 @@ export async function startManagedWorld(
               brokerId: cognition.broker.brokerId,
               journalFile: cognition.broker.journalFile,
               transportCaptureDirectory: cognition.broker.transportCaptureDirectory,
+              bodyRetention: cognition.broker.transportCaptureDirectory ? 'full' : 'none',
               credentialOwner: 'world_runner',
               transport: cognition.ollamaPreflight
                 ? 'ollama_local_native_chat'
@@ -2315,6 +2321,7 @@ export async function startManagedWorld(
         maxTotalModelCalls: cognition.maxTotalModelCalls,
         journalFile: cognition.broker.journalFile,
         transportCaptureDirectory: cognition.broker.transportCaptureDirectory,
+        bodyRetention: cognition.broker.transportCaptureDirectory ? 'full' : 'none',
         accounting: cognition.broker.snapshot().accounting,
         ollamaPreflight: cognition.ollamaPreflight,
         lmStudioPreflight: cognition.lmStudioPreflight,
@@ -2975,7 +2982,8 @@ export async function startManagedWorld(
             concurrencyLimit: runningCognition.concurrencyLimit,
             maxTotalModelCalls: runningCognition.maxTotalModelCalls,
             journalFile: runningCognition.broker.journalFile!,
-            transportCaptureDirectory: runningCognition.broker.transportCaptureDirectory!,
+            transportCaptureDirectory: runningCognition.broker.transportCaptureDirectory,
+            bodyRetention: runningCognition.broker.transportCaptureDirectory ? 'full' : 'none',
             accountingSnapshot: () => runningCognition.broker.snapshot().accounting,
             admissionLimitReached: runningCognition.broker.admissionLimitReached,
             admissionLimitSettled: runningCognition.broker.admissionLimitSettled,
@@ -3657,13 +3665,15 @@ async function drainManagedCognition(
   }
   if (!cognition.broker.journalFile) throw new Error('cognition broker has no evidence journal');
   const verified = verifyCognitionBrokerJournal(cognition.broker.journalFile);
-  if (!cognition.broker.transportCaptureDirectory) {
-    throw new Error('cognition broker has no raw transport capture directory');
+  const transportCapture = cognition.broker.transportCaptureDirectory
+    ? verifyCognitionTransportCapture(cognition.broker.transportCaptureDirectory, verified.events)
+    : null;
+  if (
+    !transportCapture &&
+    verified.events.some((event) => (event.data as any)?.transportCapture != null)
+  ) {
+    throw new Error('cognition broker journal claims transport files while body retention is off');
   }
-  const transportCapture = verifyCognitionTransportCapture(
-    cognition.broker.transportCaptureDirectory,
-    verified.events,
-  );
   if (
     verified.brokerId !== cognition.broker.brokerId ||
     verified.peakActive > cognition.concurrencyLimit ||
@@ -3714,17 +3724,20 @@ async function drainManagedCognition(
       admitted: verified.admitted,
       terminal: verified.terminal,
       measuredPeakActive: verified.peakActive,
-      transportCapture: {
-        directory: transportCapture.directory,
-        attempts: transportCapture.attempts,
-        responses: transportCapture.responses,
-        successfulResponses: transportCapture.successfulResponses,
-        providerFailures: transportCapture.providerFailures,
-        transportErrors: transportCapture.transportErrors,
-        cancellations: transportCapture.cancellations,
-        correctionAttempts: transportCapture.correctionAttempts,
-        usage: transportCapture.usage,
-      },
+      transportCapture: transportCapture
+        ? {
+            bodyRetention: 'full',
+            directory: transportCapture.directory,
+            attempts: transportCapture.attempts,
+            responses: transportCapture.responses,
+            successfulResponses: transportCapture.successfulResponses,
+            providerFailures: transportCapture.providerFailures,
+            transportErrors: transportCapture.transportErrors,
+            cancellations: transportCapture.cancellations,
+            correctionAttempts: transportCapture.correctionAttempts,
+            usage: transportCapture.usage,
+          }
+        : { bodyRetention: 'none', directory: null },
       quotaAccounts: quotaVerification,
     },
   });
@@ -5068,6 +5081,7 @@ export async function runCli(argv = process.argv.slice(2)) {
     ...(residentViewers ? { residentViewers } : {}),
     maxResidents,
     maxConcurrentModelCalls,
+    retainCognitionBodies: process.env.BEHOLD_RECORD_MODEL_IO === '1',
     ...(maxTotalModelCalls == null ? {} : { maxTotalModelCalls }),
     ...(parsed.values.accountingScope == null
       ? {}

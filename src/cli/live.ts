@@ -426,6 +426,7 @@ export async function runLiveCli(argv: string[]) {
           },
           maxResidents: residents.length,
           maxConcurrentModelCalls,
+          retainCognitionBodies: process.env.BEHOLD_RECORD_MODEL_IO === '1',
           accountingScopeId,
           ...(residents.some((resident) => resident.ollamaLocal != null)
             ? {
@@ -955,6 +956,7 @@ function writeEpisodeRecord(input: {
       ? {
           journalFile: input.run.cognition.journalFile,
           transportCaptureDirectory: input.run.cognition.transportCaptureDirectory,
+          bodyRetention: input.run.cognition.bodyRetention,
           accounting: input.run.cognition.accountingSnapshot(),
         }
       : null,

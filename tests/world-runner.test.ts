@@ -2065,7 +2065,7 @@ test('managed cognition and fixture failure cleanup drain every owned resource b
   assert.equal(lifecycle.at(-1)?.type, 'control_released');
 });
 
-test('provider-free multi-controller release keeps body, quotas, capture, interventions, and Lync distinct across restart', async (t) => {
+test('provider-free multi-controller release keeps bodies, quotas, cognition retention, interventions, and Lync distinct across restart', async (t) => {
   const fixture = makeFixture(t);
   const controllerEntry = path.join(fixture.root, 'provider-free-controller.js');
   const cancellationReadyFile = path.join(fixture.root, 'cancellation-ready');
@@ -2586,6 +2586,9 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
     controllerEntry,
     accountingScopeId,
     maxConcurrentModelCalls: 2,
+    // Exercise both public modes in one otherwise-identical managed life:
+    // sealed initial capture and ordinary digest-only restart.
+    retainCognitionBodies: phase === 'initial',
     residents: residents(phase),
   });
   const startIntegrationRun = async (phase: 'initial' | 'restart') => {
@@ -2671,9 +2674,10 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
   assert.deepEqual(firstBuilder.used, { loom_fold: 1, resident_decision: 3 });
   await first.stop('provider_free_initial_complete');
   await first.finished;
+  assert.equal(first.cognition!.bodyRetention, 'full');
   const firstBroker = verifyCognitionBrokerJournal(first.cognition!.journalFile);
   const firstCapture = verifyCognitionTransportCapture(
-    first.cognition!.transportCaptureDirectory,
+    first.cognition!.transportCaptureDirectory!,
     firstBroker.events,
   );
   assert.equal(firstCapture.attempts, 9);
@@ -2724,13 +2728,16 @@ test('provider-free multi-controller release keeps body, quotas, capture, interv
   await second.stop('provider_free_restart_complete');
   await second.finished;
   const secondBroker = verifyCognitionBrokerJournal(second.cognition!.journalFile);
-  const secondCapture = verifyCognitionTransportCapture(
-    second.cognition!.transportCaptureDirectory,
-    secondBroker.events,
+  assert.equal(second.cognition!.bodyRetention, 'none');
+  assert.equal(second.cognition!.transportCaptureDirectory, null);
+  assert.equal(
+    secondBroker.events.some((event) => (event.data as any)?.transportCapture != null),
+    false,
   );
-  assert.equal(secondCapture.attempts, 2);
-  assert.equal(secondCapture.successfulResponses, 2);
-  assert.equal(secondCapture.providerFailures, 0);
+  assert.equal(
+    fs.existsSync(path.join(fixture.options.runRoot, second.runId, '_cognition', 'transport')),
+    false,
+  );
 
   const readableHistories: Record<string, string[]> = {};
   for (const entityId of ['Scout', 'Builder']) {
