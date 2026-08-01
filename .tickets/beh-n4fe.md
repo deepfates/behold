@@ -20,6 +20,21 @@ The ordinary documented `behold live` path supports dependable independent resid
 
 ## Notes
 
+**2026-08-01T02:12:00Z**
+
+Closed child beh-kgyy after falsifying the ordinary perception-timeliness
+boundary against episode 000039. The raw 12-event model batch had counted
+successful controller lifecycle copies and allowed repeated pressure-plate
+sounds to age unread world events out of the body's 40-event history. The
+projection now drains suppressed copies without spending visible slots and
+loss-visibly compacts consecutive non-urgent sounds with exact causal ranges,
+counts, and acoustic changes. A six-cycle bounded-history policy test and exact
+replay of all 1,393 Iris / 1,350 Moss events at the recorded decision points
+both had zero missing and zero omitted windows; the full check passed 609 with
+one environment skip. This repairs the demonstrated information defect without
+choosing conduct. A fresh ordinary live run under the same dense ecology and a
+real post-b4d6470 live lifecycle remain unexercised, so the epic stays open.
+
 **2026-07-31T18:48:20Z**
 
 Owner correction: this epic does not require good, adaptive, productive, or

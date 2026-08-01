@@ -35,12 +35,14 @@ test('model context suppresses only duplicated own-success lifecycle events with
       'action_failed',
       'action_completed',
       'chat_received',
+      'world_event',
+      'world_event',
     ],
   );
   assert.equal(projected.events[4].data.intent.source, 'human');
   assert.equal(projected.eventWindow.deliveredOldestSequence, 1);
-  assert.equal(projected.eventWindow.deliveredNewestSequence, 12);
-  assert.equal(projected.eventWindow.omittedNewEvents, 2);
+  assert.equal(projected.eventWindow.deliveredNewestSequence, 14);
+  assert.equal(projected.eventWindow.omittedNewEvents, 0);
   assert.equal(projected.eventWindow.suppressedControllerEvents, 6);
   assert.deepEqual(projected.eventWindow.suppressedControllerEventTypes, {
     intent_enqueued: 1,
@@ -50,7 +52,7 @@ test('model context suppresses only duplicated own-success lifecycle events with
     tool_result: 1,
     action_completed: 1,
   });
-  assert.equal(projected.eventWindow.complete, false);
+  assert.equal(projected.eventWindow.complete, true);
 });
 
 test('historical frames retain causal state and events without replaying whole world snapshots', () => {
@@ -78,10 +80,76 @@ test('historical frames retain causal state and events without replaying whole w
       'action_failed',
       'action_completed',
       'chat_received',
+      'world_event',
+      'world_event',
     ],
   );
   assert.equal(projected.eventWindow.missingBeforeOldest, 3);
-  assert.equal(projected.eventWindow.omittedNewEvents, 2);
+  assert.equal(projected.eventWindow.omittedNewEvents, 0);
+});
+
+test('repetitive ordinary sounds cannot crowd later lived changes out of a causal batch', () => {
+  const frame: any = observation();
+  const sounds = Array.from({ length: 24 }, (_, index) => ({
+    sequence: index + 1,
+    at: 1_000 + index * 800,
+    type: 'sound_heard',
+    salience: 'normal',
+    source: 'sound',
+    isNew: true,
+    data: {
+      sound: 'block.stone_pressure_plate.click_on',
+      distanceBand: 'immediate',
+      relativeDirection: index < 12 ? 'right' : 'behind',
+      volume: 0.2,
+      pitch: 1,
+    },
+  }));
+  frame.sequence = 32;
+  frame.events = [
+    ...sounds.slice(0, 12),
+    event(25, 'intent_enqueued', { intent: { source: 'llm' } }),
+    event(26, 'intent_selected', { intent: { source: 'llm' } }),
+    event(27, 'permission_decision', { intent: { source: 'llm' } }),
+    ...sounds.slice(12).map((sound, index) => ({ ...sound, sequence: 13 + index })),
+    event(28, 'action_started', { intent: { source: 'llm' } }),
+    event(29, 'visible_block_changed', { before: 'stone', after: 'air' }),
+    event(30, 'tool_result', { intent: { source: 'llm' } }),
+    event(31, 'action_completed', { intent: { source: 'llm' } }),
+    event(32, 'chat_received', { from: 'Alex', text: 'What was that?' }),
+  ].sort((left, right) => left.sequence - right.sequence);
+  frame.eventWindow = {
+    requestedAfterSequence: 0,
+    oldestAvailableSequence: 1,
+    newestAvailableSequence: 32,
+    missingBeforeOldest: 0,
+    complete: true,
+  };
+
+  const projected = projectCurrentModelObservation(frame, 4);
+  assert.deepEqual(
+    projected.events.map((item: any) => item.type),
+    ['sound_sequence_heard', 'visible_block_changed', 'chat_received'],
+  );
+  assert.equal(projected.events[0].data.compaction, 'behold.sound-sequence.v1');
+  assert.equal(projected.events[0].data.fromSequence, 1);
+  assert.equal(projected.events[0].data.throughSequence, 24);
+  assert.equal(projected.events[0].data.omittedIndividualEvents, 24);
+  assert.deepEqual(
+    projected.events[0].data.occurrences.map((occurrence: any) => ({
+      range: [occurrence.fromSequence, occurrence.throughSequence],
+      count: occurrence.count,
+      direction: occurrence.data.relativeDirection,
+    })),
+    [
+      { range: [1, 12], count: 12, direction: 'right' },
+      { range: [13, 24], count: 12, direction: 'behind' },
+    ],
+  );
+  assert.equal(projected.eventWindow.deliveredNewestSequence, 32);
+  assert.equal(projected.eventWindow.omittedNewEvents, 0);
+  assert.equal(projected.eventWindow.suppressedControllerEvents, 6);
+  assert.equal(projected.eventWindow.complete, true);
 });
 
 test('later historical frames retain self changes and omit only state identical to the prior result', () => {

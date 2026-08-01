@@ -50,10 +50,18 @@ both residents received the player's chat. Episode 000040 resumed each private
 life from its saved body/world state; both first requests contained the newest
 human dialogue and material consequences. Textile's raw-Lync projector reads
 its 2,435-event frozen union as 2,433 readable resident events plus two
-structural roots with no diagnostics. Dense pressure-plate activity still
-caused bounded event deferrals, and Qwen continued repetitive social and
-unsupported perceptual claims; the former is an information-timeliness concern
-and the latter is observed model conduct.
+structural roots with no diagnostics. Dense pressure-plate activity exposed
+bounded event deferrals: repetitive sound records and invisible controller
+lifecycle copies could outrun the resident's 40-event body history. The model
+projection now consumes controller copies without spending perceptual slots and
+represents consecutive ordinary sounds as a typed causal sequence with exact
+ranges, counts, and changing acoustic content. Replaying episode 000039's
+complete 1,393/1,350-event resident streams through that path produced zero
+missing or omitted windows at the original decision cadence; the full check and
+a sustained bounded-history policy test also pass. The repair has not yet been
+repeated in a new live pressure-plate episode. Qwen's repetitive social language
+and unsupported perceptual claims remain observed model conduct, not harness
+failures by definition.
 
 A heterogeneous OpenRouter comparison then exercised the same continuing lives
 with GPT-5.6 Luna and Gemini 3.6 Flash. In episode 000042 Luna drove Iris from

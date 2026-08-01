@@ -69,10 +69,17 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   human challenge, pressure-plate history, and material consequences. Textile's
   real projector read 2,435 source events as 2,433 resident events plus two
   structural roots with zero diagnostics. Dense pressure-plate interaction
-  produced bounded event-window deferrals, so high-volume information
-  timeliness remains open. Qwen's prolonged plate belief and repetitive social
-  language are retained as model conduct, including one provably unsupported
-  visual claim.
+  exposed a real information-timeliness defect: ordinary repeated sounds and
+  suppressed controller lifecycle copies could outrun the 40-event body
+  history. The projection now spends its event limit only on model-visible
+  content and replaces consecutive non-urgent sounds with a typed causal
+  sequence retaining exact ranges, counts, and acoustic changes. An exact replay
+  of episode 000039's complete 1,393/1,350-event streams at the recorded decision
+  points produced zero missing and zero omitted windows; a sustained
+  ordinary-policy bounded-history test and the full check also pass. A fresh
+  live repetition under the same pressure remains unexercised. Qwen's prolonged
+  plate belief and repetitive social language are retained as model conduct,
+  including one provably unsupported visual claim.
 - Episodes 000034-000037 exposed and repaired the long-life context boundary.
   Episode 000034 showed that budget resumption accidentally preempted the
   resident's own memory work. Episode 000035 proved the scheduler repair but

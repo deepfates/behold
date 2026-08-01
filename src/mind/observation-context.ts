@@ -682,12 +682,15 @@ export function projectCurrentModelObservation(frame: any, eventBatchLimit = MOD
   }
 
   const unread = frame.events.filter((event: any) => event?.isNew === true);
-  // Cursor advancement follows the raw delivery batch, not the filtered
-  // working view. Otherwise intentionally suppressed lifecycle events would
-  // remain unread forever or silently skip later world evidence.
-  const delivered = unread.slice(0, boundedEventBatchLimit(eventBatchLimit));
-  const visible = delivered.filter(isModelRelevantEvent);
-  const suppressed = delivered.filter((event: any) => !isModelRelevantEvent(event));
+  // The limit applies to model-visible events, not raw controller bookkeeping.
+  // Cursor advancement still follows the exact raw causal prefix represented
+  // by the projection. Repetitive non-urgent sounds within that prefix are
+  // loss-visibly compacted so an ambient sound source cannot crowd later
+  // social, body, vision, or world changes out of the body's finite history.
+  const { delivered, visible, suppressed } = selectModelEventBatch(
+    unread,
+    boundedEventBatchLimit(eventBatchLimit),
+  );
   const omittedNewEvents = Math.max(0, unread.length - delivered.length);
   return {
     ...frame,
@@ -704,6 +707,107 @@ export function projectCurrentModelObservation(frame: any, eventBatchLimit = MOD
       complete: frame.eventWindow?.complete !== false && omittedNewEvents === 0,
     },
   };
+}
+
+function selectModelEventBatch(unread: any[], visibleLimit: number) {
+  const delivered: any[] = [];
+  const visible: any[] = [];
+  const suppressed: any[] = [];
+
+  for (const event of unread) {
+    if (!isModelRelevantEvent(event)) {
+      delivered.push(event);
+      suppressed.push(event);
+      continue;
+    }
+
+    const previous = visible.at(-1);
+    if (rawCompactableSound(event) && compactableSoundProjection(previous)) {
+      delivered.push(event);
+      visible[visible.length - 1] = compactSoundSequence(previous, event);
+      continue;
+    }
+    if (visible.length >= visibleLimit) break;
+    delivered.push(event);
+    visible.push(event);
+  }
+
+  return { delivered, visible, suppressed };
+}
+
+function rawCompactableSound(event: any) {
+  return (
+    event?.type === 'sound_heard' && event?.salience !== 'high' && event?.salience !== 'urgent'
+  );
+}
+
+function compactableSoundProjection(event: any) {
+  return (
+    rawCompactableSound(event) ||
+    (event?.type === 'sound_sequence_heard' &&
+      event?.data?.compaction === 'behold.sound-sequence.v1' &&
+      Array.isArray(event?.data?.occurrences))
+  );
+}
+
+function compactSoundSequence(previous: any, event: any) {
+  const occurrences =
+    previous.type === 'sound_sequence_heard'
+      ? [...previous.data.occurrences]
+      : [soundOccurrence(previous)];
+  appendSoundOccurrence(occurrences, soundOccurrence(event));
+  const fromSequence = occurrences[0].fromSequence;
+  const throughSequence = occurrences.at(-1).throughSequence;
+  return {
+    sequence: throughSequence,
+    at: occurrences.at(-1).lastAt,
+    type: 'sound_sequence_heard',
+    salience: occurrences.some((occurrence: any) => occurrence.salience === 'normal')
+      ? 'normal'
+      : 'ambient',
+    source: 'sound',
+    isNew: true,
+    data: {
+      compaction: 'behold.sound-sequence.v1',
+      fromSequence,
+      throughSequence,
+      omittedIndividualEvents: occurrences.reduce(
+        (total: number, occurrence: any) => total + occurrence.count,
+        0,
+      ),
+      occurrences,
+    },
+  };
+}
+
+function soundOccurrence(event: any) {
+  if (event?.type === 'sound_sequence_heard') {
+    throw new Error('nested sound compaction must be expanded before appending');
+  }
+  return {
+    fromSequence: event.sequence,
+    throughSequence: event.sequence,
+    count: 1,
+    firstAt: event.at,
+    lastAt: event.at,
+    salience: event.salience,
+    data: event.data,
+  };
+}
+
+function appendSoundOccurrence(occurrences: any[], next: any) {
+  const previous = occurrences.at(-1);
+  if (
+    previous &&
+    previous.salience === next.salience &&
+    isDeepStrictEqual(previous.data, next.data)
+  ) {
+    previous.throughSequence = next.throughSequence;
+    previous.count += next.count;
+    previous.lastAt = next.lastAt;
+    return;
+  }
+  occurrences.push(next);
 }
 
 function projectTask(task: any) {

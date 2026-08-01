@@ -464,7 +464,7 @@ test('fold requests omit direct and nested non-resident evidence', async () => {
   assert.equal(view.view().fold?.protocol, 'behold.loom-fold.v3');
 });
 
-test('fold batches reuse causal observation deltas and expose bounded event loss', async () => {
+test('fold batches reuse causal observation deltas and retain typed repetitive-sound compaction', async () => {
   const turns = [entityTurn(1, 'Scout'), entityTurn(2, 'Scout'), entityTurn(3, 'Scout')];
   turns[1].observation.events = Array.from({ length: 30 }, (_, index) => ({
     sequence: index + 1,
@@ -488,9 +488,12 @@ test('fold batches reuse causal observation deltas and expose bounded event loss
   await view.prepare();
   assert.equal(folded.length, 2);
   assert.deepEqual(folded[1].observation.self, { identity: 'Scout' });
-  assert.equal(folded[1].observation.events.length, 24);
-  assert.equal(folded[1].observation.eventWindow.omittedNewEvents, 6);
-  assert.equal(folded[1].observation.eventWindow.complete, false);
+  assert.equal(folded[1].observation.events.length, 1);
+  assert.equal(folded[1].observation.events[0].type, 'sound_sequence_heard');
+  assert.equal(folded[1].observation.events[0].data.compaction, 'behold.sound-sequence.v1');
+  assert.equal(folded[1].observation.events[0].data.omittedIndividualEvents, 30);
+  assert.equal(folded[1].observation.eventWindow.omittedNewEvents, 0);
+  assert.equal(folded[1].observation.eventWindow.complete, true);
   assert.equal(folded[1].observation.scene, undefined);
 });
 

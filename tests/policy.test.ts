@@ -4748,6 +4748,124 @@ test('bounded event projection drains oldest unread batches without skipping the
   }
 });
 
+test('ordinary policy keeps pace with sustained repetitive ecology inside the body history bound', async () => {
+  const events: any[] = [];
+  const observedMissing: number[] = [];
+  const requests: any[] = [];
+  const mind: ResidentMind = {
+    id: 'dense-ecology-mind',
+    decide: async (request) => {
+      requests.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: 'I heard the world and saw its change.',
+        action: null,
+        call: modelCallEvidence('dense-ecology-mind', request.model),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe: (sinceSequence = 0) => {
+        const available = events.slice(-40);
+        const oldest = available[0]?.sequence ?? null;
+        const missing = oldest == null ? 0 : Math.max(0, oldest - (sinceSequence + 1));
+        observedMissing.push(missing);
+        return {
+          protocol: 'behold.inhabitant.v2',
+          sequence: events.at(-1)?.sequence ?? 0,
+          eventWindow: {
+            requestedAfterSequence: sinceSequence,
+            oldestAvailableSequence: oldest,
+            newestAvailableSequence: events.at(-1)?.sequence ?? null,
+            missingBeforeOldest: missing,
+            complete: missing === 0,
+          },
+          self: { currentAction: null },
+          scene: { entities: [] },
+          events: available.map((event) => ({
+            ...event,
+            isNew: event.sequence > sinceSequence,
+          })),
+        };
+      },
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    for (let cycle = 0; cycle < 6; cycle += 1) {
+      for (let sound = 0; sound < 18; sound += 1) {
+        events.push({
+          sequence: events.length + 1,
+          at: cycle * 20_000 + sound * 800,
+          type: 'sound_heard',
+          salience: 'normal',
+          source: 'sound',
+          data: {
+            sound: 'block.stone_pressure_plate.click_on',
+            distanceBand: 'immediate',
+            relativeDirection: cycle % 2 === 0 ? 'right' : 'behind',
+            volume: 0.2,
+            pitch: 1,
+          },
+        });
+      }
+      for (const type of [
+        'intent_enqueued',
+        'intent_selected',
+        'permission_decision',
+        'action_started',
+        'tool_result',
+        'action_completed',
+      ]) {
+        events.push({
+          sequence: events.length + 1,
+          at: cycle * 20_000 + 15_000,
+          type,
+          salience: 'normal',
+          source: 'event',
+          data: { intent: { source: 'llm' } },
+        });
+      }
+      events.push({
+        sequence: events.length + 1,
+        at: cycle * 20_000 + 16_000,
+        type: 'visible_block_changed',
+        salience: 'normal',
+        source: 'vision',
+        data: { before: 'stone', after: cycle % 2 === 0 ? 'air' : 'stone' },
+      });
+
+      await policy.tick();
+      assert.equal(policy.state().lastSequence, events.at(-1).sequence);
+    }
+
+    assert.equal(Math.max(...observedMissing), 0);
+    assert.equal(requests.length, 6);
+    assert.ok(
+      requests.every(
+        (request) =>
+          request.observation.eventWindow.complete === true &&
+          request.observation.eventWindow.omittedNewEvents === 0 &&
+          request.observation.events.some((event: any) => event.type === 'sound_sequence_heard') &&
+          request.observation.events.some((event: any) => event.type === 'visible_block_changed'),
+      ),
+    );
+  } finally {
+    policy.stop();
+  }
+});
+
 test('controller resumes from canonical material consequences in its older loom', async () => {
   const turns = Array.from({ length: 40 }, (_, index) => {
     const sequence = index + 1;
