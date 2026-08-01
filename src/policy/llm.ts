@@ -741,9 +741,18 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   async function prepareMind() {
     if (!mind.prepare) return null;
     mindPreparation ??= withModelRequest(async (signal) => {
+      // Cursor-backed lives deliberately expose no continuity until their
+      // bounded fold has been authenticated or rebuilt from canonical Lync.
+      // Prefix readiness runs during frozen setup, before the normal wake path
+      // gets a chance to prepare that context, so establish the same boundary
+      // here before materializing the authority-free setup request.
+      if (opts.loomContext && loomContext.state().needsFold) {
+        await loomContext.prepare(signal);
+        rebuildMessagesFromLoom();
+      }
       const frame = createResidentDecisionFrame(createCurrentExperience(observe()), false);
       const preparationMessages = [
-        messages[0],
+        ...messages,
         worldUpdateMessage(
           frame.experience.model,
           'Setup world experience',

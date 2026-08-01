@@ -13,6 +13,7 @@ import {
 } from '../src/policy/llm';
 import { usesResidentProgressSafeguards } from '../src/policy/profile';
 import type { EntityTurn } from '../src/entity/loom';
+import type { BoundedLoomContextState, CanonicalTurnBinding } from '../src/entity/folding';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { cognitionHeaderNames } from '../src/mind/cognition';
 import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
@@ -366,6 +367,79 @@ test('mind preparation derives a current authority-free request without deciding
   assert.strictEqual(await policy.prepareMind(), evidence);
   assert.equal(prepared.length, 1);
   await policy.stop();
+});
+
+test('mind preparation authenticates bounded own-life continuity before prefix readiness', async () => {
+  const prepared: ResidentMindRequest[] = [];
+  const turns = Array.from({ length: 8 }, (_, index) => {
+    const sequence = index + 1;
+    return {
+      ...failedTurn(sequence, 'move_controls'),
+      id: `PreparedResident:turn:${sequence}`,
+      entityId: 'PreparedResident',
+      parentId: sequence === 1 ? null : `PreparedResident:turn:${sequence - 1}`,
+    };
+  });
+  const binding = (sequence: number): CanonicalTurnBinding => ({
+    protocol: 'lync.file-loom-chain.v1',
+    digest: sequence.toString(16).padStart(64, '0'),
+  });
+  let rebuilds = 0;
+  const loomContext: BoundedLoomContextState = {
+    protocol: 'behold.bounded-loom-context.v1',
+    entityId: 'PreparedResident',
+    totalTurns: turns.length,
+    recentTurns: turns.slice(-6),
+    recentSources: turns.slice(-6).map((turn) => binding(turn.sequence)),
+    fold: null,
+    foldSource: null,
+    rebuild: async function* () {
+      rebuilds += 1;
+      for (const turn of turns) yield { turn, source: binding(turn.sequence) };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'PreparedResident',
+      actions: [] as any[],
+      attempt: () => true,
+      observe: (sinceSequence = 0) => experience(3, null, sinceSequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind: {
+        id: 'bounded-preparable-mind',
+        prepare: async (request) => {
+          prepared.push(request);
+          return { protocol: 'fixture.prefix-readiness.v1', authority: 'none' };
+        },
+        decide: async () => assert.fail('preparation must not decide'),
+      },
+      policyProfile: 'resident-v2',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      loomContext,
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    assert.deepEqual(await policy.prepareMind(), {
+      protocol: 'fixture.prefix-readiness.v1',
+      authority: 'none',
+    });
+    assert.equal(rebuilds, 1);
+    assert.equal(prepared.length, 1);
+    assert.equal(policy.state().loomContext.foldedThrough, 2);
+    assert.equal(policy.state().loomContext.visibleTurns, 6);
+    assert.doesNotMatch(JSON.stringify(prepared[0].conversation), /Bounded memory coverage:/);
+    assert.strictEqual(await policy.prepareMind(), await policy.prepareMind());
+    assert.equal(rebuilds, 1);
+  } finally {
+    await policy.stop();
+  }
 });
 
 test('new harm reclaims stale deliberative work but not its already urgent bounded response', () => {
