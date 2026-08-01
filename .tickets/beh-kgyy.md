@@ -1,6 +1,6 @@
 ---
 id: beh-kgyy
-status: in_progress
+status: closed
 deps: []
 links: [beh-uumj, beh-wssv, beh-1h3a]
 created: 2026-08-01T02:02:25Z
@@ -54,3 +54,7 @@ position with its own confirmed excavation history in the first request.
 **2026-08-01T23:13:36Z**
 
 Episode oxford-qualified-habitat-a-qwen36-camera-v1/000001 falsified the closed pressure fix as sufficient. During ordinary zombie/skeleton combat, repeated same-entity visibility edges overflowed the 40-event raw history while the model was in flight and the 12-visible-event prefix prevented tail delivery. OxfordLark model turn 46 omitted two importdf chat messages; missingBeforeOldest reached 50 and omittedNewEvents 28. This is a Behold information defect, not resident conduct. Repair must bound/coalesce ambient visibility oscillation and preserve chat, hurt/death, body/material changes, current scene truth, and exact represented cursor ranges; do not merely raise constants.
+
+**2026-08-01T23:53:58Z**
+
+Qualified same-life resume episode 000003 exercised the repaired projection through 50 model turns (23 Lark, 27 Sedge). Every model-facing eventWindow was complete with missingBeforeOldest=0 and omittedNewEvents=0, despite sustained pressure-plate and glass/wood sound traffic. Raw setup/action-time observations may correctly show bounded-history gaps before projection; no such gap entered a model request. Closing this bounded event-pressure defect; multi-day pressure remains under the telos epic.

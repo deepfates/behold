@@ -1,6 +1,6 @@
 ---
 id: beh-wssv
-status: in_progress
+status: closed
 deps: []
 links: [beh-uumj, beh-kgyy, beh-e6w5, beh-2h0i, beh-1h3a]
 created: 2026-08-01T22:29:26Z
@@ -44,3 +44,7 @@ Qualified habitat episode 000001 completed its declared 20-minute ordinary epoch
 **2026-08-01T23:39:22Z**
 
 Resume episode 000002 reopened the same Lark/Sedge lives (81/72 prior turns), same world, and one shared Qwen instance. Both independently moved with exact post-motion settlement, proving continuity and repaired motion path. Lark then selected chat and exposed an unsupported minLength/maxLength validator defect; the short episode was stopped and saved cleanly before acceptance. Native importdf was not witnessed in this short repair probe, so the episode correctly exited non-accepting. Owning schema fix follows before episode 000003.
+
+**2026-08-01T23:53:58Z**
+
+Acceptance crossed across ordinary episodes 000001 and 000003 of oxford-qualified-habitat-a-qwen36-camera-v1. Episode 000001 admitted Place qualification with override=null, ran two isolated camera residents on one shared Qwen weight instance, witnessed authenticated native importdf join/rejoin, and stopped/saved cleanly. After concrete harness repairs and the retained episode 000002 schema negative, episode 000003 reopened the same world and private lives (85/75 prior turns), settled 50 complete model-facing windows, produced two independent Minecraft-confirmed leaf removals with no hidden navigation, carried complete speech, advanced separate Lync prefixes, saved/stopped cleanly, and unloaded the shared model. Textile independently reads the exact 10,133,930-byte ordered set as 210 readable resident turns plus two roots with zero unsupported/nonconforming results. Resident social repetition and inference remain conduct, not acceptance failures.

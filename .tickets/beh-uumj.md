@@ -63,3 +63,7 @@ Ordinary post-fix resume passed in mp-r3-qwen-camera episode 000003 at commit c1
 **2026-08-01T23:13:36Z**
 
 Episode oxford-qualified-habitat-a-qwen36-camera-v1/000001 exposed the missing external-motion case. Exact camera pose admission correctly rejected stale knockback frames, but the only bounded settlement boundary runs after resident-owned bodyMoved actions. Ordinary combat produced 4 Lark and 7 Sedge pre-provider camera/body mismatches. Extend the same bounded truthful settlement concept to one pre-decision external-pose-drift reacquisition; retain exact gate, allow no unbounded retry or stale pixels.
+
+**2026-08-01T23:53:58Z**
+
+Qualified resume episode 000003 added deployment evidence without expanding the claim: 14 resident-owned move_controls terminals passed the shared exact-pose settlement gate (1-8 samples, 51-426 ms) and every later camera request completed with no model_call_failed or camera/body mismatch. No external knockback occurred, so the episode does not exercise the newly repaired external-pose-drift branch; keep this ticket in progress until that specific live edge is crossed or its scope is reclassified.

@@ -1,6 +1,6 @@
 ---
 id: beh-1h3a
-status: in_progress
+status: closed
 deps: []
 links: [beh-uumj, beh-wssv, beh-kgyy]
 created: 2026-08-01T23:24:51Z
@@ -28,3 +28,7 @@ Focused adversarial tests prove: focused dig performs no navigation; only consum
 **2026-08-01T23:28:41Z**
 
 Read-only audit of exact retained requests and code confirmed: focused dig could pathfind 1.8-5.7 blocks before digging; consume advertised oak/spruce logs; 45 chats and three whispers were settled as completed despite proving only local input dispatch; exact enum item names used fuzzy substring execution; inventory summary silently omitted distinct types after 16; fractional item counts were schema-valid then floored. These are interface defects, not resident conduct. Lower-priority crowded-entity omission remains unproven and is not expanded here.
+
+**2026-08-01T23:53:58Z**
+
+Same-life ordinary resume episode 000003 exercised the literal contract. Lark and Sedge each independently completed a focused oak-leaf dig with a Minecraft blockUpdate and navigation=null; later movement was explicit move_controls. Exact chat/whisper dispatch and recipient receipt remained distinct. Across 50 model turns there were zero missing/omitted event windows. Separate canonical Lync prefixes advanced to 5,264,387 and 4,869,543 bytes. Textile projected the exact 10,133,930-byte ordered set as 210 readable turns plus two roots with zero unsupported_* diagnostics after repairing one focused-use failure presenter gap. Focused adversarial coverage owns the unexercised inventory/count variants; full Behold check is 689 pass/1 intentional skip.
