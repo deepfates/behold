@@ -36,3 +36,22 @@ Read-only consumer audit (2026-08-01): ordinary product has one full private wri
 **2026-08-01T15:39:46Z**
 
 Candidate integration/beh-hmt6-bounded-journal now appends behold.resident-life-commit.v1 only after canonical Lync append, carrying safe semantic before/after experience, public choice/consequence, and the authenticated EntityTurnCommitReceipt; operational model_turn omits optional mindRequest, request.body, response.raw, and assistant-private fields. The lens dual-reads this event and legacy entity_turn. Focused tests prove raw causal frames, injected camera/private-frame content, private assistant reasoning, model request/body/raw response, and a reconstructable EntityTurn are absent; full check passes 670 with 1 skip. Current ordinary product has no remaining private-turn reader. Residual legacy proof/evaluation consumers are scripts/mind-differential.ts, minecraft-inventory-gain-proof.ts, neutral-causal-turn-proof.ts, reassess-neutral-turn.ts, resident-recovery-evidence.ts, owned-world-portfolio-evidence.ts, src/evaluation/minecraft-inventory-gain.ts, and src/evaluation/causal-turn.ts. scripts/extract-mind-request.ts and owned-world-portfolio-evidence.ts additionally require exact model content removed from new operational journals. Retained legacy artifacts remain readable; new private-semantic evaluation should resolve explicit Lync life ranges and named cognition transport rather than restore journal authority. Ticket remains open pending principal integration and ordinary-run growth/lens measurement.
+
+**2026-08-01T16:08:00Z**
+
+The active six-hour run exposed a separate ordinary-default contradiction: exact
+cognition transport bodies reached 284 MB after 4h07m (2,301 requests and 2,301
+responses), roughly 69 MB/hour, even though the README already names
+`BEHOLD_RECORD_MODEL_IO=1` as the opt-in for full provider bodies. Integrated
+candidate 5322777 makes managed ordinary life honor that boundary. Default
+operation retains authenticated request/response hashes and sizes, route,
+admission, timing, terminal, usage, and quota settlement without creating a
+transport-body directory or dangling file claims. The opt-in preserves the
+unchanged full capture and verifier for sealed research. Lifecycle and episode
+state now state `bodyRetention: none|full` explicitly. A two-epoch,
+two-resident fixture exercises full capture followed by a default no-body
+restart while preserving isolated Lync lives, quota continuity, and clean
+stop. Combined resume-candidate check after this change and the admitted-camera
+lens change passes 672/673 tests with one intentional environment skip. Keep
+this ticket open until the ordinary post-boundary resume measures actual journal
+and transport growth and the live lens consumes the bounded public commit.
