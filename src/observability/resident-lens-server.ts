@@ -495,8 +495,8 @@ if(controlToken){controlsRoot.hidden=false;for(const button of controlsRoot.quer
 const text=v=>v==null?'unavailable':typeof v==='string'?v:JSON.stringify(v,null,2);
 const choice=v=>v==null?null:{action:v.name,input:v.input,source:v.source};
 function renderHabitat(view){
- const s=view.state;habitatRoot.textContent='world · '+text(s.worldId)+' · run '+text(s.runId)+' · '+s.phase+' · lifecycle '+view.source.status+' @ '+s.cursor.lifecycleSequence+'\n'+
- 'population · configured '+s.population.configured.length+' · ready '+s.population.ready.length+' · released '+s.population.released.length+' · stopped '+text(s.population.stopped)+' · cognition '+text(s.cognition)+' · server '+text(s.server)+' · terminal '+text(s.terminal)+(s.unavailable.lifecycle?'\nmissing · '+s.unavailable.lifecycle:'');
+ const s=view.state;habitatRoot.textContent='world · '+text(s.worldId)+' · run '+text(s.runId)+' · '+s.phase+' · lifecycle '+view.source.status+' @ '+s.cursor.lifecycleSequence+'\\n'+
+ 'population · configured '+s.population.configured.length+' · ready '+s.population.ready.length+' · released '+s.population.released.length+' · stopped '+text(s.population.stopped)+' · cognition '+text(s.cognition)+' · server '+text(s.server)+' · terminal '+text(s.terminal)+(s.unavailable.lifecycle?'\\nmissing · '+s.unavailable.lifecycle:'');
 }
 function render(views){root.replaceChildren(...views.map(view=>{
  const card=document.createElement('section');card.className='resident';

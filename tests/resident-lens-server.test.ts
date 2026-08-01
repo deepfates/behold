@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
 import { startResidentLensServer } from '../src/observability/resident-lens-server';
 
 test('resident lens server follows journals over GET and SSE and closes its listener', async () => {
@@ -84,6 +85,9 @@ test('resident lens server follows journals over GET and SSE and closes its list
     assert.match(html, /observed ethogram/);
     assert.match(html, /Lync progress/);
     assert.doesNotMatch(html, /\['decision',view\.state\.decision\]/);
+    const inlineScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    assert.ok(inlineScript);
+    assert.doesNotThrow(() => new vm.Script(inlineScript));
 
     const stream = await fetch(`${server.endpoint}/api/events`);
     assert.equal(stream.headers.get('content-type'), 'text/event-stream; charset=utf-8');
