@@ -16,6 +16,10 @@ import {
 import { RESIDENT_VIEWER_PROTOCOL } from '../observability/resident-viewer';
 import { sanitizeName } from '../observability/journal';
 import {
+  startResidentLensServer,
+  type ResidentLensServerHandle,
+} from '../observability/resident-lens-server';
+import {
   assertPlaceServedAuthority,
   assertPlaceServedResumeContinuity,
   establishPlaceServedWorldBasis,
@@ -295,6 +299,7 @@ export async function runLiveCli(argv: string[]) {
   fs.mkdirSync(episodeRoot, { mode: 0o700 });
   let authority: FrozenPlaceServeAuthority | null = null;
   let run: ManagedWorldRun | null = null;
+  let residentLens: ResidentLensServerHandle | null = null;
   let cleanStop = false;
   let managedLifecycleObserved = false;
   let boundary: ReturnType<typeof createLiveBoundary> | null = null;
@@ -415,7 +420,23 @@ export async function runLiveCli(argv: string[]) {
       }
       throw error;
     }
-    printLiveReady(sessionId, authority, run, durationMs, episodeRoot, nativePlayer);
+    residentLens = await startResidentLensServer({
+      residents: run.residents.map((resident) => ({
+        entityId: resident.entityId,
+        bodyUsername: resident.bodyUsername,
+        journalDirectory: resident.journalDirectory,
+        viewerEndpoint: resident.viewer?.endpoint ?? null,
+      })),
+    });
+    printLiveReady(
+      sessionId,
+      authority,
+      run,
+      durationMs,
+      episodeRoot,
+      nativePlayer,
+      residentLens.endpoint,
+    );
     run.control.append('live_session_duration_armed', {
       durationMs,
       beginsAt: 'run_ready',
@@ -516,6 +537,7 @@ export async function runLiveCli(argv: string[]) {
     }
     throw error;
   } finally {
+    await residentLens?.close().catch(() => {});
     if (authority)
       await authority.stop(cleanStop ? 'live_final_settlement' : 'live_failure').catch(() => {});
     boundary?.dispose();
@@ -585,6 +607,7 @@ function printLiveReady(
   durationMs: number,
   episodeRoot: string,
   nativePlayer: string | null,
+  residentLensEndpoint: string,
 ) {
   process.stdout.write(`\n[behold live] ${sessionId} is alive for ${durationMs / 1000}s\n`);
   process.stdout.write(
@@ -595,6 +618,7 @@ function printLiveReady(
       `[behold live] ${resident.entityId} POV: ${resident.viewer?.endpoint ?? 'unavailable'}\n`,
     );
   }
+  process.stdout.write(`[behold live] resident lens: ${residentLensEndpoint}\n`);
   process.stdout.write(`[behold live] episode evidence: ${episodeRoot}\n`);
   if (nativePlayer) {
     process.stdout.write(
