@@ -1,6 +1,6 @@
 ---
 id: beh-5vwp
-status: open
+status: in_progress
 deps: []
 links: [beh-uumj]
 created: 2026-08-01T09:00:57Z
@@ -21,3 +21,9 @@ Keep InhabitantInterface, ResidentMind, engine/interpreter authority, and Lync t
 ## Acceptance Criteria
 
 A focused test proves semantic observation, admitted actions, optional camera, request hash, and action admission all derive from the same raw observation identity. Existing ordinary live behavior and mind transport contracts remain unchanged. The extraction removes duplicated request preparation or stale-frame opportunities from policy/llm.ts and reduces, rather than increases, independently mutable lifecycle state. Full check passes.
+
+## Notes
+
+**2026-08-01T09:12:19Z**
+
+The candidate proved substantive rather than nominal. A private CurrentExperienceFrame replaces separately mutable raw/projected observation fields; one ResidentDecisionFrame derives attention, model, admitted actions, and required action; one request constructor serves authority-free preparation and real cognition; camera capture binds to the same raw frame. A focused test holds object identity through actionsFor, camera capture, and attempt admission while independently matching the semantic projection, camera observation hash, request hash, and durable turn. No public protocol or world/Lync authority changed. Focused tests pass; full check remains.

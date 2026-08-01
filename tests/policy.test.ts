@@ -1948,6 +1948,93 @@ test('camera perception fails before mind admission and never downgrades to sema
   }
 });
 
+test('one decision frame binds projection, actions, camera, request hash, and action admission', async () => {
+  const rawObservation = settlementExperience(1.23456789, 7);
+  const move = settlementMoveTool();
+  const requests: ResidentMindRequest[] = [];
+  const opportunities: any[] = [];
+  const modelTurns: any[] = [];
+  const entityTurns: EntityTurn[] = [];
+  let actionsObservation: any = null;
+  let cameraObservation: any = null;
+  let actionObservation: any = null;
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [move],
+      actionsFor: (observation) => {
+        actionsObservation = observation;
+        return [move];
+      },
+      attempt: (_intent, admission) => {
+        actionObservation = admission?.observation;
+        return false;
+      },
+      observe: () => rawObservation,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      policyProfile: 'resident-v2',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      perceptionProfile: 'semantic-plus-camera-v1',
+      capturePerception: async (observation) => {
+        cameraObservation = observation;
+        return settlementCameraFrame(observation as typeof rawObservation);
+      },
+      mind: {
+        id: 'one-decision-frame',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'act',
+            utterance: null,
+            action: {
+              name: 'move_controls',
+              input: { direction: 'forward', durationMs: 500 },
+            },
+            call: modelCallEvidence('one-decision-frame'),
+          };
+        },
+      },
+      acceptEngineEvent: () => true,
+      onDecisionOpportunity: (event) => opportunities.push(event),
+      onModelTurn: (turn) => modelTurns.push(turn),
+      onEntityTurn: (turn) => entityTurns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => entityTurns.length === 1);
+    assert.strictEqual(actionsObservation, rawObservation);
+    assert.strictEqual(cameraObservation, rawObservation);
+    assert.strictEqual(actionObservation, rawObservation);
+    assert.equal(requests.length, 1);
+    assert.equal(
+      (requests[0].observation as any).protocol,
+      'behold.minecraft-human-semantic-observation.v1',
+    );
+    assert.equal((requests[0].observation as any).self.pose.position, undefined);
+    assert.deepEqual(
+      requests[0].actions.map((action) => action.name),
+      ['move_controls', 'wait_for_event'],
+    );
+    assert.equal(
+      requests[0].perception?.camera.binding.observationSha256,
+      modelTurns[0].perception.observationSha256,
+    );
+    assert.equal(
+      opportunities.find((event) => event.phase === 'scheduled').requestSha256,
+      residentMindRequestSha256(requests[0]),
+    );
+    assert.strictEqual(entityTurns[0].observation, rawObservation);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('semantic and camera continuations share one bounded post-motion pose settlement', async () => {
   for (const perceptionProfile of ['semantic-only-v1', 'semantic-plus-camera-v1'] as const) {
     const requests: ResidentMindRequest[] = [];

@@ -264,6 +264,19 @@ type ActiveDecision = {
   interruption: ResidentAttentionInterruption | null;
 };
 
+type CurrentExperienceFrame = Readonly<{
+  raw: any;
+  model: any;
+}>;
+
+type ResidentDecisionFrame = Readonly<{
+  experience: CurrentExperienceFrame;
+  attention: ResidentAttention;
+  model: string;
+  actions: readonly ToolSpec[];
+  requiredAction: string | null;
+}>;
+
 class ModelCallError extends Error {
   constructor(
     message: string,
@@ -588,8 +601,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let turnActive = false;
   let turnSteps = 0;
   let pending: PendingAction | null = null;
-  let currentObservation: any = null;
-  let currentModelObservation: any = null;
+  let currentExperience: CurrentExperienceFrame | null = null;
   let entitySequence = history.at(-1)?.sequence ?? 0;
   let parentTurnId = history.at(-1)?.id ?? null;
   let lastActionSignature: string | null = null;
@@ -622,81 +634,122 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     return decisionCycle.takeQueuedWake() ?? ({ kind: 'external' } as const);
   }
 
+  function createCurrentExperience(raw: any): CurrentExperienceFrame {
+    return Object.freeze({ raw, model: projectCurrentObservation(raw) });
+  }
+
+  function createResidentDecisionFrame(
+    experience: CurrentExperienceFrame,
+    continuing: boolean,
+  ): ResidentDecisionFrame {
+    const currentAttention = continuing
+      ? attentionForCurrentLife(experience.model, experience.raw)
+      : attentionForObservation(experience.model);
+    const attention = hasBodilyUrgency(currentAttention)
+      ? { ...currentAttention, decisionBudgetMs: urgentDecisionTimeoutMs }
+      : currentAttention;
+    const physicallyOffered = actionsOfferedByEnvironment(
+      environment,
+      experience.raw,
+      executableTools,
+      executableCatalog,
+      log,
+    );
+    const withYield = physicallyOffered.some((spec) => spec.function.name === WAIT_TOOL)
+      ? physicallyOffered
+      : [...physicallyOffered, waitToolSpec];
+    const actions = availableModelTools(withYield, experience.raw, attention, policyProfile);
+    return Object.freeze({
+      experience,
+      attention,
+      model: hasBodilyUrgency(attention) ? opts.urgentModel || opts.model : opts.model,
+      actions,
+      requiredAction: usesResidentV1Behavior(policyProfile)
+        ? requiredSelfDirectionTool(experience.raw, actions, allow)
+        : null,
+    });
+  }
+
+  async function captureDecisionPerception(frame: ResidentDecisionFrame, signal: AbortSignal) {
+    if (!usesResidentCamera(perceptionProfile)) return null;
+    return admitResidentCameraFrame({
+      frame: await opts.capturePerception!(frame.experience.raw, { signal }),
+      observation: frame.experience.raw,
+      now: now(),
+      maxAgeMs: RESIDENT_CAMERA_MAX_AGE_MS,
+      maxCaptureDurationMs: RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
+    });
+  }
+
+  function createResidentMindRequest(
+    frame: ResidentDecisionFrame,
+    conversation: readonly unknown[],
+    experimentRelease: ExperimentReleaseReference | null,
+    cameraFrame: ResidentCameraFrame | null,
+  ): ResidentMindRequest {
+    return {
+      protocol: 'behold.mind-request.v1',
+      entityId,
+      model: frame.model,
+      policyProfile,
+      bodyProfile,
+      actionProfile,
+      safetyProfile,
+      ...(experimentRelease ? { experimentRelease } : {}),
+      observation: cloneJson(frame.experience.model),
+      ...(cameraFrame
+        ? {
+            perception: {
+              profile: 'semantic-plus-camera-v1' as const,
+              camera: cameraFrame,
+            },
+          }
+        : {}),
+      conversation: cloneJson(conversation),
+      actions: cloneJson(
+        frame.actions.map((action) => ({
+          name: action.function.name,
+          description: action.function.description,
+          inputSchema: action.function.parameters ?? { type: 'object', properties: {} },
+        })),
+      ),
+      requiredAction: frame.requiredAction,
+      attention: frame.attention,
+    };
+  }
+
   async function prepareMind() {
     if (!mind.prepare) return null;
     mindPreparation ??= withModelRequest(async (signal) => {
-      const rawObservation = observe();
-      const modelObservation = projectCurrentObservation(rawObservation);
-      const currentAttention = attentionForObservation(modelObservation);
-      const attention = hasBodilyUrgency(currentAttention)
-        ? { ...currentAttention, decisionBudgetMs: urgentDecisionTimeoutMs }
-        : currentAttention;
-      const decisionModel = hasBodilyUrgency(attention)
-        ? opts.urgentModel || opts.model
-        : opts.model;
-      const physicallyOffered = actionsOfferedByEnvironment(
-        environment,
-        rawObservation,
-        executableTools,
-        executableCatalog,
-        log,
-      );
-      const withYield = physicallyOffered.some((spec) => spec.function.name === WAIT_TOOL)
-        ? physicallyOffered
-        : [...physicallyOffered, waitToolSpec];
-      const availableTools = availableModelTools(
-        withYield,
-        rawObservation,
-        attention,
-        policyProfile,
-      );
-      const requiredTool = usesResidentV1Behavior(policyProfile)
-        ? requiredSelfDirectionTool(rawObservation, availableTools, allow)
-        : null;
+      const frame = createResidentDecisionFrame(createCurrentExperience(observe()), false);
       const preparationMessages = [
         messages[0],
         worldUpdateMessage(
-          modelObservation,
+          frame.experience.model,
           'Setup world experience',
           lastTool,
           opts.workingContinuity,
         ),
       ];
-      const request: ResidentMindRequest = {
-        protocol: 'behold.mind-request.v1',
-        entityId,
-        model: decisionModel,
-        policyProfile,
-        bodyProfile,
-        actionProfile,
-        safetyProfile,
-        observation: cloneJson(modelObservation),
-        conversation: cloneJson(
-          conversationForAttention(
-            preparationMessages,
-            attention,
-            availableTools,
-            projectWorkingContinuity(
-              attention.context === 'bounded_loom'
-                ? DELIBERATIVE_CONTINUITY_TURNS
-                : URGENT_CONTINUITY_TURNS,
-              attention.context === 'bounded_loom'
-                ? DELIBERATIVE_CONTINUITY_BYTES
-                : URGENT_CONTINUITY_BYTES,
-            ),
-            policyProfile,
+      const request = createResidentMindRequest(
+        frame,
+        conversationForAttention(
+          preparationMessages,
+          frame.attention,
+          frame.actions,
+          projectWorkingContinuity(
+            frame.attention.context === 'bounded_loom'
+              ? DELIBERATIVE_CONTINUITY_TURNS
+              : URGENT_CONTINUITY_TURNS,
+            frame.attention.context === 'bounded_loom'
+              ? DELIBERATIVE_CONTINUITY_BYTES
+              : URGENT_CONTINUITY_BYTES,
           ),
+          policyProfile,
         ),
-        actions: cloneJson(
-          availableTools.map((action) => ({
-            name: action.function.name,
-            description: action.function.description,
-            inputSchema: action.function.parameters ?? { type: 'object', properties: {} },
-          })),
-        ),
-        requiredAction: requiredTool,
-        attention,
-      };
+        null,
+        null,
+      );
       return await mind.prepare!(request, { signal });
     });
     return await mindPreparation;
@@ -868,109 +921,47 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     try {
       turnSteps += 1;
       const startedAt = now();
-      const modelObservation =
-        currentModelObservation ?? projectCurrentObservation(currentObservation);
-      const currentAttention = attentionForCurrentLife(modelObservation, currentObservation);
-      const attention = hasBodilyUrgency(currentAttention)
-        ? { ...currentAttention, decisionBudgetMs: urgentDecisionTimeoutMs }
-        : currentAttention;
-      const decisionModel = hasBodilyUrgency(attention)
-        ? opts.urgentModel || opts.model
-        : opts.model;
+      if (!currentExperience) throw new Error('resident decision has no current experience');
+      const frame = createResidentDecisionFrame(currentExperience, true);
       activeDecision = {
-        model: decisionModel,
-        attention,
+        model: frame.model,
+        attention: frame.attention,
         startedAt,
-        observationSequence: Number(currentObservation?.sequence) || lastSequence,
+        observationSequence: Number(frame.experience.raw?.sequence) || lastSequence,
         interruption: null,
       };
-      const physicallyOffered = actionsOfferedByEnvironment(
-        environment,
-        currentObservation,
-        executableTools,
-        executableCatalog,
-        log,
-      );
-      const withYield = physicallyOffered.some((spec) => spec.function.name === WAIT_TOOL)
-        ? physicallyOffered
-        : [...physicallyOffered, waitToolSpec];
-      const availableTools = availableModelTools(
-        withYield,
-        currentObservation,
-        attention,
-        policyProfile,
-      );
-      const requiredTool = usesResidentV1Behavior(policyProfile)
-        ? requiredSelfDirectionTool(currentObservation, availableTools, allow)
-        : null;
       const experimentRelease = opts.experimentRelease?.() ?? null;
       if (opts.experimentRelease && !experimentRelease) {
         throw new Error('resident cognition cannot begin before experiment release');
       }
       const decision = await withModelRequest(async (signal) => {
-        const deadline = hasBodilyUrgency(attention)
+        const deadline = hasBodilyUrgency(frame.attention)
           ? setTimeout(() => {
               activeModelRequest?.abort(
                 abortError(`urgent_decision_deadline_exceeded:${urgentDecisionTimeoutMs}ms`),
               );
             }, urgentDecisionTimeoutMs)
           : null;
-        const cameraFrame = usesResidentCamera(perceptionProfile)
-          ? admitResidentCameraFrame({
-              frame: await opts.capturePerception!(currentObservation, { signal }),
-              observation: currentObservation,
-              now: now(),
-              maxAgeMs: RESIDENT_CAMERA_MAX_AGE_MS,
-              maxCaptureDurationMs: RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
-            })
-          : null;
-        const request: ResidentMindRequest = {
-          protocol: 'behold.mind-request.v1',
-          entityId,
-          model: decisionModel,
-          policyProfile,
-          bodyProfile,
-          actionProfile,
-          safetyProfile,
-          ...(experimentRelease ? { experimentRelease } : {}),
-          observation: cloneJson(modelObservation),
-          ...(cameraFrame
-            ? {
-                perception: {
-                  profile: 'semantic-plus-camera-v1' as const,
-                  camera: cameraFrame,
-                },
-              }
-            : {}),
-          conversation: cloneJson(
-            conversationForAttention(
-              messages,
-              attention,
-              availableTools,
-              projectWorkingContinuity(
-                attention.context === 'bounded_loom'
-                  ? DELIBERATIVE_CONTINUITY_TURNS
-                  : URGENT_CONTINUITY_TURNS,
-                attention.context === 'bounded_loom'
-                  ? DELIBERATIVE_CONTINUITY_BYTES
-                  : URGENT_CONTINUITY_BYTES,
-              ),
-              policyProfile,
+        const cameraFrame = await captureDecisionPerception(frame, signal);
+        const request = createResidentMindRequest(
+          frame,
+          conversationForAttention(
+            messages,
+            frame.attention,
+            frame.actions,
+            projectWorkingContinuity(
+              frame.attention.context === 'bounded_loom'
+                ? DELIBERATIVE_CONTINUITY_TURNS
+                : URGENT_CONTINUITY_TURNS,
+              frame.attention.context === 'bounded_loom'
+                ? DELIBERATIVE_CONTINUITY_BYTES
+                : URGENT_CONTINUITY_BYTES,
             ),
+            policyProfile,
           ),
-          actions: cloneJson(
-            availableTools.map((action) => ({
-              name: action.function.name,
-              description: action.function.description,
-              inputSchema: action.function.parameters ?? {
-                type: 'object',
-                properties: {},
-              },
-            })),
-          ),
-          requiredAction: requiredTool,
-          attention,
-        };
+          experimentRelease,
+          cameraFrame,
+        );
         // ResidentMind owns acknowledgement of its AbortSignal. Do not race it
         // with a synthetic rejection: aggregate compute remains occupied until
         // the adapter promise actually settles.
@@ -980,9 +971,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             protocol: 'behold.resident-decision-opportunity.v1' as const,
             opportunityId: rid('decision-opportunity'),
             entityId,
-            model: decisionModel,
+            model: frame.model,
             mind: mind.id,
-            observationSequence: Number(currentObservation?.sequence) || lastSequence,
+            observationSequence: Number(frame.experience.raw?.sequence) || lastSequence,
             requestSha256,
           };
           opts.authorizeDecisionOpportunity?.(opportunity);
@@ -1000,9 +991,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             }
             validated = validateMindDecision(
               proposed,
-              availableTools,
-              requiredTool,
-              decisionModel,
+              frame.actions,
+              frame.requiredAction,
+              frame.model,
               requestSha256,
               policyProfile,
             );
@@ -1043,25 +1034,25 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       if (decision.intent) {
         decision.intent = {
           ...decision.intent,
-          observationSequence: Number(currentObservation?.sequence),
+          observationSequence: Number(frame.experience.raw?.sequence),
           decidedAt,
         };
       }
       const draft: TurnDraft = {
-        model: decisionModel,
+        model: frame.model,
         startedAt,
-        observation: currentObservation,
-        modelObservation: cloneJson(modelObservation),
+        observation: frame.experience.raw,
+        modelObservation: cloneJson(frame.experience.model),
         requestSha256: decision.requestSha256,
         assistant,
         publicCommitment: decision.publicCommitment,
-        attention,
+        attention: frame.attention,
         experimentRelease,
       };
       messages.push(assistant);
       opts.onModelTurn?.({
         at: decidedAt,
-        model: decisionModel,
+        model: frame.model,
         mind: mind.id,
         policyProfile,
         bodyProfile,
@@ -1070,11 +1061,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         perceptionProfile,
         perception: decision.perception,
         experimentRelease,
-        observation: modelObservation,
+        observation: frame.experience.model,
         assistant,
         intent: decision.intent,
         call: decision.call,
-        attention,
+        attention: frame.attention,
       });
 
       if (decision.intent) {
@@ -1666,9 +1657,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function appendWorldUpdate(frame: any, label: string) {
     if (hasNewProjectProgressEvidence(frame, lastSequence)) consecutiveProjectActions = 0;
-    currentObservation = frame;
-    const projected = projectCurrentObservation(frame);
-    currentModelObservation = projected;
+    currentExperience = createCurrentExperience(frame);
+    const projected = currentExperience.model;
     const deliveredSequence = projected?.eventWindow?.deliveredNewestSequence;
     if (Number.isFinite(Number(deliveredSequence))) {
       lastSequence = Math.max(lastSequence, Number(deliveredSequence));
