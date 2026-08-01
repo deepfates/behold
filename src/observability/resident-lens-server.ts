@@ -286,23 +286,30 @@ function residentLensHtml() {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Behold resident lens</title><style>
-body{margin:0;background:#111;color:#eee;font:14px/1.4 ui-monospace,monospace}header{padding:12px 16px;border-bottom:1px solid #444}main{display:grid;gap:12px;padding:12px}.resident{display:grid;grid-template-columns:minmax(280px,1fr) minmax(360px,1.5fr);gap:12px;border:1px solid #444;padding:10px}.flow{display:grid;gap:8px}.stage{background:#1b1b1b;padding:8px;white-space:pre-wrap;overflow-wrap:anywhere}.label{color:#9ad;font-weight:bold}.muted{color:#999}iframe{width:100%;height:420px;border:0;background:#000}@media(max-width:800px){.resident{grid-template-columns:1fr}}</style>
+body{margin:0;background:#111;color:#eee;font:14px/1.4 ui-monospace,monospace}header{padding:12px 16px;border-bottom:1px solid #444}main{display:grid;gap:12px;padding:12px}.resident{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,.75fr);gap:12px;border:1px solid #444;padding:10px}.flow{display:grid;gap:8px;min-width:0}.telemetry{display:flex;flex-wrap:wrap;gap:8px 16px;padding:7px 8px;background:#171717;color:#aaa}.causal{display:grid;grid-template-columns:repeat(5,minmax(160px,1fr));gap:8px;overflow-x:auto}.stage{background:#1b1b1b;padding:8px;white-space:pre-wrap;overflow-wrap:anywhere}.label{color:#9ad;font-weight:bold}.muted{color:#999}.narration{margin-top:8px;padding-top:6px;border-top:1px solid #333;color:#aaa}iframe{width:100%;height:420px;border:0;background:#000}@media(max-width:1000px){.resident{grid-template-columns:1fr}}</style>
 </head><body><header>Behold · live resident lens · read only</header><main id="residents"></main>
 <script>
 const root=document.getElementById('residents');
 const text=v=>v==null?'unavailable':typeof v==='string'?v:JSON.stringify(v,null,2);
+const choice=v=>v==null?null:{action:v.name,input:v.input,source:v.source};
 function render(views){root.replaceChildren(...views.map(view=>{
  const card=document.createElement('section');card.className='resident';
  const flow=document.createElement('div');flow.className='flow';
  const title=document.createElement('div');title.innerHTML='<span class="label"></span> <span class="muted"></span>';
- title.children[0].textContent=view.entityId;title.children[1].textContent='('+view.bodyUsername+') · '+view.state.phase;
+ title.children[0].textContent=view.entityId;title.children[1].textContent='('+view.bodyUsername+')';
  flow.append(title);
- for(const [label,value] of [['decision',view.state.decision],['body condition',view.state.bodyCondition],['sees',view.state.sees],['chooses',view.state.chooses],['doing',view.state.doing],['consequence',view.state.consequence],['next experience',view.state.nextExperience]]){
+ const telemetry=document.createElement('div');telemetry.className='telemetry';
+ telemetry.textContent='controller · '+view.state.phase+' · decision '+text(view.state.decision)+' · body '+text(view.state.bodyCondition)+' · journal '+view.source.status+' @ '+view.state.cursor.journalSequence+(view.source.error?' · '+view.source.error:'');
+ flow.append(telemetry);
+ const causal=document.createElement('div');causal.className='causal';
+ for(const [label,value] of [['experience',view.state.sees],['choice',choice(view.state.chooses)],['attempt',view.state.doing],['consequence',view.state.consequence],['next experience',view.state.nextExperience]]){
    const stage=document.createElement('div');stage.className='stage';
    const heading=document.createElement('div');heading.className='label';heading.textContent=label;
-   const content=document.createElement('div');content.textContent=text(value);stage.append(heading,content);flow.append(stage);
+   const content=document.createElement('div');content.textContent=text(value);stage.append(heading,content);
+   if(label==='choice'&&view.state.chooses?.utterance){const narration=document.createElement('div');narration.className='narration';narration.textContent='optional narration · '+view.state.chooses.utterance;stage.append(narration)}
+   causal.append(stage);
  }
- const source=document.createElement('div');source.className='muted';source.textContent='journal '+view.source.status+' · sequence '+view.state.cursor.journalSequence+(view.source.error?' · '+view.source.error:'');flow.append(source);
+ flow.append(causal);
  card.append(flow);
  if(view.viewerEndpoint){const frame=document.createElement('iframe');frame.src=view.viewerEndpoint;frame.title=view.entityId+' point of view';card.append(frame)}
  return card;

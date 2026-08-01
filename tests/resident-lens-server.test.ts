@@ -39,7 +39,14 @@ test('resident lens server follows journals over GET and SSE and closes its list
       page.headers.get('content-security-policy') ?? '',
       /frame-src http:\/\/127\.0\.0\.1:\*/,
     );
-    assert.match(await page.text(), /new EventSource\('\/api\/events'\)/);
+    const html = await page.text();
+    assert.match(html, /new EventSource\('\/api\/events'\)/);
+    assert.match(html, /\['experience',view\.state\.sees\]/);
+    assert.match(html, /\['choice',choice\(view\.state\.chooses\)\]/);
+    assert.match(html, /\['attempt',view\.state\.doing\]/);
+    assert.match(html, /optional narration/);
+    assert.match(html, /controller ·/);
+    assert.doesNotMatch(html, /\['decision',view\.state\.decision\]/);
 
     const stream = await fetch(`${server.endpoint}/api/events`);
     assert.equal(stream.headers.get('content-type'), 'text/event-stream; charset=utf-8');
