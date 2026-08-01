@@ -413,6 +413,7 @@ export class InhabitantExperience {
     this.captureStateTransitions();
     const base = collectObservation(this.bot, null);
     const entity: any = (this.bot as any).entity;
+    const exactPosition = entity?.position;
     const velocity = entity?.velocity;
     const focus = focusObject(this.bot);
     const yaw = finiteOrNull(entity?.yaw);
@@ -465,7 +466,20 @@ export class InhabitantExperience {
           uuid: nativeBodyUuid(this.bot as any),
         },
         pose: {
-          position: base.position,
+          // Display summaries round position, but the body pose is authority
+          // for action admission and exact camera binding. Human-semantic
+          // projection still withholds these private coordinates.
+          position:
+            exactPosition &&
+            Number.isFinite(Number(exactPosition.x)) &&
+            Number.isFinite(Number(exactPosition.y)) &&
+            Number.isFinite(Number(exactPosition.z))
+              ? {
+                  x: Number(exactPosition.x),
+                  y: Number(exactPosition.y),
+                  z: Number(exactPosition.z),
+                }
+              : null,
           yaw,
           pitch: finiteOrNull(entity?.pitch),
           velocity: velocity

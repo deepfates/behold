@@ -161,6 +161,8 @@ test('inhabitant observation preserves embodied state, provenance, and new event
     username: 'Scout',
     uuid: null,
   });
+  bot.entity.position.z = 0.123456789;
+  assert.equal(experience.observe().self.pose.position?.z, 0.123456789);
   assert.equal(initial.self.pose.yaw, 0);
   assert.equal(initial.self.condition.oxygen, 20);
   assert.equal(initial.self.projects[0]?.id, 'shared-home');

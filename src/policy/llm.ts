@@ -87,7 +87,6 @@ import {
   RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
   type ResidentCameraFrame,
 } from '../perception/resident-camera-frame';
-import { isResidentCameraObservationChangedError } from '../perception/resident-camera-capture';
 
 export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
@@ -174,6 +173,16 @@ export type Options = {
     call: ModelCallFailureEvidence | ModelCallEvidence | null;
   }) => void;
   onModelInterrupted?: (interruption: ResidentAttentionInterruption & { model: string }) => void;
+  onPerceptionSettlement?: (
+    event: Readonly<{
+      protocol: 'behold.perception-settlement.v1';
+      cause: 'post_body_motion';
+      tool: string;
+      status: 'settled' | 'exhausted' | 'stopped';
+      attempts: number;
+      elapsedMs: number;
+    }>,
+  ) => void;
   /** Fail-closed admission hook invoked before a decision opportunity is journaled or transported. */
   authorizeDecisionOpportunity?: (opportunity: {
     protocol: 'behold.resident-decision-opportunity.v1';
@@ -386,7 +395,8 @@ const EMBODIED_ACTION_TOOLS = new Set<string>([
 ]);
 const BODILY_RESPONSE_TOOLS = new Set<string>([...EMBODIED_ACTION_TOOLS, 'consume', 'equip_item']);
 const TERMINAL_ACTION_EVENTS = new Set(['action_completed', 'action_failed', 'intent_blocked']);
-const RESIDENT_CAMERA_RESAMPLE_DELAY_MS = 50;
+const POST_ACTION_SETTLEMENT_INTERVAL_MS = 50;
+const POST_ACTION_SETTLEMENT_MAX_ATTEMPTS = 20;
 const URGENT_CONTINUITY_TURNS = 3;
 const URGENT_CONTINUITY_BYTES = 6_000;
 const DELIBERATIVE_CONTINUITY_TURNS = 12;
@@ -593,6 +603,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let activeDecision: ActiveDecision | null = null;
   let continuingBodilyAttention: ResidentAttention | null = null;
   let mindPreparation: Promise<unknown> | null = null;
+  let settlementTimer: NodeJS.Timeout | null = null;
+  let releaseSettlementWait: (() => void) | null = null;
   const decisionCycle = createResidentDecisionCycle(now);
 
   function queueWake(cause: ResidentWakeCause) {
@@ -853,7 +865,6 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     deciding = true;
     decisionCycle.enter('preparing_context');
     let continueImmediately = false;
-    let resampleMovingCamera = false;
     try {
       turnSteps += 1;
       const startedAt = now();
@@ -1327,19 +1338,6 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             model: activeDecision?.model || opts.model,
             ...(e instanceof ResidentMindCallError ? { call: e.call } : {}),
           });
-        } else if (
-          usesResidentCamera(perceptionProfile) &&
-          isResidentCameraObservationChangedError(e)
-        ) {
-          // A bounded movement may still carry Mineflayer a fraction of a block
-          // after its control interval has completed. The semantic observation
-          // and exact camera must describe one pose, so do not call the mind or
-          // weaken camera admission. Refresh the world snapshot after the body
-          // settles and try perception again as part of the same resident turn.
-          turnSteps = Math.max(0, turnSteps - 1);
-          appendWorldUpdate(observe(), 'Current world experience after camera motion');
-          resampleMovingCamera = true;
-          log('[policy] deferred camera perception until the current body pose settles');
         } else {
           log(`[policy] error: ${e?.message || String(e)}`);
           opts.onModelError?.({
@@ -1355,19 +1353,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           });
         }
       }
-      if (!resampleMovingCamera) {
-        turnActive = false;
-        turnSteps = 0;
-        decisionCycle.enter(stopped ? 'stopped' : suspended ? 'suspended' : 'idle');
-      }
+      turnActive = false;
+      turnSteps = 0;
+      decisionCycle.enter(stopped ? 'stopped' : suspended ? 'suspended' : 'idle');
     } finally {
       deciding = false;
       activeDecision = null;
       settleStop();
-      if (!stopped && resampleMovingCamera && turnActive && !pending) {
-        decisionCycle.enter('perceiving');
-        setTimeout(() => void continueTurn(), RESIDENT_CAMERA_RESAMPLE_DELAY_MS);
-      } else if (!stopped && continueImmediately && turnActive && !pending) {
+      if (!stopped && continueImmediately && turnActive && !pending) {
         decisionCycle.enter('preparing_context');
         setImmediate(() => void continueTurn());
       } else if (!stopped && wakeQueued && !pending) {
@@ -1541,7 +1534,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
     preparingContext = true;
     try {
-      const nextObservation = observe();
+      const settlement =
+        event.type === 'action_completed' && event.data?.result?.bodyMoved === true
+          ? await settlePostActionPose(finished.intent.tool)
+          : null;
+      const nextObservation = settlement?.observation ?? observe();
       await closeTurn(
         finished.draft,
         actionFromIntent(finished.intent, finished.toolCallId),
@@ -1552,8 +1549,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       // onEntityTurn may update loom-derived projections such as projects.
       // Observe again so continuation sees the committed view rather than the
       // provisional frame captured before persistence.
+      // Append exactly one post-action view after the durable turn can update
+      // derived projections. Settlement samples never become conversation.
       appendWorldUpdate(observe(), `World after ${finished.intent.tool}`);
       clearQueuedWake();
+      if (settlement && settlement.status !== 'settled') {
+        turnActive = false;
+        turnSteps = 0;
+      }
     } catch (error: any) {
       log(`[policy] could not persist entity turn: ${error?.message || String(error)}`);
       turnActive = false;
@@ -1589,6 +1592,76 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function observe() {
     return environment.observe(lastSequence);
+  }
+
+  async function settlePostActionPose(tool: string) {
+    const startedAt = now();
+    let previous = observe();
+    let attempts = 0;
+    let status: 'settled' | 'exhausted' | 'stopped' = 'exhausted';
+    for (attempts = 1; attempts <= POST_ACTION_SETTLEMENT_MAX_ATTEMPTS; attempts += 1) {
+      await waitForSettlementSample();
+      const current = observe();
+      if (stopped) {
+        previous = current;
+        status = 'stopped';
+        break;
+      }
+      if (sameBodyPose(previous, current)) {
+        previous = current;
+        status = 'settled';
+        break;
+      }
+      previous = current;
+    }
+    const receipt = {
+      protocol: 'behold.perception-settlement.v1' as const,
+      cause: 'post_body_motion' as const,
+      tool,
+      status,
+      attempts: Math.min(attempts, POST_ACTION_SETTLEMENT_MAX_ATTEMPTS),
+      elapsedMs: Math.max(0, now() - startedAt),
+    };
+    opts.onPerceptionSettlement?.(receipt);
+    if (status === 'settled') {
+      log(`[policy] body pose settled after ${receipt.attempts} perception samples`);
+    } else if (status === 'exhausted') {
+      log(
+        `[policy] body pose did not settle within ${POST_ACTION_SETTLEMENT_MAX_ATTEMPTS} perception samples`,
+      );
+    }
+    return { ...receipt, observation: previous };
+  }
+
+  async function waitForSettlementSample() {
+    await new Promise<void>((resolve) => {
+      let completed = false;
+      const finish = () => {
+        if (completed) return;
+        completed = true;
+        if (settlementTimer) clearTimeout(settlementTimer);
+        settlementTimer = null;
+        releaseSettlementWait = null;
+        resolve();
+      };
+      releaseSettlementWait = finish;
+      settlementTimer = setTimeout(finish, POST_ACTION_SETTLEMENT_INTERVAL_MS);
+    });
+  }
+
+  function sameBodyPose(left: any, right: any) {
+    const a = left?.self?.pose;
+    const b = right?.self?.pose;
+    return (
+      Number.isFinite(a?.position?.x) &&
+      Number.isFinite(a?.position?.y) &&
+      Number.isFinite(a?.position?.z) &&
+      a.position.x === b?.position?.x &&
+      a.position.y === b?.position?.y &&
+      a.position.z === b?.position?.z &&
+      a.yaw === b?.yaw &&
+      a.pitch === b?.pitch
+    );
   }
 
   function appendWorldUpdate(frame: any, label: string) {
@@ -1724,6 +1797,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     timer = null;
     if (resumeTimer) clearTimeout(resumeTimer);
     resumeTimer = null;
+    releaseSettlementWait?.();
     stopPromise = new Promise<void>((resolve) => {
       resolveStop = resolve;
     });

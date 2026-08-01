@@ -27,7 +27,10 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
 } from '../src/mind/ollama-json-action';
 import typedWrapperFixture from './fixtures/ollama-local-typed-wrapper.json';
-import { ResidentCameraObservationChangedError } from '../src/perception/resident-camera-capture';
+import {
+  createResidentCameraFrame,
+  createResidentCameraRenderer,
+} from '../src/perception/resident-camera-frame';
 
 function withMinecraftActionSurface<T extends { actions: readonly any[] }>(environment: T) {
   return {
@@ -1945,60 +1948,220 @@ test('camera perception fails before mind admission and never downgrades to sema
   }
 });
 
-test('camera perception resamples a body that is still settling without calling the mind', async () => {
-  let observationSequence = 1;
-  const capturedSequences: number[] = [];
-  const errors: any[] = [];
-  let mindCalls = 0;
-  let secondCapture!: () => void;
-  const secondCaptureStarted = new Promise<void>((resolve) => {
-    secondCapture = resolve;
-  });
+test('semantic and camera continuations share one bounded post-motion pose settlement', async () => {
+  for (const perceptionProfile of ['semantic-only-v1', 'semantic-plus-camera-v1'] as const) {
+    const requests: ResidentMindRequest[] = [];
+    const intents: any[] = [];
+    const settlements: any[] = [];
+    const capturedZ: number[] = [];
+    let settling = false;
+    const settlingZ = [1.8, 2, 2];
+    const observe = () =>
+      settlementExperience(settling ? (settlingZ.shift() ?? 2) : 0, requests.length + 1);
+    const policy = startLLMPolicy(
+      {
+        entityId: 'Scout',
+        actions: [settlementMoveTool()],
+        attempt: (intent) => {
+          intents.push(intent);
+          return true;
+        },
+        observe,
+      },
+      {
+        apiKey: 'unused',
+        model: 'test/model',
+        policyProfile: 'resident-v2',
+        bodyProfile: 'minecraft-human-semantic-v1',
+        perceptionProfile,
+        ...(perceptionProfile === 'semantic-plus-camera-v1'
+          ? {
+              capturePerception: async (observation: any) => {
+                capturedZ.push(observation.self.pose.position.z);
+                return settlementCameraFrame(observation);
+              },
+            }
+          : {}),
+        mind: {
+          id: `settlement-${perceptionProfile}`,
+          decide: async (request) => {
+            requests.push(request);
+            return requests.length === 1
+              ? {
+                  protocol: 'behold.mind-decision.v1' as const,
+                  disposition: 'act' as const,
+                  utterance: null,
+                  action: {
+                    name: 'move_controls',
+                    input: { direction: 'forward', durationMs: 500 },
+                  },
+                  call: modelCallEvidence(`settlement-${perceptionProfile}`),
+                }
+              : {
+                  protocol: 'behold.mind-decision.v1' as const,
+                  disposition: 'wait' as const,
+                  utterance: null,
+                  action: null,
+                  call: modelCallEvidence(`settlement-${perceptionProfile}`),
+                };
+          },
+        },
+        acceptEngineEvent: () => true,
+        onPerceptionSettlement: (event) => settlements.push(event),
+      },
+    );
+
+    try {
+      await policy.tick();
+      assert.equal(requests.length, 1);
+      settling = true;
+      await policy.onEngineEvent({
+        sequence: 1,
+        at: Date.now(),
+        type: 'action_completed',
+        data: { intent: intents[0], result: { ok: true, bodyMoved: true } },
+      } as any);
+      await until(() => requests.length === 2);
+      assert.equal((requests[1].observation as any).self.pose.motion, 'still');
+      assert.equal((requests[1].observation as any).self.pose.position, undefined);
+      assert.deepEqual(settlements, [
+        {
+          protocol: 'behold.perception-settlement.v1',
+          cause: 'post_body_motion',
+          tool: 'move_controls',
+          status: 'settled',
+          attempts: 2,
+          elapsedMs: settlements[0].elapsedMs,
+        },
+      ]);
+      assert.ok(settlements[0].elapsedMs >= 90);
+      assert.deepEqual(capturedZ, perceptionProfile === 'semantic-plus-camera-v1' ? [0, 2] : []);
+    } finally {
+      await policy.stop();
+    }
+  }
+});
+
+test('post-motion pose settlement is bounded when the body never becomes still', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const intents: any[] = [];
+  const settlements: any[] = [];
+  let settling = false;
+  let z = 0;
   const policy = startLLMPolicy(
     {
       entityId: 'Scout',
-      actions: [],
-      attempt: () => true,
-      observe: () => experience(observationSequence, null, 0),
+      actions: [settlementMoveTool()],
+      attempt: (intent) => {
+        intents.push(intent);
+        return true;
+      },
+      observe: () => settlementExperience(settling ? ++z : 0, requests.length + 1),
     },
     {
       apiKey: 'unused',
       model: 'test/model',
+      policyProfile: 'resident-v2',
+      bodyProfile: 'minecraft-human-semantic-v1',
       mind: {
-        id: 'camera-resample-mind',
-        decide: async () => {
-          mindCalls += 1;
-          throw new Error('mind must not be called');
+        id: 'never-settles',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'act',
+            utterance: null,
+            action: {
+              name: 'move_controls',
+              input: { direction: 'forward', durationMs: 500 },
+            },
+            call: modelCallEvidence('never-settles'),
+          };
         },
       },
-      perceptionProfile: 'semantic-plus-camera-v1',
-      capturePerception: async (observation: any) => {
-        capturedSequences.push(observation.sequence);
-        if (capturedSequences.length === 1) {
-          observationSequence = 2;
-          throw new ResidentCameraObservationChangedError(
-            'resident camera observation differs from the current body pose',
-          );
-        }
-        secondCapture();
-        throw new Error('camera unavailable after resample');
-      },
       acceptEngineEvent: () => true,
-      onModelError: (error) => errors.push(error),
+      onPerceptionSettlement: (event) => settlements.push(event),
     },
   );
 
   try {
     await policy.tick();
-    await secondCaptureStarted;
-    await until(() => errors.length === 1);
-    assert.deepEqual(capturedSequences, [1, 2]);
-    assert.equal(mindCalls, 0);
-    assert.equal(errors.length, 1);
-    assert.match(errors[0].error, /camera unavailable after resample/);
+    settling = true;
+    await policy.onEngineEvent({
+      sequence: 1,
+      at: Date.now(),
+      type: 'action_completed',
+      data: { intent: intents[0], result: { ok: true, bodyMoved: true } },
+    } as any);
+    assert.equal(requests.length, 1);
+    assert.equal(settlements.length, 1);
+    assert.equal(settlements[0].status, 'exhausted');
+    assert.equal(settlements[0].attempts, 20);
+    assert.ok(settlements[0].elapsedMs >= 950);
   } finally {
     await policy.stop();
   }
+});
+
+test('stop releases an in-progress post-motion pose settlement', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const intents: any[] = [];
+  const settlements: any[] = [];
+  let settling = false;
+  let settlementObservations = 0;
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [settlementMoveTool()],
+      attempt: (intent) => {
+        intents.push(intent);
+        return true;
+      },
+      observe: () => {
+        if (settling) settlementObservations += 1;
+        return settlementExperience(settlementObservations, requests.length + 1);
+      },
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      policyProfile: 'resident-v2',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      mind: {
+        id: 'stop-settlement',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'act',
+            utterance: null,
+            action: {
+              name: 'move_controls',
+              input: { direction: 'forward', durationMs: 500 },
+            },
+            call: modelCallEvidence('stop-settlement'),
+          };
+        },
+      },
+      acceptEngineEvent: () => true,
+      onPerceptionSettlement: (event) => settlements.push(event),
+    },
+  );
+
+  await policy.tick();
+  settling = true;
+  const terminal = policy.onEngineEvent({
+    sequence: 1,
+    at: Date.now(),
+    type: 'action_completed',
+    data: { intent: intents[0], result: { ok: true, bodyMoved: true } },
+  } as any);
+  await until(() => settlementObservations >= 1);
+  await Promise.all([terminal, policy.stop()]);
+  assert.equal(requests.length, 1);
+  assert.equal(settlements.length, 1);
+  assert.equal(settlements[0].status, 'stopped');
+  assert.equal(settlements[0].attempts, 1);
 });
 
 test('the world affordance boundary cannot introduce a capability outside its catalog', async () => {
@@ -5254,6 +5417,25 @@ function tool(name: string) {
   };
 }
 
+function settlementMoveTool() {
+  return {
+    type: 'function' as const,
+    function: {
+      name: 'move_controls',
+      description: 'bounded body movement',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['direction', 'durationMs'],
+        properties: {
+          direction: { type: 'string', enum: ['forward', 'back', 'left', 'right'] },
+          durationMs: { type: 'integer', minimum: 100, maximum: 2_000 },
+        },
+      },
+    },
+  };
+}
+
 function recentContinuity(messages: any[]) {
   const message = messages.find((candidate: any) =>
     String(candidate?.content || '').includes('behold.recent-action-continuity.v1'),
@@ -5367,6 +5549,100 @@ function experience(sequence: number, currentAction: any, sinceSequence: number)
       },
     ],
   };
+}
+
+function settlementExperience(z: number, sequence: number) {
+  return {
+    protocol: 'behold.inhabitant.v2',
+    circle: { id: 'minecraft:settlement', substrate: 'minecraft', managedRunId: 'run-1' },
+    sequence,
+    observedAt: Date.now(),
+    eventWindow: {
+      requestedAfterSequence: 0,
+      oldestAvailableSequence: 1,
+      newestAvailableSequence: sequence,
+      missingBeforeOldest: 0,
+      complete: true,
+    },
+    task: null,
+    self: {
+      identity: 'Scout',
+      body: {
+        substrate: 'minecraft',
+        username: 'ScoutBody',
+        uuid: '00000000-0000-4000-8000-000000000001',
+      },
+      pose: {
+        position: { x: 1, y: 64, z },
+        yaw: 0,
+        pitch: 0,
+        velocity: { x: 0, y: 0, z: 0 },
+        onGround: true,
+      },
+      condition: {
+        health: 20,
+        food: 20,
+        oxygen: 20,
+        sleeping: false,
+        dimension: 'minecraft:overworld',
+        isDay: true,
+      },
+      heldItem: null,
+      inventory: [],
+      projects: [],
+      places: [],
+      placeConflicts: [],
+      currentAction: null,
+    },
+    scene: {
+      social: { source: 'server_roster', playersOnline: [], note: '' },
+      focus: null,
+      entities: [],
+      terrain: { materials: [], targets: [] },
+    },
+    events: [
+      {
+        sequence,
+        type: sequence === 1 ? 'spawned' : 'action_completed',
+        salience: 'normal',
+        source: 'event',
+        isNew: true,
+        data: {},
+      },
+    ],
+  };
+}
+
+function settlementCameraFrame(observation: ReturnType<typeof settlementExperience>) {
+  const capturedAt = Date.now();
+  return createResidentCameraFrame({
+    bytes: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC',
+      'base64',
+    ),
+    mediaType: 'image/png',
+    observation,
+    renderedCamera: {
+      position: {
+        x: observation.self.pose.position.x,
+        y: observation.self.pose.position.y + 1.62,
+        z: observation.self.pose.position.z,
+      },
+      yaw: observation.self.pose.yaw,
+      pitch: observation.self.pose.pitch,
+    },
+    renderer: createResidentCameraRenderer({
+      name: 'settlement-fixture',
+      version: '1',
+      implementationSha256: '12'.repeat(32),
+      verticalFovDegrees: 75,
+      width: 10,
+      height: 10,
+      viewDistanceChunks: 6,
+    }),
+    captureStartedAt: capturedAt,
+    captureCompletedAt: capturedAt,
+  });
 }
 
 async function drainImmediateQueue() {

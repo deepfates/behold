@@ -805,6 +805,7 @@ export async function runConsole(
           }
         },
         onModelInterrupted: (interruption) => appendJournal('model_call_interrupted', interruption),
+        onPerceptionSettlement: (event) => appendJournal('perception_settlement', event),
         authorizeDecisionOpportunity: decisionSchedule
           ? (opportunity) => {
               if (!activeFixedSlot || activeFixedSlot.opportunityId) {

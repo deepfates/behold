@@ -54,6 +54,16 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   repeatedly chose to wait; Behold preserved that conduct. The sealed
   model-by-perception comparison remains open as a diagnostic, not a product
   gate.
+- The matched-body R3 comparison then gave all four model/perception branches
+  the same saved Minecraft body state. Gemma chose the same look in semantic
+  and camera conditions; Qwen yielded under semantic perception and moved under
+  camera perception. One choice per cell is descriptive, not a causal ranking.
+  Qwen's camera movement exposed a real terminal-to-perception defect: rounded
+  semantic pose could never equal the exact live camera pose, and a first
+  camera-only retry loop remained unbounded. The current implementation now
+  preserves exact private body pose and uses one bounded post-motion settlement
+  boundary for both perception profiles, with no intermediate cognition. The
+  full check passes; an ordinary post-fix camera resume remains unexercised.
 - The compact action-only `resident-v2` interface has crossed an ordinary
   two-resident live/lens/stop/resume exercise with one shared local Gemma 4 12B
   weight and separate requests and Lync lives. Elm and Pine completed 5 and 6

@@ -73,6 +73,17 @@ schema-valid, camera capture was 886–896 ms cold and 7–11 ms warm, all four
 sessions saved/stopped cleanly, and Textile read every life without diagnostics.
 These are valid trajectories, not identified model or perception effects.
 
+A matched-body R3 follow-up fixed the initial saved body state across all four
+branches. Its single choices were descriptive only: Gemma looked the same way
+under both perceptions, while Qwen yielded with semantics and moved with a
+camera. That movement exposed a controller defect before another model call:
+rounded semantic pose could not bind to the exact live camera pose, and the
+first camera-only retry remained unbounded. The current implementation keeps
+the private body pose exact and applies one bounded post-motion settlement gate
+before either semantic or camera continuation. Focused boundedness/cancellation
+tests and the full check pass; an ordinary post-fix camera resume remains to be
+exercised before claiming the repair live.
+
 The latest exercised local path has carried two Qwen 3.6 35B-A3B residents
 through ordinary live episodes and resumes with one shared LM Studio weight
 instance and isolated own-life context. A native Java client joined as

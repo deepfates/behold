@@ -10,6 +10,14 @@ Behold's portable center is one causal loop:
 6. Receive a terminal attempt result separately from a newly observed consequence.
 7. Append the complete turn to the entity's durable trajectory.
 
+The terminal-to-consequence edge is one shared perception boundary. When an
+action reports body motion, the current runtime waits on a short bounded cadence
+for two identical exact body poses before deriving either a semantic-only or
+camera-augmented next request. Intermediate samples are apparatus state: they
+enter no conversation and spend no decision or model quota. Failure to settle
+ends that continuation visibly; it does not weaken camera admission or invent a
+consequence.
+
 The world-specific boundary is intentionally small: `entityId`, `observe(cursor)`,
 a complete capability catalog, `actionsFor(observation)`, and `attempt(intent)`.
 The catalog says what this kind of body can ever do; `actionsFor` publishes an
