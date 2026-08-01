@@ -1,6 +1,6 @@
 ---
 id: beh-61if
-status: open
+status: in_progress
 deps: []
 links: []
 created: 2026-08-01T13:55:23Z
@@ -41,3 +41,7 @@ The current selected-tip manifest is now durably published (temp fsync, rename, 
 **2026-08-01T14:57:01Z**
 
 Bounded downstream reducer landed at 2303ea0. ProjectMemory no longer retains full EntityTurn history: it streams into compact per-active-project baselines and exact evidence witnesses, deleting state on complete/abandon. Focused 15/15 and candidate full check 657 pass with one opt-in skip. A generated 96 MiB irrelevant-private-history pressure case retained about 226 KiB versus about 101 MiB in the old reducer. This removes one downstream copy but does not close beh-61if: EntityLoom and policy/fold hydration still materialize or rescan the complete life until the Lync cursor integration lands.
+
+**2026-08-01T15:26:09Z**
+
+Cursor-backed Behold candidate is isolated at integration/beh-61if-cursor commits 621a9f8 and 2fab550. Existing selected lives now open through the vendored Lync file cursor without retaining decoded whole-history arrays; explicit readAll remains only for offline compatibility callers. The live console streams project/place reducers, seeds resident-v2 from an authenticated six-turn suffix plus v4 bounded canonical index, rebuilds a missing/stale fold once by streaming, and thereafter folds only the turn leaving the suffix. Canonical append returns the Lync chain digest before policy continuity advances. Focused entity/fold/isolation checks pass and full npm run check exits 0. This is not integrated or accepted: preserve the active pre-change six-hour epoch, then rebase and exercise the same world/lives through stop/resume, controller-memory growth, exact recent continuity, isolation, crash recovery, and Textile reading.
