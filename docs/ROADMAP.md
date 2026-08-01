@@ -37,13 +37,15 @@ current resident and native-human coexistence│
 minimal operator view and ethogram            ─┘
 ```
 
-The final exercise is blocked on all five capabilities. Tickets state
-observable product behavior; evidence and negative conduct belong in their
-notes. The checkpoints do not grade whether a resident survives, builds,
-socializes, adapts, or makes good decisions. They grade whether Behold gives
-each resident truthful opportunities and consequences, preserves its isolated
-life, and lets an operator inhabit and understand the same world without a
-parallel truth system.
+The final exercise depends on all five capabilities. Current-profile human and
+multi-resident coexistence and the minimal operator view are exercised; growing
+continuity, lifecycle pressure, and authority simplification remain open before
+multi-day acceptance. Tickets state observable product behavior; evidence and
+negative conduct belong in their notes. The checkpoints do not grade whether a
+resident survives, builds, socializes, adapts, or makes good decisions. They
+grade whether Behold gives each resident truthful opportunities and
+consequences, preserves its isolated life, and lets an operator inhabit and
+understand the same world without a parallel truth system.
 
 The San Francisco world remains valuable terrain, not the product goal by
 itself. Come–See–Do–Report remains a useful regression test, not the organizing
@@ -63,19 +65,24 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   world health without another writable store or a conduct score. Capability-
   authenticated loopback controls pause and resume cognition through both
   resident controllers and stop through the existing managed save boundary.
-  A four-minute two-resident episode exercised the complete surface: a
-  39.8-second pause admitted no new decision or resident turn after each
-  already-in-flight decision settled; resume immediately advanced both lives;
-  lens stop exited both controllers zero, received Minecraft's save
-  acknowledgement, recorded terminal world digest
-  `783997263ea3ad3b178cfb47ca4adc80b8a098847c649c7a6f3d469af8a454e5`,
-  released control, closed listeners, and unloaded the shared LM Studio model.
-  Textile independently projected the 37-event frozen union as 35 resident
-  turns plus two roots with no diagnostics. Replaying the same lens over the
-  earlier 30-minute episode 000039 reconstructed all 340 committed turns, 342
-  scheduled decisions, and four Minecraft-verified digs without journal gaps.
-  This exercises the projection and controls, but does not yet close the
-  long-running live observability checkpoint or the multi-day habitat telos.
+  Episode 000007 then exercised that surface for 35 live minutes with two
+  resident-v2 lives, one shared Gemma 4 12B LM Studio instance, and authenticated
+  native player `importdf`. The actual browser pause held committed/scheduled
+  progress for 30 seconds after in-flight settlement; resume immediately
+  scheduled both lives. The run admitted 225 cognition attempts with exactly
+  225 terminals, retained Pine's repeated failed digging, and recorded 13
+  Minecraft-confirmed Elm digs. Both controllers exited zero, Minecraft saved
+  terminal digest
+  `27bc24486fc3194c345d22521d6d27cd84ecad3ca733e825829d7e79786c5c49`,
+  listeners closed, and the single model instance unloaded once. Episode 000008
+  reopened the same bodies, world, and private histories, admitted the returning
+  native player, and stopped cleanly again. First resumed requests contained
+  only the matching resident's own continuity; Elm's own index retained all 14
+  prior confirmed digs. Textile projected the two frozen unions as 335/357
+  readable resident events plus two roots each with no diagnostics. This closes
+  current long-run observability and current-profile coexistence, not growing
+  multi-day continuity, failure recovery, authority cleanup, or the habitat
+  telos.
 - The separately named `semantic-plus-camera-v1` experiment now reaches the
   actual resident mind boundary. It lazily captures one exact first-person
   Prismarine frame, admits it against the selected raw body observation, binds

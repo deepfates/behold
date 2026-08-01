@@ -28,11 +28,12 @@ independently configured resident sessions, viewer discovery, a native-client
 endpoint, clean stop/resume, and an authenticated episode record in one foreground
 operator entry. It does not launch a human client or run Textile on the
 operator's behalf. Ordinary live use has now exercised bounded perception,
-admitted actions, returned consequences, continuity, and human coexistence
-through a 30-minute resident epoch and a fresh resume. Residents have made
-repetitive, ineffective, and consequential choices; those choices are observed
-conduct, not a product score. Passing the mechanics stack is therefore not
-presented as a finished living world.
+admitted actions, returned consequences, continuity, browser pause/resume,
+authenticated human coexistence, and isolated shared-weight sessions through a
+35-minute current-profile resident epoch and a clean human-present resume.
+Residents made both consequential and persistently ineffective choices; those
+choices are observed conduct, not a product score. Passing this long-running
+composition is therefore not presented as a finished living world.
 
 The active frontier is the enduring
 [resident-habitat telos](.tickets/beh-06av.md): keep that causal substrate

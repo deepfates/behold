@@ -1,6 +1,6 @@
 ---
 id: beh-kogb
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-01T09:35:31Z
@@ -38,3 +38,7 @@ Ordinary exercise: session `oxford-living-resident-v2-gemma12-presenter-v2`, epi
 Long-run replay: applying the same projection to ordinary 30.96-minute episode 000039 reconstructed a clean two-resident lifecycle; 173/169 scheduled decisions, 172/168 committed actions (340 total), 159/149 successful actions (308 total), and 1/3 Minecraft-verified digs, with no journal or lifecycle gaps. This establishes compatibility with retained long-run truth, not that the new watch/control surface was operated live for that entire run. Keep beh-kogb open until a genuinely long-running ordinary episode uses the surface live.
 
 Falsification found and repaired one projection-only defect after the exercise: a terminal habitat said phase stopped while retaining the last cognition value running. The lens now derives cognition stopped from authoritative `run_stopped`; focused and complete compiled tests pass. Failed pre-authority attempt 000003 contains only a zero-byte Place control file and is not a completed episode.
+
+**2026-08-01T11:06:19Z**
+
+Episodes 000007-000008 exercised the current habitat lens through a 35-minute ordinary resident-v2 run and clean three-minute resume. The real browser rendered lifecycle, two resident causal stages, body state, decision cadence/latency, action terminals, Lync tips, ethograms, source freshness, and both POVs. Browser pause held Elm at 67 committed/68 scheduled and Pine at 37/37 for 30 seconds after in-flight settlement; browser resume immediately scheduled both. The long run reached 145/80 resident attempts with zero unsettled calls, 13 Minecraft-confirmed digs, no stale source, authenticated native-human presence, clean controller/model/listener shutdown, save acknowledgement, and terminal digest 27bc24486fc3194c345d22521d6d27cd84ecad3ca733e825829d7e79786c5c49. Textile read its 337-event frozen union as 335 readable events plus two roots with zero diagnostics. Episode 000008 reopened the same surface and stopped cleanly. The view remained a read-only projection; controls used the owned cognition and Place lifecycle. Acceptance met.
