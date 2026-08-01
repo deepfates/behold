@@ -1,6 +1,11 @@
 import readline from 'node:readline';
 import type { ConfigEnvironment } from '../config';
-import { captureBotViewerFrame, closeBotViewer, createBot } from '../bot';
+import {
+  captureBotViewerFrame,
+  closeBotViewer,
+  createBot,
+  retainBotViewerAdmittedFrame,
+} from '../bot';
 import { buildInterpreter } from '../agent/interpreter';
 import { minecraftInhabitantActionsFor } from '../agent/affordances';
 import { minecraftActionsForProfile } from '../agent/action-profiles';
@@ -755,6 +760,7 @@ export async function runConsole(
           ? {
               capturePerception: (observation: unknown, options: { signal: AbortSignal }) =>
                 captureBotViewerFrame(bot, observation, options),
+              onPerceptionAdmitted: (frame) => retainBotViewerAdmittedFrame(bot, frame),
             }
           : {}),
         workingContinuity:

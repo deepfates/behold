@@ -1,10 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
+import { Vec3 } from 'vec3';
 import { startResidentLensServer } from '../src/observability/resident-lens-server';
+import { startResidentViewer } from '../src/observability/resident-viewer';
+import {
+  createResidentCameraFrame,
+  createResidentCameraRenderer,
+} from '../src/perception/resident-camera-frame';
 
 test('resident lens server follows journals over GET and SSE and closes its listener', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-lens-'));
@@ -58,6 +65,8 @@ test('resident lens server follows journals over GET and SSE and closes its list
     assert.equal(initial[0].source.file, journal);
     assert.equal(initial[0].source.ageMs, 2_000);
     assert.equal(initial[0].source.stale, true);
+    assert.equal(initial[0].viewerEndpoint, 'http://127.0.0.1:3007');
+    assert.equal(initial[0].camera.status, 'not_configured');
 
     const habitat = await fetch(`${server.endpoint}/api/habitat`).then((response) =>
       response.json(),
@@ -71,7 +80,7 @@ test('resident lens server follows journals over GET and SSE and closes its list
     const page = await fetch(server.endpoint);
     assert.match(
       page.headers.get('content-security-policy') ?? '',
-      /frame-src http:\/\/127\.0\.0\.1:\*/,
+      /img-src 'self' http:\/\/127\.0\.0\.1:\*/,
     );
     const html = await page.text();
     assert.match(html, /new EventSource\('\/api\/events'\)/);
@@ -84,6 +93,10 @@ test('resident lens server follows journals over GET and SSE and closes its list
     assert.match(html, /controller ·/);
     assert.match(html, /observed ethogram/);
     assert.match(html, /Lync progress/);
+    assert.match(html, /latest admitted camera frame/);
+    assert.match(html, /canonical detail/);
+    assert.match(html, /STALE/);
+    assert.doesNotMatch(html, /<iframe/);
     assert.doesNotMatch(html, /\['decision',view\.state\.decision\]/);
     const inlineScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
     assert.ok(inlineScript);
@@ -121,6 +134,70 @@ test('resident lens server follows journals over GET and SSE and closes its list
     fs.rmSync(directory, { recursive: true, force: true });
   }
   await assert.rejects(fetch(`${server.endpoint}/api/residents`));
+});
+
+test('resident lens displays the exact latest admitted frame and rejects foreign binding', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-camera-lens-'));
+  fs.writeFileSync(
+    path.join(directory, 'resident.jsonl'),
+    line(1, 'run_started', { runId: 'run-camera', body: { username: 'Body' } }),
+  );
+  const bot = cameraBot('Body');
+  const viewer = await startResidentViewer(bot as any, {
+    host: '127.0.0.1',
+    port: 0,
+    firstPerson: true,
+    viewDistance: 2,
+  });
+  viewer.retainAdmittedFrame(cameraFrame('Scout', 'Body', 4, 1_000));
+  const lens = await startResidentLensServer({
+    residents: [
+      {
+        entityId: 'Scout',
+        bodyUsername: 'Body',
+        journalDirectory: directory,
+        viewerEndpoint: viewer.endpoint,
+        admittedFrameEndpoint: viewer.admittedFrameEndpoint,
+        staleAfterMs: 500,
+      },
+    ],
+    pollMs: 10,
+    now: () => 3_000,
+  });
+  try {
+    const [view] = await fetch(`${lens.endpoint}/api/residents`).then((response) =>
+      response.json(),
+    );
+    assert.equal(view.camera.status, 'available');
+    assert.equal(view.camera.ageMs, 2_000);
+    assert.equal(view.camera.staleAfterMs, 500);
+    assert.equal(view.camera.stale, true);
+    assert.equal(view.camera.error, null);
+    assert.equal(view.camera.frame.binding.entityId, 'Scout');
+    assert.equal(view.camera.frame.binding.body.username, 'Body');
+    assert.equal(view.camera.frame.binding.observationSequence, 4);
+    assert.match(view.camera.frame.digest, /^[0-9a-f]{64}$/);
+    assert.match(view.camera.frame.bindingSha256, /^[0-9a-f]{64}$/);
+    assert.equal(view.camera.frame.content.data, undefined);
+    assert.equal((await fetch(view.camera.frame.imageEndpoint)).status, 200);
+
+    viewer.retainAdmittedFrame(cameraFrame('Intruder', 'Body', 5, 2_000));
+    await waitFor(async () => {
+      const [next] = await fetch(`${lens.endpoint}/api/residents`).then((response) =>
+        response.json(),
+      );
+      return next.camera.status === 'unavailable';
+    });
+    const [rejected] = await fetch(`${lens.endpoint}/api/residents`).then((response) =>
+      response.json(),
+    );
+    assert.match(rejected.camera.error, /another resident or body/);
+    assert.equal(rejected.camera.frame, null);
+  } finally {
+    await lens.close();
+    await viewer.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('resident lens server reports a missing journal without creating storage', async () => {
@@ -227,4 +304,66 @@ async function waitFor(predicate: () => Promise<boolean>) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error('timed out waiting for resident lens update');
+}
+
+function cameraBot(username: string) {
+  const bot: any = new EventEmitter();
+  bot.username = username;
+  bot.player = { uuid: '00000000-0000-4000-8000-000000000001' };
+  bot.version = '1.21.4';
+  bot.entity = {
+    position: new Vec3(2, 64, 1),
+    yaw: 0,
+    pitch: 0,
+    eyeHeight: 1.62,
+  };
+  bot.entities = {};
+  bot.world = { getColumnAt: async () => null, raycast: () => null };
+  return bot;
+}
+
+function cameraFrame(entityId: string, bodyUsername: string, sequence: number, capturedAt: number) {
+  const observation = {
+    protocol: 'behold.inhabitant.v2',
+    circle: { id: 'minecraft:camera-lens', substrate: 'minecraft', managedRunId: 'run-camera' },
+    sequence,
+    observedAt: capturedAt - 10,
+    self: {
+      identity: entityId,
+      body: {
+        substrate: 'minecraft',
+        username: bodyUsername,
+        uuid: '00000000-0000-4000-8000-000000000001',
+      },
+      pose: {
+        position: { x: 2, y: 64, z: 1 },
+        yaw: 0,
+        pitch: 0,
+        velocity: { x: 0, y: 0, z: 0 },
+        onGround: true,
+      },
+      condition: { dimension: 'minecraft:overworld' },
+    },
+    events: [],
+  };
+  return createResidentCameraFrame({
+    bytes: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC',
+      'base64',
+    ),
+    mediaType: 'image/png',
+    observation,
+    renderedCamera: { position: { x: 2, y: 65.62, z: 1 }, yaw: 0, pitch: 0 },
+    renderer: createResidentCameraRenderer({
+      name: 'lens-fixture',
+      version: '1',
+      implementationSha256: '56'.repeat(32),
+      verticalFovDegrees: 75,
+      width: 10,
+      height: 10,
+      viewDistanceChunks: 2,
+    }),
+    captureStartedAt: capturedAt - 2,
+    captureCompletedAt: capturedAt,
+  });
 }

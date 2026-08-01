@@ -8,6 +8,10 @@ import {
   RESIDENT_VIEWER_PROTOCOL,
   startResidentViewer,
 } from '../src/observability/resident-viewer';
+import {
+  createResidentCameraFrame,
+  createResidentCameraRenderer,
+} from '../src/perception/resident-camera-frame';
 import { managedResidentViewerEndpoints } from '../scripts/world-runner';
 
 test('managed viewers assign one symmetric loopback endpoint per resident', () => {
@@ -19,6 +23,7 @@ test('managed viewers assign one symmetric loopback endpoint per resident', () =
     {
       protocol: RESIDENT_VIEWER_PROTOCOL,
       endpoint: 'http://127.0.0.1:30070',
+      admittedFrameEndpoint: 'http://127.0.0.1:30070/behold/admitted-camera-frame',
       host: '127.0.0.1',
       port: 30_070,
       firstPerson: true,
@@ -28,6 +33,7 @@ test('managed viewers assign one symmetric loopback endpoint per resident', () =
     {
       protocol: RESIDENT_VIEWER_PROTOCOL,
       endpoint: 'http://127.0.0.1:30071',
+      admittedFrameEndpoint: 'http://127.0.0.1:30071/behold/admitted-camera-frame',
       host: '127.0.0.1',
       port: 30_071,
       firstPerson: true,
@@ -152,6 +158,65 @@ test('an aborted camera request starts no renderer and returns no frame', async 
   }
 });
 
+test('viewer retains only the latest admitted frame with exact body and digest binding', async () => {
+  const bot = fakeBot('ProjectedBody');
+  const viewer = await startResidentViewer(bot as any, {
+    host: '127.0.0.1',
+    port: 0,
+    firstPerson: true,
+    viewDistance: 2,
+  });
+  try {
+    const unavailable = await fetch(viewer.admittedFrameEndpoint).then((response) =>
+      response.json(),
+    );
+    assert.deepEqual(unavailable, {
+      protocol: 'behold.resident-admitted-camera-frame.v1',
+      status: 'unavailable',
+      reason: 'no_admitted_frame',
+    });
+
+    const firstInput: any = structuredClone(fixtureAdmittedFrame(bot, 1, 1_000));
+    const firstData = firstInput.content.data;
+    viewer.retainAdmittedFrame(firstInput);
+    firstInput.content.data = Buffer.from('mutated after retention').toString('base64');
+    const first = await fetch(viewer.admittedFrameEndpoint).then((response) => response.json());
+    assert.equal(first.status, 'available');
+    assert.equal(first.binding.body.username, 'ProjectedBody');
+    assert.equal(first.binding.observationSequence, 1);
+    assert.equal(first.content.data, undefined, 'metadata copied no image bytes');
+    assert.equal(first.content.encoding, undefined);
+    assert.match(first.imagePath, new RegExp(`digest=${first.digest}$`));
+    const firstImageEndpoint = new URL(first.imagePath, viewer.admittedFrameEndpoint).href;
+    const firstImage = await fetch(firstImageEndpoint);
+    assert.equal(firstImage.status, 200);
+    assert.deepEqual(Buffer.from(await firstImage.arrayBuffer()), Buffer.from(firstData, 'base64'));
+
+    const secondFrame = fixtureAdmittedFrame(bot, 2, 2_000);
+    viewer.retainAdmittedFrame(secondFrame);
+    const second = await fetch(viewer.admittedFrameEndpoint).then((response) => response.json());
+    assert.equal(second.binding.observationSequence, 2);
+    assert.notEqual(second.digest, first.digest);
+    assert.equal(
+      (await fetch(firstImageEndpoint)).status,
+      409,
+      'replaced frame bytes were released',
+    );
+
+    const other = fakeBot('AnotherBody');
+    assert.throws(
+      () => viewer.retainAdmittedFrame(fixtureAdmittedFrame(other, 3, 3_000)),
+      /another resident viewer body/,
+    );
+    const stillSecond = await fetch(viewer.admittedFrameEndpoint).then((response) =>
+      response.json(),
+    );
+    assert.equal(stillSecond.digest, second.digest);
+  } finally {
+    await viewer.close();
+  }
+});
+
 test('capture renderer returns one frame bound to the exact current resident pose', async (t) => {
   const executablePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   if (!require('node:fs').existsSync(executablePath)) {
@@ -223,12 +288,12 @@ function fakeBot(username: string) {
   return bot;
 }
 
-function residentObservation(bot: any) {
+function residentObservation(bot: any, sequence = 1, observedAt = Date.now()) {
   return {
     protocol: 'behold.inhabitant.v2',
     circle: { id: 'minecraft:camera-test', substrate: 'minecraft', managedRunId: 'run-camera' },
-    sequence: 1,
-    observedAt: Date.now(),
+    sequence,
+    observedAt,
     self: {
       identity: 'CameraResident',
       body: { substrate: 'minecraft', username: bot.username, uuid: bot.player.uuid },
@@ -243,4 +308,32 @@ function residentObservation(bot: any) {
     },
     events: [],
   };
+}
+
+function fixtureAdmittedFrame(bot: any, sequence: number, capturedAt: number) {
+  const observation = residentObservation(bot, sequence, capturedAt - 10);
+  return createResidentCameraFrame({
+    bytes: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC',
+      'base64',
+    ),
+    mediaType: 'image/png',
+    observation,
+    renderedCamera: {
+      position: { x: 2, y: 65.62, z: 1 },
+      yaw: 0,
+      pitch: 0,
+    },
+    renderer: createResidentCameraRenderer({
+      name: 'viewer-retention-fixture',
+      version: '1',
+      implementationSha256: '34'.repeat(32),
+      verticalFovDegrees: 75,
+      width: 10,
+      height: 10,
+      viewDistanceChunks: 2,
+    }),
+    captureStartedAt: capturedAt - 2,
+    captureCompletedAt: capturedAt,
+  });
 }

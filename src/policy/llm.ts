@@ -148,6 +148,8 @@ export type Options = {
     observation: unknown,
     options: Readonly<{ signal: AbortSignal }>,
   ) => Promise<ResidentCameraFrame>;
+  /** Projection hook invoked only after exact camera admission succeeds. */
+  onPerceptionAdmitted?: (frame: ResidentCameraFrame) => void | Promise<void>;
   /** Durable matched-population release observed by this resident process. */
   experimentRelease?: () => ExperimentReleaseReference | null;
   log?: (s: string) => void;
@@ -684,13 +686,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   async function captureDecisionPerception(frame: ResidentDecisionFrame, signal: AbortSignal) {
     if (!usesResidentCamera(perceptionProfile)) return null;
-    return admitResidentCameraFrame({
+    const admitted = admitResidentCameraFrame({
       frame: await opts.capturePerception!(frame.experience.raw, { signal }),
       observation: frame.experience.raw,
       now: now(),
       maxAgeMs: RESIDENT_CAMERA_MAX_AGE_MS,
       maxCaptureDurationMs: RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
     });
+    try {
+      await opts.onPerceptionAdmitted?.(admitted);
+    } catch (error: any) {
+      log(`[camera projection unavailable] ${error?.message || String(error)}`);
+    }
+    return admitted;
   }
 
   function createResidentMindRequest(

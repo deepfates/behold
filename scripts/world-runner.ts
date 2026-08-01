@@ -841,6 +841,7 @@ type ManagedResidentProcess = Readonly<{
 export type ManagedResidentViewerEndpoint = Readonly<{
   protocol: typeof RESIDENT_VIEWER_PROTOCOL;
   endpoint: string;
+  admittedFrameEndpoint: string;
   host: '127.0.0.1';
   port: number;
   firstPerson: true;
@@ -1749,9 +1750,11 @@ export function managedResidentViewerEndpoints(
   return Object.freeze(
     residents.map((_resident, index) => {
       const port = config.basePort + index;
+      const endpoint = `http://127.0.0.1:${port}`;
       return Object.freeze({
         protocol: RESIDENT_VIEWER_PROTOCOL,
-        endpoint: `http://127.0.0.1:${port}`,
+        endpoint,
+        admittedFrameEndpoint: `${endpoint}/behold/admitted-camera-frame`,
         host: '127.0.0.1' as const,
         port,
         firstPerson: true as const,

@@ -1896,6 +1896,7 @@ test('an alternate mind receives one bounded observation and the exact admitted 
 test('camera perception fails before mind admission and never downgrades to semantic-only', async () => {
   let mindCalls = 0;
   let captures = 0;
+  let admittedProjections = 0;
   const opportunities: any[] = [];
   const errors: any[] = [];
   const observation = experience(1, null, 0);
@@ -1931,6 +1932,9 @@ test('camera perception fails before mind admission and never downgrades to sema
         captures += 1;
         throw new Error('camera unavailable');
       },
+      onPerceptionAdmitted: () => {
+        admittedProjections += 1;
+      },
       acceptEngineEvent: () => true,
       onDecisionOpportunity: (event) => opportunities.push(event),
       onModelError: (error) => errors.push(error),
@@ -1939,6 +1943,7 @@ test('camera perception fails before mind admission and never downgrades to sema
   try {
     await policy.tick();
     assert.equal(captures, 1);
+    assert.equal(admittedProjections, 0);
     assert.equal(mindCalls, 0);
     assert.deepEqual(opportunities, []);
     assert.equal(errors.length, 1);
@@ -1957,6 +1962,7 @@ test('one decision frame binds projection, actions, camera, request hash, and ac
   const entityTurns: EntityTurn[] = [];
   let actionsObservation: any = null;
   let cameraObservation: any = null;
+  const admittedFrames: any[] = [];
   let actionObservation: any = null;
   const policy = startLLMPolicy(
     {
@@ -1981,6 +1987,9 @@ test('one decision frame binds projection, actions, camera, request hash, and ac
       capturePerception: async (observation) => {
         cameraObservation = observation;
         return settlementCameraFrame(observation as typeof rawObservation);
+      },
+      onPerceptionAdmitted: (frame) => {
+        admittedFrames.push(frame);
       },
       mind: {
         id: 'one-decision-frame',
@@ -2012,6 +2021,8 @@ test('one decision frame binds projection, actions, camera, request hash, and ac
     assert.strictEqual(cameraObservation, rawObservation);
     assert.strictEqual(actionObservation, rawObservation);
     assert.equal(requests.length, 1);
+    assert.equal(admittedFrames.length, 1);
+    assert.strictEqual(admittedFrames[0], requests[0].perception?.camera);
     assert.equal(
       (requests[0].observation as any).protocol,
       'behold.minecraft-human-semantic-observation.v1',

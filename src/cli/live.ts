@@ -482,6 +482,10 @@ export async function runLiveCli(argv: string[]) {
         bodyUsername: resident.bodyUsername,
         journalDirectory: resident.journalDirectory,
         viewerEndpoint: resident.viewer?.endpoint ?? null,
+        admittedFrameEndpoint:
+          resident.perceptionProfile === 'semantic-plus-camera-v1'
+            ? (resident.viewer?.admittedFrameEndpoint ?? null)
+            : null,
         staleAfterMs: Math.max(60_000, resident.tickMs * 5),
       })),
       lifecycleFile: run.control.journalFile,

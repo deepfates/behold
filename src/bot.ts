@@ -4,6 +4,7 @@ import mcDataLoader, { type IndexedData } from 'minecraft-data';
 import type { Config } from './config';
 import { assertEntityConnectionCapability, type EntityConnectionCapability } from './entity/loom';
 import { startResidentViewer, type ResidentViewerHandle } from './observability/resident-viewer';
+import type { ResidentCameraFrame } from './perception/resident-camera-frame';
 
 const viewerClosers = new WeakMap<Bot, () => Promise<void>>();
 const viewerHandles = new WeakMap<Bot, Promise<ResidentViewerHandle | null>>();
@@ -146,6 +147,12 @@ export async function captureBotViewerFrame(
   if (!viewer) throw new Error('resident camera perception requires an active viewer');
   if (!viewer.firstPerson) throw new Error('resident camera perception requires first-person view');
   return viewer.captureFrame(observation, options);
+}
+
+export async function retainBotViewerAdmittedFrame(bot: Bot, frame: ResidentCameraFrame) {
+  const viewer = await viewerHandles.get(bot);
+  if (!viewer) return;
+  viewer.retainAdmittedFrame(frame);
 }
 
 export function restrictNavigationToLocomotion(movements: any) {
