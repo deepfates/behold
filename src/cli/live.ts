@@ -466,13 +466,29 @@ export async function runLiveCli(argv: string[]) {
       }
       throw error;
     }
+    run.control.append('live_session_duration_armed', {
+      durationMs,
+      beginsAt: 'run_ready',
+      terminalReason: 'duration_elapsed',
+    });
+    boundary = createLiveBoundary(run, durationMs);
     residentLens = await startResidentLensServer({
       residents: run.residents.map((resident) => ({
         entityId: resident.entityId,
         bodyUsername: resident.bodyUsername,
         journalDirectory: resident.journalDirectory,
         viewerEndpoint: resident.viewer?.endpoint ?? null,
+        staleAfterMs: Math.max(60_000, resident.tickMs * 5),
       })),
+      lifecycleFile: run.control.journalFile,
+      control: {
+        pause: () => run!.pauseResidents('resident_lens'),
+        resume: () => run!.resumeResidents('resident_lens'),
+        stop: () => {
+          boundary!.request('resident_lens_stop');
+          return run!.stop('resident_lens_stop');
+        },
+      },
     });
     printLiveReady(
       sessionId,
@@ -483,12 +499,6 @@ export async function runLiveCli(argv: string[]) {
       nativePlayer,
       residentLens.endpoint,
     );
-    run.control.append('live_session_duration_armed', {
-      durationMs,
-      beginsAt: 'run_ready',
-      terminalReason: 'duration_elapsed',
-    });
-    boundary = createLiveBoundary(run, durationMs);
     const reason = await boundary.wait;
     await run.stop(reason);
     await run.finished;
@@ -790,6 +800,9 @@ export function createLiveBoundary(
   ]).finally(() => clearTimeout(timer));
   return Object.freeze({
     wait,
+    request(reason = 'operator_request') {
+      requestStop(reason);
+    },
     dispose() {
       clearTimeout(timer);
       for (const [signal, handler] of handlers) signalSource.removeListener(signal, handler);

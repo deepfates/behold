@@ -1,7 +1,9 @@
 import { HUMAN_SEMANTIC_OBSERVATION_PROTOCOL } from '../mind/minecraft-body';
 import { projectResidentVisibleValue } from '../mind/resident-visibility';
 
-export const RESIDENT_LENS_PROTOCOL = 'behold.resident-lens.v1' as const;
+export const RESIDENT_LENS_PROTOCOL = 'behold.resident-lens.v2' as const;
+
+const RECENT_ACTIVITY_LIMIT = 12;
 
 export type RunJournalEvent = Readonly<{
   sequence: number;
@@ -64,6 +66,48 @@ export type ResidentLensState = Readonly<{
     value: any;
     observedAt: number | null;
   }> | null;
+  lync: Readonly<{
+    committedTurns: number;
+    tipId: string | null;
+    tipSequence: number | null;
+    parentId: string | null;
+    committedAt: string | null;
+  }>;
+  ethogram: Readonly<{
+    decisions: Readonly<{
+      scheduled: number;
+      terminals: Readonly<Record<string, number>>;
+      latencyMs: Readonly<{
+        count: number;
+        total: number;
+        min: number | null;
+        max: number | null;
+        last: number | null;
+      }>;
+    }>;
+    actions: Readonly<{
+      committed: number;
+      succeeded: number;
+      failed: number;
+      byName: Readonly<Record<string, number>>;
+    }>;
+    perceivedEvents: Readonly<{
+      total: number;
+      byType: Readonly<Record<string, number>>;
+    }>;
+    verifiedWorldChanges: Readonly<{
+      total: number;
+      byVerb: Readonly<Record<string, number>>;
+    }>;
+    recent: readonly Readonly<{
+      turnId: string;
+      turnSequence: number;
+      at: number | null;
+      kind: 'perceived_event' | 'verified_world_change';
+      type: string;
+      detail: any;
+    }>[];
+  }>;
   unavailable: Readonly<{
     journal: string | null;
     sees: string | null;
@@ -86,6 +130,24 @@ export function createResidentLensState(): ResidentLensState {
     consequence: null,
     nextExperience: null,
     bodyCondition: null,
+    lync: {
+      committedTurns: 0,
+      tipId: null,
+      tipSequence: null,
+      parentId: null,
+      committedAt: null,
+    },
+    ethogram: {
+      decisions: {
+        scheduled: 0,
+        terminals: {},
+        latencyMs: { count: 0, total: 0, min: null, max: null, last: null },
+      },
+      actions: { committed: 0, succeeded: 0, failed: 0, byName: {} },
+      perceivedEvents: { total: 0, byType: {} },
+      verifiedWorldChanges: { total: 0, byVerb: {} },
+      recent: [],
+    },
     unavailable: { journal: null, sees: null, nextExperience: null },
   });
 }
@@ -171,7 +233,13 @@ export function applyResidentLensEvent(
       break;
 
     case 'entity_turn':
-      applyCommittedTurn(state, event.data);
+      applyCommittedTurn(state, event.data, event.at);
+      break;
+
+    case 'operator_cognition_control':
+      if (event.data?.phase === 'acknowledged') {
+        state.phase = event.data?.state === 'paused' ? 'waiting' : 'settled';
+      }
       break;
 
     case 'run_stopping':
@@ -195,6 +263,7 @@ function applyDecisionOpportunity(state: any, data: any) {
   if (!opportunityId) return;
   const at = finite(data?.at);
   if (data?.phase === 'scheduled') {
+    state.ethogram.decisions.scheduled += 1;
     state.decision = {
       opportunityId,
       scheduledAt: at,
@@ -222,10 +291,20 @@ function applyDecisionOpportunity(state: any, data: any) {
     latencyMs: scheduledAt !== null && at !== null ? Math.max(0, at - scheduledAt) : null,
     terminal: text(data?.terminal),
   };
+  increment(state.ethogram.decisions.terminals, text(data?.terminal) ?? 'unknown');
+  if (state.decision.latencyMs !== null) {
+    const latency = state.decision.latencyMs;
+    const summary = state.ethogram.decisions.latencyMs;
+    summary.count += 1;
+    summary.total += latency;
+    summary.min = summary.min === null ? latency : Math.min(summary.min, latency);
+    summary.max = summary.max === null ? latency : Math.max(summary.max, latency);
+    summary.last = latency;
+  }
   if (data?.terminal !== 'success') state.phase = 'settled';
 }
 
-function applyCommittedTurn(state: any, turn: any) {
+function applyCommittedTurn(state: any, turn: any, committedAt: string) {
   const presentation = safePresentation(turn?.observationPresentation);
   const observation = presentation?.observation ?? null;
   const nextObservation = presentation?.nextObservation ?? null;
@@ -240,6 +319,83 @@ function applyCommittedTurn(state: any, turn: any) {
   state.consequence = committedConsequence(turn);
   state.doing = null;
   state.phase = turn?.action?.name === 'wait_for_event' ? 'waiting' : 'settled';
+  const turnId = text(turn?.id);
+  const turnSequence = positiveInteger(turn?.sequence);
+  if (!turnId || turnSequence === null) return;
+  state.lync.committedTurns += 1;
+  state.lync.tipId = turnId;
+  state.lync.tipSequence = turnSequence;
+  state.lync.parentId = text(turn?.parentId);
+  state.lync.committedAt = committedAt;
+
+  const actionName = text(turn?.action?.name) ?? 'unknown';
+  state.ethogram.actions.committed += 1;
+  increment(state.ethogram.actions.byName, actionName);
+  if (turn?.outcome?.ok === true) state.ethogram.actions.succeeded += 1;
+  else state.ethogram.actions.failed += 1;
+
+  const events = Array.isArray(nextObservation?.events) ? nextObservation.events : [];
+  for (const event of events) {
+    const eventType = text(event?.type) ?? 'unknown';
+    state.ethogram.perceivedEvents.total += 1;
+    increment(state.ethogram.perceivedEvents.byType, eventType);
+    if (recentEventType(eventType)) {
+      appendRecent(state, {
+        turnId,
+        turnSequence,
+        at: finite(nextObservation?.observedAt),
+        kind: 'perceived_event',
+        type: eventType,
+        detail: project(event?.data),
+      });
+    }
+  }
+
+  const changes = Array.isArray(turn?.outcome?.result?.changes) ? turn.outcome.result.changes : [];
+  for (const change of changes) {
+    if (change?.verified !== true || change?.observed !== true) continue;
+    const verb = text(change?.verb) ?? 'change';
+    state.ethogram.verifiedWorldChanges.total += 1;
+    increment(state.ethogram.verifiedWorldChanges.byVerb, verb);
+    appendRecent(state, {
+      turnId,
+      turnSequence,
+      at: finite(change?.confirmation?.observedAt),
+      kind: 'verified_world_change',
+      type: verb,
+      detail: project({
+        before: change?.before,
+        after: change?.after,
+        confirmation: change?.confirmation,
+      }),
+    });
+  }
+}
+
+function appendRecent(state: any, item: any) {
+  state.ethogram.recent.push(item);
+  if (state.ethogram.recent.length > RECENT_ACTIVITY_LIMIT) {
+    state.ethogram.recent.splice(0, state.ethogram.recent.length - RECENT_ACTIVITY_LIMIT);
+  }
+}
+
+function recentEventType(type: string) {
+  return [
+    'chat_received',
+    'entity_became_visible',
+    'entity_left_view',
+    'visible_player_equipment_changed',
+    'visible_block_changed',
+    'item_collected',
+    'inventory_changed',
+    'controller_suspended',
+    'weather_changed',
+    'day_phase_changed',
+  ].includes(type);
+}
+
+function increment(counts: Record<string, number>, key: string) {
+  counts[key] = (counts[key] ?? 0) + 1;
 }
 
 function choice(data: any): ResidentLensState['chooses'] {
@@ -376,6 +532,11 @@ function text(value: unknown): string | null {
 function finite(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
 }
 
 function clone<T>(value: T): T {

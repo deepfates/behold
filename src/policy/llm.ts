@@ -1807,7 +1807,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     log(`[policy] suspended: ${reason}`);
   }
 
-  function resume() {
+  function resume(reason = 'world_interaction') {
     if (stopped) return;
     consecutiveSocialCameraActions = 0;
     consecutiveProjectActions = 0;
@@ -1817,7 +1817,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
     suspended = false;
     decisionCycle.enter('idle');
-    log('[policy] resumed by world interaction');
+    log(`[policy] resumed: ${reason}`);
     if (!fixedPilotSlots) void wake(true, { kind: 'resume' });
   }
 

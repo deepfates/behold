@@ -2992,8 +2992,13 @@ test('managed world runner owns conjunctive readiness, distinct leases, drain, s
         managedRunId,
       }));
       console.log('[bot] Local world loaded.');
-      process.stdin.resume();
-      process.stdin.on('end', () => {
+      const readline = require('node:readline');
+      const rl = readline.createInterface({ input: process.stdin });
+      rl.on('line', (line) => {
+        if (line === 'cognition pause') console.error('[console] cognition control acknowledged: paused');
+        if (line === 'cognition resume') console.error('[console] cognition control acknowledged: running');
+      });
+      rl.on('close', () => {
         fs.unlinkSync(lease);
         process.exit(0);
       });
@@ -3025,6 +3030,21 @@ test('managed world runner owns conjunctive readiness, distinct leases, drain, s
   assert.equal(new Set(run.residents.map((resident) => resident.leasePath)).size, 2);
   assert.equal(new Set(run.residents.map((resident) => resident.journalDirectory)).size, 2);
   assert.equal(run.control.record().controllers.length, 2);
+
+  await run.pauseResidents('fixture_operator');
+  await run.resumeResidents('fixture_operator');
+  const controlled = verifyWorldLifecycleJournal(run.control.journalFile).events.filter((event) =>
+    event.type.startsWith('resident_cognition_control_'),
+  );
+  assert.deepEqual(
+    controlled.map((event) => [event.type, (event.data as any).state]),
+    [
+      ['resident_cognition_control_requested', 'paused'],
+      ['resident_cognition_control_acknowledged', 'paused'],
+      ['resident_cognition_control_requested', 'running'],
+      ['resident_cognition_control_acknowledged', 'running'],
+    ],
+  );
 
   await run.quiesceResidents('fixture_witness');
   assert.equal(fs.existsSync(fixture.lease), false);

@@ -9,7 +9,16 @@ import {
 
 test('resident lens folds the safe causal path without exposing private controller frames', () => {
   const observation = humanObservation(10, 'before');
-  const nextObservation = humanObservation(11, 'after');
+  const nextObservation = {
+    ...humanObservation(11, 'after'),
+    events: [
+      {
+        sequence: 11,
+        type: 'chat_received',
+        data: { sender: 'Neighbor', message: 'hello' },
+      },
+    ],
+  };
   const privateObservation = { secret: 'private-before' };
   const privateNextObservation = { secret: 'private-after' };
   const events: RunJournalEvent[] = [
@@ -54,6 +63,9 @@ test('resident lens folds the safe causal path without exposing private controll
     }),
     event(8, 'entity_turn', {
       protocol: 'behold.entity-turn.v1',
+      id: 'Scout:turn:41',
+      sequence: 41,
+      parentId: 'Scout:turn:40',
       observation: privateObservation,
       nextObservation: privateNextObservation,
       observationPresentation: {
@@ -72,7 +84,19 @@ test('resident lens folds the safe causal path without exposing private controll
       outcome: {
         ok: true,
         eventType: 'action_completed',
-        result: { ok: true, changed: 'stone became air' },
+        result: {
+          ok: true,
+          changes: [
+            {
+              verb: 'dig',
+              before: 'stone',
+              after: 'air',
+              verified: true,
+              observed: true,
+              confirmation: { source: 'mineflayer:blockUpdate', observedAt: 1_700 },
+            },
+          ],
+        },
       },
     }),
   ];
@@ -105,6 +129,35 @@ test('resident lens folds the safe causal path without exposing private controll
     value: { health: 19, food: 18 },
     observedAt: 11,
   });
+  assert.deepEqual(state.lync, {
+    committedTurns: 1,
+    tipId: 'Scout:turn:41',
+    tipSequence: 41,
+    parentId: 'Scout:turn:40',
+    committedAt: new Date(8_000).toISOString(),
+  });
+  assert.deepEqual(state.ethogram.decisions, {
+    scheduled: 1,
+    terminals: { success: 1 },
+    latencyMs: { count: 1, total: 375, min: 375, max: 375, last: 375 },
+  });
+  assert.deepEqual(state.ethogram.actions, {
+    committed: 1,
+    succeeded: 1,
+    failed: 0,
+    byName: { dig_block: 1 },
+  });
+  assert.deepEqual(state.ethogram.perceivedEvents, {
+    total: 1,
+    byType: { chat_received: 1 },
+  });
+  assert.deepEqual(state.ethogram.verifiedWorldChanges, {
+    total: 1,
+    byVerb: { dig: 1 },
+  });
+  assert.equal(state.ethogram.recent.length, 2);
+  assert.equal(state.ethogram.recent[0].kind, 'perceived_event');
+  assert.equal(state.ethogram.recent[1].kind, 'verified_world_change');
   assert.equal(JSON.stringify(state).includes('private-before'), false);
   assert.equal(JSON.stringify(state).includes('private-after'), false);
   assert.ok(Object.isFrozen(state));

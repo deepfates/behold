@@ -751,6 +751,8 @@ export type ManagedWorldRun = Readonly<{
   /** A normal managed stop requested by an owning runtime boundary. */
   stopRequested: Promise<string>;
   finished: Promise<void>;
+  pauseResidents(reason?: string): Promise<void>;
+  resumeResidents(reason?: string): Promise<void>;
   quiesceResidents(reason?: string): Promise<void>;
   stop(reason?: string): Promise<void>;
 }>;
@@ -2861,6 +2863,49 @@ export async function startManagedWorld(
 
     let stopPromise: Promise<void> | null = null;
     let quiescePromise: Promise<void> | null = null;
+    let cognitionControlTail = Promise.resolve();
+    const setResidentCognition = (state: 'paused' | 'running', reason: string) => {
+      if (stopPromise || stopping) {
+        return Promise.reject(
+          new WorldRunnerError(
+            `Resident cognition cannot be ${state} after managed shutdown begins`,
+            'resident_cognition_control_after_stop',
+          ),
+        );
+      }
+      const operation = cognitionControlTail.then(async () => {
+        control.append('resident_cognition_control_requested', {
+          protocol: 'behold.managed-resident-cognition-control.v1',
+          state,
+          reason,
+          residents: controllerProcesses.map((entry) => entry.resident.entityId),
+        });
+        try {
+          await setManagedResidentCognition({
+            residents: controllerProcesses,
+            state,
+            timeoutMs: shutdownTimeoutMs,
+            sleep,
+          });
+          control.append('resident_cognition_control_acknowledged', {
+            protocol: 'behold.managed-resident-cognition-control.v1',
+            state,
+            reason,
+            residents: controllerProcesses.map((entry) => entry.resident.entityId),
+          });
+        } catch (error: any) {
+          control.append('resident_cognition_control_failed', {
+            protocol: 'behold.managed-resident-cognition-control.v1',
+            state,
+            reason,
+            error: error?.message || String(error),
+          });
+          throw error;
+        }
+      });
+      cognitionControlTail = operation.catch(() => undefined);
+      return operation;
+    };
     const quiesceResidents = (reason = 'witness_observation') => {
       if (quiescePromise) return quiescePromise;
       if (stopPromise || stopping) {
@@ -2940,6 +2985,8 @@ export async function startManagedWorld(
       experimentRelease: committedExperimentRelease,
       stopRequested,
       finished,
+      pauseResidents: (reason = 'operator_request') => setResidentCognition('paused', reason),
+      resumeResidents: (reason = 'operator_request') => setResidentCognition('running', reason),
       quiesceResidents,
       stop,
     });
@@ -3994,6 +4041,41 @@ function processExited(child: ChildProcessWithoutNullStreams) {
 
 function cleanExit(exit: ProcessExit) {
   return exit.code === 0 && exit.signal === null;
+}
+
+async function setManagedResidentCognition(input: {
+  residents: readonly ManagedResidentProcess[];
+  state: 'paused' | 'running';
+  timeoutMs: number;
+  sleep: (milliseconds: number) => Promise<void>;
+}) {
+  await Promise.all(
+    input.residents.map(async (resident) => {
+      if (processExited(resident.child) || resident.child.stdin.destroyed) {
+        throw new WorldRunnerError(
+          `Resident ${resident.resident.entityId} cannot acknowledge cognition ${input.state}`,
+          'resident_cognition_control_unavailable',
+          { entityId: resident.resident.entityId, state: input.state },
+        );
+      }
+      const marker = resident.output.mark();
+      resident.child.stdin.write(
+        input.state === 'paused' ? 'cognition pause\n' : 'cognition resume\n',
+      );
+      const acknowledgement = `[console] cognition control acknowledged: ${input.state}`;
+      await raceProcessExits(
+        (signal) =>
+          waitForCondition(
+            `resident ${resident.resident.entityId} cognition ${input.state} acknowledgement`,
+            input.timeoutMs,
+            input.sleep,
+            async () => resident.output.linesAfter(marker).includes(acknowledgement),
+            signal,
+          ),
+        [resident.exit],
+      );
+    }),
+  );
 }
 
 type OutputCapture = Readonly<{

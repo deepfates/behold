@@ -13,6 +13,25 @@ test('resident lens server follows journals over GET and SSE and closes its list
   );
   const journal = path.join(directory, '2026-07-02T00-00-00-000Z-Scout.jsonl');
   fs.writeFileSync(journal, line(1, 'run_started', { runId: 'run-1', body: { username: 'Body' } }));
+  const lifecycle = path.join(directory, 'lifecycle.log');
+  fs.writeFileSync(
+    lifecycle,
+    `${JSON.stringify({
+      sequence: 1,
+      at: new Date(1_000).toISOString(),
+      type: 'run_configured',
+      data: {
+        runId: 'world-1-1',
+        world: { id: 'world-1' },
+        population: { residents: [{ entityId: 'Scout' }] },
+      },
+    })}\n${JSON.stringify({
+      sequence: 2,
+      at: new Date(2_000).toISOString(),
+      type: 'run_ready',
+      data: { serverPid: 99 },
+    })}\n`,
+  );
   const server = await startResidentLensServer({
     residents: [
       {
@@ -20,9 +39,12 @@ test('resident lens server follows journals over GET and SSE and closes its list
         bodyUsername: 'Body',
         journalDirectory: directory,
         viewerEndpoint: 'http://127.0.0.1:3007',
+        staleAfterMs: 500,
       },
     ],
     pollMs: 10,
+    lifecycleFile: lifecycle,
+    now: () => 3_000,
   });
   try {
     assert.equal(server.host, '127.0.0.1');
@@ -33,6 +55,17 @@ test('resident lens server follows journals over GET and SSE and closes its list
     assert.equal(initial[0].state.runId, 'run-1');
     assert.equal(initial[0].state.cursor.journalSequence, 1);
     assert.equal(initial[0].source.file, journal);
+    assert.equal(initial[0].source.ageMs, 2_000);
+    assert.equal(initial[0].source.stale, true);
+
+    const habitat = await fetch(`${server.endpoint}/api/habitat`).then((response) =>
+      response.json(),
+    );
+    assert.equal(habitat.state.worldId, 'world-1');
+    assert.equal(habitat.state.runId, 'world-1-1');
+    assert.equal(habitat.state.phase, 'running');
+    assert.equal(habitat.source.file, lifecycle);
+    assert.equal(habitat.residents[0].entityId, 'Scout');
 
     const page = await fetch(server.endpoint);
     assert.match(
@@ -41,11 +74,15 @@ test('resident lens server follows journals over GET and SSE and closes its list
     );
     const html = await page.text();
     assert.match(html, /new EventSource\('\/api\/events'\)/);
+    assert.match(html, /\/api\/habitat/);
+    assert.match(html, /event=>renderHabitat/);
     assert.match(html, /\['experience',view\.state\.sees\]/);
     assert.match(html, /\['choice',choice\(view\.state\.chooses\)\]/);
     assert.match(html, /\['attempt',view\.state\.doing\]/);
     assert.match(html, /optional narration/);
     assert.match(html, /controller ·/);
+    assert.match(html, /observed ethogram/);
+    assert.match(html, /Lync progress/);
     assert.doesNotMatch(html, /\['decision',view\.state\.decision\]/);
 
     const stream = await fetch(`${server.endpoint}/api/events`);
@@ -106,6 +143,66 @@ test('resident lens server reports a missing journal without creating storage', 
   } finally {
     await server.close();
     fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('resident lens control capability authenticates pause resume and stop separately from projections', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-control-'));
+  fs.writeFileSync(
+    path.join(directory, 'resident.jsonl'),
+    line(1, 'run_started', { runId: 'run-control', body: { username: 'Body' } }),
+  );
+  const actions: string[] = [];
+  const server = await startResidentLensServer({
+    residents: [
+      {
+        entityId: 'Scout',
+        bodyUsername: 'Body',
+        journalDirectory: directory,
+        viewerEndpoint: null,
+      },
+    ],
+    control: {
+      pause: () => {
+        actions.push('pause');
+      },
+      resume: () => {
+        actions.push('resume');
+      },
+      stop: () => {
+        actions.push('stop');
+      },
+    },
+  });
+  try {
+    assert.equal(server.controls.available, true);
+    const endpoint = new URL(server.endpoint);
+    const token = new URLSearchParams(endpoint.hash.slice(1)).get('control');
+    assert.ok(token);
+    const base = endpoint.origin;
+
+    const rejected = await fetch(`${base}/api/control`, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'pause' }),
+    });
+    assert.equal(rejected.status, 403);
+
+    for (const action of ['pause', 'resume', 'stop']) {
+      const response = await fetch(`${base}/api/control`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action }),
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { acknowledged: true, action });
+    }
+    assert.deepEqual(actions, ['pause', 'resume', 'stop']);
+  } finally {
+    await server.close();
+    fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 

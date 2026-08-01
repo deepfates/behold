@@ -872,7 +872,7 @@ export async function runConsole(
     const p = parseLine(line);
     if ((p as any).meta === 'help') {
       console.error(
-        'Commands: say, status, nearby, survey [radius=16 step=4], cursor, look <x y z|@cursor>, move to <x y z|@cursor> [near=n], stop, dig <x y z|@cursor>, place @cursor, place at <x y z> [name=block], equip <name>, eat [name]',
+        'Commands: cognition pause|resume, say, status, nearby, survey [radius=16 step=4], cursor, look <x y z|@cursor>, move to <x y z|@cursor> [near=n], stop, dig <x y z|@cursor>, place @cursor, place at <x y z> [name=block], equip <name>, eat [name]',
       );
       prompt();
       rl.prompt();
@@ -880,6 +880,31 @@ export async function runConsole(
     }
     if ((p as any).meta === 'json') {
       cache.last = `json ${(p as any).args?.on ? 'on' : 'off'} (not yet)`;
+      show();
+      return;
+    }
+    if ((p as any).meta === 'cognition') {
+      const state = (p as any).args?.state;
+      if (!experimentActive || !policy || !['paused', 'running'].includes(state)) {
+        appendJournal('operator_cognition_control', {
+          protocol: 'behold.operator-cognition-control.v1',
+          phase: 'rejected',
+          state,
+          reason: !experimentActive ? 'experiment_not_released' : 'cognition_unavailable',
+        });
+        console.error(`[console] cognition control rejected: ${state || 'invalid'}`);
+        show();
+        return;
+      }
+      if (state === 'paused') policy.suspend('operator_control');
+      else policy.resume('operator_control');
+      appendJournal('operator_cognition_control', {
+        protocol: 'behold.operator-cognition-control.v1',
+        phase: 'acknowledged',
+        state,
+      });
+      console.error(`[console] cognition control acknowledged: ${state}`);
+      cache.last = `cognition ${state}`;
       show();
       return;
     }

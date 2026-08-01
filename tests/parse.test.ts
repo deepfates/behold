@@ -2,6 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseLine } from '../src/tui/parse';
 
+test('parseLine keeps cognition pause and resume outside the bodily action surface', () => {
+  assert.deepEqual(parseLine('cognition pause'), {
+    meta: 'cognition',
+    args: { state: 'paused' },
+  });
+  assert.deepEqual(parseLine('cognition resume'), {
+    meta: 'cognition',
+    args: { state: 'running' },
+  });
+});
+
 test('parseLine exposes terrain survey options', () => {
   assert.deepEqual(parseLine('survey radius=24 step=3 verticalRange=64'), {
     tool: 'survey_area',

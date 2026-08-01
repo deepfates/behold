@@ -1,6 +1,6 @@
 export type Parsed =
   | { tool: string; args?: any; preempt?: boolean }
-  | { meta: 'help' | 'json' | 'unknown'; args?: any };
+  | { meta: 'help' | 'json' | 'cognition' | 'unknown'; args?: any };
 
 export function parseLine(line: string): Parsed {
   const s = (line || '').trim();
@@ -8,6 +8,12 @@ export function parseLine(line: string): Parsed {
   if (s === 'help' || s.startsWith('help ')) return { meta: 'help', args: s.slice(5) };
   if (s === 'json on') return { meta: 'json', args: { on: true } } as any;
   if (s === 'json off') return { meta: 'json', args: { on: false } } as any;
+  if (s === 'cognition pause') {
+    return { meta: 'cognition', args: { state: 'paused' } };
+  }
+  if (s === 'cognition resume') {
+    return { meta: 'cognition', args: { state: 'running' } };
+  }
 
   const preempt = s.startsWith('!');
   const body = preempt ? s.slice(1).trim() : s;

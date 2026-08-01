@@ -139,6 +139,22 @@ test('live turns an exhausted resident purpose quota into a normal boundary stop
   boundary.dispose();
 });
 
+test('live accepts an owned habitat-lens stop request through the same boundary', async () => {
+  const signals = new EventEmitter();
+  const boundary = createLiveBoundary(
+    {
+      finished: new Promise<void>(() => {}),
+      stopRequested: new Promise<string>(() => {}),
+    },
+    60_000,
+    signals as any,
+  );
+
+  boundary.request('resident_lens_stop');
+  assert.equal(await boundary.wait, 'resident_lens_stop');
+  boundary.dispose();
+});
+
 test('live recovery can resume head publication after ownership was already released', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-recovery-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
