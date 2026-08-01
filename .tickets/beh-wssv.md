@@ -40,3 +40,7 @@ The first ordinary start failed before Place, Minecraft, LM Studio, or resident 
 **2026-08-01T23:28:41Z**
 
 Qualified habitat episode 000001 completed its declared 20-minute ordinary epoch and clean stop. Place entry was qualified with override=null. OxfordLark and OxfordSedge shared one loaded Qwen3.6 35B-A3B weight instance while controller, quota, entity, request history, and private Lync remained distinct. Authenticated native importdf joined and rejoined; real hostile ecology caused damage/death. Stop saved the Minecraft head, settled all cognition/actions, advanced independent Lync prefixes (3,937,025 and 3,445,303 bytes), unloaded the owned model once, and released control. This is not yet acceptance: same-life resume remains, and the episode exposed interface defects now tracked by beh-kgyy, beh-uumj, beh-e6w5, beh-2h0i, and beh-1h3a.
+
+**2026-08-01T23:39:22Z**
+
+Resume episode 000002 reopened the same Lark/Sedge lives (81/72 prior turns), same world, and one shared Qwen instance. Both independently moved with exact post-motion settlement, proving continuity and repaired motion path. Lark then selected chat and exposed an unsupported minLength/maxLength validator defect; the short episode was stopped and saved cleanly before acceptance. Native importdf was not witnessed in this short repair probe, so the episode correctly exited non-accepting. Owning schema fix follows before episode 000003.

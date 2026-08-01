@@ -5,6 +5,8 @@ const SUPPORTED_KEYS = new Set([
   'enum',
   'minimum',
   'maximum',
+  'minLength',
+  'maxLength',
   'description',
   'items',
   'additionalProperties',
@@ -84,7 +86,22 @@ function validateNode(value: unknown, schemaValue: unknown, path: string, errors
     return;
   }
   if (type === 'string') {
-    if (typeof value !== 'string') errors.push(`${path}: expected string`);
+    if (typeof value !== 'string') {
+      errors.push(`${path}: expected string`);
+      return;
+    }
+    const minLength = schemaStringBound(schema.minLength, `${path}: schema minLength`, errors);
+    const maxLength = schemaStringBound(schema.maxLength, `${path}: schema maxLength`, errors);
+    if (minLength != null && maxLength != null && minLength > maxLength) {
+      errors.push(`${path}: schema minLength exceeds maxLength`);
+      return;
+    }
+    if (minLength != null && value.length < minLength) {
+      errors.push(`${path}: string is shorter than minLength ${minLength}`);
+    }
+    if (maxLength != null && value.length > maxLength) {
+      errors.push(`${path}: string is longer than maxLength ${maxLength}`);
+    }
     return;
   }
   if (type === 'boolean') {
@@ -106,6 +123,15 @@ function validateNode(value: unknown, schemaValue: unknown, path: string, errors
   if (schema.maximum != null && value > Number(schema.maximum)) {
     errors.push(`${path}: value is above maximum ${schema.maximum}`);
   }
+}
+
+function schemaStringBound(value: unknown, label: string, errors: string[]): number | null {
+  if (value == null) return null;
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    errors.push(`${label} must be a non-negative integer`);
+    return null;
+  }
+  return Number(value);
 }
 
 function sameJson(left: unknown, right: unknown) {

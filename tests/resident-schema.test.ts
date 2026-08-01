@@ -6,7 +6,7 @@ const schema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    target: { type: 'string', enum: ['entity:7', 'entity:9'] },
+    target: { type: 'string', enum: ['entity:7', 'entity:9'], minLength: 8, maxLength: 8 },
     on: {
       type: 'object',
       additionalProperties: false,
@@ -31,6 +31,27 @@ test('resident action inputs validate against nested, bounded, enum, and array s
   );
 });
 
+test('resident string bounds reject amputated or oversized action text before world intent', () => {
+  const bounded = { type: 'string', minLength: 1, maxLength: 4 };
+  assert.deepEqual(validateResidentActionInput('okay', bounded), { ok: true });
+  assert.deepEqual(validateResidentActionInput('', bounded), {
+    ok: false,
+    errors: ['$: string is shorter than minLength 1'],
+  });
+  assert.deepEqual(validateResidentActionInput('hello', bounded), {
+    ok: false,
+    errors: ['$: string is longer than maxLength 4'],
+  });
+  assert.deepEqual(validateResidentActionInput(4, bounded), {
+    ok: false,
+    errors: ['$: expected string'],
+  });
+  assert.deepEqual(validateResidentActionInput('x', { ...bounded, minLength: 5 }), {
+    ok: false,
+    errors: ['$: schema minLength exceeds maxLength'],
+  });
+});
+
 test('resident action input validation reports every unsafe mismatch before admission', () => {
   const result = validateResidentActionInput(
     {
@@ -46,6 +67,7 @@ test('resident action input validation reports every unsafe mismatch before admi
   assert.deepEqual(result.errors, [
     '$.extraControl: field is not declared',
     '$.target: value is outside enum',
+    '$.target: string is longer than maxLength 8',
     '$.on.hiddenCoordinate: field is not declared',
     '$.on.x: expected finite number',
     '$.on.y: expected integer',
