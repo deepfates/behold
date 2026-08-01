@@ -27,6 +27,7 @@ import {
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
 } from '../src/mind/ollama-json-action';
 import typedWrapperFixture from './fixtures/ollama-local-typed-wrapper.json';
+import { ResidentCameraObservationChangedError } from '../src/perception/resident-camera-capture';
 
 function withMinecraftActionSurface<T extends { actions: readonly any[] }>(environment: T) {
   return {
@@ -1939,6 +1940,62 @@ test('camera perception fails before mind admission and never downgrades to sema
     assert.deepEqual(opportunities, []);
     assert.equal(errors.length, 1);
     assert.match(errors[0].error, /camera unavailable/);
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('camera perception resamples a body that is still settling without calling the mind', async () => {
+  let observationSequence = 1;
+  const capturedSequences: number[] = [];
+  const errors: any[] = [];
+  let mindCalls = 0;
+  let secondCapture!: () => void;
+  const secondCaptureStarted = new Promise<void>((resolve) => {
+    secondCapture = resolve;
+  });
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => true,
+      observe: () => experience(observationSequence, null, 0),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind: {
+        id: 'camera-resample-mind',
+        decide: async () => {
+          mindCalls += 1;
+          throw new Error('mind must not be called');
+        },
+      },
+      perceptionProfile: 'semantic-plus-camera-v1',
+      capturePerception: async (observation: any) => {
+        capturedSequences.push(observation.sequence);
+        if (capturedSequences.length === 1) {
+          observationSequence = 2;
+          throw new ResidentCameraObservationChangedError(
+            'resident camera observation differs from the current body pose',
+          );
+        }
+        secondCapture();
+        throw new Error('camera unavailable after resample');
+      },
+      acceptEngineEvent: () => true,
+      onModelError: (error) => errors.push(error),
+    },
+  );
+
+  try {
+    await policy.tick();
+    await secondCaptureStarted;
+    await until(() => errors.length === 1);
+    assert.deepEqual(capturedSequences, [1, 2]);
+    assert.equal(mindCalls, 0);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].error, /camera unavailable after resample/);
   } finally {
     await policy.stop();
   }

@@ -87,6 +87,7 @@ import {
   RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
   type ResidentCameraFrame,
 } from '../perception/resident-camera-frame';
+import { isResidentCameraObservationChangedError } from '../perception/resident-camera-capture';
 
 export type { ModelCallEvidence, ModelCallFailureEvidence } from '../mind/evidence';
 
@@ -385,6 +386,7 @@ const EMBODIED_ACTION_TOOLS = new Set<string>([
 ]);
 const BODILY_RESPONSE_TOOLS = new Set<string>([...EMBODIED_ACTION_TOOLS, 'consume', 'equip_item']);
 const TERMINAL_ACTION_EVENTS = new Set(['action_completed', 'action_failed', 'intent_blocked']);
+const RESIDENT_CAMERA_RESAMPLE_DELAY_MS = 50;
 const URGENT_CONTINUITY_TURNS = 3;
 const URGENT_CONTINUITY_BYTES = 6_000;
 const DELIBERATIVE_CONTINUITY_TURNS = 12;
@@ -851,6 +853,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     deciding = true;
     decisionCycle.enter('preparing_context');
     let continueImmediately = false;
+    let resampleMovingCamera = false;
     try {
       turnSteps += 1;
       const startedAt = now();
@@ -1324,6 +1327,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             model: activeDecision?.model || opts.model,
             ...(e instanceof ResidentMindCallError ? { call: e.call } : {}),
           });
+        } else if (
+          usesResidentCamera(perceptionProfile) &&
+          isResidentCameraObservationChangedError(e)
+        ) {
+          // A bounded movement may still carry Mineflayer a fraction of a block
+          // after its control interval has completed. The semantic observation
+          // and exact camera must describe one pose, so do not call the mind or
+          // weaken camera admission. Refresh the world snapshot after the body
+          // settles and try perception again as part of the same resident turn.
+          turnSteps = Math.max(0, turnSteps - 1);
+          appendWorldUpdate(observe(), 'Current world experience after camera motion');
+          resampleMovingCamera = true;
+          log('[policy] deferred camera perception until the current body pose settles');
         } else {
           log(`[policy] error: ${e?.message || String(e)}`);
           opts.onModelError?.({
@@ -1339,14 +1355,19 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           });
         }
       }
-      turnActive = false;
-      turnSteps = 0;
-      decisionCycle.enter(stopped ? 'stopped' : suspended ? 'suspended' : 'idle');
+      if (!resampleMovingCamera) {
+        turnActive = false;
+        turnSteps = 0;
+        decisionCycle.enter(stopped ? 'stopped' : suspended ? 'suspended' : 'idle');
+      }
     } finally {
       deciding = false;
       activeDecision = null;
       settleStop();
-      if (!stopped && continueImmediately && turnActive && !pending) {
+      if (!stopped && resampleMovingCamera && turnActive && !pending) {
+        decisionCycle.enter('perceiving');
+        setTimeout(() => void continueTurn(), RESIDENT_CAMERA_RESAMPLE_DELAY_MS);
+      } else if (!stopped && continueImmediately && turnActive && !pending) {
         decisionCycle.enter('preparing_context');
         setImmediate(() => void continueTurn());
       } else if (!stopped && wakeQueued && !pending) {

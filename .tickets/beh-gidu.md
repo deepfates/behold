@@ -1,7 +1,7 @@
 ---
 id: beh-gidu
 status: in_progress
-deps: [beh-hi81, beh-58qg, beh-h69n, beh-zl9o]
+deps: [beh-hi81, beh-58qg, beh-h69n, beh-zl9o, beh-uumj]
 links: [beh-rhxm]
 created: 2026-08-01T03:55:38Z
 type: task

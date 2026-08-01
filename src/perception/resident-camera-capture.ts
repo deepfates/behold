@@ -11,6 +11,27 @@ import {
 
 export const RESIDENT_CAMERA_CAPTURE_PROTOCOL =
   'behold.prismarine-resident-camera-capture.v1' as const;
+export const RESIDENT_CAMERA_OBSERVATION_CHANGED = 'resident_camera_observation_changed' as const;
+
+export class ResidentCameraObservationChangedError extends Error {
+  readonly code = RESIDENT_CAMERA_OBSERVATION_CHANGED;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ResidentCameraObservationChangedError';
+  }
+}
+
+export function isResidentCameraObservationChangedError(
+  value: unknown,
+): value is ResidentCameraObservationChangedError {
+  return (
+    value instanceof ResidentCameraObservationChangedError ||
+    (typeof value === 'object' &&
+      value != null &&
+      (value as { code?: unknown }).code === RESIDENT_CAMERA_OBSERVATION_CHANGED)
+  );
+}
 
 export type ResidentCameraCaptureSocket = EventEmitter & {
   handshake?: { auth?: Record<string, unknown> };
@@ -243,14 +264,20 @@ function liveCameraForObservation(bot: Bot, observationValue: any, expected?: un
     !finite(position?.y) ||
     !finite(position?.z) ||
     !finite(pose?.yaw) ||
-    !finite(pose?.pitch) ||
+    !finite(pose?.pitch)
+  ) {
+    throw new Error('resident camera observation has no exact current Minecraft body pose');
+  }
+  if (
     position.x !== live.position.x ||
     position.y !== live.position.y ||
     position.z !== live.position.z ||
     pose.yaw !== live.yaw ||
     pose.pitch !== live.pitch
   ) {
-    throw new Error('resident camera observation differs from the current body pose');
+    throw new ResidentCameraObservationChangedError(
+      'resident camera observation differs from the current body pose',
+    );
   }
   const liveUuid = text((bot as any).player?.uuid ?? (bot.entity as any).uuid);
   if (body.uuid != null && liveUuid != null && body.uuid !== liveUuid) {
@@ -272,7 +299,9 @@ function liveCameraForObservation(bot: Bot, observationValue: any, expected?: un
     pitch: Number(pose.pitch),
   });
   if (expected != null && stableJson(camera) !== stableJson(expected)) {
-    throw new Error('resident camera body moved while its frame was rendering');
+    throw new ResidentCameraObservationChangedError(
+      'resident camera body moved while its frame was rendering',
+    );
   }
   return camera;
 }
