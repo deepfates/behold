@@ -815,10 +815,14 @@ function writeEpisodeRecord(input: {
       directory,
       destinationRoot: path.join(episodeRoot, 'resident-lync'),
     });
+    const profiles = [...new Set(sourceFiles.map((source) => source.presentationProfile))];
+    if (profiles.length !== 1) {
+      throw new Error(`resident ${resident.entityId} has mixed Lync presentation profiles`);
+    }
     return {
       entityId: resident.entityId,
       bodyUsername: resident.bodyUsername,
-      profile: 'org.behold.inhabitant.v1',
+      profile: profiles[0],
       lyncDirectory: directory,
       manifestFile: path.join(directory, 'manifest.json'),
       sourceFiles,
@@ -830,6 +834,7 @@ function writeEpisodeRecord(input: {
     sourceFiles: lives.flatMap((life) => life.sourceFiles),
     destination: path.join(episodeRoot, 'textile-resident-lives.lync'),
   });
+  const presenterProfiles = [...new Set(lives.map((life) => life.profile))];
   const base = {
     protocol: LIVE_EPISODE_RECORD_PROTOCOL,
     sessionId: input.sessionId,
@@ -871,7 +876,8 @@ function writeEpisodeRecord(input: {
     nativeHuman: input.nativeHuman,
     lives,
     textile: {
-      presenterProfile: 'org.behold.inhabitant.v1',
+      presenterProfile: presenterProfiles.length === 1 ? presenterProfiles[0] : null,
+      presenterProfiles,
       import: 'episode-local byte union of original Lync sources; no Behold-side rendering',
       artifact: textileImport,
     },
@@ -992,10 +998,24 @@ export function preserveResidentLyncFiles(input: {
         file,
         sha256: preservedSha256,
         sizeBytes: source.sizeBytes,
+        presentationProfile: readResidentLyncPresentationProfile(sourceFile, input.entityId),
         preservation: 'byte_identical_episode_snapshot' as const,
       });
     }),
   );
+}
+
+export function readResidentLyncPresentationProfile(file: string, entityId: string) {
+  const root = JSON.parse(fs.readFileSync(file, 'utf8').split('\n').find(Boolean) || 'null');
+  const meta = root?.kind === 'lync/loom' ? root?.payload?.meta : null;
+  if (
+    meta?.protocol !== 'behold.entity-loom.v1' ||
+    meta?.entityId !== entityId ||
+    !['org.behold.inhabitant.v1', 'org.behold.inhabitant.v2'].includes(meta?.profile)
+  ) {
+    throw new Error(`Lync source does not declare a supported resident presentation profile`);
+  }
+  return meta.profile as 'org.behold.inhabitant.v1' | 'org.behold.inhabitant.v2';
 }
 
 export function preserveTextileImport(input: {

@@ -37,6 +37,17 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Current truth (updated 2026-08-01)
 
+- The compact action-only `resident-v2` interface has crossed an ordinary
+  two-resident live/lens/stop/resume exercise with one shared local Gemma 4 12B
+  weight and separate requests and Lync lives. Birch and Cedar each completed
+  eight initial turns, reopened at saved positions, and received only their own
+  pre-stop factual continuity; their resumed lives reached 12 and 13 turns and
+  stopped cleanly. Median decision latency was about 11 seconds initially and
+  12-13 seconds after resume. Textile accepted the exact 27-event union but
+  exposed 45 genuine v1 presentation-coverage diagnostics for whisper and
+  ordinary sound/time events. Behold and Lync now implement an additive
+  `org.behold.inhabitant.v2` pact for new lives while preserving v1 bytes and
+  output; a fresh v2 live/resume/Textile exercise remains before closure.
 - Episodes 000044-000045 exercised the perception repair and current ordinary
   lifecycle with GPT-5.6 Luna driving Iris and Gemini 3.6 Flash driving Moss.
   All 164 model turns had complete event windows with zero missing or omitted

@@ -84,6 +84,7 @@ export type EntityTurn = {
 export type EntityLoom = {
   backend: 'lync';
   circleId: string | null;
+  presentationProfile: BeholdInhabitantPresentationProfile;
   connectionCapability: EntityConnectionCapability;
   file: string;
   foldFile: string;
@@ -93,6 +94,11 @@ export type EntityLoom = {
   append: (turn: EntityTurn) => Promise<void>;
   close: () => Promise<void>;
 };
+
+export type BeholdInhabitantPresentationProfile =
+  'org.behold.inhabitant.v1' | 'org.behold.inhabitant.v2';
+
+export const CURRENT_BEHOLD_INHABITANT_PRESENTATION_PROFILE = 'org.behold.inhabitant.v2' as const;
 
 export type EntityLifeReference = Readonly<{ v: 1; kind: 'loom'; loomId: string }>;
 
@@ -221,7 +227,7 @@ const issuedEntityConnectionCapabilities = new WeakMap<
 
 type EntityLoomMeta = {
   protocol: 'behold.entity-loom.v1';
-  profile: 'org.behold.inhabitant.v1';
+  profile: BeholdInhabitantPresentationProfile;
   entityId: string;
   circleId?: string;
 };
@@ -313,10 +319,12 @@ export async function openEntityLoom(
     let manifest = await readManifest(manifestFile, entityId);
     let lyncLoom: LyncEntityLoom;
     let tipTurnId: string | null;
+    let presentationProfile: BeholdInhabitantPresentationProfile;
 
     if (manifest) {
       lyncLoom = await looms.open(manifest.loomId);
-      await assertLoomIdentity(lyncLoom, entityId, boundCircleId);
+      presentationProfile = (await assertLoomIdentity(lyncLoom, entityId, boundCircleId)).meta
+        .profile;
       tipTurnId = await recoverUniqueTip(lyncLoom, manifest.tipTurnId, warnings);
     } else {
       const roots = await store.roots('lync/loom');
@@ -334,13 +342,14 @@ export async function openEntityLoom(
         ? await looms.get(`lync:${matching[0].body.id}`)
         : await looms.create({
             protocol: 'behold.entity-loom.v1',
-            profile: 'org.behold.inhabitant.v1',
+            profile: CURRENT_BEHOLD_INHABITANT_PRESENTATION_PROFILE,
             entityId,
             ...(boundCircleId ? { circleId: boundCircleId } : {}),
           });
       if (!info) throw new Error(`could not open Lync loom for ${entityId}`);
       lyncLoom = await looms.open(info.id);
-      await assertLoomIdentity(lyncLoom, entityId, boundCircleId);
+      presentationProfile = (await assertLoomIdentity(lyncLoom, entityId, boundCircleId)).meta
+        .profile;
       tipTurnId = await findMigrationTip(lyncLoom, legacy.turns);
     }
 
@@ -389,6 +398,7 @@ export async function openEntityLoom(
     return {
       backend: 'lync',
       circleId: boundCircleId,
+      presentationProfile,
       connectionCapability,
       file: lyncFile,
       foldFile,
@@ -560,7 +570,7 @@ async function openEntityLoomReadOnly(entityId: string, loomId: string, storageD
   const info = await loom.info();
   if (
     info.meta?.protocol !== 'behold.entity-loom.v1' ||
-    info.meta.profile !== 'org.behold.inhabitant.v1' ||
+    !isBeholdInhabitantPresentationProfile(info.meta.profile) ||
     info.meta.entityId !== entityId
   ) {
     throw new Error(`Lync loom ${loomId} does not belong to ${entityId}`);
@@ -865,7 +875,7 @@ async function assertLoomIdentity(loom: LyncEntityLoom, entityId: string, circle
   const info = await loom.info();
   if (
     info.meta?.protocol !== 'behold.entity-loom.v1' ||
-    info.meta?.profile !== 'org.behold.inhabitant.v1' ||
+    !isBeholdInhabitantPresentationProfile(info.meta?.profile) ||
     info.meta?.entityId !== entityId
   ) {
     throw new Error(`Lync loom ${loom.id} does not belong to ${entityId}`);
@@ -875,6 +885,13 @@ async function assertLoomIdentity(loom: LyncEntityLoom, entityId: string, circle
       `Lync loom ${loom.id} belongs to circle ${info.meta.circleId}, not ${circleId}`,
     );
   }
+  return info as { meta: EntityLoomMeta };
+}
+
+function isBeholdInhabitantPresentationProfile(
+  value: unknown,
+): value is BeholdInhabitantPresentationProfile {
+  return value === 'org.behold.inhabitant.v1' || value === 'org.behold.inhabitant.v2';
 }
 
 async function findMigrationTip(loom: LyncEntityLoom, legacy: EntityTurn[]) {

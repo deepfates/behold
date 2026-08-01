@@ -40,6 +40,20 @@ episodes 000016 and 000017, two untasked residents independently removed four
 stone-brick blocks, stopped cleanly, resumed the same world and lives, and
 continued their passage-opening concern through ordinary Lync continuity.
 
+On August 1 the action-only `resident-v2` path ran Birch and Cedar through a
+90-second ordinary episode and a 60-second resume on one shared local Gemma 4
+12B instance. Both received distinct bounded views, chose and completed bodily
+controls, and reopened at their saved positions with eight prior own-life turns.
+Their first resumed requests contained only their own deterministic factual
+continuity. The read-only live lens showed experience, choice, attempt,
+consequence, and next experience with roughly 11-13 second median decision
+latency. Textile parsed the exact 27-event resumed union without a storage or
+top-level conformance error, but correctly diagnosed that the v1 presenter did
+not render 39 sound/time events or three whisper inputs and results. New lives
+now declare an additive v2 presentation profile whose Lync implementation
+covers that vocabulary without changing v1; the fresh end-to-end projection is
+not yet exercised.
+
 Episodes 000022 and 000023 later ran Qwen 3.6 35B-A3B at a usable roughly
 seven-second median decision horizon, shared one physical LM Studio weight
 instance without sharing resident context, produced one Minecraft-confirmed

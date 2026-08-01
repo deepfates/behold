@@ -347,6 +347,7 @@ test('human-semantic Lync turns bind a safe readable projection to unchanged pri
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-human-presentation-'));
   const expected = oxfordPilotShapedTurn();
   const life = await openEntityLoom(expected.entityId, root, expected.circleId);
+  assert.equal(life.presentationProfile, 'org.behold.inhabitant.v2');
   await life.append(expected);
   const sourceLines = fs
     .readFileSync(life.file, 'utf8')
@@ -354,6 +355,10 @@ test('human-semantic Lync turns bind a safe readable projection to unchanged pri
     .split('\n')
     .map((line) => JSON.parse(line));
   const sourceTurn = sourceLines.find((event) => event.kind === 'lync/turn')?.payload?.payload;
+  assert.equal(
+    sourceLines.find((event) => event.kind === 'lync/loom')?.payload?.meta?.profile,
+    'org.behold.inhabitant.v2',
+  );
   assert.equal(sourceTurn.observation.protocol, 'behold.minecraft-human-semantic-observation.v1');
   assert.equal(
     sourceTurn.nextObservation.protocol,

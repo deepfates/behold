@@ -1,7 +1,7 @@
 ---
 id: beh-rhxm
 status: open
-deps: [beh-s4hx, beh-h69n]
+deps: [beh-s4hx, beh-h69n, beh-oq26]
 links: [beh-gidu]
 created: 2026-08-01T03:55:38Z
 type: task
@@ -18,3 +18,9 @@ Adopt the smallest ordinary interface that satisfies the causal contract, based 
 ## Acceptance Criteria
 
 The ordinary live path runs at least two context-isolated residents through truthful perception, unsteered choice, faithful attempted controls, and authoritative terminal results; watch exposes the live causal lens; clean stop and resume preserve the world bodies and separate lives; and a later decision for each resident receives its own committed pre-stop continuity and none from the other. Behold appends the turns to Lync and Textile presents the completed histories. Previously exercised native-human coexistence remains a supported front-door capability and is repeated only if this work changes or calls that seam into doubt. Record timing and failures without grading conduct. No push or publication.
+
+## Notes
+
+**2026-08-01T05:55:43Z**
+
+Episode 000002 crossed stop/resume and own-life factual continuity, but Textile projection exposed 45 genuine presentation coverage diagnostics (sound/time/whisper). Acceptance remains open behind beh-oq26; exact Lync source and top-level import are sound.

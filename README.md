@@ -34,6 +34,18 @@ repetitive, ineffective, and consequential choices; those choices are observed
 conduct, not a product score. Passing the mechanics stack is therefore not
 presented as a finished living world.
 
+The smaller action-only `resident-v2` path has also crossed its first ordinary
+two-resident live and resume exercise. Birch and Cedar shared one Gemma 4 12B
+LM Studio weight instance while keeping separate requests and Lync lives; each
+completed movement, looking, and communication choices, the live causal lens
+showed the five-stage loop, and resume supplied each resident only its own
+committed pre-stop factual continuity. Both episodes saved and stopped cleanly.
+Textile accepted the exact frozen union but exposed a narrow presentation gap:
+whispers and ordinary sound/time events remained source-only. New lives now use
+the additive `org.behold.inhabitant.v2` presentation pact and the vendored Lync
+0.4.1 implementation; old v1 lives remain unchanged. A fresh v2 live/resume
+projection is still required before that readability repair is called exercised.
+
 The latest exercised local path has carried two Qwen 3.6 35B-A3B residents
 through ordinary live episodes and resumes with one shared LM Studio weight
 instance and isolated own-life context. A native Java client joined as
@@ -243,8 +255,8 @@ Key files
 Prerequisites
 
 - Node.js 22.12 or newer (the package engine floor)
-- `npm ci` installs the tracked Lync 0.4.0 release-candidate artifact under
-  `vendor/`. It is built from clean owning revision `cb4f45f`; this temporary
+- `npm ci` installs the tracked Lync 0.4.1 release-candidate artifact under
+  `vendor/`. It is built from clean owning revision `3801760`; this temporary
   pin keeps the repaired canonical writer reproducible without publishing it.
 - A reachable Minecraft server (local or remote)
 - For online mode: a valid account and correct `MINECRAFT_AUTH`

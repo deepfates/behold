@@ -1,6 +1,6 @@
 ---
 id: beh-s4hx
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-01T03:55:38Z
@@ -26,3 +26,9 @@ During an ordinary multi-resident run the operator can distinguish the admitted 
 - The operator presentation now uses the same five-element waist as `FIRST_LIFE.md`: experience, choice, attempt, consequence, and next experience. Optional narration remains choice metadata; lifecycle phase, latency/body status, journal cursor, and gaps remain visibly separate controller telemetry.
 - Focused reducer, privacy, unavailable-state, SSE, read-only route, missing-journal, and listener-cleanup tests pass. `npm run lint` passes; the full suite passes 633 with 1 skipped and 0 failed.
 - Still unexercised: the ticket's ordinary multi-resident live acceptance. Keep this ticket in progress until that run shows the complete lens and clean shutdown in the actual front door.
+
+## Notes
+
+**2026-08-01T06:11:11Z**
+
+Ordinary episode oxford-living-resident-v2-gemma12-v1/000001 exercised the loopback read-only GET/SSE lens for OxfordBirch and OxfordCedar. It displayed distinct experience, choice, active attempt, consequence/next-experience state, decision latency (~11s median), body condition, and journal cursors while both residents acted; it accepted no writes and closed with the run. The episode then saved/stopped cleanly.

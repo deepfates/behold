@@ -273,8 +273,10 @@ test('live episode record freezes lifelong Lync bytes and makes one direct Texti
   const secondLife = path.join(root, 'entities', 'Second', 'lync');
   fs.mkdirSync(firstLife, { recursive: true });
   fs.mkdirSync(secondLife, { recursive: true });
-  const firstBytes = '{"v":1,"id":"first-root"}\n';
-  const secondBytes = '{"v":1,"id":"second-root"}\n';
+  const firstBytes =
+    '{"v":1,"id":"first-root","kind":"lync/loom","payload":{"meta":{"protocol":"behold.entity-loom.v1","profile":"org.behold.inhabitant.v1","entityId":"First"}}}\n';
+  const secondBytes =
+    '{"v":1,"id":"second-root","kind":"lync/loom","payload":{"meta":{"protocol":"behold.entity-loom.v1","profile":"org.behold.inhabitant.v2","entityId":"Second"}}}\n';
   const firstSource = path.join(firstLife, 'first.lync');
   const secondSource = path.join(secondLife, 'second.lync');
   fs.writeFileSync(firstSource, firstBytes);
@@ -296,6 +298,8 @@ test('live episode record freezes lifelong Lync bytes and makes one direct Texti
   });
 
   assert.equal(first[0]?.protocol, 'behold.live-lync-snapshot.v1');
+  assert.equal(first[0]?.presentationProfile, 'org.behold.inhabitant.v1');
+  assert.equal(second[0]?.presentationProfile, 'org.behold.inhabitant.v2');
   assert.equal(first[0]?.sourceFile, fs.realpathSync.native(firstSource));
   assert.equal(fs.readFileSync(first[0]!.file, 'utf8'), firstBytes);
   assert.equal(textile.protocol, 'behold.live-textile-import.v1');
