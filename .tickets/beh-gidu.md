@@ -1,6 +1,6 @@
 ---
 id: beh-gidu
-status: open
+status: in_progress
 deps: [beh-hi81, beh-58qg, beh-h69n, beh-zl9o]
 links: [beh-rhxm]
 created: 2026-08-01T03:55:38Z
@@ -44,3 +44,7 @@ Replacement live comparison sealed before calls at ignored data/model-perception
 **2026-08-01T08:21:33Z**
 
 R2 manifest final SHA-256 25953786... ran all four branches. Descriptive results are preserved at ignored r2-results.json (SHA printed in the adjacent command/evidence). All 8 resident calls were schema-valid and timely; Gemma semantic/camera each chose same-level then right-level looks; Qwen semantic moved forward 500ms then yielded; Qwen camera yielded twice. Both camera branches captured exact 512px frames (886/896ms cold, 7/11ms warm). All sessions saved/stopped cleanly, all models unloaded, source head remained b5875c3a..., and Textile read each 3-event life as 2 readable + 1 structural with no diagnostics. The comparison is causally inconclusive because fresh bodies spawned at four different positions (1968.5/1402.5, 1978.5/1395.5, 1974.5/1393.5, 1984.5/1400.5), yielding different initial scenes; qwen-camera also completed a second yield before the predeclared first-yield SIGINT could be delivered. Do not claim model or perception effects. If this candidate diagnostic is ever rerun, it first needs an explicitly matched initial body state (for example a pre-fork saved body or identically sealed zero-radius spawn), while keeping Behold entity/Lync identities isolated. That is evaluation setup, not an ordinary-product blocker.
+
+**2026-08-01T08:30:00Z**
+
+R3 removes both identified confounds without adding product machinery. The existing world-history inhabitation path already proves that one saved offline Minecraft body may enter isolated sibling worlds while Behold entity IDs, Lync lives, model sessions, and writable world histories remain distinct. A fresh four-child receipt at the unchanged stopped checkpoint b5875c3a... has SHA-256 b1d7760a.... All four branches use saved body `ReedCamera` (offline UUID 068ba461-1eff-3342-816b-ebac2762ffa1) and distinct R3 entity IDs. Resident quota 2 means one prefix-readiness call plus exactly one natural resident decision, so no operator-timed first-yield stop is needed. Config SHA-256 values are Gemma semantic 89171729..., Gemma camera 5151faa8..., Qwen semantic 63fc7560..., and Qwen camera ca4e8c8f.... The final manifest and calls remain unsealed until this ticket-state commit is clean.
