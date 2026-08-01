@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createProjectMemory, MANAGE_PROJECT_TOOL } from '../src/entity/projects';
 import type { EntityTurn } from '../src/entity/loom';
 
@@ -658,4 +659,143 @@ test('a no-op arrival cannot complete a place-reached project', () => {
   );
   assert.equal(arrived.ok, true);
   assert.equal(arrived.evidence.witness.displacement, 1.5);
+});
+
+test('streamed replay retains evidence for a later project evidence-channel update', () => {
+  const start = projectTurn(
+    'Scout',
+    1,
+    null,
+    {
+      operation: 'start',
+      id: 'supply-marker',
+      title: 'Supply the marker',
+      nextStep: 'Gather one block',
+      doneWhen: 'My inventory contains the marker block',
+      evidence: 'inventory_change',
+    },
+    true,
+    observation({ observedAt: 10 }),
+  );
+  const placed: EntityTurn = {
+    ...projectTurn('Scout', 2, start.id, { operation: 'complete', id: 'unused' }),
+    action: {
+      id: 'place-2',
+      name: 'place_block',
+      input: { position: { x: 1, y: 64, z: 1 }, block: 'dirt' },
+      source: 'llm',
+      kind: 'exclusive',
+      toolCallId: null,
+    },
+    outcome: {
+      ok: true,
+      eventType: 'action_completed',
+      result: {
+        ok: true,
+        changes: [
+          {
+            verified: true,
+            confirmation: { source: 'mineflayer:blockUpdate' },
+            before: 'air',
+            after: 'dirt',
+          },
+        ],
+      },
+    },
+  };
+  const update = projectTurn('Scout', 3, placed.id, {
+    operation: 'update',
+    id: 'supply-marker',
+    title: 'Place the marker',
+    nextStep: 'Confirm the placed block',
+    doneWhen: 'I have made and witnessed the planned marker change',
+    evidence: 'world_change',
+  });
+
+  const replayed = createProjectMemory('Scout', [start, placed, update]);
+  const streamed = createProjectMemory('Scout');
+  for (const turn of [start, placed, update]) streamed.record(turn);
+
+  assert.deepEqual(streamed.snapshot(), replayed.snapshot());
+  const input = { operation: 'complete', id: 'supply-marker' };
+  const current = observation({ observedAt: 50 });
+  assert.deepEqual(streamed.propose(input, current), replayed.propose(input, current));
+  assert.equal(streamed.propose(input, current).evidence.witness.sequence, 2);
+});
+
+test('project memory does not retain irrelevant private history payloads', () => {
+  const modulePath = require.resolve('../src/entity/projects');
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--expose-gc',
+      '-e',
+      `
+        const { createProjectMemory, MANAGE_PROJECT_TOOL } = require(${JSON.stringify(modulePath)});
+        const action = (sequence, name, input, observation) => ({
+          protocol: 'behold.entity-turn.v1',
+          id: 'Scout:turn:' + sequence,
+          entityId: 'Scout',
+          sequence,
+          parentId: sequence === 1 ? null : 'Scout:turn:' + (sequence - 1),
+          model: 'test/model',
+          startedAt: sequence * 10,
+          completedAt: sequence * 10 + 1,
+          observation,
+          utterance: { assistant: { role: 'assistant' } },
+          action: {
+            id: 'action-' + sequence,
+            name,
+            input,
+            source: 'llm',
+            kind: 'parallel',
+            toolCallId: null,
+          },
+          outcome: { ok: true, eventType: 'action_completed', result: { ok: true } },
+          nextObservation: observation,
+        });
+        const baseline = {
+          observedAt: 10,
+          self: {
+            pose: { position: { x: 0, y: 64, z: 0 } },
+            condition: { health: 20, food: 20, oxygen: null, dimension: 'overworld' },
+            inventory: [],
+          },
+          events: [],
+        };
+        const memory = createProjectMemory('Scout');
+        memory.record(action(1, MANAGE_PROJECT_TOOL, {
+          operation: 'start',
+          id: 'long-life',
+          title: 'Reach the marker',
+          nextStep: 'Travel toward the marker',
+          doneWhen: 'I have arrived at the marker',
+          evidence: 'place_reached',
+        }, baseline));
+        for (let index = 0; index < 3; index += 1) global.gc();
+        const before = process.memoryUsage().heapUsed;
+        for (let sequence = 2; sequence <= 770; sequence += 1) {
+          const payload = Buffer.alloc(96 * 1024, sequence % 251).toString('base64');
+          memory.record(action(sequence, 'wait', { ticks: 1 }, {
+            observedAt: sequence * 10,
+            self: baseline.self,
+            events: [],
+            irrelevantPrivatePayload: payload,
+          }));
+        }
+        for (let index = 0; index < 3; index += 1) global.gc();
+        const retained = process.memoryUsage().heapUsed - before;
+        process.stdout.write(JSON.stringify({ retained, projects: memory.snapshot().length }));
+      `,
+    ],
+    { encoding: 'utf8', timeout: 20_000 },
+  );
+
+  assert.equal(child.status, 0, child.stderr);
+  const result = JSON.parse(child.stdout);
+  assert.equal(result.projects, 1);
+  assert.ok(
+    result.retained < 24 * 1024 * 1024,
+    `project memory retained ${result.retained} bytes from irrelevant history payloads`,
+  );
 });

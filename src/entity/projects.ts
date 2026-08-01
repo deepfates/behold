@@ -63,7 +63,7 @@ type ProjectChange =
 /** A bounded projection rebuilt entirely from an inhabitant's own loom. */
 export function createProjectMemory(entityId: string, history: EntityTurn[] = []): ProjectMemory {
   const active = new Map<string, InhabitantProject>();
-  const turns = [...history];
+  const projectEvidence = new Map<string, ProjectEvidenceState>();
 
   const snapshot = () =>
     [...active.values()]
@@ -87,7 +87,11 @@ export function createProjectMemory(entityId: string, history: EntityTurn[] = []
     }
     const evidence =
       parsed.change.operation === 'complete' && observation
-        ? completionEvidence(active.get(parsed.change.id)!, turns, observation)
+        ? completionEvidence(
+            active.get(parsed.change.id)!,
+            evidenceFor(active.get(parsed.change.id)!, projectEvidence),
+            observation,
+          )
         : null;
     if (evidence && !evidence.satisfied) {
       return {
@@ -143,12 +147,13 @@ export function createProjectMemory(entityId: string, history: EntityTurn[] = []
 
   const record = (turn: EntityTurn) => {
     validate(turn);
+    recordEvidence(active, projectEvidence, turn);
     if (turn.action.name === MANAGE_PROJECT_TOOL && turn.outcome.ok) {
       const parsed = parseChange(turn.action.input, 'resident');
       if ('error' in parsed) throw new Error(parsed.error);
       apply(active, parsed.change, turn.sequence);
+      updateEvidence(projectEvidence, parsed.change, turn);
     }
-    turns.push(turn);
   };
 
   // Older project turns predate doneWhen and evidence. Replay them faithfully,
@@ -161,12 +166,14 @@ export function createProjectMemory(entityId: string, history: EntityTurn[] = []
     if (turn.entityId !== entityId) {
       throw new Error(`project memory expected ${entityId}, received ${turn.entityId}`);
     }
+    recordEvidence(active, projectEvidence, turn);
     if (turn.action.name !== MANAGE_PROJECT_TOOL || !turn.outcome.ok) return;
     const parsed = parseChange(turn.action.input, 'legacy');
     if ('error' in parsed) throw new Error(`invalid committed project change: ${parsed.error}`);
     const issue = stateIssue(active, parsed.change, LEGACY_REPLAY_LIMIT, true);
     if (issue) throw new Error(`invalid committed project change: ${issue.error}`);
     apply(active, parsed.change, turn.sequence);
+    updateEvidence(projectEvidence, parsed.change, turn);
   }
 }
 
@@ -177,6 +184,31 @@ type CompletionEvidence = {
   witness?: any;
 };
 
+type RetainedActionEvidence = {
+  action: string;
+  result: any;
+  witness: ReturnType<typeof actionWitness>;
+};
+
+/**
+ * Evidence is reduced while a project is active. It deliberately contains no
+ * EntityTurn or complete observation: the canonical life remains in Lync, and
+ * this projection keeps only the bounded facts a later completion decision can
+ * actually consult.
+ */
+type ProjectEvidenceState = {
+  baseline: any;
+  sinceAt: number;
+  firstWorldMutation?: RetainedActionEvidence;
+  firstCraft?: RetainedActionEvidence;
+  latestSpaceInspection?: RetainedActionEvidence;
+  firstInventoryEvent?: any;
+  firstBodyEvent?: any;
+  firstSocialEvent?: any;
+  firstDayEvent?: any;
+  firstNightEvent?: any;
+};
+
 /**
  * A model may interpret a natural-language doneWhen, but it may not declare
  * completion without a corresponding Minecraft consequence after the project
@@ -184,27 +216,20 @@ type CompletionEvidence = {
  */
 function completionEvidence(
   project: InhabitantProject,
-  turns: EntityTurn[],
+  state: ProjectEvidenceState,
   current: any,
 ): CompletionEvidence {
   const expected = project.completionRequires!;
-  const start = turns.find((turn) => turn.sequence === project.startedAtSequence);
-  const sinceAt = start?.completedAt ?? 0;
-  const afterStart = turns.filter((turn) => turn.sequence > project.startedAtSequence);
-  const baseline = start?.observation ?? null;
-  const events = observedEvents(afterStart, current, sinceAt);
-  const successful = afterStart.filter((turn) => turn.outcome.ok);
+  const { baseline, sinceAt } = state;
 
   if (expected === 'world_change') {
-    const action = successful.find(
-      (turn) => WORLD_MUTATION_TOOLS.has(String(turn.action.name)) && hasWorldMutationWitness(turn),
-    );
+    const action = state.firstWorldMutation;
     if (action) {
       return {
         satisfied: true,
         expected,
-        observed: `verified ${action.action.name}`,
-        witness: actionWitness(action),
+        observed: `verified ${action.action}`,
+        witness: action.witness,
       };
     }
     return missing(
@@ -214,10 +239,8 @@ function completionEvidence(
   }
 
   if (expected === 'space_enclosed') {
-    const action = [...successful]
-      .reverse()
-      .find((turn) => turn.action.name === 'inspect_reachable_space');
-    const result = action?.outcome.result as any;
+    const action = state.latestSpaceInspection;
+    const result = action?.result as any;
     if (
       action &&
       result?.sealed === true &&
@@ -229,7 +252,7 @@ function completionEvidence(
         satisfied: true,
         expected,
         observed: `${result.reachableCellCount} reachable body cells are sealed, covered, and served by a closable entrance`,
-        witness: actionWitness(action),
+        witness: action.witness,
       };
     }
     return missing(
@@ -241,7 +264,9 @@ function completionEvidence(
   }
 
   if (expected === 'inventory_change') {
-    const event = events.find((candidate) => candidate.type === 'inventory_changed');
+    const event =
+      state.firstInventoryEvent ??
+      firstCurrentEvent(current, sinceAt, (candidate) => candidate.type === 'inventory_changed');
     const changed = inventoryChanged(baseline?.self?.inventory, current?.self?.inventory);
     if (event || changed) {
       return {
@@ -258,20 +283,24 @@ function completionEvidence(
   }
 
   if (expected === 'crafted_item') {
-    const action = successful.find((turn) => turn.action.name === 'craft_item');
+    const action = state.firstCraft;
     if (action) {
       return {
         satisfied: true,
         expected,
         observed: 'craft_item succeeded after the project began',
-        witness: actionWitness(action),
+        witness: action.witness,
       };
     }
     return missing(expected, 'no successful craft_item action after the project began');
   }
 
   if (expected === 'body_change') {
-    const event = events.find((candidate) => BODY_EVENT_TYPES.has(String(candidate.type)));
+    const event =
+      state.firstBodyEvent ??
+      firstCurrentEvent(current, sinceAt, (candidate) =>
+        BODY_EVENT_TYPES.has(String(candidate.type)),
+      );
     const changed = bodyChanged(baseline, current);
     if (event || changed) {
       return {
@@ -308,10 +337,14 @@ function completionEvidence(
   }
 
   if (expected === 'time_elapsed') {
-    return timeBoundaryEvidence(project, baseline, current, events, sinceAt);
+    return timeBoundaryEvidence(project, baseline, current, state, sinceAt);
   }
 
-  const social = events.find((candidate) => SOCIAL_EVENT_TYPES.has(String(candidate.type)));
+  const social =
+    state.firstSocialEvent ??
+    firstCurrentEvent(current, sinceAt, (candidate) =>
+      SOCIAL_EVENT_TYPES.has(String(candidate.type)),
+    );
   if (social) {
     return {
       satisfied: true,
@@ -321,6 +354,117 @@ function completionEvidence(
     };
   }
   return missing(expected, 'no new player, chat, or nearby social event after the project began');
+}
+
+function evidenceFor(
+  project: InhabitantProject,
+  evidence: Map<string, ProjectEvidenceState>,
+): ProjectEvidenceState {
+  return (
+    evidence.get(project.id) ?? {
+      baseline: null,
+      sinceAt: 0,
+    }
+  );
+}
+
+function updateEvidence(
+  evidence: Map<string, ProjectEvidenceState>,
+  change: ProjectChange,
+  turn: EntityTurn,
+) {
+  if (change.operation === 'start') {
+    evidence.set(change.id, {
+      baseline: projectBaseline(turn.observation),
+      sinceAt: turn.completedAt ?? 0,
+    });
+  } else if (change.operation === 'complete' || change.operation === 'abandon') {
+    evidence.delete(change.id);
+  }
+}
+
+function projectBaseline(observation: any) {
+  if (!observation || typeof observation !== 'object') return null;
+  const self = observation.self;
+  if (!self || typeof self !== 'object') return { self: {} };
+  return {
+    self: {
+      ...(Object.prototype.hasOwnProperty.call(self, 'inventory')
+        ? { inventory: self.inventory }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(self, 'condition')
+        ? { condition: self.condition }
+        : {}),
+      ...(self.pose && Object.prototype.hasOwnProperty.call(self.pose, 'position')
+        ? { pose: { position: self.pose.position } }
+        : {}),
+    },
+  };
+}
+
+function recordEvidence(
+  active: Map<string, InhabitantProject>,
+  evidence: Map<string, ProjectEvidenceState>,
+  turn: EntityTurn,
+) {
+  for (const project of active.values()) {
+    if (turn.sequence <= project.startedAtSequence) continue;
+    const state = evidenceFor(project, evidence);
+    evidence.set(project.id, state);
+
+    if (turn.outcome.ok) {
+      if (
+        !state.firstWorldMutation &&
+        WORLD_MUTATION_TOOLS.has(String(turn.action.name)) &&
+        hasWorldMutationWitness(turn)
+      ) {
+        state.firstWorldMutation = retainedActionEvidence(turn);
+      }
+      if (!state.firstCraft && turn.action.name === 'craft_item') {
+        state.firstCraft = retainedActionEvidence(turn);
+      }
+      if (turn.action.name === 'inspect_reachable_space') {
+        state.latestSpaceInspection = retainedActionEvidence(turn);
+      }
+    }
+
+    recordObservedEvents(state, turn.observation);
+    recordObservedEvents(state, turn.nextObservation);
+  }
+}
+
+function retainedActionEvidence(turn: EntityTurn): RetainedActionEvidence {
+  return {
+    action: turn.action.name,
+    result: turn.outcome.result,
+    witness: actionWitness(turn),
+  };
+}
+
+function recordObservedEvents(state: ProjectEvidenceState, observation: any) {
+  for (const event of filteredEvents(observation, state.sinceAt)) {
+    const type = String(event?.type);
+    if (!state.firstInventoryEvent && type === 'inventory_changed') {
+      state.firstInventoryEvent = event;
+    }
+    if (!state.firstBodyEvent && BODY_EVENT_TYPES.has(type)) state.firstBodyEvent = event;
+    if (!state.firstSocialEvent && SOCIAL_EVENT_TYPES.has(type)) state.firstSocialEvent = event;
+    if (type === 'day_phase_changed') {
+      const phase = String(event?.data?.current || '').toLowerCase();
+      if (!state.firstDayEvent && /^(?:dawn|day)$/.test(phase)) state.firstDayEvent = event;
+      if (!state.firstNightEvent && /^(?:dusk|night)$/.test(phase)) state.firstNightEvent = event;
+    }
+  }
+}
+
+function filteredEvents(observation: any, sinceAt: number) {
+  return (Array.isArray(observation?.events) ? observation.events : []).filter(
+    (event: any) => Number(event?.at || 0) >= sinceAt,
+  );
+}
+
+function firstCurrentEvent(current: any, sinceAt: number, matches: (event: any) => boolean) {
+  return filteredEvents(current, sinceAt).find(matches);
 }
 
 const WORLD_MUTATION_TOOLS = new Set([
@@ -379,23 +523,6 @@ const SOCIAL_EVENT_TYPES = new Set([
   'nearby_player_equipment_changed',
 ]);
 
-function observedEvents(turns: EntityTurn[], current: any, sinceAt: number) {
-  const observations = turns.flatMap((turn) => [turn.observation, turn.nextObservation]);
-  observations.push(current);
-  const seen = new Set<string>();
-  const result: any[] = [];
-  for (const observation of observations) {
-    for (const event of Array.isArray(observation?.events) ? observation.events : []) {
-      if (Number(event?.at || 0) < sinceAt) continue;
-      const key = `${event?.sequence ?? ''}:${event?.at ?? ''}:${event?.type ?? ''}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.push(event);
-    }
-  }
-  return result;
-}
-
 function inventoryChanged(before: any, after: any) {
   const normalized = (items: any) =>
     (Array.isArray(items) ? items : [])
@@ -450,18 +577,19 @@ function timeBoundaryEvidence(
   project: InhabitantProject,
   baseline: any,
   current: any,
-  events: any[],
+  state: ProjectEvidenceState,
   sinceAt: number,
 ): CompletionEvidence {
   const language = `${project.title} ${project.doneWhen || ''}`.toLowerCase();
-  const phaseEvents = events.filter((event) => event.type === 'day_phase_changed');
   const wantsDay = /\b(?:dawn|daylight|sunrise|morning|midday)\b/.test(language);
   const wantsNight = /\b(?:sunset|dusk|nightfall|midnight)\b/.test(language);
 
   if (wantsDay) {
-    const event = phaseEvents.find((candidate) =>
-      /^(?:dawn|day)$/.test(String(candidate?.data?.current || '').toLowerCase()),
-    );
+    const event =
+      state.firstDayEvent ??
+      firstCurrentEvent(current, sinceAt, (candidate) =>
+        /^(?:dawn|day)$/.test(String(candidate?.data?.current || '').toLowerCase()),
+      );
     const crossed =
       baseline?.self?.condition?.isDay === false && current?.self?.condition?.isDay === true;
     if (event || crossed) {
@@ -481,9 +609,11 @@ function timeBoundaryEvidence(
   }
 
   if (wantsNight) {
-    const event = phaseEvents.find((candidate) =>
-      /^(?:dusk|night)$/.test(String(candidate?.data?.current || '').toLowerCase()),
-    );
+    const event =
+      state.firstNightEvent ??
+      firstCurrentEvent(current, sinceAt, (candidate) =>
+        /^(?:dusk|night)$/.test(String(candidate?.data?.current || '').toLowerCase()),
+      );
     const crossed =
       baseline?.self?.condition?.isDay === true && current?.self?.condition?.isDay === false;
     if (event || crossed) {
