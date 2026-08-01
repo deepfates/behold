@@ -55,3 +55,23 @@ Adversarial follow-up produced isolated commit c2627cac2a70d4ccc73a449226353597d
 **2026-08-01T14:32:59Z**
 
 Integration candidate was rebased over Behold main 6772bff in isolated worktree behold-checkpoint-integration. Current commits are 634b39e (ordered canonical prefix binding) and 03037ff (atomic publication). Full npm run check passes 660 tests with one intentional opt-in skip and zero failures. It remains deliberately unmerged until active v1 episode 000002 reaches its natural stop, is authenticated, and preserves the before-state for an ordinary same-world v2 resume.
+
+**2026-08-01T16:02:00Z**
+
+Independent pre-resume audit found no blocker for the current linear one-file
+v3-fold/v1-record transition, but falsified the broader phrase “exact selected
+life.” The v2 checkpoint enumerates only `.lync` files even though the installed
+Lync cursor also treats `.conflicts` and `pending.events` as canonical sources;
+those sources must be included when present. The record also authenticates
+physical prefixes and the mutable manifest pathname, but not the selected loom
+id, tip turn, depth, or chain digest. A branched life could therefore preserve
+the same bytes while losing which trajectory the episode selected. Current Ash
+and Reed lives have no conflict or pending sources and each has one linear tip,
+so this does not block their ordinary stop/resume exercise. Keep the ticket open
+until checkpoint v2 binds every canonical source and the selected life head.
+
+The same audit measured the one-time current migration on an 86.7 MB, 1,691-turn
+Ash copy: cursor catalog rebuild 4.314s, project/place scan 4.995s, and v4 fold
+rebuild 4.902s (14.212s before the first model request). This is bounded-memory
+but not tail-time migration; the ordinary resume must observe time to first
+decision rather than claiming an instantaneous restart.
