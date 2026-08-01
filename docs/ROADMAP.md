@@ -99,7 +99,7 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   two structural roots with zero diagnostics. These episodes cost $0.5672,
   bringing the known workshop aggregate to about $31.01. Repetitive excavation
   is model conduct, not an acceptance success or failure. Together with
-  episodes 000031-000033's authenticated human join and return, shared-weight
+  episodes 000031-000032's authenticated human join and return, shared-weight
   isolation, persistent Minecraft consequence, and visible Textile review,
   this crosses the bounded living-Place milestone. It does not close the wider
   product horizon.
@@ -142,8 +142,9 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   sequence retaining exact ranges, counts, and acoustic changes. An exact replay
   of episode 000039's complete 1,393/1,350-event streams at the recorded decision
   points produced zero missing and zero omitted windows; a sustained
-  ordinary-policy bounded-history test and the full check also pass. A fresh
-  live repetition under the same pressure remains unexercised. Qwen's prolonged
+  ordinary-policy bounded-history test and the full check also pass. Episodes
+  000044-000045 then exercised the repaired projection through 164 ordinary
+  model turns with zero missing or omitted event windows. Qwen's prolonged
   plate belief and repetitive social language are retained as model conduct,
   including one provably unsupported visual claim.
 - Episodes 000034-000037 exposed and repaired the long-life context boundary.
@@ -296,9 +297,10 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   Ollama transports remain legacy-only. Mixed legacy histories are projected
   through a deterministic facts-only continuity/cache identity, preserving
   chosen controls, typed settlements, communication, and coarse later perception
-  without replaying commitments or controller prose. Persistent-world
-  live, lens, stop/resume, and Textile exercise remain open under `beh-rhxm`;
-  this implementation checkpoint is not yet that ordinary acceptance.
+  without replaying commitments or controller prose. `beh-rhxm` subsequently
+  exercised that same supported interface through persistent-world live,
+  the causal lens, stop/resume, Minecraft-confirmed consequence, and exact
+  Textile projection; those operations are no longer open acceptance items.
 - A separately named `legible-resident-v1` treatment now combines the ratified
   human-semantic body with a small identity and bounded-information charter
   and a strict public intention plus expected-observable-consequence response.

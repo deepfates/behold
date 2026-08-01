@@ -34,7 +34,7 @@ Episode 000045 stopped cleanly without that assertion. Textile 60a17cf projected
 the final 147 MB union as 2,836 readable resident events plus two structural
 roots with zero diagnostics. Actual cost was $0.5672; known workshop aggregate
 is about $31.01. This crosses the demonstrated perception defect and current
-ordinary stop/resume. Read together with episodes 000031-000033's authenticated
+ordinary stop/resume. Read together with episodes 000031-000032's authenticated
 native human join, interaction, departure, return, shared-weight isolation,
 persistent Minecraft consequence, and visible Textile review, the ordinary
 path now meets this epic's exact acceptance criteria. Repetitive excavation

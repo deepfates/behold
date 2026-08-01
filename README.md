@@ -118,8 +118,9 @@ represents consecutive ordinary sounds as a typed causal sequence with exact
 ranges, counts, and changing acoustic content. Replaying episode 000039's
 complete 1,393/1,350-event resident streams through that path produced zero
 missing or omitted windows at the original decision cadence; the full check and
-a sustained bounded-history policy test also pass. The repair has not yet been
-repeated in a new live pressure-plate episode. Qwen's repetitive social language
+a sustained bounded-history policy test also pass. Episodes 000044–000045 then
+exercised the repaired projection through 164 ordinary model turns with zero
+missing or omitted event windows. Qwen's repetitive social language
 and unsupported perceptual claims remain observed model conduct, not harness
 failures by definition.
 
@@ -155,7 +156,7 @@ Episode 000045 then stopped cleanly without that assertion. Textile projected
 their final 2,838-event, 147 MB Lync union as 2,836 readable resident events plus
 two structural roots with no diagnostics. The two episodes cost $0.5672, taking
 the known workshop aggregate to about $31.01. Together with episodes
-000031-000033's authenticated human join and return, shared-weight isolation,
+000031-000032's authenticated human join and return, shared-weight isolation,
 persistent Minecraft consequence, and visible Textile review, this satisfies
 the current First Life milestone without grading resident conduct. Longer
 household-scale life, richer world-history views, survival competence, and
