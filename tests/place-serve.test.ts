@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   PLACE_SERVE_CONTROL_PROTOCOL,
+  preflightFrozenPlaceServeAuthority,
   startFrozenPlaceServeAuthority,
   verifyPlaceServeTranscript,
 } from '../src/runtime/place-serve';
@@ -13,6 +14,44 @@ import {
 const REVISION = '1'.repeat(40);
 const PACKAGE_VERSION = '0.1.0-alpha.0';
 const PACKAGE_DIGEST = '2'.repeat(64);
+
+test('Place served-release preflight proves admission without creating runtime state', (t) => {
+  const fixture = makePlaceServeFixture(t);
+  const { transcriptFile: _transcriptFile, ...input } = fixture.input;
+  let spawnCalls = 0;
+  const evidence = preflightFrozenPlaceServeAuthority(input, {
+    ...fixture.dependencies,
+    spawn: (() => {
+      spawnCalls += 1;
+      throw new Error('preflight must not spawn');
+    }) as any,
+  });
+
+  assert.equal(evidence.placeCompilerRevision, REVISION);
+  assert.equal(evidence.sourceWorldTreeSha256, fixture.worldTreeSha256);
+  assert.equal(evidence.minecraftServerSha256, fixture.serverJarSha256);
+  assert.equal(spawnCalls, 0);
+  assert.equal(fs.existsSync(fixture.transcriptFile), false);
+  assert.equal(fs.existsSync(fixture.runtimeRoot), false);
+});
+
+test('Place served-release preflight rejects identity drift without durable state', (t) => {
+  const fixture = makePlaceServeFixture(t);
+  const { transcriptFile: _transcriptFile, ...input } = fixture.input;
+  assert.throws(
+    () =>
+      preflightFrozenPlaceServeAuthority(input, {
+        ...fixture.dependencies,
+        inspectPlaceCheckout: () => ({ revision: 'f'.repeat(40), clean: true }),
+      }),
+    (error: any) => {
+      assert.equal(error.code, 'place_serve_revision_mismatch');
+      return true;
+    },
+  );
+  assert.equal(fs.existsSync(fixture.transcriptFile), false);
+  assert.equal(fs.existsSync(fixture.runtimeRoot), false);
+});
 
 test('Place served-release adapter binds exact identity and acknowledged lifecycle', async (t) => {
   const fixture = makePlaceServeFixture(t);

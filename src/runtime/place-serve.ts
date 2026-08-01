@@ -69,11 +69,20 @@ export type StartFrozenPlaceServeInput = Readonly<{
   startupTimeoutMs?: number;
 }>;
 
-type PlaceServeDependencies = Readonly<{
+export type PlaceServeDependencies = Readonly<{
   spawn?: typeof spawn;
   inspectPlaceCheckout?: (root: string) => Readonly<{ revision: string; clean: boolean }>;
   stderr?: (text: string) => void;
   now?: () => Date;
+}>;
+
+export type FrozenPlaceServePreflight = Readonly<{
+  placeCompilerRevision: string;
+  releaseRoot: string;
+  serverJar: string;
+  sourceReleaseManifestSha256: string;
+  sourceWorldTreeSha256: string;
+  minecraftServerSha256: string;
 }>;
 
 export class PlaceServeError extends Error {
@@ -88,6 +97,14 @@ export class PlaceServeError extends Error {
   }
 }
 
+/** Read-only admission used before an operator episode receives durable state. */
+export function preflightFrozenPlaceServeAuthority(
+  input: Omit<StartFrozenPlaceServeInput, 'transcriptFile'>,
+  dependencies: PlaceServeDependencies = {},
+): FrozenPlaceServePreflight {
+  return inspectFrozenPlaceServeInput(input, dependencies).evidence;
+}
+
 /**
  * Starts Place Compiler's ordinary served-release lifecycle, waits for its
  * exact ready identity, and immediately obtains an acknowledged frozen world.
@@ -98,52 +115,18 @@ export async function startFrozenPlaceServeAuthority(
   input: StartFrozenPlaceServeInput,
   dependencies: PlaceServeDependencies = {},
 ): Promise<FrozenPlaceServeAuthority> {
-  if (input.acceptEula !== true) {
-    throw new PlaceServeError(
-      'Place served-release entry requires explicit EULA acceptance',
-      'place_serve_eula_required',
-    );
-  }
-  const compiler = resolvePlaceCompilerInvocation(input);
-  const releaseRoot = plainDirectory(input.releaseRoot, 'Place release');
+  const inspected = inspectFrozenPlaceServeInput(input, dependencies);
+  const {
+    compiler,
+    releaseRoot,
+    serverJar,
+    declaredWorldTreeSha256,
+    releaseManifestSha256,
+    serverJarSha256,
+  } = inspected;
+  const compilerIdentity = inspected.evidence.placeCompilerRevision;
   const runtimeRoot = path.resolve(input.runtimeRoot);
   const profileId = requiredText(input.profileId, 'Place runtime profile');
-  let compilerIdentity: string;
-  if (compiler.kind === 'checkout') {
-    const checkout = (dependencies.inspectPlaceCheckout ?? inspectPlaceCheckout)(compiler.root);
-    if (!checkout.clean) {
-      throw new PlaceServeError(
-        'Place served-release control files differ from their recorded revision',
-        'place_serve_checkout_dirty',
-        checkout,
-      );
-    }
-    if (checkout.revision !== compiler.expectedRevision) {
-      throw new PlaceServeError(
-        'Place Compiler revision differs from the admitted session',
-        'place_serve_revision_mismatch',
-        { expected: compiler.expectedRevision, actual: checkout.revision },
-      );
-    }
-    compilerIdentity = checkout.revision;
-  } else {
-    const installed = inspectInstalledPlaceCompiler(compiler.binary, compiler.expectedPackage);
-    compilerIdentity = `npm:${installed.name}@${installed.version}#${installed.distributionSha256}`;
-  }
-  const serverJar = resolvePlaceServerJar(
-    compiler.kind === 'checkout' ? compiler.root : null,
-    input.serverJar,
-  );
-  const releaseManifestSha256 = sha256File(path.join(releaseRoot, 'release-manifest.json'));
-  const releaseManifest = readJson(path.join(releaseRoot, 'release-manifest.json'));
-  const declaredWorldTreeSha256 = sha256Value(releaseManifest?.source?.worldTreeSha256);
-  if (!declaredWorldTreeSha256) {
-    throw new PlaceServeError(
-      'Place release manifest has no source world identity',
-      'place_serve_release_identity_missing',
-    );
-  }
-  const serverJarSha256 = sha256File(serverJar);
   const transcript = createTranscript(input.transcriptFile, dependencies.now);
   const serveArgv = [
     'serve',
@@ -313,6 +296,73 @@ export async function startFrozenPlaceServeAuthority(
     transcript.close();
     throw error;
   }
+}
+
+function inspectFrozenPlaceServeInput(
+  input: Omit<StartFrozenPlaceServeInput, 'transcriptFile'>,
+  dependencies: PlaceServeDependencies,
+) {
+  if (input.acceptEula !== true) {
+    throw new PlaceServeError(
+      'Place served-release entry requires explicit EULA acceptance',
+      'place_serve_eula_required',
+    );
+  }
+  const compiler = resolvePlaceCompilerInvocation(input);
+  const releaseRoot = plainDirectory(input.releaseRoot, 'Place release');
+  let compilerIdentity: string;
+  if (compiler.kind === 'checkout') {
+    const checkout = (dependencies.inspectPlaceCheckout ?? inspectPlaceCheckout)(compiler.root);
+    if (!checkout.clean) {
+      throw new PlaceServeError(
+        'Place served-release control files differ from their recorded revision',
+        'place_serve_checkout_dirty',
+        checkout,
+      );
+    }
+    if (checkout.revision !== compiler.expectedRevision) {
+      throw new PlaceServeError(
+        'Place Compiler revision differs from the admitted session',
+        'place_serve_revision_mismatch',
+        { expected: compiler.expectedRevision, actual: checkout.revision },
+      );
+    }
+    compilerIdentity = checkout.revision;
+  } else {
+    const installed = inspectInstalledPlaceCompiler(compiler.binary, compiler.expectedPackage);
+    compilerIdentity = `npm:${installed.name}@${installed.version}#${installed.distributionSha256}`;
+  }
+  const serverJar = resolvePlaceServerJar(
+    compiler.kind === 'checkout' ? compiler.root : null,
+    input.serverJar,
+  );
+  const releaseManifestSha256 = sha256File(path.join(releaseRoot, 'release-manifest.json'));
+  const releaseManifest = readJson(path.join(releaseRoot, 'release-manifest.json'));
+  const declaredWorldTreeSha256 = sha256Value(releaseManifest?.source?.worldTreeSha256);
+  if (!declaredWorldTreeSha256) {
+    throw new PlaceServeError(
+      'Place release manifest has no source world identity',
+      'place_serve_release_identity_missing',
+    );
+  }
+  const serverJarSha256 = sha256File(serverJar);
+  const evidence = Object.freeze({
+    placeCompilerRevision: compilerIdentity,
+    releaseRoot,
+    serverJar,
+    sourceReleaseManifestSha256: releaseManifestSha256,
+    sourceWorldTreeSha256: declaredWorldTreeSha256,
+    minecraftServerSha256: serverJarSha256,
+  });
+  return Object.freeze({
+    compiler,
+    releaseRoot,
+    serverJar,
+    releaseManifestSha256,
+    declaredWorldTreeSha256,
+    serverJarSha256,
+    evidence,
+  });
 }
 
 function createPlaceServeControl(input: {
@@ -627,7 +677,7 @@ function inspectPlaceCheckout(root: string) {
   return Object.freeze({ revision: revision.stdout.trim(), clean: diff.status === 0 });
 }
 
-function resolvePlaceCompilerInvocation(input: StartFrozenPlaceServeInput) {
+function resolvePlaceCompilerInvocation(input: Omit<StartFrozenPlaceServeInput, 'transcriptFile'>) {
   const hasCheckout = typeof input.placeCompilerRoot === 'string';
   const hasInstalled = typeof input.placeCompilerBinary === 'string';
   if (hasCheckout === hasInstalled) {

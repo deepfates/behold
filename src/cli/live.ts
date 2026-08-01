@@ -26,6 +26,7 @@ import {
   verifyPlaceServedWorldBasis,
 } from '../runtime/place-served-world';
 import {
+  preflightFrozenPlaceServeAuthority,
   startFrozenPlaceServeAuthority,
   verifyPlaceServeTranscript,
   type FrozenPlaceServeAuthority,
@@ -132,14 +133,7 @@ export async function runLiveCli(argv: string[]) {
     recover: parsed.values.recover === true,
   });
   const residents = residentSelection.residents;
-  const residentRevision = residentSelection.writeRevision
-    ? writeLiveResidentRevision({
-        directory: paths.residentRevisions,
-        sessionId,
-        previousDigest: currentResidents!.digest,
-        residents,
-      })
-    : residentSelection.residentRevision;
+  let residentRevision = residentSelection.residentRevision;
   const residentSetSha256 = sha256(stableJson(residents));
   if (residents.some((resident) => resident.providerQuotas == null || resident.paused === true)) {
     throw new Error('live requires an armed per-resident provider-attempt ceiling for every life');
@@ -208,9 +202,6 @@ export async function runLiveCli(argv: string[]) {
     );
   }
 
-  const episodeId = nextEpisodeId(paths.episodes);
-  const episodeRoot = path.join(paths.episodes, episodeId);
-  fs.mkdirSync(episodeRoot, { mode: 0o700 });
   const placeCompilerBinaryValue =
     parsed.values['place-compiler-bin'] ?? process.env.BEHOLD_PLACE_COMPILER_BIN;
   const explicitPlaceCompilerRoot =
@@ -286,6 +277,22 @@ export async function runLiveCli(argv: string[]) {
     1,
     Math.max(1, residents.length),
   )!;
+  const admittedPort = existingPlan?.endpoint.port ?? requestedPort ?? 25565;
+  if (requestedPort != null && requestedPort !== admittedPort) {
+    throw new Error(`live session uses port ${admittedPort}; requested ${requestedPort}`);
+  }
+  preflightFrozenPlaceServeAuthority({
+    ...placeCompilerInput,
+    releaseRoot,
+    runtimeRoot: paths.placeRuntime,
+    profileId: 'living',
+    acceptEula: true,
+    port: admittedPort,
+    serverJar,
+  });
+  const episodeId = nextEpisodeId(paths.episodes);
+  const episodeRoot = path.join(paths.episodes, episodeId);
+  fs.mkdirSync(episodeRoot, { mode: 0o700 });
   let authority: FrozenPlaceServeAuthority | null = null;
   let run: ManagedWorldRun | null = null;
   let cleanStop = false;
@@ -294,10 +301,6 @@ export async function runLiveCli(argv: string[]) {
   const startedAt = new Date().toISOString();
   const placeServerLogsBefore = new Set(listPlaceServerLogs(paths.placeRuntime));
   try {
-    const admittedPort = existingPlan?.endpoint.port ?? requestedPort ?? 25565;
-    if (requestedPort != null && requestedPort !== admittedPort) {
-      throw new Error(`live session uses port ${admittedPort}; requested ${requestedPort}`);
-    }
     authority = await startFrozenPlaceServeAuthority({
       ...placeCompilerInput,
       releaseRoot,
@@ -335,6 +338,14 @@ export async function runLiveCli(argv: string[]) {
         throw new Error('live session world differs from its served-world genesis');
       }
       assertPlaceServedAuthority(established.descriptor, authority);
+    }
+    if (residentSelection.writeRevision) {
+      residentRevision = writeLiveResidentRevision({
+        directory: paths.residentRevisions,
+        sessionId,
+        previousDigest: currentResidents!.digest,
+        residents,
+      });
     }
     const accountingScopeId = liveEpisodeAccountingScope(plan.accountingScopeId, episodeId);
 
