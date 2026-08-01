@@ -37,6 +37,24 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 
 ### Current truth (updated 2026-07-31)
 
+- Episodes 000038-000040 exercised long-duration ordinary operation and exposed
+  one lifecycle defect. Episode 000038 ran normally for about 19 minutes,
+  including native human chat and seven verified material changes, then an old
+  96-decision experimental quota made both residents silently retry 429s while
+  appearing idle. Quota exhaustion now has a distinct terminal and stops the
+  shared run visibly. With a declared 256-decision local ceiling, episode
+  000039 completed 30 post-release minutes: Iris and Moss made 340 decisions,
+  received 308 successful action terminals, caused four verified block changes,
+  crossed multiple day/night transitions, admitted a native player and chat,
+  and had zero model-call failures or unsettled charges. Episode 000040 resumed
+  the saved bodies and private lives; each first request contained the newest
+  human challenge, pressure-plate history, and material consequences. Textile's
+  real projector read 2,435 source events as 2,433 resident events plus two
+  structural roots with zero diagnostics. Dense pressure-plate interaction
+  produced bounded event-window deferrals, so high-volume information
+  timeliness remains open. Qwen's prolonged plate belief and repetitive social
+  language are retained as model conduct, including one provably unsupported
+  visual claim.
 - Episodes 000034-000037 exposed and repaired the long-life context boundary.
   Episode 000034 showed that budget resumption accidentally preempted the
   resident's own memory work. Episode 000035 proved the scheduler repair but
@@ -167,7 +185,8 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   authenticated native human co-presence are exercised. Its same real
   projector reads episode 000037's 96 MB union as 1,882 source events, 1,880
   readable turns, two structural roots, and the same zero-diagnostic result.
-  Long-duration operability and richer world-history views remain open.
+  Episode 000040 extends that result through the later long epoch and resume.
+  Richer world-history views remain open.
 
 ### Supported foundations and retained history
 

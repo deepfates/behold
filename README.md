@@ -22,9 +22,9 @@ The pieces are substantial but not yet a fully grounded living-world treatment.
 independently configured resident sessions, viewer discovery, a native-client
 endpoint, clean stop/resume, and an authenticated episode record in one foreground
 operator entry. It does not launch a human client or run Textile on the
-operator's behalf. Ordinary live use has not yet established that its bounded
-perception, admitted actions, returned consequences, continuity, and human
-coexistence stay truthful and usable over a long life. Residents have made
+operator's behalf. Ordinary live use has now exercised bounded perception,
+admitted actions, returned consequences, continuity, and human coexistence
+through a 30-minute resident epoch and a fresh resume. Residents have made
 repetitive, ineffective, and consequential choices; those choices are observed
 conduct, not a product score. Passing the mechanics stack is therefore not
 presented as a finished living world.
@@ -43,8 +43,17 @@ in its first decision request after resume. Both indexes retained the human's
 exact earlier request and Minecraft-confirmed block changes. Textile's ordinary
 raw-Lync projector reads episode 000037's 96 MB frozen union as 1,880 readable
 turns plus two structural roots with no unsupported, nonconforming, or warning
-results. The residents' repetitive social choices remain observed conduct; a
-genuinely long soak remains unexercised.
+results. Episode 000039 then sustained the same composition for 30 post-release
+minutes: 340 model decisions produced 308 successful action terminals and four
+verified block changes with no model-call failure. A native player rejoined and
+both residents received the player's chat. Episode 000040 resumed each private
+life from its saved body/world state; both first requests contained the newest
+human dialogue and material consequences. Textile's raw-Lync projector reads
+its 2,435-event frozen union as 2,433 readable resident events plus two
+structural roots with no diagnostics. Dense pressure-plate activity still
+caused bounded event deferrals, and Qwen continued repetitive social and
+unsupported perceptual claims; the former is an information-timeliness concern
+and the latter is observed model conduct.
 
 Persistent living Place
 
