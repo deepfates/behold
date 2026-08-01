@@ -2,7 +2,7 @@
 id: beh-rhxm
 status: closed
 deps: [beh-s4hx, beh-h69n, beh-oq26]
-links: [beh-gidu]
+links: [beh-gidu, beh-06av]
 created: 2026-08-01T03:55:38Z
 type: task
 priority: 0

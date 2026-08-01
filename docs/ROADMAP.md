@@ -19,17 +19,36 @@ identity, and evaluator episodes remain separate graphs joined by exact
 references. Forking, crossing, and copying a resident are distinct operations;
 divergent world states are never assumed mergeable.
 
-The immediate milestone is [First Life](FIRST_LIFE.md): one convincing continuing
-Minecraft inhabitant. The San Francisco world is valuable terrain for that life,
-not the product goal by itself. Come–See–Do–Report remains a useful regression
-test, not the organizing purpose of the system.
+The bounded [First Life](FIRST_LIFE.md) milestone is crossed: the ordinary path
+can preserve an unsteered resident causal loop through real Minecraft
+consequence, private Lync continuity, human coexistence, stop, and resume. That
+substrate is not the product telos. The active
+[resident-habitat epic](../.tickets/beh-06av.md) asks whether the same composition
+remains truthful, durable, and understandable as time, history, ecology,
+residents, humans, and ordinary failures accumulate.
 
-The product composition beyond that milestone is a living-world experience:
-compile or select a persistent place, run ordinary Minecraft ecology, attach
-several residents with independently selectable minds/models, let a human join
-the same world, and retain both authoritative world consequences and readable
-Lync life/world histories. First Life proofs establish parts of that claim;
-they do not replace the composed experience.
+Its checkpoint graph is deliberately small:
+
+```text
+habitat authority and mutable-state simplicity ─┐
+growing private-life continuity              │
+ordinary lifecycle resilience                ├─→ repeated multi-day habitat
+current resident and native-human coexistence│
+minimal operator view and ethogram            ─┘
+```
+
+The final exercise is blocked on all five capabilities. Tickets state
+observable product behavior; evidence and negative conduct belong in their
+notes. The checkpoints do not grade whether a resident survives, builds,
+socializes, adapts, or makes good decisions. They grade whether Behold gives
+each resident truthful opportunities and consequences, preserves its isolated
+life, and lets an operator inhabit and understand the same world without a
+parallel truth system.
+
+The San Francisco world remains valuable terrain, not the product goal by
+itself. Come–See–Do–Report remains a useful regression test, not the organizing
+purpose of the system. The sealed model-by-perception comparison remains an
+optional diagnostic and is not a dependency of the habitat epic.
 
 Progress is tracked through the [verification ladder](VERIFICATION_LADDER.md).
 Minecraft life and survival are one world competence pack beside the foundation

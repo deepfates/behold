@@ -2,7 +2,7 @@
 id: beh-kpqx
 status: closed
 deps: [beh-rhxm]
-links: []
+links: [beh-06av]
 created: 2026-08-01T03:55:37Z
 type: epic
 priority: 0

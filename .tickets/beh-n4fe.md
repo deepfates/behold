@@ -2,7 +2,7 @@
 id: beh-n4fe
 status: closed
 deps: [beh-cqjs]
-links: []
+links: [beh-06av]
 created: 2026-07-25T16:07:56Z
 type: epic
 priority: 0

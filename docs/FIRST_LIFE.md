@@ -32,6 +32,15 @@ observation. Over time it should:
 This is deliberately more demanding than completing a scripted task. A task can
 be passed by a disposable controller. A life has unfinished concerns.
 
+These are phenomena we hope capable minds may exhibit, not Behold acceptance
+criteria. Behold is responsible for giving a resident the truthful embodied
+information, controls, consequences, private continuity, and time in which such
+conduct could arise. A resident may instead repeat itself, wait, fail, die,
+ignore others, or pursue something incomprehensible; the habitat succeeds or
+fails on causal fidelity and operation, not on correcting those choices. The
+longer operational checkpoints live in the
+[resident-habitat roadmap](ROADMAP.md#north-star-updated-2026-07-13).
+
 ## Current product truth
 
 The ordinary runtime now dependably preserves the resident causal loop across
