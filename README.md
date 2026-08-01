@@ -172,6 +172,27 @@ the current First Life milestone without grading resident conduct. Longer
 household-scale life, richer world-history views, survival competence, and
 social adaptation remain open horizons.
 
+Authority in one ordinary resident cycle is deliberately small:
+
+```text
+Minecraft/body -> bounded view -> model choice or yield -> engine attempt
+      ^                                                     |
+      |                                                     v
+      +------------- next view <- Lync turn <- Minecraft consequence
+```
+
+Minecraft owns current world state and the terminal physical consequence. The
+connected body owns raw first-person observation and control attempts. The
+controller owns at most one current decision, and the serialized engine binds
+its proposal to one authenticated terminal. Only after that terminal does the
+resident append one turn to its own Lync life; restart continuity is rebuilt
+from those bytes. Project/place memory and bounded indexes are derived from that
+life, while run journals, the habitat lens, episode records, frozen Lync copies,
+and Textile are projections or authenticated bindings. They can expose missing
+or stale data but cannot rewrite world or life truth. Place and world control
+own the foreground server lifecycle; the content-bound stopped-world head is
+the only ordinary resume boundary.
+
 Persistent living Place
 
 - `behold live RELEASE --residents FILE --accept-eula --session NAME` verifies
