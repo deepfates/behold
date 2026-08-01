@@ -23,8 +23,12 @@ The episode record binds Place entryQualification.status=qualified and entryAdmi
 
 **2026-08-01T22:29:35Z**
 
-Prepared accepted input: Place qualified derivative , manifest f277d3428c947e6e26efa91ce1f038888dfeed16055c1440253f09921725c14e, evidence c663fc8d290d6f91520b0b5bd935575e3fbb17960eee50d3d76e7f4d013a630c. Independent Place verify passes; ordinary no-override living serve/proof is reported clean. Await final clean Place producer commit before launching residents.
+Superseded during Place's adversarial review. The first measured derivative used non-normalized tar ownership metadata and is rejected rather than an accepted Behold input. No resident episode used it.
 
 **2026-08-01T22:29:46Z**
 
 Correction to prior note: derivative path is /Users/deepfates/Hacking/data/artifacts/place-compiler/qualification-candidates/oxford-v3-habitat-v1.
+
+**2026-08-01T22:43:00Z**
+
+Accepted Place input is now clean commit b872237 and the newly regenerated derivative at /Users/deepfates/Hacking/data/artifacts/place-compiler/qualification-candidates/oxford-v3-habitat-v1. Source manifest d9353e2481c3623483e19bd7790eafae754a3192a05df60ff4d269c68a692a46; derived manifest 475aa98a6652932461709ca93628b8a7d9bac49ac5e48e12322ab21030090f23; qualification evidence fe0ff3afda04df8c81c34d958f2799a61cc4c9652a916780c2b8b192df6e1547. Independent verification passes, the evidence archive has exactly two numeric root-owned members, all four ordinary-walking paths crossed 64 blocks without mutation or movement correction, and the native soak advanced 24,013 ticks with required gamerules true, no deaths, acknowledged save, and clean exit. Place's ordinary living serve admits it with override null. Behold will bind this exact checkout and release; the rejected derivative under qualification-candidates/rejected is not eligible.
