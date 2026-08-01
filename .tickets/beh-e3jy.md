@@ -36,3 +36,7 @@ An isolated candidate implementation exists at commit 6aaa8c086ddeacde1f9be74b8c
 **2026-08-01T13:03:38Z**
 
 Adversarial follow-up produced isolated commit c2627cac2a70d4ccc73a449226353597d9531790 atop 6aaa8c0. It makes the new manifest and episode-record JSON atomic and exact-idempotent, rejects partial/different retry state without overwrite, and removes the redundant second full-prefix hash after resident drain. Focused live tests pass 20/20 and the full check passes 658 with one existing skip. A crash after clean-head publication but before the episode record still leaves that episode incomplete rather than reconstructing it automatically, but the authenticated clean head remains resumable and the next episode ID skips the incomplete directory. Keep both commits isolated until the active v1 epoch stops.
+
+**2026-08-01T14:32:59Z**
+
+Integration candidate was rebased over Behold main 6772bff in isolated worktree behold-checkpoint-integration. Current commits are 634b39e (ordered canonical prefix binding) and 03037ff (atomic publication). Full npm run check passes 660 tests with one intentional opt-in skip and zero failures. It remains deliberately unmerged until active v1 episode 000002 reaches its natural stop, is authenticated, and preserves the before-state for an ordinary same-world v2 resume.
