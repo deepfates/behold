@@ -1,6 +1,6 @@
 ---
 id: beh-uumj
-status: in_progress
+status: closed
 deps: []
 links: [beh-5vwp]
 created: 2026-08-01T08:44:12Z
@@ -55,3 +55,7 @@ post-motion settlement gate before either semantic or camera continuation.
 Intermediate frames never enter cognition. Focused tests now cover settled,
 exhausted, and stopped outcomes. Full check and ordinary live exercise remain
 before closure.
+
+**2026-08-01T09:06:09Z**
+
+Ordinary post-fix resume passed in mp-r3-qwen-camera episode 000003 at commit c1d20a6. Qwen independently chose move_controls forward for 1000 ms. Minecraft reported bodyMoved=true; the shared exact-pose gate settled after 8 samples / 411 ms; the turn appended as R3QwenCamera turn 2; and the following camera-bound mind request reached the broker without resident-camera observation mismatch. Its predeclared resident_decision quota then returned a visible 429. Episode fe113b85..., world e8319cf5..., journal 1b693998..., Lync 3d763912... all saved; model/listeners unloaded. Textile projected 3 source events as 2 readable + 1 structural, with zero unsupported, nonconforming, or warnings.

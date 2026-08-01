@@ -81,8 +81,13 @@ rounded semantic pose could not bind to the exact live camera pose, and the
 first camera-only retry remained unbounded. The current implementation keeps
 the private body pose exact and applies one bounded post-motion settlement gate
 before either semantic or camera continuation. Focused boundedness/cancellation
-tests and the full check pass; an ordinary post-fix camera resume remains to be
-exercised before claiming the repair live.
+tests and the full check pass. Episode 000003 then exercised that
+exact edge: Qwen independently moved forward for one second, the body settled
+after eight exact samples (411 ms), and the next camera-bound request reached
+the cognition gate without a pose mismatch. Its declared decision quota then
+terminated the request visibly. The world, life, model, and listeners stopped
+cleanly, and Textile read all three Lync events as two turns plus one structural
+root with no diagnostics.
 
 The latest exercised local path has carried two Qwen 3.6 35B-A3B residents
 through ordinary live episodes and resumes with one shared LM Studio weight

@@ -62,8 +62,13 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   semantic pose could never equal the exact live camera pose, and a first
   camera-only retry loop remained unbounded. The current implementation now
   preserves exact private body pose and uses one bounded post-motion settlement
-  boundary for both perception profiles, with no intermediate cognition. The
-  full check passes; an ordinary post-fix camera resume remains unexercised.
+  boundary for both perception profiles, with no intermediate cognition.
+  Episode 000003 exercised the repair through ordinary resume: Qwen chose a
+  one-second forward movement, exact pose settled after eight samples/411 ms,
+  and a new camera-bound cognition request reached the quota gate without a
+  pose mismatch. The declared quota then stopped cognition visibly; the world,
+  life, model, and listeners stopped cleanly. Textile read the three-event Lync
+  as two readable turns plus one structural root with no diagnostics.
 - The compact action-only `resident-v2` interface has crossed an ordinary
   two-resident live/lens/stop/resume exercise with one shared local Gemma 4 12B
   weight and separate requests and Lync lives. Elm and Pine completed 5 and 6

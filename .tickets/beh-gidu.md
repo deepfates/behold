@@ -1,6 +1,6 @@
 ---
 id: beh-gidu
-status: in_progress
+status: open
 deps: [beh-hi81, beh-58qg, beh-h69n, beh-zl9o, beh-uumj]
 links: [beh-rhxm]
 created: 2026-08-01T03:55:38Z
@@ -48,3 +48,7 @@ R2 manifest final SHA-256 25953786... ran all four branches. Descriptive results
 **2026-08-01T08:30:00Z**
 
 R3 removes both identified confounds without adding product machinery. The existing world-history inhabitation path already proves that one saved offline Minecraft body may enter isolated sibling worlds while Behold entity IDs, Lync lives, model sessions, and writable world histories remain distinct. A fresh four-child receipt at the unchanged stopped checkpoint b5875c3a... has SHA-256 b1d7760a.... All four branches use saved body `ReedCamera` (offline UUID 068ba461-1eff-3342-816b-ebac2762ffa1) and distinct R3 entity IDs. Resident quota 2 means one prefix-readiness call plus exactly one natural resident decision, so no operator-timed first-yield stop is needed. Config SHA-256 values are Gemma semantic 89171729..., Gemma camera 5151faa8..., Qwen semantic 63fc7560..., and Qwen camera ca4e8c8f.... The final manifest and calls remain unsealed until this ticket-state commit is clean.
+
+**2026-08-01T09:06:09Z**
+
+Matched-body R3 completed descriptively. Initial choices at the same saved body state: Gemma semantic look same/level; Gemma camera look same/level; Qwen semantic wait; Qwen camera move forward 1000 ms. The camera movement exposed beh-uumj rather than a model negative. Episode 000003 at corrected commit c1d20a6 resumed that branch, repeated the natural forward movement, crossed exact camera perception after an 8-sample/411 ms body settlement, then hit only its sealed quota. This validates the apparatus edge, not a general model/perception effect: one choice per cell is insufficient for a causal ranking.
