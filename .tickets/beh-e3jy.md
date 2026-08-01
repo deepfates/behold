@@ -1,6 +1,6 @@
 ---
 id: beh-e3jy
-status: open
+status: in_progress
 deps: []
 links: []
 created: 2026-08-01T12:10:58Z
@@ -28,3 +28,7 @@ Across repeated stop/resume checkpoints of a representative multi-hour two-resid
 **2026-08-01T12:11:30Z**
 
 Cross-repo reader seam is tracked in Textile as tex-wrif. That ticket owns large ordered-source import and bounded browser materialization; this Behold ticket owns checkpoint retention and avoiding eager cumulative unions.
+
+**2026-08-01T12:52:17Z**
+
+An isolated candidate implementation exists at commit 6aaa8c086ddeacde1f9be74b8c4f6fb62ff6a6ac in worktree behold-beh-e3jy-checkpoint-v2. It binds exact canonical resident Lync prefixes in an ordered v2 source-set manifest without cumulative copies or eager union, retains v1 verification, and passes the full check (657 pass, one existing skip). It is not integrated or accepted: first preserve the active v1 six-hour stop, then adversarially integrate and exercise repeated multi-hour stop/resume allocation plus Textile reading.
