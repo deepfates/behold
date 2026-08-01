@@ -1,6 +1,6 @@
 ---
 id: beh-gidu
-status: in_progress
+status: open
 deps: [beh-hi81, beh-58qg, beh-h69n, beh-zl9o]
 links: [beh-rhxm]
 created: 2026-08-01T03:55:38Z
@@ -40,3 +40,7 @@ The first live branch falsified a sealed runtime assumption before any resident 
 **2026-08-01T08:12:57Z**
 
 Replacement live comparison sealed before calls at ignored data/model-perception-live-20260801/r2-manifest.json SHA-256 008c352b.... It uses clean commit 1253e5f, one new verified four-child lineage at receipt ba775d38... and checkpoint b5875c3a..., actual 262144 loaded context for both MLX models, parallel/concurrency 1, one prefix-readiness plus at most two natural decisions via resident quota 3, fixed order Gemma semantic/camera then Qwen semantic/camera, 25-second post-ready wall, ordinary SIGINT immediately after first visible yield, no retries/repairs/fallbacks/tasks/preferences/grades. The invalid pilot remains excluded and preserved.
+
+**2026-08-01T08:21:33Z**
+
+R2 manifest final SHA-256 25953786... ran all four branches. Descriptive results are preserved at ignored r2-results.json (SHA printed in the adjacent command/evidence). All 8 resident calls were schema-valid and timely; Gemma semantic/camera each chose same-level then right-level looks; Qwen semantic moved forward 500ms then yielded; Qwen camera yielded twice. Both camera branches captured exact 512px frames (886/896ms cold, 7/11ms warm). All sessions saved/stopped cleanly, all models unloaded, source head remained b5875c3a..., and Textile read each 3-event life as 2 readable + 1 structural with no diagnostics. The comparison is causally inconclusive because fresh bodies spawned at four different positions (1968.5/1402.5, 1978.5/1395.5, 1974.5/1393.5, 1984.5/1400.5), yielding different initial scenes; qwen-camera also completed a second yield before the predeclared first-yield SIGINT could be delivered. Do not claim model or perception effects. If this candidate diagnostic is ever rerun, it first needs an explicitly matched initial body state (for example a pre-fork saved body or identically sealed zero-radius spawn), while keeping Behold entity/Lync identities isolated. That is evaluation setup, not an ordinary-product blocker.

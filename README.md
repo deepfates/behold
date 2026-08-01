@@ -63,8 +63,15 @@ They shared one physical LM Studio weight instance while retaining separate
 requests, quotas, bodies, and Lync lives. Warm frame capture took 6–11 ms;
 resident calls took about 3.0–4.8 seconds. Both residents repeatedly chose to
 wait, which is observed conduct rather than a harness failure. Textile read the
-resumed 34-event Lync union with no diagnostics. The sealed
-model-by-perception comparison remains unexercised.
+resumed 34-event Lync union with no diagnostics. A later sealed
+model-by-perception comparison was exercised descriptively but is causally
+inconclusive: Minecraft gave the four fresh bodies different spawn positions,
+so their initial semantic fields and camera scenes were not matched. Gemma chose
+the same two look actions in both conditions; Qwen moved then yielded in its
+semantic branch and yielded in its camera branch. All calls were timely and
+schema-valid, camera capture was 886–896 ms cold and 7–11 ms warm, all four
+sessions saved/stopped cleanly, and Textile read every life without diagnostics.
+These are valid trajectories, not identified model or perception effects.
 
 The latest exercised local path has carried two Qwen 3.6 35B-A3B residents
 through ordinary live episodes and resumes with one shared LM Studio weight
