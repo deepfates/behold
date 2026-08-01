@@ -47,8 +47,13 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   Textile. Matched no-world probes passed public strict-schema output for the
   installed Gemma 4 12B and Qwen 3.6 35B-A3B with `reasoning_effort: none`;
   omitting that admitted setting exposed only private reasoning and was
-  correctly rejected. The real persistent-world camera path, measured latency,
-  image-session isolation, and model-by-perception comparison remain open.
+  correctly rejected. The ordinary persistent-world path then carried two Qwen
+  3.6 35B-A3B camera residents through live and clean resume with one shared
+  physical weight instance, separate resident contexts and Lync lives, warm
+  capture at 6–11 ms, and decisions at about 3.0–4.8 seconds. Both residents
+  repeatedly chose to wait; Behold preserved that conduct. The sealed
+  model-by-perception comparison remains open as a diagnostic, not a product
+  gate.
 - The compact action-only `resident-v2` interface has crossed an ordinary
   two-resident live/lens/stop/resume exercise with one shared local Gemma 4 12B
   weight and separate requests and Lync lives. Elm and Pine completed 5 and 6

@@ -173,5 +173,9 @@ accepted one image plus the strict JSON schema and returned the action in public
 `content` when their already-admitted `reasoning_effort: none` setting was
 present. Without that setting both placed generation in private
 `reasoning_content`, which the resident parser correctly rejects. Persistent
-world capture, measured capture and inference latency, two-resident isolation
-under image input, and the model-by-perception comparison remain unexercised.
+world capture is now exercised through ordinary live and resume with two Qwen
+3.6 35B-A3B residents sharing one physical LM Studio weight instance and
+retaining separate resident contexts and Lync lives. Warm 512x512 capture took
+6–11 ms and resident calls took about 3.0–4.8 seconds across the two episodes.
+Both residents chose `wait_for_event` throughout; no controller changed that
+choice. The model-by-perception comparison remains unexercised.

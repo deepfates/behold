@@ -57,8 +57,14 @@ resident's exact first-person camera. The ordinary default remains
 vision-capable LM Studio inventory and fails closed rather than silently
 downgrading. No-world image-plus-schema gates pass for the installed Gemma 4
 12B and Qwen 3.6 35B-A3B when their exact non-reasoning setting is present.
-Persistent-world image delivery and the sealed model-by-perception comparison
-remain unexercised.
+The ordinary persistent-world path has also carried two Qwen 3.6 35B-A3B
+camera residents through a 90-second episode and a clean 30-second resume.
+They shared one physical LM Studio weight instance while retaining separate
+requests, quotas, bodies, and Lync lives. Warm frame capture took 6–11 ms;
+resident calls took about 3.0–4.8 seconds. Both residents repeatedly chose to
+wait, which is observed conduct rather than a harness failure. Textile read the
+resumed 34-event Lync union with no diagnostics. The sealed
+model-by-perception comparison remains unexercised.
 
 The latest exercised local path has carried two Qwen 3.6 35B-A3B residents
 through ordinary live episodes and resumes with one shared LM Studio weight
