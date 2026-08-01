@@ -3,7 +3,7 @@
 Behold's portable center is one causal loop:
 
 1. Receive one bounded observation from the current body.
-2. Discover the actions admitted for that observation.
+2. Receive the bodily controls supplied for that observation and policy.
 3. Propose one typed intent.
 4. Let the controller authorize and serialize the attempt.
 5. Act through the world's own client and physics.
@@ -12,9 +12,15 @@ Behold's portable center is one causal loop:
 
 The world-specific boundary is intentionally small: `entityId`, `observe(cursor)`,
 a complete capability catalog, `actionsFor(observation)`, and `attempt(intent)`.
-The catalog says what this kind of body can ever do; `actionsFor` publishes the
-observation-bound subset and may narrow inputs to exact perceived targets. It
-cannot introduce a capability absent from the catalog. A mind is a replaceable
+The catalog says what this kind of body can ever do; `actionsFor` publishes an
+authorized observation-bound surface and may narrow inputs to exact perceived
+targets. A supplied control is an attempt the controller will accept, not a
+promise that every Minecraft precondition holds or that the attempt will
+succeed. The human-semantic profile deliberately retains cursor-like controls
+when removing one would reveal private reachability or registry classification;
+Minecraft returns their failure. Explicit visible referents such as roster and
+inventory names are still narrowed exactly and cannot be guessed when absent.
+The adapter cannot introduce a capability absent from the catalog. A mind is a replaceable
 proposal adapter above that boundary. It does not own waking, authorization,
 execution, memory, or world truth.
 
@@ -75,12 +81,14 @@ and catalog authorization after `actionsFor`; it has no door, entity, inventory,
 or roster discovery rules. A world adapter failure therefore degrades to the
 explicit yield action instead of broadening capability.
 
-The current Minecraft adapter also removes capabilities whose visible physical
-preconditions are absent. Empty inventory cannot offer placement, eating,
-equipment, dropping, or crafting. Digging and ordinary block use bind to the
-reachable cursor focus. Containers and beds bind to their exact visible block.
-Sleep and wake reflect the body's current day and sleeping state. Exact enums
-narrow item names, entity ids, and door ids; equal numeric bounds narrow block
+The coordinate-bearing resident profile removes capabilities whose visible
+physical preconditions are absent and binds exact perceived targets in its
+schemas. The human-semantic profile instead preserves its stable cursor-control
+vocabulary so tool availability does not become a hidden classifier; the
+executor binds and rechecks the private current target, and an inapplicable
+attempt fails visibly. Both profiles omit argument-bearing controls when their
+required roster or inventory referents are visibly absent. Exact enums narrow
+item names, entity ids, and door ids; equal numeric bounds narrow block
 positions without relying on provider-incompatible numeric enums. Older
 observations without item-use metadata retain a conservative
 coarse inventory surface rather than being silently reinterpreted.

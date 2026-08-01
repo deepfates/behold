@@ -3503,7 +3503,8 @@ test('the neutral policy prompt states protocol only and contains no Minecraft s
 
   assert.ok(system.length < 400, `neutral protocol prompt was ${system.length} characters`);
   assert.match(system, /embodied in Minecraft/i);
-  assert.match(system, /exactly one currently admitted action/i);
+  assert.match(system, /choose one supplied bodily control/i);
+  assert.match(system, /only an authorized attempt/i);
   assert.match(system, /only a proposal until Minecraft returns its terminal result/i);
   assert.doesNotMatch(
     system,

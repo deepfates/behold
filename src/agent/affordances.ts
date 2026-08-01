@@ -43,18 +43,20 @@ export function minecraftInhabitantActionsFor(
   const focusName = String(focus?.name || '').toLowerCase();
 
   if (options.bodyProfile && usesHumanSemanticBody(options.bodyProfile)) {
-    return specs.map((spec) => {
+    return specs.flatMap((spec) => {
       const name = spec.function.name;
-      if (name === 'whisper' && Array.isArray(roster) && roster.length > 0) {
-        return withExactStringEnum(spec, 'username', roster.map(String));
+      if (name === 'whisper') {
+        return Array.isArray(roster) && roster.length > 0
+          ? [withExactStringEnum(spec, 'username', roster.map(String))]
+          : [];
       }
-      if (
-        inventoryNames.length > 0 &&
-        ['drop_item', 'equip_item', 'consume', 'deposit_in_focused_container'].includes(name)
-      ) {
-        return withExactStringEnum(spec, 'name', inventoryNames);
+      if (['drop_item', 'equip_item', 'consume', 'deposit_in_focused_container'].includes(name)) {
+        return inventoryNames.length > 0 ? [withExactStringEnum(spec, 'name', inventoryNames)] : [];
       }
-      return spec;
+      if (name === 'wake_up') {
+        return frame?.self?.condition?.sleeping === true ? [spec] : [];
+      }
+      return [spec];
     });
   }
 

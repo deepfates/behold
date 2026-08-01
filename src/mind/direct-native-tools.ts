@@ -19,7 +19,7 @@ export const OPENROUTER_NATIVE_TOOL_RESIDENT_SESSION_PROTOCOL =
   'behold.openrouter-native-tool-resident-session.v1' as const;
 
 const NATIVE_TOOL_INSTRUCTION =
-  'Choose exactly one admitted action by calling exactly one supplied function. Put the two short public commitments and the unchanged action arguments inside that call. Do not add prose, corrections, or multiple candidates.\n';
+  'Choose exactly one supplied bodily control by calling exactly one supplied function. Its presence authorizes an attempt but does not promise that world preconditions hold or that it will succeed. Put the two short public commitments and the unchanged action arguments inside that call. Do not add prose, corrections, or multiple candidates.\n';
 const NATIVE_TOOL_RESPONSE_REMINDER =
   "Respond now with exactly one supplied function call. Publish a short intention and expected observable consequence inside it, then supply that action's arguments. Do not repeat the contract or add prose.";
 

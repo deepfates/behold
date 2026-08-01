@@ -54,6 +54,29 @@ One action may provide bounded ergonomic motor assistance when its entire
 meaning is visible in the action name and parameters and it does not choose a
 goal, route, target, recovery, or plan.
 
+Four terms stay distinct:
+
+- The **control vocabulary** is the stable player-shaped set this body profile
+  knows how to attempt.
+- A **supplied control** is one authorized for this decision. Its presence does
+  not assert that Minecraft preconditions hold or that the attempt will
+  succeed.
+- A **visible precondition** is current information already present in the
+  resident observation, such as sleeping state, inventory names, roster names,
+  crosshair focus, and qualitative proximity. Inputs may be narrowed to those
+  visible referents; absent referents must never become guessable arguments.
+- A **consequence** is the authenticated result of attempting the control plus
+  later body observation. Neither the controller nor model predicts it into
+  truth.
+
+The cursor-like focus controls remain stable when filtering them would reveal a
+private reachability or registry classification. Trying one in the wrong
+context may therefore fail visibly, just as pressing a player control may do
+nothing useful. Controls whose arguments require an explicitly visible roster
+or inventory name are omitted when no such referent exists. `wake_up` is
+present only while the ordinary body UI reports sleep. These are bounds on
+truthful reference and authorization, not advice about what to choose.
+
 Allowed v1 action grain:
 
 - send chat or whisper;
@@ -108,7 +131,8 @@ because a product resident uses both.
 2. Project current, historical, urgent-continuity, and fold inputs through the
    same human-semantic sanitizer. Reject or invalidate folds produced for a
    different projection profile.
-3. Add the fixed human-semantic action allowlist and cursor/control actions.
+3. Add the stable human-semantic control vocabulary and observation-bound
+   supplied controls.
    Bind focus actions to the raw admitted observation internally, then re-check
    the current cursor before execution.
 4. Make neutral evaluation default to the human-semantic body, vanilla risk,

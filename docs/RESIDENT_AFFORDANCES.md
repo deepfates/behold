@@ -86,16 +86,23 @@ honest remaining gap, not a reason to restore symbolic topology as a sense.
 ## The executable offer boundary
 
 The stable catalog names everything a body implementation can ever attempt.
-It is not the prompt for every moment. For each observation, the world adapter
-publishes a subset through `actionsFor(observation)` and narrows inputs to exact
-current entity, block, inventory, roster, or own-memory references. The generic
-controller may further restrict that set for authorization or urgent attention,
-but it does not discover Minecraft objects or mechanics.
+For coordinate-bearing resident profiles it is not the prompt for every moment:
+the world adapter publishes an observation-bound subset through
+`actionsFor(observation)` and narrows inputs to exact current entity, block,
+inventory, roster, or own-memory references. The human-semantic profile instead
+keeps cursor-like player controls stable when filtering them would expose a
+private reachability or registry classification. A supplied control is an
+authorized attempt, not a promise that Minecraft preconditions hold or that it
+will succeed. Required roster and inventory arguments are still narrowed to
+visible names and the control is absent when no such referent exists. The
+generic controller may further restrict the surface for authorization or urgent
+attention, but it does not discover Minecraft objects or mechanics.
 
-For neutral model evaluation, “supported” must mean meaningfully attemptable,
-not advisable. The compiler may remove an absent inventory use or a target this
-body did not perceive. It must not hide a risky vanilla choice to improve the
-resident's apparent judgment. Non-vanilla safety policy and composite body
+For neutral model evaluation, “supported” means authorized to attempt, not
+advisable or guaranteed to succeed. The compiler may remove an absent visible
+referent or a target this body did not perceive. It must not reveal a hidden
+classification through tool presence or hide a risky vanilla choice to improve
+the resident's apparent judgment. Non-vanilla safety policy and composite body
 skills require named profiles so every evaluated mind receives the same
 problem. See [A neutral Minecraft agent benchmark](MINECRAFT_BENCHMARK.md).
 
@@ -109,11 +116,14 @@ Cursor-gated door, container, bed, and toggle skills still appear only after
 the crosshair relation is separately observable. This is one target language
 shared by block interactions, not a block ontology or a new verb per material.
 
-The offer compiler now applies the same rule beyond doors. Inventory stacks
-publish their native item uses from the active registry plus Mineflayer's
-ordinary consume rules; empty or inapplicable inventory removes eating,
-equipment, dropping, placement, and crafting fiction. Visual mining narrows its
-input to current first-hit target ids. The current resident profile also removes
+The coordinate-bearing offer compiler applies the same rule beyond doors.
+Inventory stacks publish their native item uses from the active registry plus
+Mineflayer's ordinary consume rules; empty or inapplicable inventory removes
+eating, equipment, dropping, placement, and crafting fiction. The
+human-semantic surface exposes inventory names but not registry-derived use
+advice; an unwise attempt returns Minecraft failure. Both surfaces remove
+argument-bearing controls when the required visible inventory or roster name is
+absent. Visual mining narrows its input to current first-hit target ids. The current resident profile also removes
 targets its support-plane safety rule would refuse, and the executor rechecks
 that predicate against the fresh body. That is disclosed resident policy, not
 yet a neutral benchmark surface: vanilla permits risky downward mining and a

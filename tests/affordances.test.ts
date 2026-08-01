@@ -173,6 +173,31 @@ test('human-semantic affordances stay fixed instead of revealing hidden focus cl
   assert.deepEqual(offered[4].function.parameters.properties.name.enum, ['cobblestone']);
 });
 
+test('human-semantic controls never admit guessed visible referents or waking while awake', () => {
+  const actions = [
+    schemaTool('look_direction', {}),
+    schemaTool('whisper', { username: { type: 'string' }, text: { type: 'string' } }),
+    schemaTool('drop_item', { name: { type: 'string' } }),
+    schemaTool('consume', { name: { type: 'string' } }),
+    schemaTool('wake_up', {}),
+  ];
+  const frame = {
+    protocol: 'behold.inhabitant.v2',
+    self: { inventory: [], condition: { sleeping: false } },
+    scene: { focus: null, social: { playersOnline: [] } },
+  };
+
+  const offered = minecraftInhabitantActionsFor(actions, frame, {
+    bodyProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+  });
+
+  assert.deepEqual(
+    offered.map((action) => action.function.name),
+    ['look_direction'],
+  );
+});
+
 test('current inventory uses and cursor focus produce exact native action inputs', () => {
   const actions = [
     schemaTool('drop_item', { name: { type: 'string' } }),
