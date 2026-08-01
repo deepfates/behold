@@ -4,12 +4,18 @@ import {
   cursorTarget,
   droppedItemPickupGround,
   FIRST_PERSON_VISION,
+  PLAYER_INVENTORY_DISTINCT_ITEM_LIMIT,
   summarizeVisibleEntities,
   summarizeVisibleTerrain,
   summarizeInventory,
 } from '../src/agent/observation';
 import { sanitizeName } from '../src/observability/journal';
-import { buildInterpreter, minecraftChat } from '../src/agent/interpreter';
+import {
+  buildInterpreter,
+  MINECRAFT_PUBLIC_CHAT_MAX_CHARS,
+  MINECRAFT_WHISPER_MAX_CHARS,
+  minecraftChat,
+} from '../src/agent/interpreter';
 import { EventEmitter } from 'node:events';
 import { Vec3 } from 'vec3';
 
@@ -48,6 +54,18 @@ test('inventory summaries derive ordinary uses from Minecraft and Mineflayer sem
     { name: 'potion', count: 1, uses: ['consume', 'equip', 'drop'] },
     { name: 'wooden_axe', count: 1, uses: ['equip', 'drop'] },
   ]);
+});
+
+test('ordinary player inventory does not silently omit distinct carried item types', () => {
+  const items = Array.from({ length: PLAYER_INVENTORY_DISTINCT_ITEM_LIMIT }, (_, index) => ({
+    name: `item_${String(index).padStart(2, '0')}`,
+    count: 1,
+  }));
+
+  const summary = summarizeInventory(items);
+
+  assert.equal(summary.length, PLAYER_INVENTORY_DISTINCT_ITEM_LIMIT);
+  assert.ok(summary.some((item) => item.name === 'item_35'));
 });
 
 test('nearby dropped stacks expose their item identity and count', () => {
@@ -389,11 +407,13 @@ test('sanitizeName produces filesystem-safe agent names', () => {
   assert.equal(sanitizeName('Scout / West'), 'Scout-West');
 });
 
-test('minecraftChat produces one bounded server-safe message', () => {
-  const message = minecraftChat('Materials:\n- grass\n- gray concrete\t nearby', 40);
-  assert.equal(message, 'Materials: - grass - gray concrete');
+test('minecraftChat normalizes whitespace without silently amputating an utterance', () => {
+  const complete = 'Materials: - grass - gray concrete nearby and then we should explore.';
+  const message = minecraftChat(
+    'Materials:\n- grass\n- gray concrete\t nearby and then we should explore.',
+  );
+  assert.equal(message, complete);
   assert.equal(message.includes('\n'), false);
-  assert.ok(message.length <= 40);
 });
 
 test('chat is an unavailable action when the server roster has no recipient', async () => {
@@ -404,6 +424,15 @@ test('chat is an unavailable action when the server roster has no recipient', as
   bot.chat = (message: string) => sent.push(message);
   const interpreter = buildInterpreter(bot);
 
+  assert.equal(
+    interpreter.describe('chat')?.parameters.properties.text.maxLength,
+    MINECRAFT_PUBLIC_CHAT_MAX_CHARS,
+  );
+  assert.equal(
+    interpreter.describe('whisper')?.parameters.properties.text.maxLength,
+    MINECRAFT_WHISPER_MAX_CHARS,
+  );
+
   const alone = await interpreter.run('chat', { text: 'Hello?' });
   assert.equal(alone.ok, false);
   assert.equal(alone.error, 'no_other_players_online');
@@ -411,6 +440,46 @@ test('chat is an unavailable action when the server roster has no recipient', as
 
   bot.players.importdf = { username: 'importdf' };
   const together = await interpreter.run('chat', { text: 'Hello!' });
-  assert.equal(together.ok, true);
+  assert.deepEqual(together, {
+    ok: true,
+    status: 'chat_input_dispatched',
+    message: 'Hello!',
+  });
   assert.deepEqual(sent, ['Hello!']);
+
+  const whispered: Array<{ username: string; message: string }> = [];
+  bot.whisper = (username: string, message: string) => whispered.push({ username, message });
+  const privateMessage = await interpreter.run('whisper', {
+    username: 'importdf',
+    text: 'Over here.',
+  });
+  assert.deepEqual(privateMessage, {
+    ok: true,
+    status: 'whisper_input_dispatched',
+    message: 'Over here.',
+  });
+  assert.deepEqual(whispered, [{ username: 'importdf', message: 'Over here.' }]);
+
+  const publicTooLong = await interpreter.run('chat', {
+    text: 'x'.repeat(MINECRAFT_PUBLIC_CHAT_MAX_CHARS + 1),
+  });
+  assert.deepEqual(publicTooLong, {
+    ok: false,
+    error: 'message_too_long',
+    maximumCharacters: MINECRAFT_PUBLIC_CHAT_MAX_CHARS,
+    providedCharacters: MINECRAFT_PUBLIC_CHAT_MAX_CHARS + 1,
+  });
+  assert.deepEqual(sent, ['Hello!']);
+
+  const whisperTooLong = await interpreter.run('whisper', {
+    username: 'importdf',
+    text: 'x'.repeat(MINECRAFT_WHISPER_MAX_CHARS + 1),
+  });
+  assert.deepEqual(whisperTooLong, {
+    ok: false,
+    error: 'message_too_long',
+    maximumCharacters: MINECRAFT_WHISPER_MAX_CHARS,
+    providedCharacters: MINECRAFT_WHISPER_MAX_CHARS + 1,
+  });
+  assert.deepEqual(whispered, [{ username: 'importdf', message: 'Over here.' }]);
 });

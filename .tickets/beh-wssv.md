@@ -2,7 +2,7 @@
 id: beh-wssv
 status: in_progress
 deps: []
-links: []
+links: [beh-uumj, beh-kgyy, beh-e6w5, beh-2h0i, beh-1h3a]
 created: 2026-08-01T22:29:26Z
 type: task
 priority: 0
@@ -36,3 +36,7 @@ Accepted Place input is now clean commit b872237 and the newly regenerated deriv
 **2026-08-01T22:45:00Z**
 
 The first ordinary start failed before Place, Minecraft, LM Studio, or resident startup because Behold still admitted Place revision 103deac. Empty session scaffolding was the only created state. This is an integration admission defect, not a habitat or resident result. Advance the single pinned ordinary-live Place revision to b872237cbef4fed4e4a0dfdf5d472b24ab50a1d0, verify it, and repeat the unused session basis rather than mutating any historical session.
+
+**2026-08-01T23:28:41Z**
+
+Qualified habitat episode 000001 completed its declared 20-minute ordinary epoch and clean stop. Place entry was qualified with override=null. OxfordLark and OxfordSedge shared one loaded Qwen3.6 35B-A3B weight instance while controller, quota, entity, request history, and private Lync remained distinct. Authenticated native importdf joined and rejoined; real hostile ecology caused damage/death. Stop saved the Minecraft head, settled all cognition/actions, advanced independent Lync prefixes (3,937,025 and 3,445,303 bytes), unloaded the owned model once, and released control. This is not yet acceptance: same-life resume remains, and the episode exposed interface defects now tracked by beh-kgyy, beh-uumj, beh-e6w5, beh-2h0i, and beh-1h3a.

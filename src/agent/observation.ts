@@ -5,6 +5,8 @@ import { HUMAN_SEMANTIC_INTERACTION_DISTANCE } from './action-profiles';
 
 export type ChatLine = { username: string; message: string; at: number } | null;
 
+export const PLAYER_INVENTORY_DISTINCT_ITEM_LIMIT = 36;
+
 export type InventoryUse = 'place' | 'consume' | 'equip' | 'drop';
 export type InventorySummary = { name: string; count: number; uses?: InventoryUse[] };
 export type NearbyEntitySummary = {
@@ -92,7 +94,7 @@ export function collectObservation(bot: Bot, lastChat: ChatLine) {
   const held = (bot as any).heldItem;
   const inventory = summarizeInventory(
     (bot as any).inventory?.items?.() || [],
-    16,
+    PLAYER_INVENTORY_DISTINCT_ITEM_LIMIT,
     (bot as any).registry,
   );
   const onlinePlayers = onlinePlayerNames(bot);
@@ -128,7 +130,11 @@ export function onlinePlayerNames(bot: Bot): string[] | null {
     .sort((a, b) => a.localeCompare(b));
 }
 
-export function summarizeInventory(items: any[], limit = 16, registry?: any): InventorySummary[] {
+export function summarizeInventory(
+  items: any[],
+  limit = PLAYER_INVENTORY_DISTINCT_ITEM_LIMIT,
+  registry?: any,
+): InventorySummary[] {
   const counts = new Map<string, number>();
   for (const item of items || []) {
     const name = String(item?.name || item?.displayName || 'unknown');

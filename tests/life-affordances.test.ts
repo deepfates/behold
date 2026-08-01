@@ -362,6 +362,71 @@ test('an exact current cursor block is not rejected by a disagreeing visibility 
   assert.equal(block.name, 'air');
 });
 
+test('digging an admitted cursor block never hides an approach action', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0, 64, 0);
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  const position = new Vec3(0, 68, -3);
+  let pathfinderCalls = 0;
+  let block: any = {
+    name: 'oak_log',
+    type: 17,
+    stateId: 17,
+    boundingBox: 'block',
+    position,
+    intersect: new Vec3(0.5, 68.5, -2.5),
+  };
+  const airAt = (at: Vec3) => ({
+    name: 'air',
+    type: 0,
+    stateId: 0,
+    boundingBox: 'empty',
+    position: at,
+  });
+  bot.world = { raycast: () => block };
+  bot.blockAt = (at: Vec3) =>
+    at.x === position.x && at.y === position.y && at.z === position.z ? block : airAt(at);
+  bot.pathfinder = {
+    goto: async () => {
+      pathfinderCalls += 1;
+    },
+    setGoal: () => {
+      pathfinderCalls += 1;
+    },
+  };
+  bot.dig = async (target: any) => {
+    const previous = target;
+    block = airAt(position);
+    bot.emit('blockUpdate', previous, block);
+  };
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:0:68:-3',
+        kind: 'block',
+        name: 'oak_log',
+        source: 'cursor',
+        position: { x: 0, y: 68, z: -3 },
+        distance: 4.2,
+        reachable: true,
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot, {
+    safetyProfile: 'vanilla-player-v1',
+    changeStabilityWindowMs: 1,
+  }).run('dig_focused_block', {}, { observation: admitted });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.navigation, null);
+  assert.equal(pathfinderCalls, 0);
+  assert.deepEqual(bot.entity.position, new Vec3(0, 64, 0));
+});
+
 test('look_direction exposes bounded relative player orientation without raw angles', async () => {
   const bot = baseBot();
   bot.entity.yaw = 0;
@@ -2985,6 +3050,144 @@ test('dropping an item fails when Minecraft produces no inventory change', async
   assert.equal(dropped.error, 'drop_unconfirmed');
   assert.equal(dropped.inventoryRemoved, 0);
   assert.equal(dropped.confirmation, null);
+});
+
+test('model-facing inventory actions preserve exact names across overlapping items', async () => {
+  const bot = baseBot();
+  const stripped = {
+    type: 101,
+    metadata: 0,
+    name: 'stripped_oak_log',
+    displayName: 'Stripped Oak Log',
+    count: 8,
+  };
+  const oak = {
+    type: 102,
+    metadata: 0,
+    name: 'oak_log',
+    displayName: 'Oak Log',
+    count: 8,
+  };
+  const chest = { name: 'chest', position: new Vec3(1, 64, 0) };
+  const stored = [
+    { ...stripped, count: 2 },
+    { ...oak, count: 2 },
+  ];
+  const selectedTypes: number[] = [];
+  bot.inventoryItems = [stripped, oak];
+  bot.blockAt = () => chest;
+  bot.toss = async (type: number, _metadata: number | null, count: number) => {
+    selectedTypes.push(type);
+    bot.inventoryItems.find((item: any) => item.type === type).count -= count;
+  };
+  bot.equip = async (item: any) => {
+    selectedTypes.push(item.type);
+    bot.heldItem = item;
+  };
+  bot.consume = async () => {
+    bot.heldItem.count -= 1;
+  };
+  bot.openContainer = async () => ({
+    containerItems: () => stored,
+    deposit: async (type: number, _metadata: number | null, count: number) => {
+      selectedTypes.push(type);
+      bot.inventoryItems.find((item: any) => item.type === type).count -= count;
+      stored.find((item: any) => item.type === type).count += count;
+    },
+    withdraw: async (type: number, _metadata: number | null, count: number) => {
+      selectedTypes.push(type);
+      stored.find((item: any) => item.type === type).count -= count;
+      bot.inventoryItems.find((item: any) => item.type === type).count += count;
+    },
+    close: () => {},
+  });
+  const interpreter = buildInterpreter(bot);
+  const execution = { observation: { protocol: 'behold.inhabitant.v2' } };
+
+  assert.equal(
+    (await interpreter.run('drop_item', { name: 'oak_log' }, execution)).item,
+    'oak_log',
+  );
+  assert.equal((await interpreter.run('equip_item', { name: 'oak_log' }, execution)).ok, true);
+  assert.equal((await interpreter.run('consume', { name: 'oak_log' }, execution)).item, 'oak_log');
+  assert.equal(
+    (
+      await interpreter.run(
+        'deposit_in_container',
+        { name: 'oak_log', x: 1, y: 64, z: 0 },
+        execution,
+      )
+    ).item,
+    'oak_log',
+  );
+  assert.equal(
+    (
+      await interpreter.run(
+        'withdraw_from_container',
+        { name: 'oak_log', x: 1, y: 64, z: 0 },
+        execution,
+      )
+    ).item,
+    'oak_log',
+  );
+  assert.deepEqual(selectedTypes, [102, 102, 102, 102, 102]);
+
+  bot.inventoryItems = [stripped];
+  let tossed = false;
+  bot.toss = async () => {
+    tossed = true;
+  };
+  const staleExactChoice = await interpreter.run('drop_item', { name: 'oak_log' }, execution);
+  assert.equal(staleExactChoice.error, 'item_not_in_inventory');
+  assert.equal(tossed, false);
+});
+
+test('discrete item counts reject fractions before any world intent', async () => {
+  const bot = baseBot();
+  bot.inventoryItems = [{ type: 1, metadata: 0, name: 'dirt', count: 4 }];
+  let tosses = 0;
+  let blockLookups = 0;
+  let containerOpens = 0;
+  bot.toss = async () => {
+    tosses += 1;
+  };
+  bot.blockAt = () => {
+    blockLookups += 1;
+    return { name: 'chest', position: new Vec3(1, 64, 0) };
+  };
+  bot.openContainer = async () => {
+    containerOpens += 1;
+    return {};
+  };
+  const interpreter = buildInterpreter(bot);
+
+  assert.equal(interpreter.describe('drop_item')?.parameters.properties.count.type, 'integer');
+  assert.equal(
+    interpreter.describe('deposit_in_container')?.parameters.properties.count.type,
+    'integer',
+  );
+  assert.equal(
+    interpreter.describe('withdraw_from_container')?.parameters.properties.count.type,
+    'integer',
+  );
+  assert.equal(
+    interpreter.describe('deposit_in_focused_container')?.parameters.properties.count.type,
+    'integer',
+  );
+
+  for (const name of ['drop_item', 'deposit_in_container', 'withdraw_from_container']) {
+    const result = await interpreter.run(name, {
+      name: 'dirt',
+      count: 1.5,
+      x: 1,
+      y: 64,
+      z: 0,
+    });
+    assert.deepEqual(result, { ok: false, error: 'invalid_count', requested: 1.5 });
+  }
+  assert.equal(tosses, 0);
+  assert.equal(blockLookups, 0);
+  assert.equal(containerOpens, 0);
 });
 
 test('shared storage reports and verifies deposit and withdrawal consequences', async () => {

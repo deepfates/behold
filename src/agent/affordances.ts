@@ -50,7 +50,12 @@ export function minecraftInhabitantActionsFor(
           ? [withExactStringEnum(spec, 'username', roster.map(String))]
           : [];
       }
-      if (['drop_item', 'equip_item', 'consume', 'deposit_in_focused_container'].includes(name)) {
+      if (name === 'consume') {
+        return consumableNames.length > 0
+          ? [withExactStringEnum(spec, 'name', consumableNames)]
+          : [];
+      }
+      if (['drop_item', 'equip_item', 'deposit_in_focused_container'].includes(name)) {
         return inventoryNames.length > 0 ? [withExactStringEnum(spec, 'name', inventoryNames)] : [];
       }
       if (name === 'wake_up') {

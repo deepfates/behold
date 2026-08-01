@@ -144,7 +144,7 @@ test('an empty respawned body is not offered inventory, crafting, placement, or 
   assert.deepEqual(names, ['look_direction', 'face_visible_target']);
 });
 
-test('human-semantic affordances stay fixed instead of revealing hidden focus classifications', () => {
+test('human-semantic focus affordances stay fixed while inventory actions remain truthful', () => {
   const actions = [
     schemaTool('dig_focused_block', {}),
     schemaTool('use_focused_block', {}),
@@ -168,9 +168,37 @@ test('human-semantic affordances stay fixed instead of revealing hidden focus cl
 
   assert.deepEqual(
     offered.map((action) => action.function.name),
-    actions.map((action) => action.function.name),
+    actions.slice(0, 4).map((action) => action.function.name),
   );
-  assert.deepEqual(offered[4].function.parameters.properties.name.enum, ['cobblestone']);
+});
+
+test('human-semantic consume offers only currently usable food and drink', () => {
+  const action = schemaTool('consume', { name: { type: 'string' } });
+  const frame = {
+    protocol: 'behold.inhabitant.v2',
+    self: {
+      inventory: [
+        { name: 'oak_log', count: 1, uses: ['place', 'equip', 'drop'] },
+        { name: 'apple', count: 1, uses: ['consume', 'equip', 'drop'] },
+        { name: 'potion', count: 1, uses: ['consume', 'equip', 'drop'] },
+      ],
+      condition: { food: 20 },
+    },
+    scene: { focus: null, social: { playersOnline: [] } },
+  };
+
+  const full = minecraftInhabitantActionsFor([action], frame, {
+    bodyProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+  });
+  assert.deepEqual(full[0].function.parameters.properties.name.enum, ['potion']);
+
+  frame.self.condition.food = 18;
+  const hungry = minecraftInhabitantActionsFor([action], frame, {
+    bodyProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+  });
+  assert.deepEqual(hungry[0].function.parameters.properties.name.enum, ['apple', 'potion']);
 });
 
 test('human-semantic controls never admit guessed visible referents or waking while awake', () => {

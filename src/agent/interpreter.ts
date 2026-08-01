@@ -134,9 +134,14 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
   // chat/say
   add({
     name: 'chat',
-    description:
-      'Send one short public chat message when communication advances an active interaction; speaking does not replace acting in the world.',
-    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    description: `Send one complete public chat message of at most ${MINECRAFT_PUBLIC_CHAT_MAX_CHARS} characters when communication advances an active interaction; speaking does not replace acting in the world.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', minLength: 1, maxLength: MINECRAFT_PUBLIC_CHAT_MAX_CHARS },
+      },
+      required: ['text'],
+    },
     run: async ({ text }) => {
       const playersOnline = onlinePlayerNames(bot);
       if (playersOnline && playersOnline.length === 0) {
@@ -144,18 +149,29 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       }
       const message = minecraftChat(text);
       if (!message) return { ok: false, error: 'empty_message' };
+      if (message.length > MINECRAFT_PUBLIC_CHAT_MAX_CHARS) {
+        return {
+          ok: false,
+          error: 'message_too_long',
+          maximumCharacters: MINECRAFT_PUBLIC_CHAT_MAX_CHARS,
+          providedCharacters: message.length,
+        };
+      }
       (bot as any).chat(message);
-      return { ok: true, message };
+      return { ok: true, status: 'chat_input_dispatched', message };
     },
     category: 'chat',
   });
 
   add({
     name: 'whisper',
-    description: 'Whisper a player using /tell',
+    description: `Send one complete private Minecraft chat message of at most ${MINECRAFT_WHISPER_MAX_CHARS} characters to an online player.`,
     parameters: {
       type: 'object',
-      properties: { username: { type: 'string' }, text: { type: 'string' } },
+      properties: {
+        username: { type: 'string' },
+        text: { type: 'string', minLength: 1, maxLength: MINECRAFT_WHISPER_MAX_CHARS },
+      },
       required: ['username', 'text'],
     },
     run: async ({ username, text }) => {
@@ -173,8 +189,16 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       }
       const message = minecraftChat(text);
       if (!message) return { ok: false, error: 'empty_message' };
+      if (message.length > MINECRAFT_WHISPER_MAX_CHARS) {
+        return {
+          ok: false,
+          error: 'message_too_long',
+          maximumCharacters: MINECRAFT_WHISPER_MAX_CHARS,
+          providedCharacters: message.length,
+        };
+      }
       (bot as any).whisper(String(username), message);
-      return { ok: true, message };
+      return { ok: true, status: 'whisper_input_dispatched', message };
     },
     category: 'chat',
   });
@@ -871,14 +895,17 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        count: { type: 'number', minimum: 1, maximum: 64 },
+        count: { type: 'integer', minimum: 1, maximum: 64 },
       },
       required: ['name'],
     },
-    run: async ({ name, count = 1 }) => {
-      const query = normalizeRegistryName(String(name));
-      const item = ((bot as any).inventory?.items?.() || []).find((candidate: any) =>
-        normalizeRegistryName(String(candidate?.name || '')).includes(query),
+    run: async ({ name, count = 1 }, execution) => {
+      const invalidCount = invalidDiscreteItemCount(count);
+      if (invalidCount) return invalidCount;
+      const item = namedInventoryItem(
+        (bot as any).inventory?.items?.() || [],
+        name,
+        !execution?.observation,
       );
       if (!item) {
         return {
@@ -888,10 +915,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           inventory: inventorySnapshot(bot),
         };
       }
-      const dropCount = Math.min(
-        Math.max(1, Math.floor(Number(count) || 1)),
-        Math.max(1, Number(item.count) || 1),
-      );
+      const dropCount = Math.min(count, Math.max(1, Number(item.count) || 1));
       const before = inventoryCount(bot, String(item.name));
       await (bot as any).toss(item.type, item.metadata ?? null, dropCount);
       const after = inventoryCount(bot, String(item.name));
@@ -937,7 +961,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['target'],
     },
-    run: async ({ target, x, y, z, admittedCursorFocus }, execution) => {
+    run: async ({ target, x, y, z, admittedCursorFocus, noApproach }, execution) => {
       const targetReference = typeof target === 'string' ? target.trim() : '';
       let selectedTarget: ReturnType<typeof currentVisibleBlockTarget> = null;
       if (targetReference) {
@@ -1010,7 +1034,10 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
             ? !!(bot as any).canSeeBlock(b)
             : null;
       let navigation: any = null;
-      if ((distanceBefore != null && distanceBefore > 4.5) || visible === false) {
+      if (
+        noApproach !== true &&
+        ((distanceBefore != null && distanceBefore > 4.5) || visible === false)
+      ) {
         if (!(bot as any).pathfinder || !(bot as any).world) {
           return {
             ok: false,
@@ -1894,14 +1921,12 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['name'],
     },
-    run: async ({ name, destination = 'hand' }) => {
-      const item = (bot as any).inventory
-        ?.items?.()
-        .find(
-          (i: any) =>
-            i?.name?.toLowerCase()?.includes(String(name).toLowerCase()) ||
-            i?.displayName?.toLowerCase()?.includes(String(name).toLowerCase()),
-        );
+    run: async ({ name, destination = 'hand' }, execution) => {
+      const item = namedInventoryItem(
+        (bot as any).inventory?.items?.() || [],
+        name,
+        !execution?.observation,
+      );
       if (!item) return { ok: false, error: 'item_not_found' };
       await (bot as any).equip(item, destination);
       return { ok: true };
@@ -1949,7 +1974,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        count: { type: 'number', minimum: 1, maximum: 64 },
+        count: { type: 'integer', minimum: 1, maximum: 64 },
         x: { type: 'number' },
         y: { type: 'number' },
         z: { type: 'number' },
@@ -1957,12 +1982,15 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['name', 'x', 'y', 'z'],
     },
-    run: async ({ name, count = 1, x, y, z, maxDistance = 6 }) => {
+    run: async ({ name, count = 1, x, y, z, maxDistance = 6 }, execution) => {
+      const invalidCount = invalidDiscreteItemCount(count);
+      if (invalidCount) return invalidCount;
       const resolved = resolveContainerBlock(bot, { x, y, z, maxDistance });
       if (!resolved.ok) return resolved;
-      const query = normalizeRegistryName(String(name));
-      const item = ((bot as any).inventory?.items?.() || []).find((candidate: any) =>
-        normalizeRegistryName(String(candidate?.name || '')).includes(query),
+      const item = namedInventoryItem(
+        (bot as any).inventory?.items?.() || [],
+        name,
+        !execution?.observation,
       );
       if (!item) {
         return {
@@ -1973,10 +2001,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         };
       }
 
-      const moved = Math.min(
-        clamp(Math.floor(Number(count) || 1), 1, 64),
-        Math.max(0, Number(item.count) || 0),
-      );
+      const moved = Math.min(count, Math.max(0, Number(item.count) || 0));
       const container = await (bot as any).openContainer(resolved.block);
       try {
         const bodyBefore = openContainerBodyCount(container, bot, String(item.name));
@@ -2024,7 +2049,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        count: { type: 'number', minimum: 1, maximum: 64 },
+        count: { type: 'integer', minimum: 1, maximum: 64 },
         x: { type: 'number' },
         y: { type: 'number' },
         z: { type: 'number' },
@@ -2032,14 +2057,17 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['name', 'x', 'y', 'z'],
     },
-    run: async ({ name, count = 1, x, y, z, maxDistance = 6 }) => {
+    run: async ({ name, count = 1, x, y, z, maxDistance = 6 }, execution) => {
+      const invalidCount = invalidDiscreteItemCount(count);
+      if (invalidCount) return invalidCount;
       const resolved = resolveContainerBlock(bot, { x, y, z, maxDistance });
       if (!resolved.ok) return resolved;
-      const query = normalizeRegistryName(String(name));
       const container = await (bot as any).openContainer(resolved.block);
       try {
-        const item = (container.containerItems?.() || []).find((candidate: any) =>
-          normalizeRegistryName(String(candidate?.name || '')).includes(query),
+        const item = namedInventoryItem(
+          container.containerItems?.() || [],
+          name,
+          !execution?.observation,
         );
         if (!item) {
           return {
@@ -2051,10 +2079,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           };
         }
 
-        const moved = Math.min(
-          clamp(Math.floor(Number(count) || 1), 1, 64),
-          Math.max(0, Number(item.count) || 0),
-        );
+        const moved = Math.min(count, Math.max(0, Number(item.count) || 0));
         const bodyBefore = openContainerBodyCount(container, bot, String(item.name));
         const containerBefore = countItems(container.containerItems?.() || [], String(item.name));
         await container.withdraw(item.type, item.metadata ?? null, moved, item.nbt ?? null);
@@ -2145,16 +2170,14 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     description:
       'Consume the held item, or equip an inventory item by name, and verify a bodily or inventory consequence.',
     parameters: { type: 'object', properties: { name: { type: 'string' } } },
-    run: async ({ name }) => {
+    run: async ({ name }, execution) => {
       let selected = (bot as any).heldItem;
       if (name) {
-        const match = (bot as any).inventory
-          ?.items?.()
-          .find(
-            (item: any) =>
-              item?.name?.toLowerCase()?.includes(String(name).toLowerCase()) ||
-              item?.displayName?.toLowerCase()?.includes(String(name).toLowerCase()),
-          );
+        const match = namedInventoryItem(
+          (bot as any).inventory?.items?.() || [],
+          name,
+          !execution?.observation,
+        );
         if (!match) return { ok: false, error: 'item_not_found' };
         await (bot as any).equip(match, 'hand');
         selected = match;
@@ -2583,7 +2606,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       // Mineflayer's different canSeeBlock heuristic inside generic digging.
       return runExistingCommand(
         'dig_block',
-        { ...focused.position, admittedCursorFocus: true },
+        { ...focused.position, admittedCursorFocus: true, noApproach: true },
         execution,
       );
     },
@@ -2653,7 +2676,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
               type: 'object',
               properties: {
                 name: { type: 'string' },
-                count: { type: 'number', minimum: 1, maximum: 64 },
+                count: { type: 'integer', minimum: 1, maximum: 64 },
               },
               required: ['name'],
             },
@@ -4967,6 +4990,31 @@ function normalizeRegistryName(value: string) {
     .replace(/[\s-]+/g, '_');
 }
 
+function namedInventoryItem(items: any[], requested: unknown, allowFuzzyFallback: boolean) {
+  const query = normalizeRegistryName(String(requested ?? ''));
+  if (!query) return null;
+  const exact = items.find(
+    (item: any) =>
+      normalizeRegistryName(String(item?.name || '')) === query ||
+      normalizeRegistryName(String(item?.displayName || '')) === query,
+  );
+  if (exact) return exact;
+  if (!allowFuzzyFallback) return null;
+  return (
+    items.find(
+      (item: any) =>
+        normalizeRegistryName(String(item?.name || '')).includes(query) ||
+        normalizeRegistryName(String(item?.displayName || '')).includes(query),
+    ) || null
+  );
+}
+
+function invalidDiscreteItemCount(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 64
+    ? null
+    : { ok: false as const, error: 'invalid_count', requested: value };
+}
+
 function namedRegistryEntry(registry: Record<string, any> | null | undefined, requested: string) {
   const query = normalizeRegistryName(requested);
   if (!query || !registry) return null;
@@ -5919,14 +5967,12 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-export function minecraftChat(value: unknown, limit = 120) {
-  const normalized = String(value ?? '')
+export const MINECRAFT_PUBLIC_CHAT_MAX_CHARS = 256;
+export const MINECRAFT_WHISPER_MAX_CHARS = 232;
+
+export function minecraftChat(value: unknown) {
+  return String(value ?? '')
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  const max = Math.max(1, limit);
-  if (normalized.length <= max) return normalized;
-  const clipped = normalized.slice(0, max);
-  const boundary = clipped.lastIndexOf(' ');
-  return boundary >= Math.floor(max * 0.6) ? clipped.slice(0, boundary) : clipped;
 }
