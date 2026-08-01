@@ -35,6 +35,22 @@ test('one verified unused history becomes only a fresh restartable Place runtime
   assert.equal(fs.existsSync(path.join(fixture.destination, 'usercache.json')), false);
   assert.equal(digestTree(fixture.sourceWorld).digest, fixture.worldDigest);
   assert.equal(digestTree(fixture.historyWorld).digest, fixture.worldDigest);
+  const claimFile = path.join(
+    fs.realpathSync.native(path.dirname(fixture.historyWorld)),
+    'live-claim.json',
+  );
+  assert.equal(record.claimFile, claimFile);
+  assert.equal(fs.existsSync(claimFile), true);
+  await assert.rejects(
+    stagePlaceHistorySeed(
+      { ...fixture.input, destinationRuntimeRoot: path.join(fixture.root, 'another-runtime') },
+      {
+        verifyFork: async () => fixture.verification as any,
+        assertSourceContinuity: (() => fixture.continuity) as any,
+      },
+    ),
+    /already claimed/,
+  );
 });
 
 test('a failed Place preflight leaves no partial history-seeded runtime', async (t) => {
@@ -56,6 +72,10 @@ test('a failed Place preflight leaves no partial history-seeded runtime', async 
   );
   assert.equal(digestTree(fixture.sourceWorld).digest, fixture.worldDigest);
   assert.equal(digestTree(fixture.historyWorld).digest, fixture.worldDigest);
+  assert.equal(
+    fs.existsSync(path.join(path.dirname(fixture.historyWorld), 'live-claim.json')),
+    false,
+  );
 });
 
 test('a previously diverged history is rejected before staging', async (t) => {
@@ -216,6 +236,7 @@ function seedFixture(t: test.TestContext) {
     sourceWorld,
     historyWorld,
     worldDigest,
+    root,
   };
 }
 

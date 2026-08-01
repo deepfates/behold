@@ -9,6 +9,7 @@ import {
 import { verifyMinecraftWorldHistoryFork, type MinecraftWorldHistoryFork } from './world-history';
 
 const PLACE_HISTORY_SEED_PROTOCOL = 'behold.place-history-seed.v1' as const;
+const PLACE_HISTORY_CLAIM_PROTOCOL = 'behold.place-history-claim.v1' as const;
 const PLACE_RUNTIME_FILES = Object.freeze([
   'runtime-manifest.json',
   'server.properties',
@@ -80,6 +81,10 @@ export async function stagePlaceHistorySeed(
   });
 
   const destination = path.resolve(input.destinationRuntimeRoot);
+  const claimFile = path.join(path.dirname(history.worldPath), 'live-claim.json');
+  if (fs.existsSync(claimFile)) {
+    throw new Error(`world-history child ${historyId} is already claimed by a live session`);
+  }
   if (fs.existsSync(destination)) {
     throw new Error(`history-seeded Place runtime destination exists: ${destination}`);
   }
@@ -89,6 +94,7 @@ export async function stagePlaceHistorySeed(
     `.${path.basename(destination)}.history-seed-${randomUUID()}`,
   );
   fs.mkdirSync(staging, { mode: 0o700 });
+  let claimPublished = false;
   try {
     const sourceFiles = snapshotRuntimeFiles(sourceRuntimeRoot);
     for (const item of sourceFiles) {
@@ -114,6 +120,24 @@ export async function stagePlaceHistorySeed(
     }
     dependencies.validateStagedRuntime?.(staging);
     syncPlainTree(staging);
+    const claimBase = {
+      protocol: PLACE_HISTORY_CLAIM_PROTOCOL,
+      receiptFile,
+      receiptSha256,
+      operationId: receipt.operationId,
+      worldId: receipt.worldId,
+      checkpointDigest: receipt.checkpoint.digest,
+      historyId,
+      initialDigest: history.initialDigest,
+      sourceWorldPath: history.worldPath,
+      destinationRuntimeRoot: destination,
+    };
+    const claim = Object.freeze({
+      ...claimBase,
+      digest: sha256Bytes(Buffer.from(stableJson(claimBase), 'utf8')),
+    });
+    writeJsonExclusive(claimFile, claim);
+    claimPublished = true;
     fs.renameSync(staging, destination);
     fsyncDirectory(path.dirname(destination));
     return Object.freeze({
@@ -129,9 +153,15 @@ export async function stagePlaceHistorySeed(
       sourceRuntimeRoot,
       destinationRuntimeRoot: destination,
       runtimeManifestSha256: sha256File(path.join(destination, 'runtime-manifest.json')),
+      claimFile,
+      claimDigest: claim.digest,
     });
   } catch (error) {
     fs.rmSync(staging, { recursive: true, force: true });
+    if (claimPublished && !fs.existsSync(destination)) {
+      fs.rmSync(claimFile, { force: true });
+      fsyncDirectory(path.dirname(claimFile));
+    }
     throw error;
   }
 }
@@ -282,4 +312,26 @@ function fsyncDirectory(directory: string) {
   } finally {
     fs.closeSync(descriptor);
   }
+}
+
+function writeJsonExclusive(file: string, value: unknown) {
+  const descriptor = fs.openSync(file, 'wx', 0o600);
+  try {
+    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  fsyncDirectory(path.dirname(file));
+}
+
+function stableJson(value: any): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }

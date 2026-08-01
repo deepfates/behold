@@ -24,3 +24,7 @@ Given an authenticated stopped Place-served source head and a verified behold.mi
 **2026-08-01T08:01:08Z**
 
 Implemented the narrow fresh-session adapter and live flags. Full check passes: 643 tests, 642 pass, 1 intentional skip. Real stopped Oxford head b5875c3a... was forked through the actual live control root into four unused sibling histories; receipt data/model-perception-live-20260801/world-history-receipt.json SHA-256 e92d7260..., checkpoint/lineage/lifecycle all independently verify and every child remains at the common digest. No branch has been started yet, so ordinary Place/live exercise remains pending before closure.
+
+**2026-08-01T08:06:44Z**
+
+First real gemma-semantic crossing reached ordinary Place restart and cleanly failed before resident admission. LM Studio loaded the exact custom instance but forced Gemma MLX context_length=262144 despite the sealed 32768 request; Behold rejected the mismatch, saved/stopped the new live world, wrote head c7dc8317..., unloaded the model, and left no listener. This falsifies the no-world manifest's claimed Gemma runtime context. The branch remains a clean stopped session with zero resident decisions and will resume only via explicit mind-config revision to the actual 262144 context. Also found that copied history seeds needed a one-child/one-continuation claim; added exclusive authenticated claim publication and retroactively claimed this exact branch.

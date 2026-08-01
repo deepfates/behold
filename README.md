@@ -158,7 +158,9 @@ SECONDS` for a bounded episode; Ctrl-C requests the same clean drain, save,
   clean head, release, server, and living profile; atomically stages only the
   child world and Place restart files; then hands the result to the unchanged
   Place/live lifecycle. Source residents, lives, controllers, episodes, logs,
-  caches, and sibling worlds are not copied. The flags are refused on resume.
+  caches, and sibling worlds are not copied. An exclusive history claim prevents
+  a named child from silently founding multiple live continuations. The flags
+  are refused on resume.
 - If the owning process dies before that path publishes its terminal record,
   repeat the same command with `--recover`. Recovery starts no world or model:
   it releases only an exact dead local owner with clear process, lease, lock,
