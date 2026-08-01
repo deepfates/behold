@@ -193,10 +193,13 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   nonconforming, or warning results. Its read-only session view displayed 1,453
   navigable nodes, bounded the live DOM to 48 turns, moved through the history
   to Iris turn 55, named preserved earlier/later turns, exposed only truthful
-  read/branch/link controls, and relayed no copy. The local Lync 0.4 candidate
-  then migrated the real Iris and Moss lives without changing either
+  read/branch/link controls, and relayed no copy. The Lync 0.4 candidate then
+  migrated the real Iris and Moss lives without changing either
   pre-migration canonical byte prefix, archived the exact legacy snapshots, and
-  appended new turns without recreating `events.json`. Textile's ordinary
+  appended new turns without recreating `events.json`. Behold now pins a
+  reproducible package of clean owning revision `cb4f45f` as a tracked local
+  release candidate, rather than silently testing against an invalid untracked
+  install while its lockfile selected the older writer. Textile's ordinary
   app-layer projector reads episode 000033's 84 MB union as 1,709 source events,
   1,707 readable turns, two structural roots, and zero unsupported,
   nonconforming, or warning results. Graphical history readability and
