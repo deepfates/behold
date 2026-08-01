@@ -21,6 +21,11 @@ import {
 import { usesOllamaResidentSessionTransport } from '../mind/ollama-json-action';
 import { usesResidentSessionPolicy } from '../policy/profile';
 import { createRunJournal } from '../observability/journal';
+import {
+  createResidentLifeCommit,
+  projectOperationalModelTurn,
+  RESIDENT_LIFE_COMMIT_EVENT,
+} from '../observability/resident-life-commit';
 import { openEntityLoom } from '../entity/loom';
 import { readLoomFoldCache, type BoundedLoomContextState } from '../entity/folding';
 import { createProjectMemory } from '../entity/projects';
@@ -821,7 +826,7 @@ export async function runConsole(
         acceptEngineEvent: engine.acceptsEvent,
         onModelTurn: (turn) => {
           taskRuntime?.verifier.recordControllerDecision(turn.intent, turn.observation);
-          appendJournal('model_turn', turn);
+          appendJournal('model_turn', projectOperationalModelTurn(turn));
         },
         onModelError: (failure) => {
           appendJournal('model_call_failed', failure);
@@ -879,7 +884,7 @@ export async function runConsole(
           const committed = await entityLoom.append(turn);
           projects.record(turn);
           places.record(turn);
-          appendJournal('entity_turn', turn);
+          appendJournal(RESIDENT_LIFE_COMMIT_EVENT, createResidentLifeCommit(turn, committed));
           return { protocol: 'lync.file-loom-chain.v1' as const, digest: committed.chainDigest };
         },
       },

@@ -1,5 +1,6 @@
 import { HUMAN_SEMANTIC_OBSERVATION_PROTOCOL } from '../mind/minecraft-body';
 import { projectResidentVisibleValue } from '../mind/resident-visibility';
+import { RESIDENT_LIFE_COMMIT_EVENT } from './resident-life-commit';
 
 export const RESIDENT_LENS_PROTOCOL = 'behold.resident-lens.v2' as const;
 
@@ -236,6 +237,10 @@ export function applyResidentLensEvent(
       applyCommittedTurn(state, event.data, event.at);
       break;
 
+    case RESIDENT_LIFE_COMMIT_EVENT:
+      applyResidentLifeCommit(state, event.data, event.at);
+      break;
+
     case 'operator_cognition_control':
       if (event.data?.phase === 'acknowledged') {
         state.phase = event.data?.state === 'paused' ? 'waiting' : 'settled';
@@ -373,6 +378,41 @@ function applyCommittedTurn(state: any, turn: any, committedAt: string) {
         confirmation: change?.confirmation,
       }),
     });
+  }
+}
+
+function applyResidentLifeCommit(state: any, commit: any, committedAt: string) {
+  if (commit?.protocol !== 'behold.resident-life-commit.v1') return;
+  const turn = {
+    id: commit.entity?.turnId,
+    sequence: commit.entity?.sequence,
+    parentId: commit.entity?.parentTurnId,
+    observationPresentation:
+      commit.experience == null
+        ? null
+        : {
+            protocol: commit.experience.protocol,
+            bodyProfile: commit.experience.bodyProfile,
+            observation: commit.experience.before,
+            nextObservation: commit.experience.after,
+          },
+    utterance: {
+      assistant: { content: commit.choice?.utterance },
+      publicCommitment: commit.choice?.publicCommitment,
+    },
+    action: commit.choice?.action,
+    outcome: commit.consequence,
+  };
+  applyCommittedTurn(state, turn, committedAt);
+  const receipt = commit.lync;
+  if (
+    receipt?.protocol === 'behold.entity-turn-commit-receipt.v1' &&
+    receipt.entityId === commit.entity?.id &&
+    receipt.sequence === commit.entity?.sequence &&
+    receipt.legacyTurnId === commit.entity?.turnId
+  ) {
+    state.lync.committedTurns = positiveInteger(receipt.depth) ?? state.lync.committedTurns;
+    state.lync.tipId = text(receipt.turn?.turnId) ?? state.lync.tipId;
   }
 }
 
