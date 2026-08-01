@@ -32,3 +32,7 @@ Cross-repo reader seam is tracked in Textile as tex-wrif. That ticket owns large
 **2026-08-01T12:52:17Z**
 
 An isolated candidate implementation exists at commit 6aaa8c086ddeacde1f9be74b8c4f6fb62ff6a6ac in worktree behold-beh-e3jy-checkpoint-v2. It binds exact canonical resident Lync prefixes in an ordered v2 source-set manifest without cumulative copies or eager union, retains v1 verification, and passes the full check (657 pass, one existing skip). It is not integrated or accepted: first preserve the active v1 six-hour stop, then adversarially integrate and exercise repeated multi-hour stop/resume allocation plus Textile reading.
+
+**2026-08-01T13:03:38Z**
+
+Adversarial follow-up produced isolated commit c2627cac2a70d4ccc73a449226353597d9531790 atop 6aaa8c0. It makes the new manifest and episode-record JSON atomic and exact-idempotent, rejects partial/different retry state without overwrite, and removes the redundant second full-prefix hash after resident drain. Focused live tests pass 20/20 and the full check passes 658 with one existing skip. A crash after clean-head publication but before the episode record still leaves that episode incomplete rather than reconstructing it automatically, but the authenticated clean head remains resumable and the next episode ID skips the incomplete directory. Keep both commits isolated until the active v1 epoch stops.
