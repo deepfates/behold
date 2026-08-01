@@ -526,7 +526,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     // step inside the ordinary body horizon; larger histories advance through
     // repeated durable steps instead of one long, repeatedly cancelled call.
     foldBatchTurns: opts.foldBatchTurns ?? 6,
-    foldTriggerTurns: opts.foldTriggerTurns ?? 6,
+    // The compact resident request carries only the recent six turns. Advance
+    // its deterministic index as soon as one older turn falls behind that
+    // window; a larger trigger would knowingly create a middle context hole.
+    foldTriggerTurns: opts.foldTriggerTurns ?? (usesMinimalResidentChoice(policyProfile) ? 1 : 6),
     now,
     projectionProfile: usesMinimalResidentChoice(policyProfile)
       ? [RESIDENT_FACTUAL_CONTINUITY_PROTOCOL, policyProfile, bodyProfile, actionProfile].join(':')
@@ -913,6 +916,31 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       scheduleLoomMaintenance();
       decisionCycle.enter('idle');
       return;
+    }
+
+    // resident-v2 uses a deterministic local index rather than a provider
+    // summary. Keep that index adjacent to the recent-turn window before
+    // admitting another decision. In an active social world, queued wakes can
+    // otherwise continually win the idle-maintenance race and leave a growing
+    // middle span of the resident's own life unavailable to its model. This
+    // work changes only the bounded projection of canonical own-life history;
+    // it neither calls a model nor selects conduct.
+    if (usesMinimalResidentChoice(policyProfile) && loomContext.state().needsFold) {
+      preparingContext = true;
+      decisionCycle.enter('preparing_context');
+      try {
+        if (await loomContext.prepare()) rebuildMessagesFromLoom();
+      } finally {
+        preparingContext = false;
+        settleStop();
+      }
+      if (stopped || suspended) {
+        turnActive = false;
+        turnSteps = 0;
+        clearQueuedWake();
+        decisionCycle.enter(stopped ? 'stopped' : 'suspended');
+        return;
+      }
     }
 
     deciding = true;

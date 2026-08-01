@@ -1,7 +1,7 @@
 ---
 id: beh-9b2h
 status: open
-deps: []
+deps: [beh-e3jy]
 links: []
 created: 2026-08-01T09:35:31Z
 type: task
@@ -36,3 +36,7 @@ Reconciled older retained current-path evidence that this ticket initially omitt
 **2026-08-01T11:50:41Z**
 
 Ordinary run 1 stopped cleanly with OxfordAshCamera at 95 private Lync turns and OxfordReedCamera at 99. Episode 000002 reopened the exact completed world through live --change-minds (quota-only revision), loaded those separate prior turn counts from their original Lync files, and restored Ash at 1985,-48,1402 and Reed at 1984,-48,1418. With no task or prescribed action, both immediately continued the prior social/movement thread: Ash looked and moved toward Reed; Reed moved back through the interior; their shared content remained Minecraft chat while each model request retained its own entity loom. This is positive stop/resume and private-continuity evidence, not yet the required multi-day scale.
+
+**2026-08-01T12:11:10Z**
+
+Active episode 000002 exposed a resident-information defect under ordinary high social/action cadence: at about 235 turns, OxfordAshCamera’s latest request carried fold turns 1–181 and recent turns 229–234, explicitly omitting turns 182–228; Reed omitted two turns. Canonical Lync and model-facing immediate event windows were intact, so this was Behold scheduling/index maintenance, not Lync corruption or model conduct. The source repair makes resident-v2 advance its deterministic own-life index at the decision boundary as soon as one turn falls behind the six-turn recent window. A continuous 18-action regression admits 19 requests with no middle continuity gap. Canonical npm test passes 653/653 with one intentional skip. The active process still runs the old loaded code; the repair will first be exercised on the next ordinary resume.

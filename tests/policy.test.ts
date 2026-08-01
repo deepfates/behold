@@ -5151,6 +5151,98 @@ test('controller context remains bounded across a continuing life', async () => 
   }
 });
 
+test('resident-v2 admits no middle continuity hole under uninterrupted action cadence', async () => {
+  let sequence = 1;
+  const requests: ResidentMindRequest[] = [];
+  const attempted: any[] = [];
+  const move = settlementMoveTool();
+  const actionCount = 18;
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [move],
+      attempt: (intent) => {
+        attempted.push(intent);
+        return true;
+      },
+      observe: () => settlementExperience(sequence / 10, sequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      policyProfile: 'resident-v2',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      workingContinuity: 'resident-session-v1',
+      maxTurnSteps: actionCount + 1,
+      acceptEngineEvent: () => true,
+      mind: {
+        id: 'resident-v2-continuity-cadence',
+        decide: async (request) => {
+          requests.push(request);
+          return requests.length <= actionCount
+            ? {
+                protocol: 'behold.mind-decision.v1',
+                disposition: 'act',
+                utterance: null,
+                action: {
+                  name: 'move_controls',
+                  input: { direction: 'forward', durationMs: 100 },
+                },
+                call: modelCallEvidence('resident-v2-continuity-cadence'),
+              }
+            : {
+                protocol: 'behold.mind-decision.v1',
+                disposition: 'wait',
+                utterance: null,
+                action: { name: 'wait_for_event', input: { reason: 'listen' } },
+                call: modelCallEvidence('resident-v2-continuity-cadence'),
+              };
+        },
+      },
+    },
+  );
+
+  try {
+    await policy.tick();
+    for (let index = 0; index < actionCount; index += 1) {
+      await until(() => attempted.length === index + 1);
+      sequence += 1;
+      await policy.onEngineEvent({
+        type: 'action_completed',
+        at: 1_000 + index,
+        data: {
+          intent: attempted[index],
+          result: {
+            ok: true,
+            direction: 'forward',
+            heldForMs: 100,
+            bodyMoved: true,
+            confirmation: 'mineflayer:bounded_control_interval',
+          },
+        },
+      });
+    }
+    await until(() => requests.length === actionCount + 1 && !policy.state().turnActive);
+
+    assert.equal(
+      requests.some((request) =>
+        JSON.stringify(request.conversation).includes('Bounded memory coverage:'),
+      ),
+      false,
+      'every admitted request must cover the whole own-life prefix through fold plus recent turns',
+    );
+    assert.ok(policy.state().loomContext.foldedThrough >= actionCount - 6);
+    assert.ok(
+      policy.state().loomContext.visibleTurns <= 7,
+      'the final yielded turn may remain just beyond the six-turn request window until another decision',
+    );
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('bounded event projection drains oldest unread batches without skipping the remainder', async () => {
   const originalFetch = globalThis.fetch;
   const requests: any[] = [];
