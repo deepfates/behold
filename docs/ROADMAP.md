@@ -35,8 +35,26 @@ Progress is tracked through the [verification ladder](VERIFICATION_LADDER.md).
 Minecraft life and survival are one world competence pack beside the foundation
 scoreboard; they do not define whether the portable inhabitant loop is complete.
 
-### Current truth (updated 2026-07-31)
+### Current truth (updated 2026-08-01)
 
+- Episodes 000042-000043 varied the mind while preserving the same Oxford
+  world, bodies, resident identities, cadence, action contract, and isolated
+  Lync lives. GPT-5.6 Luna drove Iris into a persistent shaft at y=-63; Gemini
+  3.6 Flash kept Moss in the upper excavation, perceived Iris's held dirt, and
+  addressed her about it. Both produced Minecraft-confirmed material changes
+  at roughly one-to-two-second model latency, but both also entered repetitive
+  digging/camera attractors. A decision-quota exhaustion was incorrectly
+  treated as a child crash after the server had saved. The broker now requests
+  the ordinary managed stop while the resident suspends, and `live --recover`
+  can finish saved-head publication idempotently after ownership release.
+  Recovery adopted episode 000042's exact terminal digest; episode 000043 then
+  reopened the saved bodies and separate 1,282/1,315-turn histories, supplied
+  each model only its own recent confirmed consequences, settled 76 decisions,
+  and stopped cleanly after three minutes. Textile read the 2,674-event frozen
+  union as 2,672 resident events plus two structural roots with zero
+  diagnostics. This discriminates model trajectories from a completely fixed
+  look-loop harness, but does not establish sustained rich conduct or clean
+  causal model effects in an interacting ecology.
 - Episodes 000038-000040 exercised long-duration ordinary operation and exposed
   one lifecycle defect. Episode 000038 ran normally for about 19 minutes,
   including native human chat and seven verified material changes, then an old

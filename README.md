@@ -55,6 +55,24 @@ caused bounded event deferrals, and Qwen continued repetitive social and
 unsupported perceptual claims; the former is an information-timeliness concern
 and the latter is observed model conduct.
 
+A heterogeneous OpenRouter comparison then exercised the same continuing lives
+with GPT-5.6 Luna and Gemini 3.6 Flash. In episode 000042 Luna drove Iris from
+the shared structure down to y=-63 while Gemini kept Moss in the upper
+excavation; both made Minecraft-confirmed block changes, and Moss interpreted
+and addressed Iris's held dirt through ordinary resident perception. A
+resident-quota lifecycle mismatch left that saved epoch recovery-required
+rather than clean. Ordinary `behold live --recover` adopted its exact saved
+world, and episode 000043 reopened Iris in the shaft with the same inventory
+and Moss in the upper worksite with separate 1,282/1,315-turn histories. Their
+first requests contained only their own recent confirmed excavation outcomes;
+both continued digging without a task or preferred action. The three-minute
+resume settled 76 decisions, saved and stopped cleanly, and Textile projected
+its 2,674-event frozen Lync union as 2,672 readable resident events plus two
+structural roots with no diagnostics. This shows that the ordinary harness can
+carry distinct timely model trajectories and material continuity; it does not
+show rich open-ended agency, because repetitive excavation remained the
+dominant attractor.
+
 Persistent living Place
 
 - `behold live RELEASE --residents FILE --accept-eula --session NAME` verifies
