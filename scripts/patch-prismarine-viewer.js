@@ -1,5 +1,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  CAPTURE_AWARE_RENDER_LOOP,
+  installCaptureDemandRendering,
+} = require('./prismarine-viewer-capture-demand');
 
 const root = path.resolve(process.cwd(), 'node_modules', 'prismarine-viewer');
 const viewerVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -128,6 +132,12 @@ patch(path.join(root, 'public/index.js'), [
   ],
 ]);
 
+// The private camera page already renders explicitly inside its authenticated
+// capture handler. Keep the ordinary public viewer's animation loop, but do not
+// spend a continuous GPU/CPU loop on a page whose only purpose is one-shot
+// resident frames.
+transform(path.join(root, 'public/index.js'), installCaptureDemandRendering);
+
 patch(path.join(root, 'public/worker.js'), [
   ['i&&i.sections[Math.floor(a/16)]', 'i&&i.getSectionAtIndex(Math.floor(a/16))'],
   ['l&&l.sections[Math.floor(n/16)]', 'l&&l.getSectionAtIndex(Math.floor(n/16))'],
@@ -139,6 +149,7 @@ assertContains(path.join(root, 'public/index.js'), [
   'beholdCaptureToken',
   'behold_capture_frame',
   'behold_capture_ready',
+  CAPTURE_AWARE_RENDER_LOOP,
 ]);
 
 console.log('[viewer:patch] World-height rendering and cockpit-friendly entities enabled.');
@@ -158,6 +169,12 @@ function patch(file, replacements) {
   }
 
   if (changed) fs.writeFileSync(file, source);
+}
+
+function transform(file, update) {
+  const source = fs.readFileSync(file, 'utf8');
+  const next = update(source);
+  if (next !== source) fs.writeFileSync(file, next);
 }
 
 function assertContains(file, markers) {

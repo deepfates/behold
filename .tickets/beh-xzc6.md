@@ -28,3 +28,7 @@ At least two independently started habitat trials each accumulate more than one 
 **2026-08-01T12:52:17Z**
 
 2026-08-01 current acceptance frontier: ordinary episode 000002 of oxford-habitat-trial-a-qwen36-camera-v1 is running for a declared six-hour epoch with two isolated Qwen 3.6 camera residents sharing one LM Studio weight instance. This run grades causal fidelity, settlements, latency, continuity, storage, stop, and resume—not resident choices. It loaded pre-e95ddfb code, so it can pressure canonical retention and operation but cannot accept contiguous folded continuity; that must be exercised after the ordinary boundary on resume.
+
+**2026-08-01T16:17:18Z**
+
+The current six-hour habitat exposed an owning runtime defect without disturbing the epoch: each private capture-only Prismarine page retained an unconditional animation loop between resident frames, and the two residents' Chrome GPU/render helpers consumed roughly 44% aggregate CPU while their controllers waited. Candidate branch agent/beh-camera-render-demand at a940b63 gates only that loop on the pre-document private capture token; the authenticated behold_capture_frame handler retains its exact chunk-wait, update, render, JPEG, and reply flow, while ordinary public pages retain continuous presentation. Focused source-seam tests distinguish both paths and prove idempotence; the real Chrome frame test and full repository check pass. This is implemented but not yet exercised through ordinary live/resume, so this ticket remains in progress.
