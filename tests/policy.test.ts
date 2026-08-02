@@ -4376,6 +4376,22 @@ test('resident-v3 restart presents the full private chronology and retains its e
   }
   const captured: ResidentMindRequest[] = [];
   const committed: EntityTurn[] = [];
+  const binding = (sequence: number): CanonicalTurnBinding => ({
+    protocol: 'lync.file-loom-chain.v1',
+    digest: sequence.toString(16).padStart(64, '0'),
+  });
+  const loomContext: BoundedLoomContextState = {
+    protocol: 'behold.bounded-loom-context.v1',
+    entityId: 'Scout',
+    totalTurns: prior.length,
+    recentTurns: prior.slice(-1),
+    recentSources: prior.slice(-1).map((turn) => binding(turn.sequence)),
+    fold: null,
+    foldSource: null,
+    rebuild: async function* () {
+      for (const turn of prior) yield { turn, source: binding(turn.sequence) };
+    },
+  };
   const exactResponse = '{"action":"wait_for_event","arguments":{"reason":"listen"}}';
   const mind: ResidentMind = {
     id: 'resident-v3-history-fixture',
@@ -4414,10 +4430,11 @@ test('resident-v3 restart presents the full private chronology and retains its e
       actionProfile: 'minecraft-human-semantic-v1',
       safetyProfile: 'vanilla-player-v1',
       workingContinuity: 'continuous-transcript-v1',
-      history: prior,
+      loomContext,
       acceptEngineEvent: () => true,
       onEntityTurn: (turn) => {
         committed.push(turn);
+        return binding(turn.sequence);
       },
     },
   );

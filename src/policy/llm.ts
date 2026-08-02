@@ -951,7 +951,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       }
       if (!continuousTranscript) rebuildMessagesFromLoom();
       contextPrepared = true;
-      if (loomContext.state().needsFold) {
+      if (!continuousTranscript && loomContext.state().needsFold) {
         log(
           initialBodyUrgency
             ? '[policy] deferred initial own-loom fold while bodily urgency remains unresolved'
@@ -1506,6 +1506,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function scheduleLoomMaintenance() {
     if (
+      continuousTranscript ||
       fixedPilotSlots ||
       stopped ||
       suspended ||
@@ -1889,7 +1890,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       nextObservation,
     };
     const committed = await opts.onEntityTurn?.(turn);
-    loomContext.append(turn, isCanonicalTurnBinding(committed) ? committed : undefined);
+    // resident-v3 projects the committed canonical turn directly into the
+    // provider conversation. Its bounded v2 index is deliberately dormant:
+    // appending to that stale suffix after onEntityTurn has advanced Lync can
+    // race the canonical source and strand the next model request.
+    if (!continuousTranscript) {
+      loomContext.append(turn, isCanonicalTurnBinding(committed) ? committed : undefined);
+    }
     recordEmbodiedOutcome(turn.action.name, turn.outcome.ok);
     recordProjectContinuity(turn.action.name, turn.outcome.ok);
     if (continuousTranscript) {
