@@ -1,7 +1,19 @@
 ---
 id: beh-xzc6
 status: in_progress
-deps: [beh-yjkx, beh-8x0n, beh-aps8, beh-9b2h, beh-kogb, beh-1h3a, beh-uumj, beh-kgyy]
+deps:
+  [
+    beh-yjkx,
+    beh-8x0n,
+    beh-aps8,
+    beh-9b2h,
+    beh-kogb,
+    beh-1h3a,
+    beh-uumj,
+    beh-kgyy,
+    beh-s37t,
+    beh-766r,
+  ]
 links: []
 created: 2026-08-01T09:35:45Z
 type: task
@@ -74,3 +86,7 @@ and the deployed bounded body samples contain no raw private view. Leave the
 epoch running while mechanically healthy. The open cursor-block orientation
 edge may close only if a resident chooses such an action naturally; its absence
 is conduct, not a reason to steer.
+
+**2026-08-02T09:06:32Z**
+
+2026-08-02 correction: episode 000015 was stopped deliberately at 09:03:41Z after about eleven minutes, not left as a 25-hour acceptance epoch. It cleanly saved world digest 7e98dbfa..., closed bodies/viewers/server, unloaded the one owned LM Studio instance, and left 63/63 provider admissions settled. Its 54 resident decisions were 48 wait_for_event and six read_private_life, with no bodily/world action or human join. This is retained as a negative treatment result, not multi-day evidence. Exact audit classifies a harness defect: wait_for_event is followed by fixed-cadence reconsideration and generic time passage, creating a self-reinforcing polling loop. Exact provider bodies were not retained under ordinary bodyRetention=none, so literal retrospective model experience is unavailable beyond hashes/byte attribution, Lync experience/response/consequence, and code reconstruction. beh-s37t and beh-766r now block another long acceptance run.

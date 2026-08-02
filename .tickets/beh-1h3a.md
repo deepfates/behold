@@ -1,6 +1,6 @@
 ---
 id: beh-1h3a
-status: open
+status: closed
 deps: []
 links: [beh-uumj, beh-wssv, beh-kgyy]
 created: 2026-08-01T23:24:51Z
@@ -69,3 +69,7 @@ presenter rendered all 13 without inferring collision or route success. This
 accepts the bodily-feedback sub-edge. The ticket stays open only for the
 pre-existing independently chosen cursor-block orientation exercise; do not
 manufacture that resident choice.
+
+**2026-08-02T09:06:32Z**
+
+2026-08-02 principal correction: the added requirement that a resident naturally choose a cursor-block action was not in this ticket acceptance and improperly made model conduct a product gate. The production interpreter path has exact adversarial coverage for no navigation, exact enum/count semantics, dispatch-vs-delivery, omissions, and orientation preservation; episode 000003 exercised same-life ordinary repaired cursor digging and independent Lync/Textile; episode 000014 exercised the current bodily-feedback contract and ordinary resume. This closes literal contract truth without prescribing or awaiting a resident choice. Future contrary live evidence may reopen the bug.

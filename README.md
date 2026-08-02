@@ -47,6 +47,21 @@ context transition, and bounded long-history ownership; it does not close the
 multi-day telos. Resident
 conduct remains the subject of observation, not a hidden completion score.
 
+The first declared long epoch, episode `000015`, was deliberately stopped after
+about eleven minutes when ordinary use exposed a treatment defect rather than
+useful habitation pressure. Of 54 resident decisions, 48 were
+`wait_for_event` and six read private-life pages; neither resident attempted a
+Minecraft action. The current yield path wakes again on the fixed decision
+timer and generic time passage, so recent waits become a self-reinforcing
+polling loop. That is a harness defect even though each individual choice was
+model-authored. The episode saved and cleaned up exactly, but it is not long-run
+evidence. Its ordinary `bodyRetention: none` record also cannot reproduce the
+literal provider request after the fact: canonical experience, exact returned
+choice, consequences, hashes, byte attribution, and usage survive, while the
+serialized messages, image, tools, schema, and raw response do not. No long
+acceptance epoch is currently running; truthful suspension and an explicitly
+private exact-turn inspection path must be repaired before another one begins.
+
 The complete mature transcript later proved operationally too slow despite
 fitting Qwen's physical context window. `resident-v4` therefore makes the
 transition into a finite inference epoch explicit, keeps canonical Lync life

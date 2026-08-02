@@ -40,10 +40,15 @@ minimal operator view and ethogram             ─┘
 
 The final exercise depends on all six capabilities. Authority, growing-history
 ownership, lifecycle recovery, current-profile human/multi-resident
-coexistence, and the compact operator view are crossed. The independently
-chosen cursor-action edge remains open while current-build episode 000015
-begins the first declared 25-hour acceptance epoch. Tickets state observable
-product behavior; evidence and negative
+coexistence, the literal action contract, and the compact operator view are
+crossed. Current-build episode `000015` began as the first declared 25-hour
+epoch but was deliberately stopped after about eleven minutes: 48 of 54
+resident decisions yielded and six read private history, exposing a
+self-reinforcing fixed-cadence wait loop rather than useful duration pressure.
+The run saved and cleaned up exactly, but it is not multi-day evidence. Because
+ordinary no-body retention also prevents exact reconstruction of the serialized
+model request, truthful suspension and a private exact-turn inspection path now
+block another long epoch. Tickets state observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves
