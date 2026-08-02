@@ -856,7 +856,8 @@ test('urgent attention preserves resident choice while fresh perception updates 
     );
     assert.deepEqual(
       requests[1].observation.events.map((event: any) => event.sequence),
-      [2],
+      [1, 2],
+      'an interrupted model call does not consume experience from the replacement request',
     );
     assert.deepEqual(
       requests[0].actions.map((action: any) => action.name),
@@ -2190,9 +2191,16 @@ test('camera pose drift settles once and admits one coherent rebuilt decision fr
   const errors: any[] = [];
   let authorized = 0;
   let drifting = false;
-  let sequence = 0;
-  const settlingZ = [1, 2, 2];
-  const observe = () => settlementExperience(drifting ? (settlingZ.shift() ?? 2) : 0, ++sequence);
+  const settledStates = [
+    { z: 0, newestSequence: 2 },
+    { z: 1, newestSequence: 3 },
+    { z: 2, newestSequence: 4 },
+    { z: 2, newestSequence: 5 },
+  ];
+  const observe = (afterSequence = 0) => {
+    const state = settledStates.shift() ?? { z: 2, newestSequence: 5 };
+    return settlementStreamExperience(state.z, state.newestSequence, afterSequence);
+  };
   const move = settlementMoveTool();
   const policy = startLLMPolicy(
     {
@@ -2261,10 +2269,119 @@ test('camera pose drift settles once and admits one coherent rebuilt decision fr
       captureInputs[1].sequence,
     );
     assert.equal(requests[0].perception?.camera.binding.pose.position.z, 2);
+    assert.equal((requests[0].observation as any).eventWindow.requestedAfterSequence, 0);
+    assert.deepEqual(
+      (requests[0].observation as any).events.map((event: any) => event.sequence),
+      [1, 2, 3, 4, 5],
+      'the replacement request replays every event since the last model-consumed boundary',
+    );
     assert.match(
       String((requests[0].conversation as any[]).at(-1)?.content),
       new RegExp(`"sequence":${captureInputs[1].sequence}`),
     );
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('resident-v4 epoch rollover retains every unread event through camera pose settlement', async () => {
+  const prior = failedTurn(1, 'move_controls');
+  prior.profiles = {
+    policy: 'resident-v4',
+    body: 'minecraft-human-semantic-v1',
+    actions: 'minecraft-human-semantic-v1',
+    safety: 'vanilla-player-v1',
+  };
+  prior.utterance.assistant.content = JSON.stringify({
+    action: prior.action.name,
+    arguments: prior.action.input,
+  });
+  const binding = (sequence: number): CanonicalTurnBinding => ({
+    protocol: 'lync.file-loom-chain.v1',
+    digest: sequence.toString(16).padStart(64, '0'),
+  });
+  const requests: ResidentMindRequest[] = [];
+  const captureInputs: any[] = [];
+  const settledStates = [
+    { z: 0, newestSequence: 2 },
+    { z: 1, newestSequence: 3 },
+    { z: 2, newestSequence: 4 },
+    { z: 2, newestSequence: 5 },
+  ];
+  const observe = (afterSequence = 0) => {
+    const state = settledStates.shift() ?? { z: 2, newestSequence: 5 };
+    return settlementStreamExperience(state.z, state.newestSequence, afterSequence);
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [settlementMoveTool()],
+      attempt: () => assert.fail('the resident yields; no body action should execute'),
+      observe,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      policyProfile: 'resident-v4',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      perceptionProfile: 'semantic-plus-camera-v1',
+      contextEpochTurns: 1,
+      loomContext: {
+        protocol: 'behold.bounded-loom-context.v1',
+        entityId: 'Scout',
+        totalTurns: 1,
+        recentTurns: [prior],
+        recentSources: [binding(1)],
+        fold: null,
+        foldSource: null,
+        rebuild: async function* () {
+          yield { turn: prior, source: binding(1) };
+        },
+      },
+      readPrivateLife: async () => assert.fail('private life was not requested'),
+      capturePerception: async (observation: any) => {
+        captureInputs.push(observation);
+        if (captureInputs.length === 1) {
+          throw new ResidentCameraObservationChangedError('body moved before capture');
+        }
+        return settlementCameraFrame(observation);
+      },
+      mind: {
+        id: 'resident-v4-settled-camera-frame',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'wait',
+            utterance: null,
+            action: { name: 'wait_for_event', input: { reason: 'listen' } },
+            adapterRecord: {
+              role: 'assistant',
+              content: JSON.stringify({
+                action: 'wait_for_event',
+                arguments: { reason: 'listen' },
+              }),
+            },
+            call: modelCallEvidence('resident-v4-settled-camera-frame'),
+          };
+        },
+      },
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => binding(turn.sequence),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(requests.length, 1);
+    assert.equal((requests[0].observation as any).eventWindow.requestedAfterSequence, 0);
+    assert.deepEqual(
+      (requests[0].observation as any).events.map((event: any) => event.sequence),
+      [1, 2, 3, 4, 5],
+    );
+    assert.match(String((requests[0].conversation as any[]).at(-1)?.content), /"canary-5"/);
   } finally {
     await policy.stop();
   }
@@ -6707,6 +6824,29 @@ function settlementExperience(z: number, sequence: number) {
         data: {},
       },
     ],
+  };
+}
+
+function settlementStreamExperience(z: number, newestSequence: number, afterSequence: number) {
+  const observation = settlementExperience(z, newestSequence);
+  return {
+    ...observation,
+    eventWindow: {
+      ...observation.eventWindow,
+      requestedAfterSequence: afterSequence,
+    },
+    events: Array.from({ length: Math.max(0, newestSequence - afterSequence) }, (_, index) => {
+      const sequence = afterSequence + index + 1;
+      return {
+        sequence,
+        type: sequence === 1 ? 'spawned' : 'chat_received',
+        salience: sequence === 1 ? 'normal' : 'high',
+        source: 'event',
+        isNew: true,
+        data:
+          sequence === 1 ? {} : { from: 'Canary', text: `canary-${sequence}`, channel: 'public' },
+      };
+    }),
   };
 }
 

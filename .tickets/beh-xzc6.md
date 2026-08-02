@@ -1,7 +1,7 @@
 ---
 id: beh-xzc6
 status: in_progress
-deps: [beh-yjkx, beh-8x0n, beh-aps8, beh-9b2h, beh-kogb, beh-1h3a, beh-uumj]
+deps: [beh-yjkx, beh-8x0n, beh-aps8, beh-9b2h, beh-kogb, beh-1h3a, beh-uumj, beh-kgyy]
 links: []
 created: 2026-08-01T09:35:45Z
 type: task

@@ -72,3 +72,7 @@ Qualified resume episode 000003 added deployment evidence without expanding the 
 **2026-08-02T04:01:54Z**
 
 2026-08-02 episode 000007 added six successful resident-owned post-motion settlements (7-8 samples) with no camera/body mismatch. No external knockback occurred, so the repaired external-pose-drift branch remains live-unexercised and this ticket stays in progress.
+
+**2026-08-02T07:24:28Z**
+
+2026-08-02 exact episode-000006 audit found a separate camera-settlement information defect owned by reopened beh-kgyy: a pre-decision pose-drift replacement consumed events 133-170 before model admission. The current repair makes the experience cursor transactional and composes it with resident-v4 epoch rollover. This ticket continues to own exact pose/frame settlement and the unexercised external-drift deployment edge; do not wait for a random cursor action or treat resident conduct as its gate.

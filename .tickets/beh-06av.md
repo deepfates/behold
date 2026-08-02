@@ -35,3 +35,7 @@ Nearest qualified-habitat interface checkpoint completed through ordinary same-l
 **2026-08-02T03:48:58Z**
 
 2026-08-02 telos reconciliation after continuous-transcript acceptance: the epic now states the ordinary human-facing habitat outcome rather than a mechanics program. Existing tickets already cover the smallest coherent checkpoint algebra, so no duplicate framework was created. Final multi-day acceptance beh-xzc6 now also depends on literal action/perception truth (beh-1h3a) and the remaining external-motion perception boundary (beh-uumj). Completed resident-v3 work beh-c5gr is retained under growing-history ownership as a crossed subjective-continuity checkpoint; bounded controller storage remains separate. Optional model-by-perception work beh-gidu remains diagnostic rather than a telos blocker.
+
+**2026-08-02T07:24:28Z**
+
+2026-08-02 correction to the prior episode-000006 checkpoint: emitted windows self-reported complete, but exact request audit found one silent model-facing gap during camera pose-drift recovery (Lark events 133-170). Reopened beh-kgyy and made it a beh-xzc6 prerequisite. Current code makes experience consumption transactional until a valid choice returns, including camera settlement, stale preflight, provider failure, urgent interruption, and resident-v4 epoch rollover. Focused/full tests pass; ordinary qualified re-exercise remains before closure.

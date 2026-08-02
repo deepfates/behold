@@ -162,7 +162,7 @@ causal anchors, and lets urgent decisions use the already-prepared LM Studio
 runtime baseline when no exact transient prefill exists. Ordinary same-life
 episode 000006 exercised those repairs with two isolated Qwen camera residents
 sharing one physical model instance. Across 66 terminal decision opportunities,
-all model-facing windows were complete with zero missing or omitted events;
+every emitted window self-reported zero missing or omitted events;
 Lark's largest unread interval contained 76 raw events, and six successful
 transient-contract calls used the prepared baseline without another readiness
 call or refusal. Minecraft, both lives, viewers, and the shared model stopped
@@ -170,6 +170,17 @@ cleanly. Textile independently authenticated the 18,826,863-byte prefix set and
 read 307 resident turns plus two roots, including a full Lark→Sedge private
 whisper after its stale presenter was repaired. Resident combat, repetition,
 waiting, movement, deaths, and respawns remain conduct rather than a score.
+
+Exact request audit later falsified the broader completeness claim. During one
+pre-decision camera pose-drift settlement, Lark's staged view advanced through
+events 133–170 before any model request was admitted; the replacement request
+started after 170 with an empty window. The current controller treats current
+experience as unconsumed until a valid resident choice returns. Camera
+settlement, stale preflight, provider failure, and urgent interruption rebuild
+from the last consumed boundary, including across resident-v4 epoch rollover.
+Focused tests retain exact unread canaries through both ordinary and
+epoch-boundary replacement. A current-build ordinary exercise remains required
+before closing the deployment-shaped perception defect.
 
 A heterogeneous OpenRouter comparison then exercised the same continuing lives
 with GPT-5.6 Luna and Gemini 3.6 Flash. In episode 000042 Luna drove Iris from

@@ -1,6 +1,6 @@
 ---
 id: beh-kgyy
-status: closed
+status: open
 deps: []
 links: [beh-uumj, beh-wssv, beh-1h3a]
 created: 2026-08-01T02:02:25Z
@@ -70,3 +70,7 @@ Episode 000005 exact-capture audit classified the renewed gap as an interface de
 **2026-08-02T01:14:31Z**
 
 Qualified same-life ordinary episode 000006 exercised commit 3342033 under sustained zombie/skeleton/sound/visibility pressure. Across 66 terminal decision opportunities (56 successful calls, 10 truthful world-event cancellations), every model-facing window was complete with missingBeforeOldest=0 and omittedNewEvents=0. Lark's peak unread interval was 76 raw events and Sedge's 42; 85 typed pressure summaries represented 826 raw events while preserving causal anchors. Both lives and Minecraft saved/stopped cleanly. This satisfies the bounded dense ordinary-path acceptance; multi-day pressure remains with the habitat epic.
+
+**2026-08-02T07:24:28Z**
+
+2026-08-02 exact retained-request correction: episode 000006 did not prove the resident cursor never silently skipped. OxfordLark journal lines 23/31/35 and exact request body a1182834ad26d403c29536c3399ca98f0cb95b099bad1c2e287dae6304352e58 show that pre-decision camera settlement advanced a staged view from the last admitted sequence 132 through 170, then the actual request began after 170 with events=[] and zero declared omission. This is a product defect, not conduct. Current-tree repair keeps current experience unconsumed until a valid model choice returns, rolls back camera/stale-provider/failed/interrupted staging to the last consumed boundary, and rebinds that boundary across resident-v4 epoch rollover. Canary regressions cover pose drift, epoch rollover, stale preflight, and urgent interruption; full check passes 726 tests with one intentional skip. Keep open for one current-build ordinary dense run that verifies exact request continuity through a naturally occurring replacement.

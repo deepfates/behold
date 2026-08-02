@@ -118,14 +118,20 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   visibility pressure, and uses the already-prepared LM Studio runtime baseline
   when an urgent action contract drifts. Same-life episode 000006 exercised the
   repaired composition with two isolated Qwen camera residents sharing one
-  physical weight instance: all 66 terminal decision opportunities had complete
-  zero-missing/zero-omission model views, including a 76-event unread burst; six
+  physical weight instance: all 66 terminal decision opportunities emitted
+  self-reported zero-missing/zero-omission views, including a 76-event unread burst; six
   successful baseline-bound decisions incurred no rewarm/refusal; legal attack
   revalidation sent no stale input; and the world, lives, viewers, and model
   stopped cleanly. Textile authenticated and read all 307 resident turns plus
   two roots and now preserves the exact private channel of the observed
   Lark→Sedge whisper. This closes those bounded interface defects, not the
   repeated multi-day habitat telos or the remaining live cursor-block check.
+  Later exact-request audit found that one camera pose-drift replacement had
+  silently advanced Lark past events 133–170 before model admission. The
+  current tree makes experience consumption transactional across camera
+  settlement, stale preflight, provider failure, urgent interruption, and
+  resident-v4 epoch rollover. Focused regressions pass; a current-build
+  ordinary exercise remains before closing that repaired deployment edge.
 - The ordinary `behold live` foreground now prints a compact habitat lens over
   its existing lifecycle and resident journals. It exposes body and population
   state, decision timing, causal action progress and terminals, Lync tips,

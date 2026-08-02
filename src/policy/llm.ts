@@ -704,6 +704,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let currentExperience: CurrentExperienceFrame | null = null;
   let currentExperienceMessageIndex: number | null = null;
   let currentExperiencePreviousSequence = 0;
+  let currentExperienceConsumed = false;
   let entitySequence = history.at(-1)?.sequence ?? 0;
   let parentTurnId = history.at(-1)?.id ?? null;
   let lastEntityTurn: EntityTurn | null = history.at(-1) ?? null;
@@ -819,6 +820,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       if (!isResidentCameraObservationChangedError(error)) throw error;
     }
 
+    // The staged semantic view has not reached the resident's mind. Reacquire
+    // from the last consumed boundary so events that arrived before or during
+    // camera settlement remain in the replacement decision frame.
+    rollbackUnconsumedCurrentExperience();
     const settlement = await settleBodyPose('pre_decision_pose_drift', 'camera_capture', false);
     if (settlement.status !== 'settled') {
       publishPerceptionSettlement(settlement);
@@ -833,7 +838,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     // it may be mixed into the retry. Publish the fresh observation into the
     // current conversation and derive the complete frame again before one last
     // capture attempt.
-    appendWorldUpdate(settlement.observation, 'World after pre-decision pose settlement');
+    replaceUnconsumedCurrentExperience(
+      settlement.observation,
+      'World after pre-decision pose settlement',
+    );
     const frame = createResidentDecisionFrame(currentExperience!, true);
     try {
       const camera = await captureDecisionPerception(frame, signal);
@@ -1289,10 +1297,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         decision = await withModelRequest(decideForCurrentExperience);
       }
       if (stopped || suspended) {
+        rollbackUnconsumedCurrentExperience();
         turnActive = false;
         turnSteps = 0;
         return;
       }
+      consumeCurrentExperience();
       const assistant = normalizeAssistant(decision.assistant);
       const decidedAt = now();
       if (decision.intent) {
@@ -1688,6 +1698,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
     } catch (e: any) {
+      rollbackUnconsumedCurrentExperience();
       if (!stopped) {
         const interruption = activeDecision?.interruption;
         if (interruption) {
@@ -2058,6 +2069,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function appendWorldUpdate(frame: any, label: string) {
+    if (
+      !currentExperienceConsumed &&
+      currentExperienceMessageIndex != null &&
+      currentExperienceMessageIndex === messages.length - 1
+    ) {
+      replaceUnconsumedCurrentExperience(frame, label);
+      return;
+    }
     if (hasNewProjectProgressEvidence(frame, lastSequence)) consecutiveProjectActions = 0;
     currentExperiencePreviousSequence = lastSequence;
     currentExperience = createCurrentExperience(frame);
@@ -2070,6 +2089,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       lastSequence = Math.max(lastSequence, Number(frame.sequence));
     }
     currentExperienceMessageIndex = messages.length;
+    currentExperienceConsumed = false;
     messages.push(
       chronologicalTranscript
         ? residentCurrentExperienceMessage(projected)
@@ -2077,7 +2097,22 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     );
   }
 
-  function refreshUnadmittedCurrentExperience() {
+  function rollbackUnconsumedCurrentExperience() {
+    if (currentExperienceConsumed || currentExperienceMessageIndex == null) return;
+    lastSequence = currentExperiencePreviousSequence;
+  }
+
+  function consumeCurrentExperience() {
+    if (currentExperienceMessageIndex == null || !currentExperience) {
+      throw new Error('resident decision cannot consume a missing current experience');
+    }
+    currentExperienceConsumed = true;
+  }
+
+  function replaceUnconsumedCurrentExperience(frame: any, label: string) {
+    if (currentExperienceConsumed) {
+      throw new Error('resident camera refresh cannot replace consumed experience');
+    }
     if (
       currentExperienceMessageIndex == null ||
       currentExperienceMessageIndex !== messages.length - 1
@@ -2085,7 +2120,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       throw new Error('resident camera refresh cannot replace a non-current experience');
     }
     lastSequence = currentExperiencePreviousSequence;
-    const frame = observe();
+    if (hasNewProjectProgressEvidence(frame, lastSequence)) consecutiveProjectActions = 0;
     currentExperience = createCurrentExperience(frame);
     const projected = currentExperience.model;
     if (chronologicalTranscript) assertContinuousCurrentExperience(projected);
@@ -2097,12 +2132,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
     messages[currentExperienceMessageIndex] = chronologicalTranscript
       ? residentCurrentExperienceMessage(projected)
-      : worldUpdateMessage(
-          projected,
-          'Refreshed world experience',
-          lastTool,
-          opts.workingContinuity,
-        );
+      : worldUpdateMessage(projected, label, lastTool, opts.workingContinuity);
+  }
+
+  function refreshUnadmittedCurrentExperience() {
+    rollbackUnconsumedCurrentExperience();
+    replaceUnconsumedCurrentExperience(observe(), 'Refreshed world experience');
   }
 
   async function closeTurn(
@@ -2453,6 +2488,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       ...(usesHumanSemanticBody(bodyProfile) ? { projectValue: projectHumanSemanticValue } : {}),
     });
     messages.splice(1, currentIndex - 1, ...epoch.messages);
+    currentExperienceMessageIndex = messages.length - 1;
+    if (
+      messages[currentExperienceMessageIndex]?.role !== 'user' ||
+      !String(messages[currentExperienceMessageIndex].content).startsWith('What you experience:')
+    ) {
+      throw new Error('resident context epoch moved the current experience boundary incorrectly');
+    }
   }
 
   function assertPrivateLifeTurnRecallable(
