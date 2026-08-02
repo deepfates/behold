@@ -54,9 +54,8 @@ creates no Minecraft or Lync action for zero intention, and separates meaningful
 experience wakeup from bounded low-frequency reconsideration. A private
 exact-turn inspector has also been exercised against a retained body-capture
 episode; it correctly refuses episode `000015`, whose ordinary no-body retention
-cannot reproduce literal provider bytes. Full repository checks pass. Neither
-repair has yet been exercised together in a fresh ordinary live episode, so
-another long epoch remains premature. A later no-world audit found and repaired
+cannot reproduce literal provider bytes. That was the pre-`000017` frontier,
+not the current state. A later no-world audit found and repaired
 the immediate next-request wire failure after null intention. Resident-v3/v4
 now preserve that cognition as a first-class non-action event in the canonical
 private Lync chain and reconstruct it without inventing a Minecraft result;
@@ -73,11 +72,23 @@ cleanly. The run also naturally produced Sedge's canonical null cognition turn
 the validator stringified a multimodal current observation while checking the
 null-to-later-experience edge and rejected every later wake before provider
 admission. The current candidate validates the already-decoded text instead;
-its exact camera-shaped regression and full repository check pass. `beh-wo5b`
-remains open for ordinary resume from turn 400, sustained later requests, clean
-stop, and visible Textile reading. Another long epoch remains premature.
-Tickets state
-observable product behavior; evidence and negative
+its exact camera-shaped regression and full repository check pass. Episode
+`000019` resumed from canonical Sedge turn 400: the exact first request carried
+the null response followed by fresh camera experience, reached LM Studio, and
+Sedge continued for 18 new canonical turns. Both residents' accounts settled,
+Minecraft saved, all listeners closed, and the model unloaded. Textile's real
+ordered-prefix importer read 869 resident events and rendered cognition 400
+honestly; two unrelated historical placement-input presentation gaps are now
+tracked in Lync `lyn-gisl`. `beh-wo5b` and `beh-s37t` are closed. This clears the
+no-intention continuity prerequisite, not the repeated multi-day habitat. The
+same episode's exact Sedge turn 401 was also materialized through the private
+inspector: its 62,655-byte request digest matched broker admission, its camera,
+schema, response, parsed turn, and canonical cause were present, and directory
+and files retained their private modes. `beh-766r` is therefore closed too.
+Every declared prerequisite of `beh-xzc6` is crossed; the next capability work
+is the repeated multi-day trial itself, deliberately not started during this
+truthful stopped checkpoint.
+Tickets state observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves

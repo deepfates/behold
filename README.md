@@ -91,9 +91,7 @@ Action → null cognition → action survives an exercised Lync close/reopen, an
 provider transcript projection retains the null choice without a fabricated
 Minecraft return. Existing action-turn bytes remain unchanged. Lync and Textile
 now present this additive event honestly through their shared profile contract,
-with full repository checks passing. Ticket `beh-wo5b` remains open until an
-ordinary short live null/wake/stop/resume and visible reading of that real source
-exercise the composed boundary; another long epoch remains premature.
+with full repository checks passing.
 Episode `000018` then produced the first ordinary null cognition: Sedge's exact
 null response became canonical cognition turn 400 with no action or consequence,
 and a later peer chat arrived. Its next camera-bound request nevertheless failed
@@ -101,8 +99,17 @@ before provider admission. The strict wire validator decoded the multimodal
 text-plus-image current observation at the top level but mistakenly stringified
 that same value while checking that it followed the null response. The current
 candidate validates that edge against the already-decoded text; an exact
-camera-shaped regression and the full repository check pass. Ordinary resume
-from turn 400 remains the acceptance boundary.
+camera-shaped regression and the full repository check pass. Episode `000019`
+resumed that exact life from turn 400. Its first Sedge request placed the null
+response immediately before a fresh camera-bound experience, reached LM Studio,
+and was followed by 18 new canonical turns spanning looking, movement, chat,
+and exact private-life reads. No controller or model-call failure occurred;
+provider accounting settled, Minecraft saved, listeners closed, and the shared
+model unloaded. Textile's actual ordered-prefix importer rendered cognition 400
+as perception plus “chose no bodily action.” Two unrelated historical placement
+inputs remain explicitly unsupported in the Lync presenter and are tracked by
+`lyn-gisl`. Tickets `beh-wo5b` and `beh-s37t` are closed; this crosses truthful
+no-intention continuity, not the multi-day habitat telos.
 An opt-in private inspector can now materialize an exactly retained provider
 request, response, image, parsed decision, and matching canonical causal turn;
 ordinary episodes that did not retain model bodies remain explicitly
@@ -114,7 +121,8 @@ was still and owned no active action, and offered `place_held_against_focus`
 while the resident held nothing; one such placement view also reported the
 focus only as nearby. The residents selected those advertised controls and the
 runtime produced a no-op success or ordinary failure. This is an open harness
-defect, not clean evidence of resident conduct. The current implementation removes resident
+defect, not clean evidence of resident conduct. The current implementation
+removes resident
 `stop` while retaining it for operator preemption and historical replay, omits
 focus-bound controls when no reachable focus exists, requires a held placeable
 item for placement, requires the visible block kind for container and bed
@@ -643,7 +651,7 @@ Managed population
 - Quota-controlled populations can put equal `providerQuotas` on every resident and pass a stable `--accountingScope`. These hard per-life quotas separate resident-decision provider attempts from auxiliary context work and survive owner epochs; they intentionally cannot be combined with the purpose-blind `--maxModelCalls`. Equality prevents resource monopoly but does not make heterogeneous providers/models a fair comparison. Exact meanings and limitations are in [`docs/EXPERIMENT_ACCOUNTING.md`](docs/EXPERIMENT_ACCOUNTING.md).
 - Quota-controlled mode is all-ready gated: Minecraft time freezes before resident connection, every normal policy/body/credential must durably arm against one exact population and frozen-world basis, and no model request is admitted until one shared release epoch is committed. Later turns carry that release reference, while actual first/second/later observation order remains explicit rather than being called simultaneous.
 - Every managed provider attempt retains content digests and byte counts, route/model/provider, timing, terminal, and reported usage/cost in the authenticated cognition journal. Set `BEHOLD_RECORD_MODEL_IO=1` for a sealed run that additionally retains exact content-addressed request/response bodies under the private `_cognition/transport` boundary. Full-capture protocols and verification remain unchanged when opted in; ordinary runs create no body files or file references. Ax correction retries are off by default; explicit corrections are separately charged and recorded. Malformed model output, provider/transport failure, cancellation, and loom fallback remain named outcomes instead of becoming successful model turns.
-- For an opted-in episode, `npm run inspect:resident-turn -- --episode <absolute-episode-directory> --entity <resident-id> --model-turn <resident-run-journal-sequence> --out <new-private-directory>` verifies and materializes the exact provider request and response, extracted camera content, parsed model turn, and matching canonical causal turn when one exists. It refuses episodes without exact body retention and never reconstructs missing bytes from summaries.
+- For an opted-in episode, `npm run inspect:resident-turn -- --episode <absolute-episode-record.json> --entity <resident-id> --model-turn <resident-run-journal-sequence> --out <new-private-directory>` verifies and materializes the exact provider request and response, extracted camera content, parsed model turn, and matching canonical causal turn when one exists. It refuses episodes without exact body retention and never reconstructs missing bytes from summaries.
 - The OpenRouter native-tool resident session uses the native tools as the sole model-visible action schemas. A compact v2 metadata message binds the exact profiles, optional required control, complete reconstructed action-contract digest, and native-tools digest; the cognition broker independently reconstructs and rejects drift before upstream. Required-control requests retain the full bodily vocabulary and constrain only `tool_choice`. The request-prefix digest is an exact cache/evidence coordinate for that request, not a claim that changing visible referents produce a lifetime-stable prefix.
 - The v4 OpenRouter strict-JSON resident route keeps the same factual `resident-v2` action contract while binding reasoning disabled, exact endpoint/no fallback, `zdr: true`, and `data_collection: deny`. Route v5 adds an exact context-window identity and conservative pre-launch admission for `resident-v3`. Older route versions retain their exact semantics.
 - A separately named local Ollama strict-JSON action transport uses native loopback `/api/chat` bytes without native Ollama tools, an OpenRouter provider object, or fallback semantics. Its resident config binds the transport/schema version, exact installed tag/content/template digests, and common context/output/temperature/load settings; read-only preflight proves cloud-disabled config, completion capability, template identity, and context before world authority is acquired. The exact canonical human-semantic action catalog is repeated in the ordinary message and native `format` schema, one action object is decoded without correction or normalization, and Behold's original action validator remains the final pre-intent boundary. Local runs still require durable per-resident quotas and the all-ready release.

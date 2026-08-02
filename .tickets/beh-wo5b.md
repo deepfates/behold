@@ -1,6 +1,6 @@
 ---
 id: beh-wo5b
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-02T09:47:41Z
@@ -57,3 +57,7 @@ Ordinary qualified Oxford episode 000017 used the nullable resident-v4 schema, r
 **2026-08-02T11:00:44Z**
 
 2026-08-02 episode 000018 produced the first ordinary resident-v4 null cognition. Sedge’s exact {"action":null,"arguments":{}} committed as canonical cognition turn 400 with no action or consequence, and later Lark chat arrived. Every subsequent camera-bound wake then failed before provider admission with “Continuous resident no-intention response must be followed by later lived experience”; Sedge stalled while Lark continued. Root cause: the strict wire validator decoded the current multimodal text+image message for the top-level current-observation check but coerced the same message to [object Object],[object Object] when checking the preceding null. The current candidate uses the already-decoded text for that chronological edge. A camera-shaped live-policy regression reproduces the exact failure before the fix and passes after it; full npm run check passes. Still required: ordinary same-life resume from canonical turn 400, sustained later requests, clean stop, and visible Textile reading.
+
+**2026-08-02T11:07:59Z**
+
+2026-08-02 ordinary qualified Oxford episode 000019 resumed the same world and Sedge life from canonical cognition turn 400 on clean commit 77a6280. Sedge’s first exact request reconstructed active turns 395–400, with the null assistant response at message 18 and a fresh camera-bound “What you experience” at message 19; it reached LM Studio and succeeded. Sedge then committed turns 401–418 across look, movement, chat, and exact private-life reads, while Lark continued independently. No model_call_failed or controller_error events occurred. Both provider accounts settled completely (24/24 and 23/23, zero unsettled), the world saved with terminal digest 7e4a0afa..., listeners closed, and the shared model unloaded. Textile’s actual ordered-prefix importer opened episode 000019 read-only as 869 readable turns plus two roots and rendered cognition 400 as perception plus “OxfordSedge chose no bodily action.” It also surfaced two unrelated historical unsupported placement-input diagnostics at Sedge turns 382/384, now tracked honestly in Lync lyn-gisl. The null/wake/stop/resume acceptance is crossed.

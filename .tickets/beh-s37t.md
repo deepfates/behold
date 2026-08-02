@@ -1,6 +1,6 @@
 ---
 id: beh-s37t
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-02T09:05:56Z
@@ -44,3 +44,7 @@ Ordinary qualified Oxford episode 000017 exercised the literal no-wait schema wi
 **2026-08-02T11:00:44Z**
 
 Episode 000018 naturally exercised null intention through the ordinary camera resident path: Sedge formed no bodily intention and Behold created no Minecraft attempt or synthetic consequence. The canonical cognition commit succeeded. The later wake exposed the distinct multimodal chronology defect in beh-wo5b, now repaired in the current candidate with full checks passing. Keep this ticket open until the ordinary resumed life proves later cognition and clean lifecycle.
+
+**2026-08-02T11:07:59Z**
+
+Episode 000019 completes the ordinary lifecycle boundary after episode 000018’s natural null: Sedge resumed from canonical null turn 400, received the exact later camera experience, reached the model, and sustained 18 new canonical turns without synthetic wait actions or null-continuation errors. Provider accounts settled, Minecraft saved, listeners closed, LM Studio unloaded, and Textile read the cognition honestly. The resident no-wait/no-intention treatment is now implemented and ordinarily exercised; conduct remains ungraded.
