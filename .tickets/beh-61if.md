@@ -12,17 +12,17 @@ parent: beh-9b2h
 tags: [memory, lync, long-running, resident-life]
 ---
 
-# Keep each live resident on a bounded selected-life working set
+# Stream canonical private life without retaining an unbounded decoded copy
 
-After Lync provides bounded selected-Loom access, replace Behold live hydration of the complete decoded resident thread with a selected-life wrapper that keeps only the explicit tip, bounded recent turns, and streaming derived state. Preserve the exact private life, migration, range, recovery, and isolation contract. This ticket owns the resident-facing result rather than Lync storage internals.
+Use Lync's selected-life cursor so a live controller need not retain a second decoded copy of an indefinitely growing canonical life. This storage constraint must not become a resident-memory policy: the model-facing session may replay the complete chronological transcript up to its verified inference context, and its bound is the explicit model context rather than an arbitrary recent-turn or selected-anchor limit.
 
 ## Design
 
-Stream one selected thread through fold, project, place, trajectory, statistics, and bounded-tail reducers. Make whole-thread materialization explicit and non-live. Behold continues to own resident identity, lease, and selected tip; Lync owns canonical append and cursor truth. Close the Lync cursor before releasing the resident lease. Do not use process recycling, Behold-only array trimming, checkpoints, or Textile as substitute memory.
+Stream one selected thread through derived reducers and the versioned resident transcript projector. Make offline whole-life materialization explicit, while allowing one inference request to contain the complete transcript permitted by that model's declared context. Behold continues to own resident identity, lease, and selected tip; Lync owns canonical append and cursor truth. Close the Lync cursor before releasing the resident lease. Do not use process recycling, Behold-only array trimming, inaccessible folds, checkpoints, or Textile as substitute memory.
 
 ## Acceptance Criteria
 
-Opening and continuing retained and generated large private lives does not retain payload-sized whole-history copies in a live controller; resident requests preserve the same bounded truthful information and provenance; recent lived events arrive contiguously without foreign resident context; exact ranges migration stop/resume and unique-child crash recovery remain correct; close releases files database handles listeners and leases; and an ordinary resumed multi-hour world shows controller memory bounded against growing Lync bytes while decision latency and canonical Textile readability remain usable.
+Opening and continuing retained and generated large private lives does not retain a second payload-sized decoded copy merely because canonical Lync grows; the inference transcript remains chronological and complete up to its explicit verified context boundary without foreign resident content; no storage optimization introduces a fold, selected-anchor replacement, or inaccessible middle gap; exact ranges, migration, stop/resume, and unique-child crash recovery remain correct; close releases files, database handles, listeners, and leases; and an ordinary resumed world shows controller memory bounded by active inference/runtime needs rather than cumulative Lync bytes while decision latency and canonical Textile readability remain usable.
 
 ## Notes
 
@@ -53,3 +53,7 @@ The first ordinary post-integration resume failed safely before world release or
 **2026-08-01T19:42:00Z**
 
 Ordinary episode 000004 exercised the repair on the same stopped world and exact selected lives. Ash resumed at turn 2,865 and committed contiguously through 2,910; Reed resumed at 1,130 and committed contiguously through 1,177. Their final authenticated folds covered 1–2,904 plus the six-turn suffix 2,905–2,910, and 1–1,171 plus 1,172–1,177 respectively; no visible bounded-memory gap was emitted. Prefix readiness and all 97 admitted model calls completed, both cursor-backed controllers closed, and exact source prefixes remained independently Textile-readable. This accepts migration and the 20-minute resume checkpoint, not the ticket's multi-hour memory-growth criterion.
+
+**2026-08-02T02:02:47Z**
+
+Owner correction 2026-08-01: bounded controller storage is not authorization to curate the resident's subjective history. The retained V4 request explicitly omitted turns 39-41 while pointing at inaccessible canonical Lync. Ticket title/design/acceptance now separate streaming storage from the new full-transcript inference policy; prior implementation evidence remains valid only for storage and cursor mechanics.

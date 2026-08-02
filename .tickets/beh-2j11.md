@@ -1,6 +1,6 @@
 ---
 id: beh-2j11
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-02T01:26:47Z
@@ -29,3 +29,9 @@ The sealed probe used one exact retained high-pressure Sedge request from Oxford
 - The full provider-free repository check passes: 699 passed, 1 skipped, 0 failed.
 
 This admits a bounded semantic-only live probe. It does not establish stable warm latency, better conduct, or a camera-capable replacement for the local Qwen treatment.
+
+## Notes
+
+**2026-08-02T02:03:06Z**
+
+Acceptance exercised in ordinary qualified Oxford episode 000001 with two isolated DeepSeek V4 Flash semantic residents. Juniper completed 64/64 calls at 1.151s median; Rowan 52/52 at 1.098s median; zero schema/provider failures; total reported live cost about $0.0376; world/lives stopped cleanly. The run also exposed a separate resident-transcript defect now owned by beh-c5gr and children; that does not invalidate the route-admission acceptance.
