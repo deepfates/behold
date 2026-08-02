@@ -27,3 +27,7 @@ Repeated long-running ordinary worlds demonstrate timely bounded embodied percep
 **2026-08-01T09:36:10Z**
 
 Baseline at creation: closed First Life tickets beh-n4fe, beh-kpqx, and beh-rhxm establish the bounded causal substrate through ordinary live, consequence, Lync isolation, stop/resume, human coexistence, and Textile reading. They are linked evidence, not claims that this telos is complete. Open beh-gidu remains an optional model-by-perception diagnostic and is not a dependency. The next frontier is the five child capabilities; choose among them by the most consequential mismatch observed in current ordinary use, not ticket order alone.
+
+**2026-08-02T01:16:09Z**
+
+Nearest qualified-habitat interface checkpoint completed through ordinary same-life episode 000006 on Behold 3342033 + Place b872237. The run used one qualified Oxford world, two isolated Qwen camera lives on one shared LM Studio weight, zero steering, complete bounded experience under a 76-event combat burst, explicit exact-vs-baseline cognition binding, legal combat admission/revalidation, clean save/stop, and independently readable canonical Lync. Exact Textile import exposed and repaired stale private-whisper presentation at Textile b9bc03b. Resident choices remain ungraded conduct. Repeated multi-day habitation and the unchosen live cursor-block action remain open horizons/tickets.

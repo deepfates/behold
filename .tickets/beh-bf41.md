@@ -1,6 +1,6 @@
 ---
 id: beh-bf41
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-02T00:15:51Z
@@ -23,3 +23,7 @@ The human-semantic action surface offers attack_focused_entity only for an exact
 **2026-08-02T00:29:00Z**
 
 Implemented action-admission and interpreter defense in depth: only exact cursor-reachable Mineflayer living/player/mob classes are offered; projectile/object/orb/global/other classes fail locally as focused_entity_not_attackable and send no attack input. Focused tests cover projectile refusal and legal hostile offer. Full npm run check: 696 pass, 1 intentional skip. Ordinary live validation remains required.
+
+**2026-08-02T01:14:32Z**
+
+Episode 000006 repeatedly exposed arrows/projectiles without offering or dispatching an illegal attack. Sedge later chose attack_focused_entity against an admitted legal skeleton; when focus disappeared before execution, interpreter revalidation failed locally as focused_entity_changed_before_action and sent no stale attack. Minecraft remained connected and the episode stopped cleanly. Together with focused legal/illegal target tests and full check, this exercises the acceptance path.

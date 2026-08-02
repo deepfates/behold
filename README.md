@@ -134,6 +134,25 @@ missing or omitted event windows. Qwen's repetitive social language
 and unsupported perceptual claims remain observed model conduct, not harness
 failures by definition.
 
+The later qualified Oxford habitat exposed a denser failure mode rather than
+invalidating that earlier result: combat-time sound, condition, and visibility
+traffic could exceed the 40-event raw horizon during one 8–15 second local-model
+call, and transient truthful action-contract changes could incorrectly demand a
+second readiness call. The current path retains 200 raw events, projects
+contiguous pressure as typed exact-range/count summaries while preserving
+causal anchors, and lets urgent decisions use the already-prepared LM Studio
+runtime baseline when no exact transient prefill exists. Ordinary same-life
+episode 000006 exercised those repairs with two isolated Qwen camera residents
+sharing one physical model instance. Across 66 terminal decision opportunities,
+all model-facing windows were complete with zero missing or omitted events;
+Lark's largest unread interval contained 76 raw events, and six successful
+transient-contract calls used the prepared baseline without another readiness
+call or refusal. Minecraft, both lives, viewers, and the shared model stopped
+cleanly. Textile independently authenticated the 18,826,863-byte prefix set and
+read 307 resident turns plus two roots, including a full Lark→Sedge private
+whisper after its stale presenter was repaired. Resident combat, repetition,
+waiting, movement, deaths, and respawns remain conduct rather than a score.
+
 A heterogeneous OpenRouter comparison then exercised the same continuing lives
 with GPT-5.6 Luna and Gemini 3.6 Flash. In episode 000042 Luna drove Iris from
 the shared structure down to y=-63 while Gemini kept Moss in the upper

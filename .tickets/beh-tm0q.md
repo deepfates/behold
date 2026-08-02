@@ -1,6 +1,6 @@
 ---
 id: beh-tm0q
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-02T00:15:51Z
@@ -27,3 +27,7 @@ Implemented distinct public chat/private whisper reception in both resident expe
 **2026-08-02T00:40:21Z**
 
 Behold now vendors the verified Lync ddace87 package candidate locally; installed presenter contains the private-recipient rendering. Post-adoption full npm run check passes 696 with one intentional skip. No package was published.
+
+**2026-08-02T01:14:32Z**
+
+Episode 000006 completed an ordinary Lark→Sedge private exchange. Lark's full whisper input was dispatched; Sedge received one exact chat_received event with channel=private, addressed=true, sender Lark, and the complete text, and the fact entered Sedge turn 127's canonical Lync nextObservation. Exact Textile ordered-prefix import initially exposed a stale-reader defect that mislabeled it public; owning Textile ticket tex-1zz5 repaired that at commit b9bc03b. Re-import now renders Private whisper from Lark with exact text across 309 source events (307 resident turns + two roots).

@@ -44,3 +44,7 @@ The owning repair now suppresses only Mineflayer's preparatory look for actions 
 **2026-08-02T00:29:00Z**
 
 Episode 000004 loaded commit 2b6751a but did not independently choose a cursor-local block interaction, so the hidden-camera repair remains mechanically proven and live-unexercised. The same run found separate private-whisper and illegal-projectile-attack defects now tracked in beh-tm0q and beh-bf41.
+
+**2026-08-02T01:14:32Z**
+
+Qualified episode 000006 exercised legal cursor-entity attack admission/revalidation but no resident independently chose a cursor-local block action, so the hidden-camera-preservation repair remains mechanically proven and deployment-shaped unexercised. Keep open without steering a resident to manufacture the action.

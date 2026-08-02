@@ -1,6 +1,6 @@
 ---
 id: beh-kgyy
-status: open
+status: closed
 deps: []
 links: [beh-uumj, beh-wssv, beh-1h3a]
 created: 2026-08-01T02:02:25Z
@@ -66,3 +66,7 @@ Episode 000004 falsified the episode-000003 closure under combat pressure. Sedge
 **2026-08-02T00:58:35Z**
 
 Episode 000005 exact-capture audit classified the renewed gap as an interface defect. At model boundaries, unread intervals reached 66 raw events; repeated sound, self-hurt/condition, and visibility pressure coexisted with death/spawn and human chat. Sedge model request sequence 165 explicitly lost 12 earlier events and deferred 25 later ones. A current-tree replay over recoverable raw intervals shows that typed contiguous pressure compaction can preserve all anchors in at most 10 visible items, with zero omission; the owning repair is in progress and raises the finite raw horizon from 40 to 200 so one ordinary 8-15s combat decision interval does not evict facts before projection.
+
+**2026-08-02T01:14:31Z**
+
+Qualified same-life ordinary episode 000006 exercised commit 3342033 under sustained zombie/skeleton/sound/visibility pressure. Across 66 terminal decision opportunities (56 successful calls, 10 truthful world-event cancellations), every model-facing window was complete with missingBeforeOldest=0 and omittedNewEvents=0. Lark's peak unread interval was 76 raw events and Sedge's 42; 85 typed pressure summaries represented 826 raw events while preserving causal anchors. Both lives and Minecraft saved/stopped cleanly. This satisfies the bounded dense ordinary-path acceptance; multi-day pressure remains with the habitat epic.
