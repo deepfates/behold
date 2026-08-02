@@ -1,6 +1,7 @@
 import { assertStrictLocalResidentSessionEnvelope } from './ollama-json-action';
 import { assertNativeToolResidentSessionEnvelope } from './direct-native-tools';
 import type { ResidentPolicyProfile } from '../policy/profile';
+import { assertResidentChronologicalWireOwner } from './resident-transcript';
 
 export const OPENROUTER_ROUTE_POLICY_PROTOCOL = 'behold.openrouter-route-policy.v1' as const;
 export const OPENROUTER_ROUTE_POLICY_V2_PROTOCOL = 'behold.openrouter-route-policy.v2' as const;
@@ -82,8 +83,13 @@ export function assertOpenRouterResidentTreatment(
   policyValue: OpenRouterRoutePolicy,
 ) {
   const policy = openRouterRoutePolicy(policyValue);
-  if (policyProfile === 'resident-v3' && policy.protocol !== OPENROUTER_ROUTE_POLICY_V5_PROTOCOL) {
-    throw new Error('resident-v3 requires the context-bound private OpenRouter resident route v5');
+  if (
+    (policyProfile === 'resident-v4' || policyProfile === 'resident-v3') &&
+    policy.protocol !== OPENROUTER_ROUTE_POLICY_V5_PROTOCOL
+  ) {
+    throw new Error(
+      `${policyProfile} requires the context-bound private OpenRouter resident route v5`,
+    );
   }
   if (
     policyProfile === 'resident-v2' &&
@@ -369,10 +375,12 @@ export function assertOpenRouterRouteRequest(
     if (
       (expectedPolicyProfile === 'resident-v2' &&
         envelope.schemaProtocol !== 'behold.ollama-local-json-action-schema.v1') ||
-      (expectedPolicyProfile === 'resident-v3' &&
+      ((expectedPolicyProfile === 'resident-v4' || expectedPolicyProfile === 'resident-v3') &&
         (envelope.schemaProtocol !== 'behold.ollama-local-json-action-schema.v1' ||
           envelope.messageLayoutProtocol !==
-            'behold.ollama-local-resident-session-message-layout.v2')) ||
+            (expectedPolicyProfile === 'resident-v4'
+              ? 'behold.ollama-local-resident-session-message-layout.v3'
+              : 'behold.ollama-local-resident-session-message-layout.v2'))) ||
       (expectedPolicyProfile === 'legible-resident-v1' &&
         envelope.schemaProtocol !== 'behold.ollama-local-json-action-schema.v2')
     ) {
@@ -509,6 +517,7 @@ function assertResidentWireOwner(messagesValue: unknown, residentIdentity: strin
   ) {
     throw new Error('OpenRouter resident request belongs to another resident');
   }
+  assertResidentChronologicalWireOwner(messagesValue, residentIdentity);
 }
 
 export function inspectOpenRouterResponseIdentity(

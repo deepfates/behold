@@ -85,8 +85,22 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   transcripts through episode 000007 measure about 172,695 and 148,085 Qwen
   tokens before the small current contract/view increment, inside the loaded
   262,144-token window. The immediate acceptance is therefore a same-life
-  resident-v3 revision with complete chronology; explicit epoch-and-recall
-  treatment remains open for the actual future boundary.
+  resident-v3 revision with complete chronology. Episode 000009 then showed
+  the distinct operational boundary: the same complete 148k–173k-token lives
+  fit, but Qwen produced no committed choice across four 60-second timeouts and
+  five calls cancelled by bodily urgency or shutdown. The current unexercised
+  resident-v4 successor makes adoption an explicit canonical epoch boundary,
+  retains at most eight chronological prior turns per request (including one
+  exact causal handoff at a boundary), and gives the resident an exact
+  whole-turn, byte-bounded reader over only its own selected Lync life. Recall
+  pages reconstruct from canonical source bindings across restart rather than
+  recursively copying into Lync. A retained Sedge no-world sweep measured
+  8/16/24/32-turn text epochs at
+  6.07/11.88/18.56/23.89 seconds; the empty transition took 2.38 seconds and
+  Qwen independently requested old private life. Foreign epoch/page identities
+  fail before either LM Studio or OpenRouter. Ordinary mature-life
+  live/stop/resume and camera latency remain open before this checkpoint can
+  close.
 
 - Place's measured Oxford derivative now enters the ordinary living front door
   as habitat-qualified rather than through a provisional override. Qualified

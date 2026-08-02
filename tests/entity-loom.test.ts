@@ -331,6 +331,69 @@ test('closing an entity life closes its Lync handle before releasing the runtime
   await resumed.close();
 });
 
+test('one resident recalls an exact selected-life range in whole-turn byte pages across restart', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-recall-range-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const scout = await openEntityLoom('Scout', root, 'minecraft://recall-world');
+  const builder = await openEntityLoom('Builder', root, 'minecraft://recall-world');
+  for (let sequence = 1; sequence <= 4; sequence += 1) {
+    await scout.append(turn(sequence, sequence === 1 ? null : `Scout:turn:${sequence - 1}`));
+    await builder.append(
+      turn(sequence, sequence === 1 ? null : `Builder:turn:${sequence - 1}`, 'Builder'),
+    );
+  }
+
+  const full = await scout.recallRange(2, 4, 1_000_000);
+  assert.equal(full.protocol, 'behold.entity-life-recall-page.v1');
+  assert.equal(full.entityId, 'Scout');
+  assert.equal(full.circleId, 'minecraft://recall-world');
+  assert.equal(full.selectedTip.sequence, 4);
+  assert.equal(full.selectedTip.turn.loomId, full.life.loomId);
+  assert.match(full.selectedTip.chainDigest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(
+    full.turns.map((item) => item.turn.sequence),
+    [2, 3, 4],
+  );
+  assert.ok(full.turns.every((item) => item.turn.entityId === 'Scout'));
+  assert.ok(full.turns.every((item) => /^[a-f0-9]{64}$/.test(item.source.digest)));
+  assert.equal(full.bytes, Buffer.byteLength(JSON.stringify(full.turns), 'utf8'));
+  assert.equal(full.complete, true);
+  assert.equal(full.nextSequence, null);
+
+  const twoTurnBudget = Buffer.byteLength(JSON.stringify(full.turns.slice(0, 2)), 'utf8');
+  const firstPage = await scout.recallRange(2, 4, twoTurnBudget);
+  assert.deepEqual(
+    firstPage.turns.map((item) => item.turn.sequence),
+    [2, 3],
+  );
+  assert.equal(firstPage.bytes, twoTurnBudget);
+  assert.equal(firstPage.complete, false);
+  assert.equal(firstPage.nextSequence, 4);
+  const secondPage = await scout.recallRange(firstPage.nextSequence!, 4, twoTurnBudget);
+  assert.deepEqual(
+    secondPage.turns.map((item) => item.turn.sequence),
+    [4],
+  );
+  assert.equal(secondPage.complete, true);
+
+  await assert.rejects(scout.recallRange(0, 1, 1000), /positive inclusive sequences/);
+  await assert.rejects(scout.recallRange(3, 2, 1000), /positive inclusive sequences/);
+  await assert.rejects(scout.recallRange(1, 5, 1000), /ends at turn 4/);
+  await assert.rejects(scout.recallRange(2, 2, 2), /exceeding maxBytes 2/);
+
+  const builderPage = await builder.recallRange(2, 4, 1_000_000);
+  assert.ok(builderPage.turns.every((item) => item.turn.entityId === 'Builder'));
+  assert.notEqual(builderPage.life.loomId, full.life.loomId);
+  assert.notEqual(builderPage.selectedTip.chainDigest, full.selectedTip.chainDigest);
+
+  await scout.close();
+  await builder.close();
+  const resumed = await openEntityLoom('Scout', root, 'minecraft://recall-world');
+  const afterRestart = await resumed.recallRange(2, 4, 1_000_000);
+  assert.deepEqual(afterRestart, full);
+  await resumed.close();
+});
+
 test('a manifest directory fsync failure leaves canonical life recoverable without a lease', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-manifest-fsync-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

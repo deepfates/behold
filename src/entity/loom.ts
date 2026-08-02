@@ -106,6 +106,12 @@ export type EntityLoom = {
   tail: (limit?: number) => Promise<EntityTurn[]>;
   /** Read a bounded selected suffix with canonical chain bindings. */
   tailBound: (limit?: number) => Promise<BoundEntityTurn[]>;
+  /** Read one exact selected-life interval in whole-turn, byte-bounded pages. */
+  recallRange: (
+    startSequence: number,
+    endSequence: number,
+    maxBytes: number,
+  ) => Promise<EntityLifeRecallPage>;
   append: (turn: EntityTurn) => Promise<EntityTurnCommitReceipt>;
   close: () => Promise<void>;
 };
@@ -118,6 +124,25 @@ export type EntityTurnCanonicalBinding = Readonly<{
 export type BoundEntityTurn = Readonly<{
   turn: EntityTurn;
   source: EntityTurnCanonicalBinding;
+}>;
+
+export type EntityLifeRecallPage = Readonly<{
+  protocol: 'behold.entity-life-recall-page.v1';
+  entityId: string;
+  circleId: string | null;
+  life: EntityLifeReference;
+  /** The selected private tip captured before any range lookup or source read. */
+  selectedTip: Readonly<{
+    turn: EntityLifeTurnReference;
+    sequence: number;
+    chainDigest: string;
+  }>;
+  requested: Readonly<{ startSequence: number; endSequence: number }>;
+  /** JSON UTF-8 byte length of the complete `turns` array. */
+  bytes: number;
+  complete: boolean;
+  nextSequence: number | null;
+  turns: readonly BoundEntityTurn[];
 }>;
 
 export type EntityTurnCommitReceipt = Readonly<{
@@ -514,6 +539,85 @@ export async function openEntityLoom(
         const items = await cursor.tail(tipTurnId, Math.max(0, Math.floor(limit)));
         return items.map((item) => boundCursorTurn(item, entityId));
       },
+      recallRange: async (startSequence, endSequence, maxBytes) => {
+        assertOpen();
+        assertEntityLifeRecallRange(startSequence, endSequence, maxBytes);
+        const selectedTip = tipTurnId;
+        const selectedTipSequence = selectedLength;
+        if (selectedTip === null || endSequence > selectedTipSequence) {
+          throw new Error(
+            `entity ${entityId} selected Lync life ends at turn ${selectedTipSequence}; cannot recall ${startSequence}..${endSequence}`,
+          );
+        }
+
+        // Capture one explicit private tip before resolving either endpoint.
+        // Appends after this point cannot move the ancestry being read.
+        const [selectedTipRef, endRef, afterRef] = await Promise.all([
+          cursor.refAtDepth(selectedTip, selectedTipSequence),
+          cursor.refAtDepth(selectedTip, endSequence),
+          startSequence > 1 ? cursor.refAtDepth(selectedTip, startSequence - 1) : null,
+        ]);
+        if (!selectedTipRef || !endRef || (startSequence > 1 && !afterRef)) {
+          throw new Error(`entity ${entityId} selected Lync recall anchors are unavailable`);
+        }
+
+        const turns: BoundEntityTurn[] = [];
+        let bytes = 2; // JSON encoding of an empty array.
+        let expectedSequence = startSequence;
+        for await (const item of cursor.scanThread({
+          tip: selectedTip,
+          through: endRef.id,
+          ...(afterRef ? { after: afterRef.id } : {}),
+        })) {
+          if (item.depth !== expectedSequence) {
+            throw new Error(
+              `entity ${entityId} selected Lync recall expected turn ${expectedSequence}, received depth ${item.depth}`,
+            );
+          }
+          const bound = boundCursorTurn(item, entityId);
+          if (bound.turn.sequence !== expectedSequence) {
+            throw new Error(
+              `entity ${entityId} selected Lync recall expected sequence ${expectedSequence}, received ${bound.turn.sequence}`,
+            );
+          }
+          const itemBytes = Buffer.byteLength(JSON.stringify(bound), 'utf8');
+          const nextBytes = bytes + itemBytes + (turns.length > 0 ? 1 : 0);
+          if (nextBytes > maxBytes) {
+            if (turns.length === 0) {
+              throw new Error(
+                `entity ${entityId} Lync turn ${expectedSequence} requires ${nextBytes} bytes, exceeding maxBytes ${maxBytes}`,
+              );
+            }
+            break;
+          }
+          turns.push(bound);
+          bytes = nextBytes;
+          expectedSequence += 1;
+        }
+
+        const complete = expectedSequence > endSequence;
+        return deepFreeze({
+          protocol: 'behold.entity-life-recall-page.v1' as const,
+          entityId,
+          circleId: boundCircleId,
+          life: { v: 1 as const, kind: 'loom' as const, loomId: cursor.id },
+          selectedTip: {
+            turn: {
+              v: 1 as const,
+              kind: 'turn' as const,
+              loomId: cursor.id,
+              turnId: selectedTipRef.id,
+            },
+            sequence: selectedTipSequence,
+            chainDigest: selectedTipRef.chainDigest,
+          },
+          requested: { startSequence, endSequence },
+          bytes,
+          complete,
+          nextSequence: complete ? null : expectedSequence,
+          turns,
+        });
+      },
       append: async (turn) => {
         assertOpen();
         validateNextTurn(lastTurn ? [lastTurn] : [], turn, entityId, selectedLength);
@@ -554,6 +658,20 @@ export async function openEntityLoom(
       await lease.close();
     }
     throw error;
+  }
+}
+
+function assertEntityLifeRecallRange(startSequence: number, endSequence: number, maxBytes: number) {
+  if (
+    !Number.isSafeInteger(startSequence) ||
+    !Number.isSafeInteger(endSequence) ||
+    startSequence < 1 ||
+    endSequence < startSequence
+  ) {
+    throw new Error('entity Lync recall requires positive inclusive sequences in order');
+  }
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 2) {
+    throw new Error('entity Lync recall maxBytes must be a safe integer of at least 2');
   }
 }
 

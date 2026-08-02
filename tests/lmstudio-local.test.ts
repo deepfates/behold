@@ -453,6 +453,98 @@ test('LM Studio resident-v3 wire carries continuous chronology for exact runtime
   assert.match((large.body.messages as any[]).at(-1).content, /x{20000}/);
 });
 
+test('LM Studio resident-v4 wire authenticates the explicit private-life epoch owner', async (t) => {
+  const fixture = await artifactFixture(t);
+  const legacyPolicy = policy(fixture);
+  const residentPolicy: LmStudioLocalPolicy = {
+    ...legacyPolicy,
+    transport: {
+      ...legacyPolicy.transport,
+      protocol: 'behold.lmstudio-local-resident-session.v2',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+    },
+  };
+  const currentObservation = {
+    protocol: 'behold.minecraft-human-semantic-observation.v1',
+    self: { identity: 'OxfordAster' },
+  };
+  const boundary = {
+    protocol: 'behold.resident-context-epoch.v1',
+    entityId: 'OxfordAster',
+    epoch: 2,
+    epochTurns: 32,
+    originArchivedThroughTurn: 0,
+    activeBeginsAtTurn: 32,
+    immediateHandoffTurn: 32,
+    archivedThroughTurn: 32,
+    reason: 'operational_context_latency',
+    completePrivateLife: {
+      canonical: true,
+      archivedBoundary: {
+        throughTurn: 32,
+        source: { protocol: 'lync.file-loom-chain.v1', digest: 'a'.repeat(64) },
+      },
+      availableTurns: { start: 1, end: 32 },
+      access: 'read_private_life',
+      representation: 'exact chronological pages; no summary or relevance selection',
+    },
+  };
+  const residentRequest = {
+    ...request(residentPolicy.modelKey),
+    policyProfile: 'resident-v4',
+    observation: currentObservation,
+    conversation: [
+      { role: 'system', content: 'You are OxfordAster.' },
+      {
+        role: 'user',
+        content:
+          'Your active inference context has entered a new explicit epoch.\n' +
+          JSON.stringify(boundary),
+      },
+      {
+        role: 'user',
+        content: `What you experience:\n${JSON.stringify(currentObservation)}`,
+      },
+    ],
+    actions: [
+      {
+        name: 'read_private_life',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            startSequence: { type: 'integer', minimum: 1, maximum: 32 },
+            endSequence: { type: 'integer', minimum: 1, maximum: 32 },
+          },
+          required: ['startSequence', 'endSequence'],
+          additionalProperties: false,
+        },
+      },
+      ...request(residentPolicy.modelKey).actions,
+    ],
+  } as any;
+  const instanceId = lmStudioResidentInstanceId(residentPolicy);
+  const serialized = createLmStudioLocalJsonActionRequest(
+    residentRequest,
+    residentPolicy,
+    instanceId,
+  );
+
+  assert.equal(serialized.identity.workingContinuityProtocol, 'behold.resident-context-epoch.v1');
+  assert.doesNotThrow(() =>
+    assertLmStudioLocalWireRequest(serialized.body, residentPolicy, instanceId, 'OxfordAster'),
+  );
+  const foreign = structuredClone(serialized.body) as any;
+  foreign.messages[2].content = foreign.messages[2].content.replace(
+    '"entityId":"OxfordAster"',
+    '"entityId":"Juniper"',
+  );
+  assert.throws(
+    () => assertLmStudioLocalWireRequest(foreign, residentPolicy, instanceId, 'OxfordAster'),
+    /context epoch belongs to another resident/,
+  );
+});
+
 test('LM Studio broker ownership accepts the resident-v3 current experience without a legacy reminder', async (t) => {
   const fixture = await artifactFixture(t);
   const legacyPolicy = policy(fixture);

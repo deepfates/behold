@@ -837,6 +837,8 @@ export async function runConsole(
         // The complete loom stays authoritative. The adjacent fold is only a
         // validated, disposable prompt view over older turns.
         loomContext: residentLoomContext,
+        readPrivateLife: (startSequence, endSequence, maxBytes) =>
+          entityLoom.recallRange(startSequence, endSequence, maxBytes),
         foldCacheFile: entityLoom.foldFile,
         log: (s) => console.error(s),
         acceptEngineEvent: engine.acceptsEvent,

@@ -102,6 +102,7 @@ const HUMAN_SEMANTIC_ACTION_DESCRIPTIONS = new Map<string, string>([
 ]);
 
 const ACTION_CLASS = new Map<string, MinecraftActionClass>([
+  ['read_private_life', 'resident-memory-utility'],
   ['manage_project', 'resident-memory-utility'],
   ['cross_place_door', 'resident-memory-utility'],
   ['cross_visible_door', 'disclosed-composite-skill'],

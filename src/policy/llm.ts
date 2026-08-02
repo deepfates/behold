@@ -3,7 +3,12 @@ import { isDeepStrictEqual } from 'node:util';
 import { isCriticalBodyCondition } from '../agent/condition';
 import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
-import { historyMessages, type EntityTurn } from '../entity/loom';
+import {
+  historyMessages,
+  type EntityLifeRecallPage,
+  type EntityTurn,
+  type EntityTurnCanonicalBinding,
+} from '../entity/loom';
 import { createEntityTurnObservationPresentation } from '../entity/turn-observation-binding';
 import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
@@ -65,11 +70,14 @@ import {
   usesHumanSemanticPolicySurface,
   usesMinimalResidentChoice,
   usesContinuousResidentTranscript,
+  usesResidentContextEpochs,
   usesResidentProgressSafeguards,
   usesResidentV1Behavior,
   type ResidentPolicyProfile,
 } from './profile';
 import {
+  DEFAULT_RESIDENT_CONTEXT_EPOCH_TURNS,
+  projectResidentContextEpoch,
   projectResidentTranscript,
   projectResidentTranscriptTurn,
   residentCurrentExperienceMessage,
@@ -119,6 +127,14 @@ export type Options = {
   history?: EntityTurn[];
   /** Cursor-backed ordinary life; only its exact recent suffix is retained. */
   loomContext?: BoundedLoomContextState;
+  /** Exact private selected-life reader. It never accepts an entity, path, loom, or tip. */
+  readPrivateLife?: (
+    startSequence: number,
+    endSequence: number,
+    maxBytes: number,
+  ) => Promise<EntityLifeRecallPage>;
+  /** Test/diagnostic override; ordinary resident-v4 uses its versioned treatment constant. */
+  contextEpochTurns?: number;
   foldCacheFile?: string | null;
   /** Evidence replay may read an existing fold but must not create or update one. */
   foldReadOnly?: boolean;
@@ -314,6 +330,13 @@ const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 export const DEFAULT_URGENT_DECISION_TIMEOUT_MS = 5_000;
 export const DEFAULT_LOOM_FOLD_MAX_OUTPUT_TOKENS = 1_024;
 const WAIT_TOOL = 'wait_for_event';
+const READ_PRIVATE_LIFE_TOOL = 'read_private_life';
+/** Final resident-visible message-array budget for one explicit recall result. */
+const PRIVATE_LIFE_PAGE_MAX_BYTES = 128_000;
+/** Internal raw Lync scan budget; raw controller frames are never sent directly. */
+const PRIVATE_LIFE_SOURCE_SCAN_MAX_BYTES = 8_000_000;
+/** Leaves room for the canonical source wrapper inside the raw scan bound. */
+const PRIVATE_LIFE_SOURCE_TURN_MAX_BYTES = 7_500_000;
 const COLLECT_TOOL = 'collect_nearby_item';
 
 function cameraFrameSummary(frame: ResidentCameraFrame) {
@@ -397,6 +420,31 @@ const NEUTRAL_WAIT_TOOL_SPEC: ToolSpec = {
     parameters: WAIT_TOOL_SPEC.function.parameters,
   },
 };
+const READ_PRIVATE_LIFE_TOOL_SPEC: ToolSpec = {
+  type: 'function',
+  function: {
+    name: READ_PRIVATE_LIFE_TOOL,
+    description:
+      'Read one exact chronological page from your own canonical private life. No summary, relevance selection, other resident, or alternate branch is available.',
+    parameters: {
+      type: 'object',
+      properties: {
+        startSequence: {
+          type: 'integer',
+          minimum: 1,
+          description: 'First private turn to read, inclusive',
+        },
+        endSequence: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Last private turn to read, inclusive',
+        },
+      },
+      required: ['startSequence', 'endSequence'],
+      additionalProperties: false,
+    },
+  },
+};
 const EMBODIED_ACTION_TOOLS = new Set<string>([
   'move_to',
   'move_direction',
@@ -478,11 +526,20 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     );
   }
   const continuousTranscript = usesContinuousResidentTranscript(policyProfile);
+  const contextEpochs = usesResidentContextEpochs(policyProfile);
+  const chronologicalTranscript = continuousTranscript || contextEpochs;
+  if (contextEpochs && !opts.loomContext) {
+    throw new Error('resident-v4 context epochs require a cursor-backed canonical Lync life');
+  }
+  if (contextEpochs && !opts.readPrivateLife) {
+    throw new Error('resident-v4 context epochs require an exact private-life reader');
+  }
+  const contextEpochTurns = boundedContextEpochTurns(opts.contextEpochTurns);
   const projectCurrentObservation = (frame: any, eventBatchLimit?: number) =>
     projectMinecraftCurrentObservation(
       frame,
       bodyProfile,
-      eventBatchLimit ?? (continuousTranscript ? 256 : undefined),
+      eventBatchLimit ?? (chronologicalTranscript ? 256 : undefined),
     );
   const projectHistoricalObservation = (
     frame: any,
@@ -499,10 +556,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     );
   const mayReplayTurn = (turn: EntityTurn) =>
     residentTurnMayReplay(turn) &&
-    minecraftActionMayReplay(turn.action.name, actionProfile) &&
+    (turn.action.name === READ_PRIVATE_LIFE_TOOL ||
+      minecraftActionMayReplay(turn.action.name, actionProfile)) &&
     (!usesHumanSemanticBody(bodyProfile) || turn.profiles?.body === bodyProfile);
   const urgentDecisionTimeoutMs = boundedUrgentDecisionTimeoutMs(opts.urgentDecisionTimeoutMs);
   const allow = Array.isArray(opts.allowTools) ? new Set(opts.allowTools) : null;
+  if (contextEpochs && allow && !allow.has(READ_PRIVATE_LIFE_TOOL)) {
+    throw new Error('resident-v4 allowTools must include read_private_life');
+  }
   const bodilyTools = minecraftActionsForProfile(environment.actions, actionProfile);
   const continuityTools =
     policyProfile === 'legible-resident-v1'
@@ -510,7 +571,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       : [];
   // The human-semantic profile freezes bodily affordances. Project memory is
   // an own-Lync continuity operation, not a hidden Minecraft body capability.
-  const profiledTools = [...continuityTools, ...bodilyTools];
+  const privateLifeTools = contextEpochs ? [READ_PRIVATE_LIFE_TOOL_SPEC] : [];
+  const profiledTools = [...privateLifeTools, ...continuityTools, ...bodilyTools];
   const executableTools = allow
     ? profiledTools.filter((spec) => allow.has(spec.function.name))
     : profiledTools;
@@ -522,6 +584,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     : [...executableTools, waitToolSpec];
   const executableCatalog = new Map(
     executableTools.map((spec) => [spec.function.name, spec] as const),
+  );
+  const cognitiveTools = executableTools.filter(
+    (spec) => spec.function.name === READ_PRIVATE_LIFE_TOOL,
+  );
+  const physicalExecutableTools = executableTools.filter(
+    (spec) => spec.function.name !== READ_PRIVATE_LIFE_TOOL,
   );
   const mind: ResidentMind =
     opts.mind ||
@@ -579,7 +647,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     turnLimit: number,
     byteLimit: number,
   ): RecentActionContinuity | ResidentWorkingContinuity | ResidentFactualContinuity | null => {
-    if (continuousTranscript) return null;
+    if (chronologicalTranscript) return null;
     return opts.workingContinuity === 'resident-session-v1'
       ? usesMinimalResidentChoice(policyProfile)
         ? projectResidentFactualContinuity(
@@ -624,6 +692,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let preparingContext = false;
   let contextPrepared = false;
   let continuousTranscriptPrepared = false;
+  let contextEpochPrepared = false;
+  let contextEpochOriginTurn = 0;
+  let lastCanonicalBinding: EntityTurnCanonicalBinding | null = null;
   let loomMaintenanceScheduled = false;
   let loomMaintenanceActive = false;
   let wakeQueued = false;
@@ -633,6 +704,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let currentExperience: CurrentExperienceFrame | null = null;
   let entitySequence = history.at(-1)?.sequence ?? 0;
   let parentTurnId = history.at(-1)?.id ?? null;
+  let lastEntityTurn: EntityTurn | null = history.at(-1) ?? null;
   let lastActionSignature: string | null = null;
   let repeatedActionCount = 0;
   let consecutiveSocialCameraActions = trailingSocialCameraActions(history);
@@ -680,13 +752,26 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     const physicallyOffered = actionsOfferedByEnvironment(
       environment,
       experience.raw,
-      executableTools,
+      physicalExecutableTools,
       executableCatalog,
       log,
     );
-    const withYield = physicallyOffered.some((spec) => spec.function.name === WAIT_TOOL)
-      ? physicallyOffered
-      : [...physicallyOffered, waitToolSpec];
+    const archivedThrough = contextEpochArchivedThrough(
+      entitySequence,
+      contextEpochTurns,
+      contextEpochOriginTurn,
+    );
+    const currentCognitiveTools = cognitiveTools.flatMap((spec) => {
+      if (spec.function.name !== READ_PRIVATE_LIFE_TOOL || archivedThrough < 1) return [];
+      const copy = cloneJson(spec) as ToolSpec;
+      copy.function.parameters.properties.startSequence.maximum = archivedThrough;
+      copy.function.parameters.properties.endSequence.maximum = archivedThrough;
+      return [copy];
+    });
+    const offered = [...currentCognitiveTools, ...physicallyOffered];
+    const withYield = offered.some((spec) => spec.function.name === WAIT_TOOL)
+      ? offered
+      : [...offered, waitToolSpec];
     const actions = availableModelTools(withYield, experience.raw, attention, policyProfile);
     return Object.freeze({
       experience,
@@ -809,6 +894,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       // here before materializing the authority-free setup request.
       if (continuousTranscript) {
         await prepareContinuousTranscript();
+      } else if (contextEpochs) {
+        await prepareContextEpoch();
       } else if (opts.loomContext && loomContext.state().needsFold) {
         await loomContext.prepare(signal);
         rebuildMessagesFromLoom();
@@ -816,7 +903,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const frame = createResidentDecisionFrame(createCurrentExperience(observe()), false);
       const preparationMessages = [
         ...messages,
-        continuousTranscript
+        chronologicalTranscript
           ? residentCurrentExperienceMessage(frame.experience.model)
           : worldUpdateMessage(
               frame.experience.model,
@@ -932,6 +1019,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           if (!stopped) decisionCycle.enter('perceiving');
           settleStop();
         }
+      } else if (contextEpochs) {
+        decisionCycle.enter('preparing_context');
+        preparingContext = true;
+        try {
+          await prepareContextEpoch();
+        } finally {
+          preparingContext = false;
+          if (!stopped) decisionCycle.enter('perceiving');
+          settleStop();
+        }
       } else if ((opts.foldReadOnly || opts.loomContext) && loomContext.state().needsFold) {
         decisionCycle.enter('preparing_context');
         preparingContext = true;
@@ -949,9 +1046,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           settleStop();
         }
       }
-      if (!continuousTranscript) rebuildMessagesFromLoom();
+      if (!chronologicalTranscript) rebuildMessagesFromLoom();
       contextPrepared = true;
-      if (!continuousTranscript && loomContext.state().needsFold) {
+      if (!chronologicalTranscript && loomContext.state().needsFold) {
         log(
           initialBodyUrgency
             ? '[policy] deferred initial own-loom fold while bodily urgency remains unresolved'
@@ -1028,7 +1125,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     // it neither calls a model nor selects conduct.
     if (
       usesMinimalResidentChoice(policyProfile) &&
-      !continuousTranscript &&
+      !chronologicalTranscript &&
       loomContext.state().needsFold
     ) {
       preparingContext = true;
@@ -1047,6 +1144,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
     }
+
+    // Advance the visible epoch before the first decision after a full active
+    // span. The same canonical state must produce the same request live and
+    // after restart; changing the boundary only after committing that decision
+    // would rewrite what the resident actually saw.
+    advanceContextEpochBeforeDecision();
 
     deciding = true;
     decisionCycle.enter('preparing_context');
@@ -1286,6 +1389,114 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         return;
       }
 
+      if (decision.intent.tool === READ_PRIVATE_LIFE_TOOL) {
+        const startSequence = Number(decision.intent.input?.startSequence);
+        const endSequence = Number(decision.intent.input?.endSequence);
+        let outcome: EntityTurn['outcome'];
+        let projectedOutcome: EntityTurn['outcome'] | undefined;
+        try {
+          const page = await opts.readPrivateLife!(
+            startSequence,
+            endSequence,
+            PRIVATE_LIFE_SOURCE_SCAN_MAX_BYTES,
+          );
+          if (page.entityId !== entityId) {
+            throw new Error(`private-life reader returned foreign entity ${page.entityId}`);
+          }
+          const recalledMessages: any[] = [];
+          const returnedTurns: (typeof page.turns)[number][] = [];
+          for (const bound of page.turns) {
+            const turnMessages = projectResidentTranscriptTurn(bound.turn, {
+              mayReplayTurn,
+              projectObservation: (observation) => projectCurrentObservation(observation),
+              ...(usesHumanSemanticBody(bodyProfile)
+                ? { projectValue: projectHumanSemanticValue }
+                : {}),
+            });
+            const candidate = [...recalledMessages, ...turnMessages];
+            const candidateBytes = Buffer.byteLength(JSON.stringify(candidate), 'utf8');
+            if (candidateBytes > PRIVATE_LIFE_PAGE_MAX_BYTES) {
+              if (returnedTurns.length === 0) {
+                throw new Error(
+                  `private-life turn ${bound.turn.sequence} requires ${candidateBytes} projected bytes, exceeding ${PRIVATE_LIFE_PAGE_MAX_BYTES}`,
+                );
+              }
+              break;
+            }
+            recalledMessages.push(...turnMessages);
+            returnedTurns.push(bound);
+          }
+          const projectedBytes = Buffer.byteLength(JSON.stringify(recalledMessages), 'utf8');
+          const returnedEnd = returnedTurns.at(-1)?.turn.sequence ?? null;
+          const complete = page.complete && returnedTurns.length === page.turns.length;
+          const nextSequence = complete
+            ? null
+            : returnedEnd == null
+              ? startSequence
+              : returnedEnd + 1;
+          const messagesSha256 = sha256(stableJson(recalledMessages));
+          const result = {
+            protocol: 'behold.resident-private-life-page.v1' as const,
+            entityId,
+            life: page.life,
+            selectedTip: page.selectedTip,
+            requested: page.requested,
+            returned: {
+              startSequence: returnedTurns[0]?.turn.sequence ?? null,
+              endSequence: returnedEnd,
+            },
+            sources: returnedTurns.map(({ turn, source }) => ({
+              sequence: turn.sequence,
+              source,
+            })),
+            sourceBytes: Buffer.byteLength(JSON.stringify(returnedTurns), 'utf8'),
+            projectedBytes,
+            messageCount: recalledMessages.length,
+            messagesSha256,
+            complete,
+            nextSequence,
+          };
+          outcome = {
+            ok: true,
+            eventType: 'private_life_page_returned',
+            result,
+          };
+          projectedOutcome = {
+            ...outcome,
+            result: { ...result, messages: recalledMessages },
+          };
+        } catch (error: any) {
+          outcome = {
+            ok: false,
+            eventType: 'private_life_page_failed',
+            result: {
+              protocol: 'behold.resident-private-life-page.v1',
+              entityId,
+              requested: { startSequence, endSequence },
+              complete: false,
+              messages: [],
+            },
+            error: error?.message || String(error),
+          };
+        }
+        await closeTurn(
+          draft,
+          actionFromIntent(decision.intent, decision.toolCallId),
+          outcome,
+          observe(),
+          now(),
+          projectedOutcome,
+        );
+        appendWorldUpdate(observe(), 'World while you read your private life');
+        log(
+          outcome.ok
+            ? `[policy] returned private life ${startSequence}..${endSequence}`
+            : `[policy] private life read failed: ${outcome.error}`,
+        );
+        continueImmediately = true;
+        return;
+      }
+
       const intent = decision.intent;
       const signature = actionSignature(intent);
       if (signature === lastActionSignature) repeatedActionCount += 1;
@@ -1506,7 +1717,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function scheduleLoomMaintenance() {
     if (
-      continuousTranscript ||
+      chronologicalTranscript ||
       fixedPilotSlots ||
       stopped ||
       suspended ||
@@ -1828,7 +2039,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     if (hasNewProjectProgressEvidence(frame, lastSequence)) consecutiveProjectActions = 0;
     currentExperience = createCurrentExperience(frame);
     const projected = currentExperience.model;
-    if (continuousTranscript) assertContinuousCurrentExperience(projected);
+    if (chronologicalTranscript) assertContinuousCurrentExperience(projected);
     const deliveredSequence = projected?.eventWindow?.deliveredNewestSequence;
     if (Number.isFinite(Number(deliveredSequence))) {
       lastSequence = Math.max(lastSequence, Number(deliveredSequence));
@@ -1836,7 +2047,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       lastSequence = Math.max(lastSequence, Number(frame.sequence));
     }
     messages.push(
-      continuousTranscript
+      chronologicalTranscript
         ? residentCurrentExperienceMessage(projected)
         : worldUpdateMessage(projected, label, lastTool, opts.workingContinuity),
     );
@@ -1848,6 +2059,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     outcome: EntityTurn['outcome'],
     nextObservation: any,
     completedAt = now(),
+    projectedOutcome?: EntityTurn['outcome'],
   ) {
     decisionCycle.enter('committing_turn', {
       observationSequence: Number(draft.observation?.sequence),
@@ -1889,17 +2101,24 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       outcome,
       nextObservation,
     };
+    if (contextEpochs) assertPrivateLifeTurnRecallable(turn);
     const committed = await opts.onEntityTurn?.(turn);
-    // resident-v3 projects the committed canonical turn directly into the
+    if (
+      contextEpochs &&
+      (!isCanonicalTurnBinding(committed) || committed.protocol !== 'lync.file-loom-chain.v1')
+    ) {
+      throw new Error('resident context epoch commit did not return a canonical Lync binding');
+    }
+    // Chronological resident profiles project the committed canonical turn directly into the
     // provider conversation. Its bounded v2 index is deliberately dormant:
     // appending to that stale suffix after onEntityTurn has advanced Lync can
     // race the canonical source and strand the next model request.
-    if (!continuousTranscript) {
+    if (!chronologicalTranscript) {
       loomContext.append(turn, isCanonicalTurnBinding(committed) ? committed : undefined);
     }
     recordEmbodiedOutcome(turn.action.name, turn.outcome.ok);
     recordProjectContinuity(turn.action.name, turn.outcome.ok);
-    if (continuousTranscript) {
+    if (chronologicalTranscript) {
       let currentIndex = -1;
       for (let index = messages.length - 1; index >= 1; index -= 1) {
         const message = messages[index];
@@ -1917,6 +2136,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       messages.splice(currentIndex);
       messages.push(
         ...projectResidentTranscriptTurn(turn, {
+          ...(projectedOutcome ? { projectOutcome: () => projectedOutcome } : {}),
           mayReplayTurn,
           projectObservation: (observation) => projectCurrentObservation(observation),
           ...(usesHumanSemanticBody(bodyProfile)
@@ -1929,6 +2149,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
     entitySequence = sequence;
     parentTurnId = turn.id;
+    lastEntityTurn = projectedOutcome ? { ...turn, outcome: projectedOutcome } : turn;
+    if (isCanonicalTurnBinding(committed)) {
+      lastCanonicalBinding = {
+        protocol: committed.protocol as 'lync.file-loom-chain.v1',
+        digest: committed.digest,
+      };
+    }
   }
 
   function recordEmbodiedOutcome(tool: string, ok: boolean) {
@@ -1953,7 +2180,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function rebuildMessagesFromLoom() {
-    if (continuousTranscript) return;
+    if (chronologicalTranscript) return;
     const view = loomContext.view();
     messages.splice(
       1,
@@ -2000,6 +2227,206 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     entitySequence = tip?.sequence ?? 0;
     parentTurnId = tip?.id ?? null;
     continuousTranscriptPrepared = true;
+  }
+
+  async function prepareContextEpoch() {
+    if (!contextEpochs || contextEpochPrepared) return;
+    const totalTurns = opts.loomContext!.totalTurns;
+    let firstContextEpochTurn: number | null = null;
+    const turns: EntityTurn[] = [];
+    let archivedBoundary: EntityTurnCanonicalBinding | null = null;
+    let selectedTipBinding: EntityTurnCanonicalBinding | null = null;
+    let previousBinding: EntityTurnCanonicalBinding | null = null;
+    let scanned = 0;
+    for await (const entry of opts.loomContext!.rebuild()) {
+      scanned += 1;
+      if (
+        !isCanonicalTurnBinding(entry.source) ||
+        entry.source.protocol !== 'lync.file-loom-chain.v1'
+      ) {
+        throw new Error(
+          `resident context epoch turn ${entry.turn.sequence} lacks a canonical binding`,
+        );
+      }
+      const source = {
+        protocol: entry.source.protocol as 'lync.file-loom-chain.v1',
+        digest: entry.source.digest,
+      };
+      assertPrivateLifeTurnRecallable(entry.turn, source);
+      selectedTipBinding = source;
+      if (firstContextEpochTurn == null && entry.turn.profiles?.policy === 'resident-v4') {
+        firstContextEpochTurn = entry.turn.sequence;
+        contextEpochOriginTurn = entry.turn.sequence - 1;
+        archivedBoundary = previousBinding;
+      }
+      if (firstContextEpochTurn != null) {
+        const replayTurn = await rehydratePrivateLifeTurn(entry.turn);
+        turns.push(replayTurn);
+        lastEntityTurn = replayTurn;
+        if ((entry.turn.sequence - contextEpochOriginTurn) % contextEpochTurns === 0) {
+          turns.splice(0, Math.max(0, turns.length - 1));
+          archivedBoundary = source;
+        }
+      }
+      previousBinding = source;
+    }
+    if (scanned !== totalTurns) {
+      throw new Error(`resident context epoch scanned ${scanned} of ${totalTurns} canonical turns`);
+    }
+    if (firstContextEpochTurn == null) {
+      contextEpochOriginTurn = totalTurns;
+      archivedBoundary = selectedTipBinding;
+    }
+    const archivedThrough = contextEpochArchivedThrough(
+      totalTurns,
+      contextEpochTurns,
+      contextEpochOriginTurn,
+    );
+    const epoch = projectResidentContextEpoch(entityId, totalTurns, turns, {
+      epochTurns: contextEpochTurns,
+      originArchivedThroughTurn: contextEpochOriginTurn,
+      archivedBoundary:
+        archivedThrough > 0 && archivedBoundary != null
+          ? { throughTurn: archivedThrough, source: archivedBoundary }
+          : null,
+      mayReplayTurn,
+      projectObservation: (observation) => projectCurrentObservation(observation),
+      ...(usesHumanSemanticBody(bodyProfile) ? { projectValue: projectHumanSemanticValue } : {}),
+    });
+    messages.splice(1, Math.max(0, messages.length - 1), ...epoch.messages);
+    entitySequence = totalTurns;
+    parentTurnId = totalTurns > 0 ? `${entityId}:turn:${totalTurns}` : null;
+    lastCanonicalBinding = selectedTipBinding;
+    contextEpochPrepared = true;
+  }
+
+  async function rehydratePrivateLifeTurn(turn: EntityTurn): Promise<EntityTurn> {
+    if (
+      turn.action.name !== READ_PRIVATE_LIFE_TOOL ||
+      !turn.outcome.ok ||
+      turn.outcome.eventType !== 'private_life_page_returned'
+    ) {
+      return turn;
+    }
+    const result = turn.outcome.result;
+    if (!result || result.protocol !== 'behold.resident-private-life-page.v1') {
+      throw new Error(`resident private-life turn ${turn.sequence} has an invalid result`);
+    }
+    const start = Number(result?.returned?.startSequence);
+    const end = Number(result?.returned?.endSequence);
+    const expectedSources = Array.isArray(result.sources) ? result.sources : [];
+    let recalledMessages: readonly unknown[] = [];
+    if (Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 1 && end >= start) {
+      const page = await opts.readPrivateLife!(start, end, PRIVATE_LIFE_SOURCE_SCAN_MAX_BYTES);
+      if (!page.complete || page.turns.length !== end - start + 1) {
+        throw new Error(`resident private-life turn ${turn.sequence} cannot reconstruct its page`);
+      }
+      const actualSources = page.turns.map(({ turn: sourceTurn, source }) => ({
+        sequence: sourceTurn.sequence,
+        source,
+      }));
+      if (stableJson(actualSources) !== stableJson(expectedSources)) {
+        throw new Error(`resident private-life turn ${turn.sequence} source bindings changed`);
+      }
+      if (Buffer.byteLength(JSON.stringify(page.turns), 'utf8') !== result.sourceBytes) {
+        throw new Error(`resident private-life turn ${turn.sequence} source bytes changed`);
+      }
+      recalledMessages = page.turns.flatMap(({ turn: sourceTurn }) =>
+        projectResidentTranscriptTurn(sourceTurn, {
+          mayReplayTurn,
+          projectObservation: (observation) => projectCurrentObservation(observation),
+          ...(usesHumanSemanticBody(bodyProfile)
+            ? { projectValue: projectHumanSemanticValue }
+            : {}),
+        }),
+      );
+    } else if (expectedSources.length > 0) {
+      throw new Error(`resident private-life turn ${turn.sequence} has an invalid returned range`);
+    }
+    const projectedBytes = Buffer.byteLength(JSON.stringify(recalledMessages), 'utf8');
+    if (
+      recalledMessages.length !== result.messageCount ||
+      projectedBytes !== result.projectedBytes ||
+      sha256(stableJson(recalledMessages)) !== result.messagesSha256
+    ) {
+      throw new Error(`resident private-life turn ${turn.sequence} content binding changed`);
+    }
+    return {
+      ...turn,
+      outcome: {
+        ...turn.outcome,
+        result: { ...result, messages: recalledMessages },
+      },
+    };
+  }
+
+  function advanceContextEpochBeforeDecision() {
+    if (
+      !contextEpochs ||
+      entitySequence <= contextEpochOriginTurn ||
+      (entitySequence - contextEpochOriginTurn) % contextEpochTurns !== 0
+    ) {
+      return;
+    }
+    if (lastCanonicalBinding == null) {
+      throw new Error(
+        `resident context epoch lost the canonical binding at archived turn ${entitySequence}`,
+      );
+    }
+    let currentIndex = -1;
+    for (let index = messages.length - 1; index >= 1; index -= 1) {
+      if (
+        messages[index]?.role === 'user' &&
+        String(messages[index].content).startsWith('What you experience:')
+      ) {
+        currentIndex = index;
+        break;
+      }
+    }
+    if (currentIndex < 1) {
+      throw new Error('resident context epoch lost its current experience boundary');
+    }
+    if (lastEntityTurn == null || lastEntityTurn.sequence !== entitySequence) {
+      throw new Error(`resident context epoch lost handoff turn ${entitySequence}`);
+    }
+    const epoch = projectResidentContextEpoch(entityId, entitySequence, [lastEntityTurn], {
+      epochTurns: contextEpochTurns,
+      originArchivedThroughTurn: contextEpochOriginTurn,
+      archivedBoundary: {
+        throughTurn: entitySequence,
+        source: lastCanonicalBinding,
+      },
+      mayReplayTurn,
+      projectObservation: (observation) => projectCurrentObservation(observation),
+      ...(usesHumanSemanticBody(bodyProfile) ? { projectValue: projectHumanSemanticValue } : {}),
+    });
+    messages.splice(1, currentIndex - 1, ...epoch.messages);
+  }
+
+  function assertPrivateLifeTurnRecallable(
+    turn: EntityTurn,
+    source: EntityTurnCanonicalBinding = {
+      protocol: 'lync.file-loom-chain.v1',
+      digest: '0'.repeat(64),
+    },
+  ) {
+    const sourceBytes = Buffer.byteLength(JSON.stringify([{ turn, source }]), 'utf8');
+    if (sourceBytes > PRIVATE_LIFE_SOURCE_TURN_MAX_BYTES) {
+      throw new Error(
+        `resident-v4 turn ${turn.sequence} requires ${sourceBytes} raw source bytes, exceeding the recallable-turn invariant ${PRIVATE_LIFE_SOURCE_TURN_MAX_BYTES}`,
+      );
+    }
+    const projected = projectResidentTranscriptTurn(turn, {
+      mayReplayTurn,
+      projectObservation: (observation) => projectCurrentObservation(observation),
+      ...(usesHumanSemanticBody(bodyProfile) ? { projectValue: projectHumanSemanticValue } : {}),
+    });
+    const projectedBytes = Buffer.byteLength(JSON.stringify(projected), 'utf8');
+    if (projectedBytes > PRIVATE_LIFE_PAGE_MAX_BYTES) {
+      throw new Error(
+        `resident-v4 turn ${turn.sequence} requires ${projectedBytes} projected bytes, exceeding the recallable-turn invariant ${PRIVATE_LIFE_PAGE_MAX_BYTES}`,
+      );
+    }
   }
 
   function start() {
@@ -2150,6 +2577,16 @@ export function controllerSystemPrompt(
   specs: readonly ToolSpec[],
   profile: ResidentPolicyProfile = 'resident-v1',
 ) {
+  if (usesResidentContextEpochs(profile)) {
+    return [
+      'You are a persistent embodied Minecraft resident. Your complete canonical private life is your continuing identity, including portions outside the active inference context.',
+      'Current experience is bounded first-person information from this body. No task, project, next goal, preferred conduct, memory relevance, or recovery choice is supplied.',
+      'Other residents are independent beings with their own bodies, information, and private lives.',
+      'Choose exactly one supplied bodily control, explicitly yield, or read an exact page from your own private life when you choose. Reading private life does not act in Minecraft and supplies no summary or selected memory.',
+      'A supplied bodily control authorizes an attempt; it does not promise that current world preconditions hold or that the attempt will succeed.',
+      'Minecraft consequences are authoritative. Do not turn an expectation, absence from view, recalled past state, or unobserved consequence into current fact.',
+    ].join('\n');
+  }
   if (usesMinimalResidentChoice(profile)) {
     return [
       'You are a persistent embodied Minecraft resident. Your own lived trajectory is your continuing identity.',
@@ -2642,6 +3079,23 @@ export function boundedLoomFoldOutputTokens(value: unknown) {
   return Math.max(128, Math.min(4_096, Math.floor(numeric)));
 }
 
+function boundedContextEpochTurns(value: unknown) {
+  const numeric = Number(value ?? DEFAULT_RESIDENT_CONTEXT_EPOCH_TURNS);
+  if (!Number.isSafeInteger(numeric) || numeric < 1 || numeric > 256) {
+    throw new Error('resident context epoch turns must be an integer from 1 through 256');
+  }
+  return numeric;
+}
+
+function contextEpochArchivedThrough(
+  totalTurns: number,
+  epochTurns: number,
+  originArchivedThroughTurn: number,
+) {
+  const turnsAfterOrigin = totalTurns - originArchivedThroughTurn;
+  return originArchivedThroughTurn + Math.floor(turnsAfterOrigin / epochTurns) * epochTurns;
+}
+
 function urgentEventTriggers(frame: any, afterSequence: number): ResidentAttention['triggers'] {
   return (Array.isArray(frame?.events) ? frame.events : [])
     .filter(
@@ -2670,7 +3124,7 @@ function conversationForAttention(
   const system = availableTools
     ? { role: 'system', content: controllerSystemPrompt(availableTools, profile) }
     : messages[0];
-  if (usesContinuousResidentTranscript(profile)) {
+  if (usesContinuousResidentTranscript(profile) || usesResidentContextEpochs(profile)) {
     return [system, ...messages.slice(1)];
   }
   const foldedContinuity = messages
@@ -3164,7 +3618,7 @@ function validateMindDecision(
         decision,
         content,
         null,
-        usesContinuousResidentTranscript(policyProfile),
+        usesContinuousResidentTranscript(policyProfile) || usesResidentContextEpochs(policyProfile),
       ),
       intent: null,
       toolCallId: null,
@@ -3212,7 +3666,7 @@ function validateMindDecision(
       type: 'function',
       function: { name, arguments: JSON.stringify(input) },
     },
-    usesContinuousResidentTranscript(policyProfile),
+    usesContinuousResidentTranscript(policyProfile) || usesResidentContextEpochs(policyProfile),
   );
   if (name === WAIT_TOOL) {
     return {

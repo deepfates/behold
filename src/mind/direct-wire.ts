@@ -19,6 +19,7 @@ export function directOpenRouterRequestBody(
   routePolicy?: OpenRouterRoutePolicy | null,
 ) {
   if (
+    request.policyProfile === 'resident-v4' ||
     request.policyProfile === 'resident-v3' ||
     request.policyProfile === 'resident-v2' ||
     request.policyProfile === 'legible-resident-v1'
@@ -53,7 +54,9 @@ export function directOpenRouterRequestBody(
         type: 'json_schema' as const,
         json_schema: {
           name:
-            request.policyProfile === 'resident-v3' || request.policyProfile === 'resident-v2'
+            request.policyProfile === 'resident-v4' ||
+            request.policyProfile === 'resident-v3' ||
+            request.policyProfile === 'resident-v2'
               ? 'behold_resident_action_v1'
               : 'behold_resident_action_v2',
           strict: true as const,

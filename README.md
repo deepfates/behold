@@ -46,6 +46,16 @@ The current continuous-transcript path crosses one subjective-continuity
 checkpoint; it does not close long-history storage or the telos. Resident
 conduct remains the subject of observation, not a hidden completion score.
 
+The complete mature transcript later proved operationally too slow despite
+fitting Qwen's physical context window. The current `resident-v4` candidate
+therefore makes the transition into a finite inference epoch explicit, keeps
+canonical Lync life intact, and lets the resident request exact byte-bounded
+pages from only its own history. The present eight-turn span is grounded in a
+retained no-world latency sweep; it is not yet claimed as live-accepted. The
+next ordinary exercise must resume the same mature Oxford lives, preserve
+camera and identity isolation, and reproduce the same boundary and recall
+after stop/resume.
+
 The smaller action-only `resident-v2` path has crossed an ordinary two-resident
 live/lens/stop/resume exercise. Elm and Pine shared one Gemma 4 12B LM Studio
 weight instance while keeping separate requests and Lync lives. They completed

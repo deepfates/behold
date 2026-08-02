@@ -49,6 +49,80 @@ canonical Lync files being 10 and 8.5 MiB. Those same mature lives therefore
 still fit complete chronology; they should cross resident-v3 before an explicit
 finite-context epoch is introduced.
 
+Episode 000009 established the operational boundary that token capacity alone
+does not express. The complete 148k–173k-token lives fit Qwen's 262,144-token
+window, but four calls reached the 60-second upstream deadline and five more
+were cancelled by newer bodily evidence or shutdown before any choice could
+commit. Exact chronology remained physically admissible and was nevertheless
+unusable at Minecraft time.
+
+## Explicit finite context
+
+`resident-v4` introduces `behold.resident-context-epoch.v1`. Adopting that
+treatment is itself an explicit boundary: the resident is told that the life
+before the boundary remains complete canonical private history, receives the
+exact archived turn and Lync chain digest, and begins a new active inference
+epoch. Nothing is silently selected, summarized, or described as forgotten.
+The boundary contains only immutable identity; the active chronological turns
+that follow it show how far the epoch has grown. Rebuilding after stop/resume
+therefore produces the same boundary bytes from the first canonical
+`resident-v4` turn and its predecessor.
+
+The current resident-v4 treatment carries at most eight prior turns in an
+active request. At a boundary, the last archived turn remains once as an exact
+causal handoff so the resident cannot lose the choice and outcome immediately
+preceding its next decision. The handoff is explicitly named in the boundary;
+the remaining active suffix grows behind it. Boundaries therefore change
+before the next model request and reconstruct identically after restart rather
+than rewriting which context a committed choice appeared to use.
+
+The eight-turn ceiling is an empirical runtime constraint, not a claim about
+cognition in general. A no-world sweep using the retained mature Sedge text
+trajectory and the installed Qwen 3.6 35B-A3B 4-bit LM Studio runtime measured:
+
+| Complete active epoch | Exact prompt tokens | Local response latency |
+| --------------------: | ------------------: | ---------------------: |
+|               8 turns |               8,499 |                 6.07 s |
+|              16 turns |              14,354 |                11.88 s |
+|              24 turns |              20,860 |                18.56 s |
+|              32 turns |              30,088 |                23.89 s |
+
+The empty transition request was 1,830 tokens and returned in 2.38 seconds.
+This probe omitted the retained camera image, so actual camera-bound latency
+still belongs to live acceptance; eight turns leaves room beneath the
+15-second urgent horizon rather than pretending the table proves that path.
+
+Archived history is available through the resident-owned cognitive action
+`read_private_life(startSequence, endSequence)`. It accepts no entity, path,
+Loom, or tip supplied by the model. The already-open EntityLoom resolves an
+inclusive range against its selected private tip and returns only complete
+canonical turns, with exact source bindings and a visible `nextSequence`. The
+controller projects whole turns through the same resident-safe transcript
+boundary until the final message array reaches its 128,000-byte cap. The
+internal raw Lync scan has a separate eight-megabyte safety bound and is never
+sent to the model. Resident-v4 admission checks every historical turn, and
+commit checks every new turn, against both the raw-source and projected-turn
+bounds. An inaccessible canonical turn therefore fails the treatment visibly
+instead of entering a life that its resident can never read.
+
+The resident receives the exact projected page immediately. Its canonical
+turn records the requested and returned ranges, every source chain binding,
+the projected byte and message counts, and the content digest—not another
+recursive copy of old messages. While that turn remains in the active epoch,
+restart reconstructs the exact page from those authenticated sources and
+verifies the digest before a model call. If the resident later recalls the act
+of recall, it receives this lossless source reference and can follow the
+original ranges instead of accumulating nested copies of copied history. That
+is lived, navigable recall without a second memory store or curator summary.
+
+In the earlier no-world transition probe Qwen independently selected
+`read_private_life(1, 163)`. Under the then-48,000-byte source-page treatment,
+the real Sedge reader returned turns 1–2 (46,449 bytes) and continuation 3. The
+current treatment separates raw source scanning from the larger final
+resident-visible page; its deployment-shaped latency and continuation remain
+part of live acceptance. Whether a resident follows continuation or uses
+recalled experience well is conduct.
+
 ## Grounded failure specimen
 
 Oxford V4 episode `000001`, Rowan request at

@@ -1347,7 +1347,9 @@ function liveResidentContinuityIdentity(resident: Record<string, any>) {
     ...continuity
   } = resident;
   const policyProfile =
-    continuity.policyProfile === 'resident-v2' || continuity.policyProfile === 'resident-v3'
+    continuity.policyProfile === 'resident-v2' ||
+    continuity.policyProfile === 'resident-v3' ||
+    continuity.policyProfile === 'resident-v4'
       ? 'uncoached-resident-charter-v1'
       : continuity.policyProfile;
   return { ...continuity, policyProfile };
@@ -1598,7 +1600,7 @@ export function liveUsage() {
     '  --native-player USERNAME       Check one username in post-episode join observations',
     '  --world-history-receipt FILE    Verified stopped-world fork for a fresh session',
     '  --history ID                    One unused child in that receipt for a fresh session',
-    '  --change-minds                 Explicitly revise cognition for the same lives; resident-v2/v3 share one uncoached charter',
+    '  --change-minds                 Explicitly revise cognition for the same lives; resident-v2/v3/v4 share one uncoached charter',
     '  --recover                      Release an exact abandoned stopped epoch without starting Place',
     '',
     'Residents keep their declared human-semantic body, charter, model transport, and durable',

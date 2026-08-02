@@ -135,7 +135,9 @@ export function createLmStudioLocalResidentMind(
       const requestId = `lmstudio-${randomUUID()}`;
       const serialized = createLmStudioLocalJsonActionRequest(request, policy, modelInstanceId);
       const contextAdmission =
-        serialized.identity.workingContinuityProtocol === 'behold.resident-continuous-transcript.v1'
+        serialized.identity.workingContinuityProtocol ===
+          'behold.resident-continuous-transcript.v1' ||
+        serialized.identity.workingContinuityProtocol === 'behold.resident-context-epoch.v1'
           ? await admitExactLmStudioContext({
               endpointOrigin: new URL(policy.endpoint).origin,
               modelInstanceId,

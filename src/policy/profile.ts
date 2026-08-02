@@ -1,4 +1,5 @@
 export const RESIDENT_POLICY_PROFILES = [
+  'resident-v4',
   'resident-v3',
   'resident-v2',
   'resident-v1',
@@ -19,7 +20,7 @@ export function residentPolicyProfile(value: unknown): ResidentPolicyProfile {
 
 /** The ordinary uncoached action-or-yield treatment. */
 export function usesMinimalResidentChoice(profile: ResidentPolicyProfile) {
-  return profile === 'resident-v3' || profile === 'resident-v2';
+  return profile === 'resident-v4' || profile === 'resident-v3' || profile === 'resident-v2';
 }
 
 /** The ordinary uncoached treatment whose context is its chronological private transcript. */
@@ -27,10 +28,18 @@ export function usesContinuousResidentTranscript(profile: ResidentPolicyProfile)
   return profile === 'resident-v3';
 }
 
+/** The ordinary uncoached treatment with explicit chronological context epochs. */
+export function usesResidentContextEpochs(profile: ResidentPolicyProfile) {
+  return profile === 'resident-v4';
+}
+
 /** Profiles whose stable charter and own-life context form a resident session. */
 export function usesResidentSessionPolicy(profile: ResidentPolicyProfile) {
   return (
-    profile === 'resident-v3' || profile === 'resident-v2' || profile === 'legible-resident-v1'
+    profile === 'resident-v4' ||
+    profile === 'resident-v3' ||
+    profile === 'resident-v2' ||
+    profile === 'legible-resident-v1'
   );
 }
 

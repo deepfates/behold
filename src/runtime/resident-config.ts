@@ -166,7 +166,7 @@ export function resolveResidentRuntimeConfig(
     environment.BEHOLD_LMSTUDIO_LOCAL_POLICY,
   );
   if (
-    (policy === 'resident-v3' || policy === 'resident-v2') &&
+    (policy === 'resident-v4' || policy === 'resident-v3' || policy === 'resident-v2') &&
     Boolean(environment.OPENROUTER_API_KEY) &&
     providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
     providerRoute?.protocol !== 'behold.openrouter-route-policy.v4' &&

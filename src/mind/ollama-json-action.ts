@@ -14,7 +14,10 @@ import {
   residentPublicActionCommitment,
 } from './public-commitment';
 import { parseResidentMindRequest } from './request-artifact';
-import { RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL } from './resident-transcript';
+import {
+  RESIDENT_CONTEXT_EPOCH_PROTOCOL,
+  RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL,
+} from './resident-transcript';
 
 export const OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL =
   'behold.ollama-local-json-action.v1' as const;
@@ -40,6 +43,8 @@ export const OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL =
   'behold.ollama-local-resident-session-message-layout.v1' as const;
 export const OLLAMA_LOCAL_CONTINUOUS_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL =
   'behold.ollama-local-resident-session-message-layout.v2' as const;
+export const OLLAMA_LOCAL_EPOCH_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL =
+  'behold.ollama-local-resident-session-message-layout.v3' as const;
 
 const V1_CONTRACT_BEGIN = 'BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_BEGIN\n';
 const V1_CONTRACT_END = '\nBEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_END';
@@ -53,6 +58,10 @@ const V3_CONTRACT_BEGIN = 'BEHOLD_CONTINUOUS_JSON_ACTION_CONTRACT_V1_BEGIN\n';
 const V3_CONTRACT_END = '\nBEHOLD_CONTINUOUS_JSON_ACTION_CONTRACT_V1_END';
 const V3_CONTRACT_INSTRUCTION =
   'Continue your private lived conversation. Choose exactly one admitted bodily action. Return only one JSON object with exactly the fields "action" and "arguments". This response will remain in your chronological life beside Minecraft\'s actual outcome. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
+const V4_CONTRACT_BEGIN = 'BEHOLD_CONTEXT_EPOCH_JSON_ACTION_CONTRACT_V1_BEGIN\n';
+const V4_CONTRACT_END = '\nBEHOLD_CONTEXT_EPOCH_JSON_ACTION_CONTRACT_V1_END';
+const V4_CONTRACT_INSTRUCTION =
+  'Continue your private lived conversation in the active explicit context epoch. Choose exactly one admitted bodily action, yield, or exact private-life read. Return only one JSON object with exactly the fields "action" and "arguments". This response and its actual bodily or private-life result will remain in your chronological life. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
 export const RESIDENT_SESSION_RESPONSE_REMINDER =
   'Respond now with one JSON object matching the resident action contract above. Publish a short intention and expected observable consequence, then choose exactly one supplied bodily control. Do not repeat the contract or add prose.';
 export const ACTION_ONLY_RESIDENT_SESSION_RESPONSE_REMINDER =
@@ -134,11 +143,13 @@ export type OllamaLocalJsonActionRequestIdentity = Readonly<{
   responseFormatSha256: string;
   messageLayoutProtocol?:
     | typeof OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL
-    | typeof OLLAMA_LOCAL_CONTINUOUS_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
+    | typeof OLLAMA_LOCAL_CONTINUOUS_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL
+    | typeof OLLAMA_LOCAL_EPOCH_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
   workingContinuityProtocol?:
     | typeof RESIDENT_WORKING_CONTINUITY_PROTOCOL
     | typeof RESIDENT_FACTUAL_CONTINUITY_PROTOCOL
-    | typeof RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL;
+    | typeof RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL
+    | typeof RESIDENT_CONTEXT_EPOCH_PROTOCOL;
   stablePrefixSha256?: string;
 }>;
 
@@ -151,7 +162,8 @@ export type StrictLocalResidentSessionEnvelope = Readonly<{
   protocol:
     | 'behold.strict-local-resident-session-envelope.v1'
     | 'behold.strict-local-resident-session-envelope.v2'
-    | 'behold.strict-local-resident-session-envelope.v3';
+    | 'behold.strict-local-resident-session-envelope.v3'
+    | 'behold.strict-local-resident-session-envelope.v4';
   schemaProtocol:
     | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL
     | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL;
@@ -160,11 +172,13 @@ export type StrictLocalResidentSessionEnvelope = Readonly<{
     | typeof OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256;
   messageLayoutProtocol:
     | typeof OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL
-    | typeof OLLAMA_LOCAL_CONTINUOUS_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
+    | typeof OLLAMA_LOCAL_CONTINUOUS_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL
+    | typeof OLLAMA_LOCAL_EPOCH_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
   workingContinuityProtocol:
     | typeof RESIDENT_WORKING_CONTINUITY_PROTOCOL
     | typeof RESIDENT_FACTUAL_CONTINUITY_PROTOCOL
-    | typeof RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL;
+    | typeof RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL
+    | typeof RESIDENT_CONTEXT_EPOCH_PROTOCOL;
   messages: readonly unknown[];
   responseSchema: unknown;
   actionContractSha256: string;
@@ -291,11 +305,13 @@ export function createStrictLocalResidentSessionEnvelope(
   assertResidentSessionMessageLayout(messages as unknown[], version);
   return deepFreeze({
     protocol:
-      version === 3
-        ? ('behold.strict-local-resident-session-envelope.v3' as const)
-        : version === 2
-          ? ('behold.strict-local-resident-session-envelope.v1' as const)
-          : ('behold.strict-local-resident-session-envelope.v2' as const),
+      version === 4
+        ? ('behold.strict-local-resident-session-envelope.v4' as const)
+        : version === 3
+          ? ('behold.strict-local-resident-session-envelope.v3' as const)
+          : version === 2
+            ? ('behold.strict-local-resident-session-envelope.v1' as const)
+            : ('behold.strict-local-resident-session-envelope.v2' as const),
     schemaProtocol:
       version === 2
         ? OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL
@@ -541,7 +557,7 @@ export function parseStrictLocalJsonActionDecisionContent(
   adapterRecord: unknown,
   requestValue: ResidentMindRequest,
   call: ModelCallEvidence,
-  version: 1 | 2 | 3 = 2,
+  version: 1 | 2 | 3 | 4 = 2,
 ): ResidentMindDecision {
   const request = parseResidentMindRequest(requestValue);
   assertHumanSemanticProfiles(request);
@@ -550,6 +566,9 @@ export function parseStrictLocalJsonActionDecisionContent(
   }
   if (version === 3 && request.policyProfile !== 'resident-v3') {
     throw new Error('Strict local JSON action v3 requires policyProfile resident-v3');
+  }
+  if (version === 4 && request.policyProfile !== 'resident-v4') {
+    throw new Error('Strict local JSON action v4 requires policyProfile resident-v4');
   }
   if (typeof content !== 'string') {
     throw new Error('Strict local JSON action response content was not text');
@@ -607,7 +626,7 @@ export function parseStrictLocalJsonActionDecisionContent(
   });
 }
 
-function actionContract(request: Readonly<ResidentMindRequest>, version: 1 | 2 | 3) {
+function actionContract(request: Readonly<ResidentMindRequest>, version: 1 | 2 | 3 | 4) {
   if (request.actions.length < 1) throw new Error('Ollama local action contract is empty');
   return deepFreeze({
     protocol:
@@ -629,7 +648,7 @@ function actionContract(request: Readonly<ResidentMindRequest>, version: 1 | 2 |
 
 function parseActionContract(
   value: unknown,
-  version: 1 | 2 | 3,
+  version: 1 | 2 | 3 | 4,
 ): ReturnType<typeof actionContract> {
   const record = exactRecord(
     value,
@@ -737,7 +756,7 @@ function parseActionContract(
 function responseFormat(
   actions: ResidentMindRequest['actions'],
   requiredAction: string | null,
-  version: 1 | 2 | 3,
+  version: 1 | 2 | 3 | 4,
 ) {
   const selected = requiredAction
     ? actions.filter((action) => action.name === requiredAction)
@@ -816,57 +835,69 @@ function transportVersion(policy: OllamaLocalPolicy): 1 | 2 {
   return policy.transport.protocol === OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL ? 1 : 2;
 }
 
-function contractMarkers(version: 1 | 2 | 3) {
-  return version === 3
+function contractMarkers(version: 1 | 2 | 3 | 4) {
+  return version === 4
     ? {
-        instruction: V3_CONTRACT_INSTRUCTION,
-        begin: V3_CONTRACT_BEGIN,
-        end: V3_CONTRACT_END,
+        instruction: V4_CONTRACT_INSTRUCTION,
+        begin: V4_CONTRACT_BEGIN,
+        end: V4_CONTRACT_END,
       }
-    : version === 2
+    : version === 3
       ? {
-          instruction: V2_CONTRACT_INSTRUCTION,
-          begin: V2_CONTRACT_BEGIN,
-          end: V2_CONTRACT_END,
+          instruction: V3_CONTRACT_INSTRUCTION,
+          begin: V3_CONTRACT_BEGIN,
+          end: V3_CONTRACT_END,
         }
-      : {
-          instruction: V1_CONTRACT_INSTRUCTION,
-          begin: V1_CONTRACT_BEGIN,
-          end: V1_CONTRACT_END,
-        };
+      : version === 2
+        ? {
+            instruction: V2_CONTRACT_INSTRUCTION,
+            begin: V2_CONTRACT_BEGIN,
+            end: V2_CONTRACT_END,
+          }
+        : {
+            instruction: V1_CONTRACT_INSTRUCTION,
+            begin: V1_CONTRACT_BEGIN,
+            end: V1_CONTRACT_END,
+          };
 }
 
-function residentSessionSchemaVersion(policyProfile: unknown): 1 | 2 | 3 {
+function residentSessionSchemaVersion(policyProfile: unknown): 1 | 2 | 3 | 4 {
+  if (policyProfile === 'resident-v4') return 4;
   if (policyProfile === 'resident-v3') return 3;
   if (policyProfile === 'resident-v2') return 1;
   if (policyProfile === 'legible-resident-v1') return 2;
   throw new Error(
-    'Strict local resident session requires policyProfile resident-v3, resident-v2, or legible-resident-v1',
+    'Strict local resident session requires policyProfile resident-v4, resident-v3, resident-v2, or legible-resident-v1',
   );
 }
 
-function residentSessionSchemaVersionFromContractMessage(value: unknown): 1 | 2 | 3 {
+function residentSessionSchemaVersionFromContractMessage(value: unknown): 1 | 2 | 3 | 4 {
   if (typeof value !== 'string') {
     throw new Error('Strict local resident action contract content is not text');
   }
+  if (value.startsWith(`${V4_CONTRACT_INSTRUCTION}${V4_CONTRACT_BEGIN}`)) return 4;
   if (value.startsWith(`${V3_CONTRACT_INSTRUCTION}${V3_CONTRACT_BEGIN}`)) return 3;
   if (value.startsWith(`${V1_CONTRACT_INSTRUCTION}${V1_CONTRACT_BEGIN}`)) return 1;
   if (value.startsWith(`${V2_CONTRACT_INSTRUCTION}${V2_CONTRACT_BEGIN}`)) return 2;
   throw new Error('Strict local resident action contract markers are invalid');
 }
 
-function residentSessionMessageLayoutProtocol(version: 1 | 2 | 3) {
-  return version === 3
-    ? OLLAMA_LOCAL_CONTINUOUS_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL
-    : OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
+function residentSessionMessageLayoutProtocol(version: 1 | 2 | 3 | 4) {
+  return version === 4
+    ? OLLAMA_LOCAL_EPOCH_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL
+    : version === 3
+      ? OLLAMA_LOCAL_CONTINUOUS_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL
+      : OLLAMA_LOCAL_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL;
 }
 
-function residentSessionContinuityProtocol(version: 1 | 2 | 3) {
-  return version === 3
-    ? RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL
-    : version === 1
-      ? RESIDENT_FACTUAL_CONTINUITY_PROTOCOL
-      : RESIDENT_WORKING_CONTINUITY_PROTOCOL;
+function residentSessionContinuityProtocol(version: 1 | 2 | 3 | 4) {
+  return version === 4
+    ? RESIDENT_CONTEXT_EPOCH_PROTOCOL
+    : version === 3
+      ? RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL
+      : version === 1
+        ? RESIDENT_FACTUAL_CONTINUITY_PROTOCOL
+        : RESIDENT_WORKING_CONTINUITY_PROTOCOL;
 }
 
 export function assertOllamaLocalJsonActionTreatment(
@@ -883,6 +914,9 @@ function assertTransportTreatment(
   const version = transportVersion(policy);
   if (request.policyProfile === 'resident-v3') {
     throw new Error('resident-v3 is not admitted by the legacy Ollama transport');
+  }
+  if (request.policyProfile === 'resident-v4') {
+    throw new Error('resident-v4 is not admitted by the legacy Ollama transport');
   }
   if (request.policyProfile === 'resident-v2') {
     throw new Error('resident-v2 is not admitted by the legacy Ollama transport');
@@ -902,7 +936,7 @@ export function usesOllamaResidentSessionTransport(policy: Pick<OllamaLocalPolic
 function residentSessionMessages(
   conversationValue: ResidentMindRequest['conversation'],
   contractContent: string,
-  version: 1 | 2 | 3 = 2,
+  version: 1 | 2 | 3 | 4 = 2,
   perception?: ResidentMindRequest['perception'],
 ) {
   const conversation = cloneJson(conversationValue);
@@ -939,7 +973,8 @@ function residentSessionMessages(
     version === 2
       ? RESIDENT_SESSION_RESPONSE_REMINDER
       : ACTION_ONLY_RESIDENT_SESSION_RESPONSE_REMINDER;
-  const currentText = version === 3 ? current.content : `${current.content}\n\n${reminder}`;
+  const currentText =
+    version === 3 || version === 4 ? current.content : `${current.content}\n\n${reminder}`;
   const currentContent = perception
     ? [
         { type: 'text' as const, text: currentText },
@@ -962,7 +997,7 @@ function residentSessionMessages(
   ]);
 }
 
-function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3 = 2) {
+function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3 | 4 = 2) {
   if (value.length < 3) throw new Error('Ollama resident session message layout is incomplete');
   const charter = exactRecord(value[0], ['role', 'content'], 'Resident session charter');
   const current = exactRecord(
@@ -980,7 +1015,7 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
   const currentText = residentSessionCurrentText(current.content);
   if (
     current.role !== 'user' ||
-    (version === 3
+    (version === 3 || version === 4
       ? !currentText.startsWith('What you experience:')
       : !currentText.endsWith(`\n\n${reminder}`))
   ) {
@@ -991,7 +1026,7 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
     .map((message, index) =>
       exactRecord(message, ['role', 'content'], `Resident session dynamic message ${index}`),
     );
-  if (version === 3) {
+  if (version === 3 || version === 4) {
     for (const [index, message] of dynamicMessages.entries()) {
       if (
         (message.role !== 'user' && message.role !== 'assistant') ||
@@ -1007,7 +1042,8 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
           previous?.role !== 'user' ||
           !String(previous.content).startsWith('What you experience:') ||
           next?.role !== 'user' ||
-          !String(next.content).startsWith('What Minecraft returned after your ')
+          (!String(next.content).startsWith('What Minecraft returned after your ') &&
+            !String(next.content).startsWith('What your private life returned:'))
         ) {
           throw new Error(
             'Continuous resident assistant response must remain between experience and Minecraft outcome',
@@ -1036,7 +1072,14 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
       } else if (
         !message.content.startsWith('What you experience:') &&
         !message.content.startsWith('What Minecraft returned after your ') &&
-        !message.content.startsWith('What happened through ')
+        !message.content.startsWith('What happened through ') &&
+        !message.content.startsWith('What your private life returned:') &&
+        !(
+          version === 4 &&
+          message.content.startsWith(
+            'Your active inference context has entered a new explicit epoch.',
+          )
+        )
       ) {
         throw new Error('Continuous resident user message is not a lived experience or outcome');
       }

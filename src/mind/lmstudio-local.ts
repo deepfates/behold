@@ -6,6 +6,7 @@ import type { ModelCallEvidence } from './evidence';
 import type { LoomFoldRequest } from '../entity/folding';
 import { readGgufStringMetadataBytes } from './gguf';
 import type { ResidentMindDecision, ResidentMindRequest } from './interface';
+import { assertResidentChronologicalWireOwner } from './resident-transcript';
 import { usesResidentCamera, type ResidentPerceptionProfile } from '../perception/profile';
 import {
   assertStrictLocalResidentSessionPrefix,
@@ -117,11 +118,13 @@ export type LmStudioLocalRequestIdentity = Readonly<{
   responseFormatSha256: string;
   messageLayoutProtocol:
     | 'behold.ollama-local-resident-session-message-layout.v1'
-    | 'behold.ollama-local-resident-session-message-layout.v2';
+    | 'behold.ollama-local-resident-session-message-layout.v2'
+    | 'behold.ollama-local-resident-session-message-layout.v3';
   workingContinuityProtocol:
     | 'behold.resident-working-continuity.v1'
     | 'behold.resident-factual-continuity.v1'
-    | 'behold.resident-continuous-transcript.v1';
+    | 'behold.resident-continuous-transcript.v1'
+    | 'behold.resident-context-epoch.v1';
   stablePrefixSha256: string;
 }>;
 
@@ -393,7 +396,9 @@ export function assertLmStudioLocalResidentTreatment(
 ) {
   const policy = lmStudioLocalPolicy(policyValue);
   const expected =
-    request.policyProfile === 'resident-v3' || request.policyProfile === 'resident-v2'
+    request.policyProfile === 'resident-v4' ||
+    request.policyProfile === 'resident-v3' ||
+    request.policyProfile === 'resident-v2'
       ? LMSTUDIO_LOCAL_ACTION_ONLY_RESIDENT_SESSION_TRANSPORT_PROTOCOL
       : request.policyProfile === 'legible-resident-v1'
         ? LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL
@@ -1006,7 +1011,7 @@ function assertResidentWireOwner(messagesValue: unknown, residentIdentity: strin
   const currentText = residentSessionCurrentText(current.content);
   const jsonStart = currentText.indexOf('{');
   const reminderStart = currentText.lastIndexOf('\n\nRespond now with one JSON object');
-  // resident-v3 keeps the exact current experience as the final message; the
+  // resident-v3/v4 keep the exact current experience as the final message; the
   // action contract is already the preceding system message, so it does not
   // append the older response reminder. Ownership must parse both versioned
   // layouts rather than requiring the superseded suffix.
@@ -1028,6 +1033,7 @@ function assertResidentWireOwner(messagesValue: unknown, residentIdentity: strin
   ) {
     throw new Error('LM Studio resident request belongs to another resident');
   }
+  assertResidentChronologicalWireOwner(messagesValue, residentIdentity);
 }
 
 function parseLoomFoldSource(value: unknown) {
@@ -1123,7 +1129,13 @@ export function parseLmStudioLocalJsonActionDecision(
     message,
     request,
     call,
-    request.policyProfile === 'resident-v3' ? 3 : request.policyProfile === 'resident-v2' ? 1 : 2,
+    request.policyProfile === 'resident-v4'
+      ? 4
+      : request.policyProfile === 'resident-v3'
+        ? 3
+        : request.policyProfile === 'resident-v2'
+          ? 1
+          : 2,
   );
 }
 

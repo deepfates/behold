@@ -4467,6 +4467,367 @@ test('resident-v3 restart presents the full private chronology and retains its e
   }
 });
 
+test('resident-v4 exposes an explicit epoch and lets the resident read an exact private page without Minecraft', async () => {
+  const prior = Array.from({ length: 5 }, (_, index) =>
+    failedTurn(index + 1, index % 2 === 0 ? 'move_controls' : 'look_direction'),
+  );
+  for (const turn of prior) {
+    turn.profiles = {
+      policy: 'resident-v4',
+      body: 'minecraft-human-semantic-v1',
+      actions: 'minecraft-human-semantic-v1',
+      safety: 'vanilla-player-v1',
+    };
+    turn.utterance.assistant.content = JSON.stringify({
+      action: turn.action.name,
+      arguments: turn.action.input,
+    });
+  }
+  const binding = (sequence: number): CanonicalTurnBinding => ({
+    protocol: 'lync.file-loom-chain.v1',
+    digest: sequence.toString(16).padStart(64, '0'),
+  });
+  const loomContext: BoundedLoomContextState = {
+    protocol: 'behold.bounded-loom-context.v1',
+    entityId: 'Scout',
+    totalTurns: prior.length,
+    recentTurns: prior.slice(-1),
+    recentSources: [binding(5)],
+    fold: null,
+    foldSource: null,
+    rebuild: async function* () {
+      for (const turn of prior) yield { turn, source: binding(turn.sequence) };
+    },
+  };
+  const captured: ResidentMindRequest[] = [];
+  let decisions = 0;
+  let sawSecondDecision!: () => void;
+  const secondDecision = new Promise<void>((resolve) => (sawSecondDecision = resolve));
+  const mind: ResidentMind = {
+    id: 'resident-v4-epoch-fixture',
+    decide: async (request) => {
+      captured.push(request);
+      decisions += 1;
+      if (decisions === 2) sawSecondDecision();
+      const action =
+        decisions === 1
+          ? { name: 'read_private_life', input: { startSequence: 1, endSequence: 1 } }
+          : { name: 'wait_for_event', input: { reason: 'listen' } };
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: decisions === 1 ? 'act' : 'wait',
+        utterance: null,
+        action,
+        adapterRecord: {
+          role: 'assistant',
+          content: JSON.stringify({ action: action.name, arguments: action.input }),
+        },
+        call: modelCallEvidence('resident-v4-epoch-fixture'),
+      };
+    },
+  };
+  let attempts = 0;
+  const committed: EntityTurn[] = [];
+  const logs: string[] = [];
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('look_direction')],
+      attempt: () => {
+        attempts += 1;
+        return true;
+      },
+      observe: () => ({
+        protocol: 'behold.inhabitant.v2',
+        sequence: 60,
+        observedAt: 600,
+        self: { identity: 'Scout', condition: { health: 20, food: 20, isDay: true } },
+        scene: { entities: [] },
+        events: [],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'resident-v4',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      loomContext,
+      contextEpochTurns: 3,
+      log: (message) => logs.push(message),
+      readPrivateLife: async (startSequence, endSequence) => ({
+        protocol: 'behold.entity-life-recall-page.v1',
+        entityId: 'Scout',
+        circleId: 'minecraft://fixture',
+        life: { v: 1, kind: 'loom', loomId: 'lync:scout' },
+        selectedTip: {
+          turn: { v: 1, kind: 'turn', loomId: 'lync:scout', turnId: 'tip-5' },
+          sequence: 5,
+          chainDigest: binding(5).digest,
+        },
+        requested: { startSequence, endSequence },
+        bytes: 100,
+        complete: true,
+        nextSequence: null,
+        turns: [
+          {
+            turn: prior[0],
+            source: { protocol: 'lync.file-loom-chain.v1' as const, digest: binding(1).digest },
+          },
+        ],
+      }),
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => {
+        committed.push(turn);
+        return binding(turn.sequence);
+      },
+    },
+  );
+
+  try {
+    await policy.tick();
+    await Promise.race([
+      secondDecision,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`second decision did not begin: ${logs.join(' | ')}`)),
+          500,
+        ),
+      ),
+    ]);
+    assert.equal(attempts, 0, 'private-life reads and yielding must never enter Minecraft');
+    assert.equal(captured.length, 2);
+    const first = captured[0];
+    assert.deepEqual(
+      first.actions.map((action) => action.name),
+      ['read_private_life', 'look_direction', 'wait_for_event'],
+    );
+    const firstConversation = first.conversation as any[];
+    assert.match(firstConversation[1].content, /behold\.resident-context-epoch\.v1/);
+    assert.match(firstConversation[1].content, /"availableTurns":\{"end":3,"start":1\}/);
+    const firstText = firstConversation.map((message) => String(message.content)).join('\n');
+    assert.doesNotMatch(firstText, /"x":2/);
+    assert.match(firstText, /"x":3/);
+    assert.match(firstText, /"x":4/);
+    assert.match(firstText, /"x":5/);
+    assert.equal(committed[0]?.action.name, 'read_private_life');
+    assert.equal(committed[0].outcome.eventType, 'private_life_page_returned');
+    assert.equal(
+      Object.hasOwn(committed[0].outcome.result, 'messages'),
+      false,
+      'canonical Lync stores a source-bound reference rather than recursive recalled content',
+    );
+    const second = JSON.stringify(captured[1].conversation);
+    assert.match(second, /What your private life returned/);
+    assert.match(String((captured[1].conversation as any[])[1].content), /"archivedThroughTurn":6/);
+    assert.match(
+      String((captured[1].conversation as any[])[1].content),
+      /"immediateHandoffTurn":6/,
+    );
+    const recalled = (captured[1].conversation as any[]).find((message) =>
+      String(message.content).startsWith('What your private life returned:'),
+    );
+    const recalledOutcome = JSON.parse(
+      String(recalled.content).slice('What your private life returned:\n'.length),
+    );
+    assert.equal(recalledOutcome.result.messages[1].content, prior[0].utterance.assistant.content);
+    assert.equal(recalledOutcome.result.messages.length, recalledOutcome.result.messageCount);
+    assert.match(recalledOutcome.result.messagesSha256, /^[a-f0-9]{64}$/);
+    assert.deepEqual(recalledOutcome.result.sources, [
+      {
+        sequence: 1,
+        source: {
+          protocol: 'lync.file-loom-chain.v1',
+          digest: binding(1).digest,
+        },
+      },
+    ]);
+    assert.doesNotMatch(second, /What Minecraft returned after your read_private_life/);
+
+    await policy.stop();
+    const resumedTurns = [...prior, committed[0]];
+    const resumedCaptured: ResidentMindRequest[] = [];
+    const resumed = startLLMPolicy(
+      {
+        entityId: 'Scout',
+        actions: [tool('look_direction')],
+        attempt: () => true,
+        observe: () => ({
+          protocol: 'behold.inhabitant.v2',
+          sequence: 60,
+          observedAt: 600,
+          self: { identity: 'Scout', condition: { health: 20, food: 20, isDay: true } },
+          scene: { entities: [] },
+          events: [],
+        }),
+      },
+      {
+        apiKey: 'unused',
+        model: 'test/model',
+        mind: {
+          id: 'resident-v4-resume-fixture',
+          decide: async (request) => {
+            resumedCaptured.push(request);
+            return {
+              protocol: 'behold.mind-decision.v1',
+              disposition: 'wait',
+              utterance: null,
+              action: { name: 'wait_for_event', input: { reason: 'listen' } },
+              adapterRecord: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  action: 'wait_for_event',
+                  arguments: { reason: 'listen' },
+                }),
+              },
+              call: modelCallEvidence('resident-v4-resume-fixture'),
+            };
+          },
+        },
+        policyProfile: 'resident-v4',
+        bodyProfile: 'minecraft-human-semantic-v1',
+        actionProfile: 'minecraft-human-semantic-v1',
+        safetyProfile: 'vanilla-player-v1',
+        contextEpochTurns: 3,
+        loomContext: {
+          protocol: 'behold.bounded-loom-context.v1',
+          entityId: 'Scout',
+          totalTurns: resumedTurns.length,
+          recentTurns: resumedTurns.slice(-1),
+          recentSources: [binding(6)],
+          fold: null,
+          foldSource: null,
+          rebuild: async function* () {
+            for (const turn of resumedTurns) yield { turn, source: binding(turn.sequence) };
+          },
+        },
+        readPrivateLife: async (startSequence, endSequence) => ({
+          protocol: 'behold.entity-life-recall-page.v1',
+          entityId: 'Scout',
+          circleId: 'minecraft://fixture',
+          life: { v: 1, kind: 'loom', loomId: 'lync:scout' },
+          selectedTip: {
+            turn: { v: 1, kind: 'turn', loomId: 'lync:scout', turnId: 'tip-6' },
+            sequence: 6,
+            chainDigest: binding(6).digest,
+          },
+          requested: { startSequence, endSequence },
+          bytes: 100,
+          complete: true,
+          nextSequence: null,
+          turns: [
+            {
+              turn: prior[0],
+              source: {
+                protocol: 'lync.file-loom-chain.v1' as const,
+                digest: binding(1).digest,
+              },
+            },
+          ],
+        }),
+        acceptEngineEvent: () => true,
+        onEntityTurn: (turn) => binding(turn.sequence),
+      },
+    );
+    try {
+      await resumed.tick();
+      assert.deepEqual(
+        resumedCaptured[0].conversation,
+        captured[1].conversation,
+        'restart must reconstruct the exact same boundary, handoff, recalled page, and current experience',
+      );
+    } finally {
+      await resumed.stop();
+    }
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('resident-v4 refuses a canonical turn that its only private-life reader could never return', async () => {
+  const oversized = failedTurn(1, 'move_controls');
+  oversized.profiles = {
+    policy: 'resident-v4',
+    body: 'minecraft-human-semantic-v1',
+    actions: 'minecraft-human-semantic-v1',
+    safety: 'vanilla-player-v1',
+  };
+  oversized.utterance.assistant.content = JSON.stringify({
+    action: oversized.action.name,
+    arguments: oversized.action.input,
+  });
+  oversized.observationPresentation = {
+    protocol: 'behold.entity-turn-observation-presentation.v1',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    requestSha256: 'a'.repeat(64),
+    observation: {
+      protocol: 'behold.minecraft-human-semantic-observation.v1',
+      self: { identity: 'Scout' },
+      scene: { exactVisibleDetail: 'x'.repeat(130_000) },
+    },
+    nextObservation: {
+      protocol: 'behold.minecraft-human-semantic-observation.v1',
+      self: { identity: 'Scout' },
+    },
+  };
+  const source = {
+    protocol: 'lync.file-loom-chain.v1' as const,
+    digest: '1'.padStart(64, '0'),
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('look_direction')],
+      attempt: () => true,
+      observe: () => ({
+        protocol: 'behold.inhabitant.v2',
+        sequence: 1,
+        self: { identity: 'Scout', condition: { health: 20, food: 20, isDay: true } },
+        scene: { entities: [] },
+        events: [],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind: {
+        id: 'must-not-decide',
+        decide: async () => {
+          throw new Error('oversized history reached the model');
+        },
+      },
+      policyProfile: 'resident-v4',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      loomContext: {
+        protocol: 'behold.bounded-loom-context.v1',
+        entityId: 'Scout',
+        totalTurns: 1,
+        recentTurns: [oversized],
+        recentSources: [source],
+        fold: null,
+        foldSource: null,
+        rebuild: async function* () {
+          yield { turn: oversized, source };
+        },
+      },
+      readPrivateLife: async () => {
+        throw new Error('reader must not open');
+      },
+      acceptEngineEvent: () => true,
+      onEntityTurn: () => source,
+    },
+  );
+  try {
+    await assert.rejects(policy.tick(), /exceeding the recallable-turn invariant/);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('legible-resident-v1 admits own concern continuity without supplying a goal', () => {
   const system = controllerSystemPrompt(
     [tool('manage_project'), tool('dig_block'), tool('chat'), tool('wait_for_event')],
