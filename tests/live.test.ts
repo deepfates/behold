@@ -228,6 +228,12 @@ test('live mind revision preserves resident identity, body, charter, cadence, an
       },
     ]),
   );
+  const uncoached = [{ ...original[0], policyProfile: 'resident-v2' }];
+  assert.doesNotThrow(() =>
+    assertLiveMindRevisionCompatible(uncoached, [
+      { ...uncoached[0], policyProfile: 'resident-v3' },
+    ]),
+  );
   for (const changed of [
     { bodyUsername: 'OtherBody' },
     { tickMs: 1000 },
