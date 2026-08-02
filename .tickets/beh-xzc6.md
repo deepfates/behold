@@ -59,3 +59,18 @@ five-minute discriminating exercise and does not count toward either required
 multi-day trial. Remaining prerequisites still include the independently
 chosen cursor-block orientation edge plus sustained controller/journal/
 checkpoint and lifecycle pressure before beginning final-duration acceptance.
+
+**2026-08-02T08:58:00Z**
+
+Current-build ordinary episode 000015 began at 2026-08-02T08:53Z as the first
+declared 90,000-second acceptance epoch, loaded from clean Behold b388e44 and
+qualified Place b872237. It resumed the same Oxford world and 351/339-turn
+Lark/Sedge lives under resident-v4, one shared Qwen 3.6 35B-A3B LM Studio
+instance with two isolated sessions, default no-body transport retention, and
+no task or prescribed conduct. Initial decisions settled in about 5.9-7.7
+seconds; both residents independently read exact own-life pages and otherwise
+waited. The live lens follows both journals with no source or experience gap,
+and the deployed bounded body samples contain no raw private view. Leave the
+epoch running while mechanically healthy. The open cursor-block orientation
+edge may close only if a resident chooses such an action naturally; its absence
+is conduct, not a reason to steer.
