@@ -1,6 +1,6 @@
 ---
 id: beh-9b2h
-status: open
+status: closed
 deps: [beh-e3jy, beh-61if, beh-hmt6, beh-c5gr, beh-3rm0]
 links: []
 created: 2026-08-01T09:35:31Z
@@ -78,3 +78,14 @@ operational journal; its current candidate removes that duplicate and awaits an
 ordinary deployed measurement. Once that passes, close this prerequisite.
 Repeated multi-day pressure remains the final beh-xzc6 exercise rather than a
 reason to keep every bounded scale child perpetually open.
+
+**2026-08-02T08:55:30Z**
+
+Episode 000015 deployed the final bounded-journal child while resuming the same
+mature isolated lives on the current build. Combined with the retained
+six-hour/2,919-turn streaming-cursor pressure, incremental authenticated
+checkpoints, complete resident-v3 chronology, explicit resident-v4 context
+epochs and exact own-life recall, clean restart identity, usable local latency,
+and real Textile reads through 204.9 MB, the bounded growing-history contract is
+crossed. This does not claim multi-day habitat completion: the active 25-hour
+epoch and repeated-trial boundary remain beh-xzc6.

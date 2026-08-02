@@ -38,12 +38,11 @@ current resident and native-human coexistence   │
 minimal operator view and ethogram             ─┘
 ```
 
-The final exercise depends on all six capabilities. Authority and current-profile
-human/multi-resident coexistence are crossed. The continuous private transcript
-and explicit finite-context transition are exercised, while long-history
-controller, journal, and checkpoint growth remain open. The compact operator
-view is crossed. The independently chosen cursor-action edge and lifecycle
-pressure remain active before multi-day acceptance. Tickets state observable
+The final exercise depends on all six capabilities. Authority, growing-history
+ownership, lifecycle recovery, current-profile human/multi-resident
+coexistence, and the compact operator view are crossed. The independently
+chosen cursor-action edge remains open while current-build episode 000015
+begins the first declared 25-hour acceptance epoch. Tickets state observable
 product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether

@@ -1,6 +1,6 @@
 ---
 id: beh-hmt6
-status: open
+status: closed
 deps: [beh-61if]
 links: []
 created: 2026-08-01T14:16:44Z
@@ -74,3 +74,17 @@ replaces every setup/readiness/periodic body sample with
 and action progress without scene, events, inventory, orientation, or position.
 The full check passes 730 with one intentional skip. Keep open only until one
 ordinary run proves the deployed journal/lens shape and measures the reduction.
+
+**2026-08-02T08:55:30Z**
+
+Current-build ordinary episode 000015 closes the deployed boundary. The same
+qualified Oxford world and 351/339-turn Lark/Sedge lives resumed through
+`behold live` with one shared local Qwen instance. Every setup, readiness, and
+periodic body sample now carries the bounded operational protocol; direct
+inspection found no scene, events, inventory, position, or orientation fields.
+The samples are about 600 bytes each instead of the prior multi-kilobyte raw
+views. The live habitat lens follows both journals with no gap and exposes
+current choice/consequence/Lync progress from the bounded model and life-commit
+projections. Exact model bodies remain absent under ordinary retention. This
+closes journal ownership; episode 000015 continues as habitation pressure under
+beh-xzc6.

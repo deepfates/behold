@@ -42,8 +42,9 @@ runtime pressure accumulate. Its checkpoints cover authority and mutable-state
 simplicity, literal action/perception truth, growing private continuity,
 lifecycle resilience, contemporary multi-resident/human coexistence, and a
 compact operator view. They converge on repeated multi-day ordinary habitation.
-The current continuous-transcript path crosses one subjective-continuity
-checkpoint; it does not close long-history storage or the telos. Resident
+The current continuous-transcript path crosses subjective continuity, explicit
+context transition, and bounded long-history ownership; it does not close the
+multi-day telos. Resident
 conduct remains the subject of observation, not a hidden completion score.
 
 The complete mature transcript later proved operationally too slow despite
