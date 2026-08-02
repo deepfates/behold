@@ -166,10 +166,11 @@ export function resolveResidentRuntimeConfig(
     environment.BEHOLD_LMSTUDIO_LOCAL_POLICY,
   );
   if (
-    policy === 'resident-v2' &&
+    (policy === 'resident-v3' || policy === 'resident-v2') &&
     Boolean(environment.OPENROUTER_API_KEY) &&
     providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
     providerRoute?.protocol !== 'behold.openrouter-route-policy.v4' &&
+    providerRoute?.protocol !== 'behold.openrouter-route-policy.v5' &&
     !ollamaLocal &&
     !lmStudioLocal
   ) {
@@ -186,7 +187,7 @@ export function resolveResidentRuntimeConfig(
     throw new Error(`${policy} requires a strict resident-session transport`);
   }
   if (usesMinimalResidentChoice(policy) && options.task != null) {
-    throw new Error('resident-v2 ordinary life does not accept a controller-supplied task');
+    throw new Error(`${policy} ordinary life does not accept a controller-supplied task`);
   }
   if (ollamaLocal) assertOllamaLocalJsonActionTreatment({ policyProfile: policy }, ollamaLocal);
   if (lmStudioLocal) {

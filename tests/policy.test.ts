@@ -443,6 +443,86 @@ test('mind preparation authenticates bounded own-life continuity before prefix r
   }
 });
 
+test('resident-v3 prefix readiness reconstructs every canonical turn beyond the retained suffix', async () => {
+  const prepared: ResidentMindRequest[] = [];
+  const turns = Array.from({ length: 8 }, (_, index) => {
+    const sequence = index + 1;
+    const turn = failedTurn(sequence, 'move_controls');
+    turn.entityId = 'ContinuousResident';
+    turn.id = `ContinuousResident:turn:${sequence}`;
+    turn.parentId = sequence === 1 ? null : `ContinuousResident:turn:${sequence - 1}`;
+    turn.profiles = {
+      policy: 'resident-v3',
+      body: 'minecraft-human-semantic-v1',
+      actions: 'minecraft-human-semantic-v1',
+      safety: 'vanilla-player-v1',
+    };
+    turn.action.name = 'chat';
+    turn.action.input = { text: `canonical turn ${sequence}` };
+    return turn;
+  });
+  const binding = (sequence: number): CanonicalTurnBinding => ({
+    protocol: 'lync.file-loom-chain.v1',
+    digest: sequence.toString(16).padStart(64, '0'),
+  });
+  let rebuilds = 0;
+  const loomContext: BoundedLoomContextState = {
+    protocol: 'behold.bounded-loom-context.v1',
+    entityId: 'ContinuousResident',
+    totalTurns: turns.length,
+    recentTurns: turns.slice(-2),
+    recentSources: turns.slice(-2).map((turn) => binding(turn.sequence)),
+    fold: null,
+    foldSource: null,
+    rebuild: async function* () {
+      rebuilds += 1;
+      for (const turn of turns) yield { turn, source: binding(turn.sequence) };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'ContinuousResident',
+      actions: [] as any[],
+      attempt: () => true,
+      observe: (sinceSequence = 0) => experience(30, null, sinceSequence),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind: {
+        id: 'continuous-preparable-mind',
+        prepare: async (request) => {
+          prepared.push(request);
+          return { protocol: 'fixture.prefix-readiness.v1', authority: 'none' };
+        },
+        decide: async () => assert.fail('preparation must not decide'),
+      },
+      policyProfile: 'resident-v3',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      workingContinuity: 'continuous-transcript-v1',
+      loomContext,
+      acceptEngineEvent: () => true,
+    },
+  );
+
+  try {
+    await policy.prepareMind();
+    assert.equal(rebuilds, 1);
+    assert.equal(prepared.length, 1);
+    assert.equal(prepared[0].conversation.length, 1 + turns.length * 3 + 1);
+    const serialized = JSON.stringify(prepared[0].conversation);
+    assert.match(serialized, /canonical turn 1/);
+    assert.match(serialized, /canonical turn 8/);
+    assert.doesNotMatch(serialized, /Folded view|factual-continuity|working-continuity/);
+    await policy.prepareMind();
+    assert.equal(rebuilds, 1);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('new harm reclaims stale deliberative work but not its already urgent bounded response', () => {
   const harm = { type: 'self_hurt', salience: 'urgent' as const };
   assert.equal(bodilyUrgencyReclaimsModelAction(harm, null), true);
@@ -4274,6 +4354,96 @@ test('resident-v2 restart projects mixed legacy history as facts without legacy 
     assert.doesNotMatch(
       serialized,
       /CANARY_|expectedObservableConsequence|publicCommitment|"progress"/,
+    );
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('resident-v3 restart presents the full private chronology and retains its exact response', async () => {
+  const prior = [failedTurn(1, 'move_controls'), failedTurn(2, 'look_direction')];
+  for (const turn of prior) {
+    turn.profiles = {
+      policy: 'resident-v3',
+      body: 'minecraft-human-semantic-v1',
+      actions: 'minecraft-human-semantic-v1',
+      safety: 'vanilla-player-v1',
+    };
+    turn.utterance.assistant.content = JSON.stringify({
+      action: turn.action.name,
+      arguments: turn.action.input,
+    });
+  }
+  const captured: ResidentMindRequest[] = [];
+  const committed: EntityTurn[] = [];
+  const exactResponse = '{"action":"wait_for_event","arguments":{"reason":"listen"}}';
+  const mind: ResidentMind = {
+    id: 'resident-v3-history-fixture',
+    decide: async (request) => {
+      captured.push(request);
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'wait',
+        utterance: null,
+        action: { name: 'wait_for_event', input: { reason: 'listen' } },
+        adapterRecord: { role: 'assistant', content: exactResponse },
+        call: modelCallEvidence('resident-v3-history-fixture'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('look_direction')],
+      attempt: () => true,
+      observe: () => ({
+        protocol: 'behold.inhabitant.v2',
+        sequence: 30,
+        observedAt: 300,
+        self: { identity: 'Scout', condition: { health: 20, food: 20, isDay: true } },
+        scene: { entities: [] },
+        events: [],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'resident-v3',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      workingContinuity: 'continuous-transcript-v1',
+      history: prior,
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => {
+        committed.push(turn);
+      },
+    },
+  );
+
+  try {
+    await policy.tick();
+    await policy.tick();
+    assert.equal(captured.length, 2);
+    const conversation = captured[0].conversation as any[];
+    assert.deepEqual(
+      conversation.map((message) => message.role),
+      ['system', 'user', 'assistant', 'user', 'user', 'assistant', 'user', 'user'],
+    );
+    assert.equal(conversation[2].content, prior[0].utterance.assistant.content);
+    assert.equal(conversation[5].content, prior[1].utterance.assistant.content);
+    assert.match(conversation.at(-1).content, /^What you experience:/);
+    assert.doesNotMatch(
+      JSON.stringify(conversation),
+      /Folded view|factual-continuity|working-continuity/,
+    );
+    assert.equal(committed[0]?.utterance.assistant.content, exactResponse);
+    assert.equal(committed[1]?.utterance.assistant.content, exactResponse);
+    assert.deepEqual(
+      captured[1].conversation.slice(0, captured[0].conversation.length),
+      captured[0].conversation,
+      'the previous complete request conversation must remain an exact prefix',
     );
   } finally {
     await policy.stop();

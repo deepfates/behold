@@ -6,6 +6,7 @@ export const OPENROUTER_ROUTE_POLICY_PROTOCOL = 'behold.openrouter-route-policy.
 export const OPENROUTER_ROUTE_POLICY_V2_PROTOCOL = 'behold.openrouter-route-policy.v2' as const;
 export const OPENROUTER_ROUTE_POLICY_V3_PROTOCOL = 'behold.openrouter-route-policy.v3' as const;
 export const OPENROUTER_ROUTE_POLICY_V4_PROTOCOL = 'behold.openrouter-route-policy.v4' as const;
+export const OPENROUTER_ROUTE_POLICY_V5_PROTOCOL = 'behold.openrouter-route-policy.v5' as const;
 
 export type OpenRouterRoutePolicyV1 = Readonly<{
   protocol: typeof OPENROUTER_ROUTE_POLICY_PROTOCOL;
@@ -47,11 +48,25 @@ export type OpenRouterRoutePolicyV4 = Readonly<{
   dataCollection: 'deny';
 }>;
 
+export type OpenRouterRoutePolicyV5 = Readonly<{
+  protocol: typeof OPENROUTER_ROUTE_POLICY_V5_PROTOCOL;
+  routes: readonly Readonly<{ requestTag: string; responseProvider: string }>[];
+  allowFallbacks: false;
+  maxOutputTokens: number;
+  /** Verified provider/model context window; wire bytes are admitted conservatively as tokens. */
+  contextWindowTokens: number;
+  residentDecisionFormat: 'strict_json';
+  reasoningEnabled: false;
+  zdr: true;
+  dataCollection: 'deny';
+}>;
+
 export type OpenRouterRoutePolicy =
   | OpenRouterRoutePolicyV1
   | OpenRouterRoutePolicyV2
   | OpenRouterRoutePolicyV3
-  | OpenRouterRoutePolicyV4;
+  | OpenRouterRoutePolicyV4
+  | OpenRouterRoutePolicyV5;
 
 export type OpenRouterResponseIdentity = Readonly<{
   ok: boolean;
@@ -67,6 +82,9 @@ export function assertOpenRouterResidentTreatment(
   policyValue: OpenRouterRoutePolicy,
 ) {
   const policy = openRouterRoutePolicy(policyValue);
+  if (policyProfile === 'resident-v3' && policy.protocol !== OPENROUTER_ROUTE_POLICY_V5_PROTOCOL) {
+    throw new Error('resident-v3 requires the context-bound private OpenRouter resident route v5');
+  }
   if (
     policyProfile === 'resident-v2' &&
     policy.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL &&
@@ -93,9 +111,13 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
   const routed =
     value.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL ||
     value.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL ||
-    value.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL;
+    value.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+    value.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL;
   const nativeTools = value.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL;
-  const disabledStrictJson = value.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL;
+  const disabledStrictJson =
+    value.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+    value.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL;
+  const contextBound = value.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL;
   const expected = (
     routed
       ? [
@@ -106,6 +128,7 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
           ...(disabledStrictJson
             ? ['dataCollection', 'reasoningEnabled', 'residentDecisionFormat', 'zdr']
             : []),
+          ...(contextBound ? ['contextWindowTokens'] : []),
           'routes',
         ]
       : ['allowFallbacks', 'maxOutputTokens', 'order', 'protocol']
@@ -117,10 +140,11 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
     value.protocol !== OPENROUTER_ROUTE_POLICY_PROTOCOL &&
     value.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL &&
     value.protocol !== OPENROUTER_ROUTE_POLICY_V3_PROTOCOL &&
-    value.protocol !== OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+    value.protocol !== OPENROUTER_ROUTE_POLICY_V4_PROTOCOL &&
+    value.protocol !== OPENROUTER_ROUTE_POLICY_V5_PROTOCOL
   ) {
     throw new Error(
-      `OpenRouter route policy protocol must be ${OPENROUTER_ROUTE_POLICY_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V2_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V3_PROTOCOL}, or ${OPENROUTER_ROUTE_POLICY_V4_PROTOCOL}`,
+      `OpenRouter route policy protocol must be ${OPENROUTER_ROUTE_POLICY_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V2_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V3_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V4_PROTOCOL}, or ${OPENROUTER_ROUTE_POLICY_V5_PROTOCOL}`,
     );
   }
   if (nativeTools && value.residentDecisionFormat !== 'native_tools') {
@@ -138,6 +162,16 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
   ) {
     throw new Error(
       'OpenRouter v4 must bind strict JSON, disabled reasoning, ZDR, and denied data collection',
+    );
+  }
+  if (
+    contextBound &&
+    (!Number.isSafeInteger(value.contextWindowTokens) ||
+      Number(value.contextWindowTokens) < 4_096 ||
+      Number(value.contextWindowTokens) > 16_777_216)
+  ) {
+    throw new Error(
+      'OpenRouter v5 contextWindowTokens must be an integer from 4096 through 16777216',
     );
   }
   if (value.allowFallbacks !== false) {
@@ -165,6 +199,19 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
     });
   }
   if (disabledStrictJson) {
+    if (contextBound) {
+      return deepFreeze({
+        protocol: OPENROUTER_ROUTE_POLICY_V5_PROTOCOL,
+        routes: routes!,
+        allowFallbacks: false as const,
+        maxOutputTokens: Number(value.maxOutputTokens),
+        contextWindowTokens: Number(value.contextWindowTokens),
+        residentDecisionFormat: 'strict_json' as const,
+        reasoningEnabled: false as const,
+        zdr: true as const,
+        dataCollection: 'deny' as const,
+      });
+    }
     return deepFreeze({
       protocol: OPENROUTER_ROUTE_POLICY_V4_PROTOCOL,
       routes: routes!,
@@ -225,7 +272,8 @@ export function openRouterWirePolicy(value: OpenRouterRoutePolicy) {
       // validates its returned identity/output instead of trusting that
       // incomplete metadata filter.
       require_parameters: policy.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL ? false : true,
-      ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+      ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+      policy.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL
         ? { zdr: true as const, data_collection: 'deny' as const }
         : {}),
     }),
@@ -243,7 +291,8 @@ export function assertOpenRouterRouteRequest(
   if (!plainRecord(value)) throw new Error('request body must be an object');
   if (
     policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL ||
-    policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL
   ) {
     const generationFields = expectedModel.includes('gpt-5') ? [] : ['temperature'];
     const record = exactRecord(
@@ -269,7 +318,8 @@ export function assertOpenRouterRouteRequest(
       throw new Error('OpenRouter resident-session generation settings differ');
     }
     const reasoning =
-      policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+      policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+      policy.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL
         ? exactRecord(
             record.reasoning,
             ['enabled', 'exclude'],
@@ -282,7 +332,8 @@ export function assertOpenRouterRouteRequest(
           );
     if (
       reasoning.exclude !== true ||
-      (policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+      (policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+      policy.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL
         ? reasoning.enabled !== false
         : reasoning.effort !== 'minimal')
     ) {
@@ -318,6 +369,10 @@ export function assertOpenRouterRouteRequest(
     if (
       (expectedPolicyProfile === 'resident-v2' &&
         envelope.schemaProtocol !== 'behold.ollama-local-json-action-schema.v1') ||
+      (expectedPolicyProfile === 'resident-v3' &&
+        (envelope.schemaProtocol !== 'behold.ollama-local-json-action-schema.v1' ||
+          envelope.messageLayoutProtocol !==
+            'behold.ollama-local-resident-session-message-layout.v2')) ||
       (expectedPolicyProfile === 'legible-resident-v1' &&
         envelope.schemaProtocol !== 'behold.ollama-local-json-action-schema.v2')
     ) {
@@ -376,10 +431,16 @@ export function assertOpenRouterRouteRequest(
   const providerKeys = Object.keys(value.provider).sort();
   const expectedProviderKeys = [
     'allow_fallbacks',
-    ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ? ['data_collection'] : []),
+    ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL
+      ? ['data_collection']
+      : []),
     'order',
     'require_parameters',
-    ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ? ['zdr'] : []),
+    ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL
+      ? ['zdr']
+      : []),
   ].sort();
   if (JSON.stringify(providerKeys) !== JSON.stringify(expectedProviderKeys)) {
     throw new Error('request provider fields differ from admitted route contract');
@@ -388,10 +449,19 @@ export function assertOpenRouterRouteRequest(
     throw new Error('request provider fallbacks are not disabled');
   }
   if (
-    policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL &&
+    (policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ||
+      policy.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL) &&
     (value.provider.zdr !== true || value.provider.data_collection !== 'deny')
   ) {
     throw new Error('request provider privacy policy differs from the admitted route contract');
+  }
+  if (policy.protocol === OPENROUTER_ROUTE_POLICY_V5_PROTOCOL) {
+    const conservativeInputTokens = Buffer.byteLength(JSON.stringify(value), 'utf8');
+    if (conservativeInputTokens + policy.maxOutputTokens > policy.contextWindowTokens) {
+      throw new Error(
+        `request exceeds the admitted context window: ${conservativeInputTokens} conservative input tokens + ${policy.maxOutputTokens} output > ${policy.contextWindowTokens}`,
+      );
+    }
   }
   const expectedRequireParameters =
     policy.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL ? false : true;
@@ -420,7 +490,8 @@ function assertResidentWireOwner(messagesValue: unknown, residentIdentity: strin
     throw new Error('OpenRouter resident current observation is malformed');
   }
   const jsonStart = current.content.indexOf('{');
-  const jsonEnd = current.content.lastIndexOf('\n\nRespond now with');
+  const reminderStart = current.content.lastIndexOf('\n\nRespond now with');
+  const jsonEnd = reminderStart >= 0 ? reminderStart : current.content.length;
   if (jsonStart < 0 || jsonEnd <= jsonStart) {
     throw new Error('OpenRouter resident current observation is missing its body identity');
   }

@@ -18,7 +18,11 @@ export function directOpenRouterRequestBody(
   request: ResidentMindRequest,
   routePolicy?: OpenRouterRoutePolicy | null,
 ) {
-  if (request.policyProfile === 'resident-v2' || request.policyProfile === 'legible-resident-v1') {
+  if (
+    request.policyProfile === 'resident-v3' ||
+    request.policyProfile === 'resident-v2' ||
+    request.policyProfile === 'legible-resident-v1'
+  ) {
     if (request.perception) {
       throw new Error('OpenRouter resident routes do not yet admit camera perception');
     }
@@ -49,7 +53,7 @@ export function directOpenRouterRequestBody(
         type: 'json_schema' as const,
         json_schema: {
           name:
-            request.policyProfile === 'resident-v2'
+            request.policyProfile === 'resident-v3' || request.policyProfile === 'resident-v2'
               ? 'behold_resident_action_v1'
               : 'behold_resident_action_v2',
           strict: true as const,
@@ -57,7 +61,8 @@ export function directOpenRouterRequestBody(
         },
       },
       reasoning:
-        routePolicy?.protocol === 'behold.openrouter-route-policy.v4'
+        routePolicy?.protocol === 'behold.openrouter-route-policy.v4' ||
+        routePolicy?.protocol === 'behold.openrouter-route-policy.v5'
           ? { enabled: false as const, exclude: true as const }
           : { effort: 'minimal' as const, exclude: true as const },
       ...(request.model.includes('gpt-5') ? {} : { temperature: 0.2 }),

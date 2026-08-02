@@ -1,4 +1,5 @@
 export const RESIDENT_POLICY_PROFILES = [
+  'resident-v3',
   'resident-v2',
   'resident-v1',
   'neutral-benchmark-v1',
@@ -18,12 +19,19 @@ export function residentPolicyProfile(value: unknown): ResidentPolicyProfile {
 
 /** The ordinary uncoached action-or-yield treatment. */
 export function usesMinimalResidentChoice(profile: ResidentPolicyProfile) {
-  return profile === 'resident-v2';
+  return profile === 'resident-v3' || profile === 'resident-v2';
 }
 
-/** Profiles whose stable charter and bounded own-life context form a resident session. */
+/** The ordinary uncoached treatment whose context is its chronological private transcript. */
+export function usesContinuousResidentTranscript(profile: ResidentPolicyProfile) {
+  return profile === 'resident-v3';
+}
+
+/** Profiles whose stable charter and own-life context form a resident session. */
 export function usesResidentSessionPolicy(profile: ResidentPolicyProfile) {
-  return profile === 'resident-v2' || profile === 'legible-resident-v1';
+  return (
+    profile === 'resident-v3' || profile === 'resident-v2' || profile === 'legible-resident-v1'
+  );
 }
 
 export function isNeutralPolicy(profile: ResidentPolicyProfile) {

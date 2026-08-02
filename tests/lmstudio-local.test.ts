@@ -382,6 +382,80 @@ test('LM Studio resident-v2 session is action-only while preserving the stable o
   assert.deepEqual(assertLmStudioLocalWireRequest(body, residentPolicy), serialized.identity);
 });
 
+test('LM Studio resident-v3 carries continuous chronology and refuses context overflow', async (t) => {
+  const fixture = await artifactFixture(t);
+  const legacyPolicy = policy(fixture);
+  const residentPolicy: LmStudioLocalPolicy = {
+    ...legacyPolicy,
+    transport: {
+      ...legacyPolicy.transport,
+      protocol: 'behold.lmstudio-local-resident-session.v2',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+    },
+  };
+  const residentRequest = {
+    ...request(residentPolicy.modelKey),
+    policyProfile: 'resident-v3',
+    conversation: [
+      { role: 'system', content: 'You are OxfordAster.' },
+      { role: 'user', content: 'What you experience:\n{"sequence":1}' },
+      {
+        role: 'assistant',
+        content: '{"action":"chat","arguments":{"text":"I am here."}}',
+      },
+      {
+        role: 'user',
+        content: 'What Minecraft returned after your chat attempt:\n{"ok":true}',
+      },
+      { role: 'user', content: 'What you experience:\n{"sequence":2}' },
+    ],
+  } as any;
+  const instanceId = lmStudioResidentInstanceId(residentPolicy);
+  const serialized = createLmStudioLocalJsonActionRequest(
+    residentRequest,
+    residentPolicy,
+    instanceId,
+  );
+
+  assert.equal(
+    serialized.identity.messageLayoutProtocol,
+    'behold.ollama-local-resident-session-message-layout.v2',
+  );
+  assert.equal(
+    serialized.identity.workingContinuityProtocol,
+    'behold.resident-continuous-transcript.v1',
+  );
+  assert.deepEqual(
+    (serialized.body.messages as any[]).slice(2, -1).map((message) => message.role),
+    ['user', 'assistant', 'user'],
+  );
+  assert.deepEqual(
+    assertLmStudioLocalJsonActionRequest(
+      serialized.body,
+      residentRequest,
+      residentPolicy,
+      instanceId,
+    ),
+    serialized.identity,
+  );
+  assert.throws(
+    () =>
+      createLmStudioLocalJsonActionRequest(
+        {
+          ...residentRequest,
+          conversation: [
+            ...residentRequest.conversation.slice(0, -1),
+            { role: 'user', content: `What you experience:\n${'x'.repeat(20_000)}` },
+          ],
+        },
+        residentPolicy,
+        instanceId,
+      ),
+    /exceeds the admitted context window/,
+  );
+});
+
 test('LM Studio camera perception adds one bound image without changing semantic text or prefix', async (t) => {
   const fixture = await artifactFixture(t);
   const residentPolicy = policy(fixture);

@@ -180,3 +180,43 @@ test('ordinary resident-v2 refuses a controller task and requires an explicit pr
     'resident-v2',
   );
 });
+
+test('resident-v3 requires a context-bound private provider session', () => {
+  const base = {
+    SERVER_HOST: '127.0.0.1',
+    SERVER_PORT: '25565',
+    MINECRAFT_USERNAME: 'Body',
+    LLM_MODEL: 'test/model',
+    BEHOLD_POLICY_PROFILE: 'resident-v3',
+  };
+  const routeV4 = JSON.stringify({
+    protocol: 'behold.openrouter-route-policy.v4',
+    routes: [{ requestTag: 'deepinfra/fp4', responseProvider: 'DeepInfra' }],
+    allowFallbacks: false,
+    maxOutputTokens: 256,
+    residentDecisionFormat: 'strict_json',
+    reasoningEnabled: false,
+    zdr: true,
+    dataCollection: 'deny',
+  });
+  assert.throws(
+    () => resolveResidentRuntimeConfig({}, { ...base, BEHOLD_OPENROUTER_ROUTE_POLICY: routeV4 }),
+    /context-bound private OpenRouter resident route v5/,
+  );
+  const routeV5 = JSON.stringify({
+    protocol: 'behold.openrouter-route-policy.v5',
+    routes: [{ requestTag: 'deepinfra/fp4', responseProvider: 'DeepInfra' }],
+    allowFallbacks: false,
+    maxOutputTokens: 256,
+    contextWindowTokens: 1_048_576,
+    residentDecisionFormat: 'strict_json',
+    reasoningEnabled: false,
+    zdr: true,
+    dataCollection: 'deny',
+  });
+  assert.equal(
+    resolveResidentRuntimeConfig({}, { ...base, BEHOLD_OPENROUTER_ROUTE_POLICY: routeV5 }).profiles
+      .policy,
+    'resident-v3',
+  );
+});

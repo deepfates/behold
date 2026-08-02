@@ -8,6 +8,7 @@ import {
 import { ResidentMindCallError, type ModelCallEvidence } from './evidence';
 import type { ResidentMind, ResidentMindDecision, ResidentMindRequest } from './interface';
 import {
+  assertOpenRouterRouteRequest,
   inspectOpenRouterResponseIdentity,
   openRouterRoutePolicy,
   type OpenRouterRoutePolicy,
@@ -59,11 +60,24 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
           : null;
       const residentSession =
         (request.policyProfile === 'legible-resident-v1' ||
+          request.policyProfile === 'resident-v3' ||
           request.policyProfile === 'resident-v2') &&
         !nativeToolSession
           ? createStrictLocalResidentSessionEnvelope(request)
           : null;
       const requestBody = JSON.stringify(body);
+      if (routePolicy?.protocol === 'behold.openrouter-route-policy.v5') {
+        if (request.policyProfile !== 'resident-v3') {
+          throw new Error('context-bound private OpenRouter route v5 requires resident-v3');
+        }
+        assertOpenRouterRouteRequest(
+          body,
+          request.model,
+          routePolicy,
+          request.entityId,
+          'resident-v3',
+        );
+      }
       const mindRequestSha256 = residentMindRequestSha256(request);
       const callRequest = {
         model: request.model,
@@ -89,7 +103,8 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
                 actionContractSha256: residentSession.actionContractSha256,
                 responseSchemaSha256: residentSession.responseSchemaSha256,
                 stablePrefixSha256: residentSession.stablePrefixSha256,
-                ...(routePolicy?.protocol === 'behold.openrouter-route-policy.v4'
+                ...(routePolicy?.protocol === 'behold.openrouter-route-policy.v4' ||
+                routePolicy?.protocol === 'behold.openrouter-route-policy.v5'
                   ? { reasoningEnabled: false }
                   : { reasoningEffort: 'minimal' }),
                 reasoningExcluded: true,
@@ -279,7 +294,11 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
             message,
             request,
             call,
-            request.policyProfile === 'resident-v2' ? 1 : 2,
+            request.policyProfile === 'resident-v3'
+              ? 3
+              : request.policyProfile === 'resident-v2'
+                ? 1
+                : 2,
           );
         }
         return responseDecision(data, request, call);

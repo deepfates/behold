@@ -64,10 +64,16 @@ import {
   residentPolicyProfile,
   usesHumanSemanticPolicySurface,
   usesMinimalResidentChoice,
+  usesContinuousResidentTranscript,
   usesResidentProgressSafeguards,
   usesResidentV1Behavior,
   type ResidentPolicyProfile,
 } from './profile';
+import {
+  projectResidentTranscript,
+  projectResidentTranscriptTurn,
+  residentCurrentExperienceMessage,
+} from '../mind/resident-transcript';
 import {
   minecraftBodyProfile,
   projectHumanSemanticValue,
@@ -133,7 +139,7 @@ export type Options = {
   /** Alternate bounded decision implementation. Behold still owns the resident loop. */
   mind?: ResidentMind;
   /** Versioned working-memory projection selected by an admitted cognition transport. */
-  workingContinuity?: 'recent-action-v1' | 'resident-session-v1';
+  workingContinuity?: 'recent-action-v1' | 'resident-session-v1' | 'continuous-transcript-v1';
   /** Versioned controller behavior; neutral mode does not coach or repair model choices. */
   policyProfile?: ResidentPolicyProfile;
   /** Versioned observation/body contract selected outside the generic policy loop. */
@@ -471,8 +477,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       `body profile ${bodyProfile} must be paired with its matching action profile; received ${actionProfile}`,
     );
   }
+  const continuousTranscript = usesContinuousResidentTranscript(policyProfile);
   const projectCurrentObservation = (frame: any, eventBatchLimit?: number) =>
-    projectMinecraftCurrentObservation(frame, bodyProfile, eventBatchLimit);
+    projectMinecraftCurrentObservation(
+      frame,
+      bodyProfile,
+      eventBatchLimit ?? (continuousTranscript ? 256 : undefined),
+    );
   const projectHistoricalObservation = (
     frame: any,
     previousFrame: any,
@@ -567,8 +578,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const projectWorkingContinuity = (
     turnLimit: number,
     byteLimit: number,
-  ): RecentActionContinuity | ResidentWorkingContinuity | ResidentFactualContinuity | null =>
-    opts.workingContinuity === 'resident-session-v1'
+  ): RecentActionContinuity | ResidentWorkingContinuity | ResidentFactualContinuity | null => {
+    if (continuousTranscript) return null;
+    return opts.workingContinuity === 'resident-session-v1'
       ? usesMinimalResidentChoice(policyProfile)
         ? projectResidentFactualContinuity(
             loomContext.view().turns,
@@ -599,6 +611,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
             byteLimit,
             mayReplayTurn,
           );
+  };
   const messages: any[] = [
     { role: 'system', content: controllerSystemPrompt(modelTools, policyProfile) },
   ];
@@ -610,6 +623,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let deciding = false;
   let preparingContext = false;
   let contextPrepared = false;
+  let continuousTranscriptPrepared = false;
   let loomMaintenanceScheduled = false;
   let loomMaintenanceActive = false;
   let wakeQueued = false;
@@ -793,19 +807,23 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       // Prefix readiness runs during frozen setup, before the normal wake path
       // gets a chance to prepare that context, so establish the same boundary
       // here before materializing the authority-free setup request.
-      if (opts.loomContext && loomContext.state().needsFold) {
+      if (continuousTranscript) {
+        await prepareContinuousTranscript();
+      } else if (opts.loomContext && loomContext.state().needsFold) {
         await loomContext.prepare(signal);
         rebuildMessagesFromLoom();
       }
       const frame = createResidentDecisionFrame(createCurrentExperience(observe()), false);
       const preparationMessages = [
         ...messages,
-        worldUpdateMessage(
-          frame.experience.model,
-          'Setup world experience',
-          lastTool,
-          opts.workingContinuity,
-        ),
+        continuousTranscript
+          ? residentCurrentExperienceMessage(frame.experience.model)
+          : worldUpdateMessage(
+              frame.experience.model,
+              'Setup world experience',
+              lastTool,
+              opts.workingContinuity,
+            ),
       ];
       const request = createResidentMindRequest(
         frame,
@@ -904,7 +922,17 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const initialAttention = attentionForObservation(initialView);
       const initialBodyUrgency =
         hasBodilyUrgency(initialAttention) || isCriticalBodyCondition(frame?.self?.condition);
-      if ((opts.foldReadOnly || opts.loomContext) && loomContext.state().needsFold) {
+      if (continuousTranscript) {
+        decisionCycle.enter('preparing_context');
+        preparingContext = true;
+        try {
+          await prepareContinuousTranscript();
+        } finally {
+          preparingContext = false;
+          if (!stopped) decisionCycle.enter('perceiving');
+          settleStop();
+        }
+      } else if ((opts.foldReadOnly || opts.loomContext) && loomContext.state().needsFold) {
         decisionCycle.enter('preparing_context');
         preparingContext = true;
         let preparationFailed = false;
@@ -921,7 +949,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
           settleStop();
         }
       }
-      rebuildMessagesFromLoom();
+      if (!continuousTranscript) rebuildMessagesFromLoom();
       contextPrepared = true;
       if (loomContext.state().needsFold) {
         log(
@@ -998,7 +1026,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     // middle span of the resident's own life unavailable to its model. This
     // work changes only the bounded projection of canonical own-life history;
     // it neither calls a model nor selects conduct.
-    if (usesMinimalResidentChoice(policyProfile) && loomContext.state().needsFold) {
+    if (
+      usesMinimalResidentChoice(policyProfile) &&
+      !continuousTranscript &&
+      loomContext.state().needsFold
+    ) {
       preparingContext = true;
       decisionCycle.enter('preparing_context');
       try {
@@ -1795,13 +1827,18 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     if (hasNewProjectProgressEvidence(frame, lastSequence)) consecutiveProjectActions = 0;
     currentExperience = createCurrentExperience(frame);
     const projected = currentExperience.model;
+    if (continuousTranscript) assertContinuousCurrentExperience(projected);
     const deliveredSequence = projected?.eventWindow?.deliveredNewestSequence;
     if (Number.isFinite(Number(deliveredSequence))) {
       lastSequence = Math.max(lastSequence, Number(deliveredSequence));
     } else if (!Array.isArray(frame?.events) && Number.isFinite(Number(frame?.sequence))) {
       lastSequence = Math.max(lastSequence, Number(frame.sequence));
     }
-    messages.push(worldUpdateMessage(projected, label, lastTool, opts.workingContinuity));
+    messages.push(
+      continuousTranscript
+        ? residentCurrentExperienceMessage(projected)
+        : worldUpdateMessage(projected, label, lastTool, opts.workingContinuity),
+    );
   }
 
   async function closeTurn(
@@ -1855,7 +1892,34 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     loomContext.append(turn, isCanonicalTurnBinding(committed) ? committed : undefined);
     recordEmbodiedOutcome(turn.action.name, turn.outcome.ok);
     recordProjectContinuity(turn.action.name, turn.outcome.ok);
-    rebuildMessagesFromLoom();
+    if (continuousTranscript) {
+      let currentIndex = -1;
+      for (let index = messages.length - 1; index >= 1; index -= 1) {
+        const message = messages[index];
+        if (
+          message?.role === 'user' &&
+          String(message.content).startsWith('What you experience:')
+        ) {
+          currentIndex = index;
+          break;
+        }
+      }
+      if (currentIndex < 1) {
+        throw new Error('continuous resident transcript lost its current experience boundary');
+      }
+      messages.splice(currentIndex);
+      messages.push(
+        ...projectResidentTranscriptTurn(turn, {
+          mayReplayTurn,
+          projectObservation: (observation) => projectCurrentObservation(observation),
+          ...(usesHumanSemanticBody(bodyProfile)
+            ? { projectValue: projectHumanSemanticValue }
+            : {}),
+        }),
+      );
+    } else {
+      rebuildMessagesFromLoom();
+    }
     entitySequence = sequence;
     parentTurnId = turn.id;
   }
@@ -1882,6 +1946,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function rebuildMessagesFromLoom() {
+    if (continuousTranscript) return;
     const view = loomContext.view();
     messages.splice(
       1,
@@ -1903,6 +1968,31 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         usesHumanSemanticBody(bodyProfile) ? projectHumanSemanticValue : undefined,
       ),
     );
+  }
+
+  async function prepareContinuousTranscript() {
+    if (!continuousTranscript || continuousTranscriptPrepared) return;
+    const turns: EntityTurn[] = [];
+    if (opts.loomContext) {
+      for await (const entry of opts.loomContext.rebuild()) turns.push(entry.turn);
+      if (turns.length !== opts.loomContext.totalTurns) {
+        throw new Error(
+          `continuous resident transcript rebuilt ${turns.length} of ${opts.loomContext.totalTurns} canonical turns`,
+        );
+      }
+    } else {
+      turns.push(...(opts.history ?? []));
+    }
+    const transcript = projectResidentTranscript(entityId, turns, {
+      mayReplayTurn,
+      projectObservation: (observation) => projectCurrentObservation(observation),
+      ...(usesHumanSemanticBody(bodyProfile) ? { projectValue: projectHumanSemanticValue } : {}),
+    });
+    messages.splice(1, Math.max(0, messages.length - 1), ...transcript.messages);
+    const tip = turns.at(-1);
+    entitySequence = tip?.sequence ?? 0;
+    parentTurnId = tip?.id ?? null;
+    continuousTranscriptPrepared = true;
   }
 
   function start() {
@@ -2024,6 +2114,22 @@ function worldUpdateMessage(
         : [`Previous action: ${lastTool ?? 'none'}`]),
     ].join('\n'),
   };
+}
+
+function assertContinuousCurrentExperience(projected: any) {
+  const window = projected?.eventWindow;
+  if (
+    !window ||
+    window.complete !== true ||
+    Number(window.omittedNewEvents) !== 0 ||
+    Number(window.missingBeforeOldest ?? 0) !== 0
+  ) {
+    throw new Error(
+      `continuous resident experience is not contiguous through the current boundary: ${JSON.stringify(
+        window ?? null,
+      )}`,
+    );
+  }
 }
 
 function completedBodilyResponse(tool: string, result: any) {
@@ -2557,6 +2663,9 @@ function conversationForAttention(
   const system = availableTools
     ? { role: 'system', content: controllerSystemPrompt(availableTools, profile) }
     : messages[0];
+  if (usesContinuousResidentTranscript(profile)) {
+    return [system, ...messages.slice(1)];
+  }
   const foldedContinuity = messages
     .slice(1, -1)
     .filter(
@@ -3044,7 +3153,12 @@ function validateMindDecision(
     if (requiredAction) fail(`mind yielded no action while ${requiredAction} was required`);
     if (decision.action) fail('mind attached an action to a no_action decision');
     return {
-      assistant: canonicalAssistant(decision, content, null),
+      assistant: canonicalAssistant(
+        decision,
+        content,
+        null,
+        usesContinuousResidentTranscript(policyProfile),
+      ),
       intent: null,
       toolCallId: null,
       wait: false,
@@ -3083,11 +3197,16 @@ function validateMindDecision(
     fail(`mind proposed invalid input for ${name}: ${validation.errors.join('; ')}`);
   }
   const toolCallId = String(proposed?.callId || rid('mind'));
-  const assistant = canonicalAssistant(decision, content, {
-    id: toolCallId,
-    type: 'function',
-    function: { name, arguments: JSON.stringify(input) },
-  });
+  const assistant = canonicalAssistant(
+    decision,
+    content,
+    {
+      id: toolCallId,
+      type: 'function',
+      function: { name, arguments: JSON.stringify(input) },
+    },
+    usesContinuousResidentTranscript(policyProfile),
+  );
   if (name === WAIT_TOOL) {
     return {
       assistant,
@@ -3112,6 +3231,7 @@ function canonicalAssistant(
   decision: ResidentMindDecision,
   content: string | null,
   toolCall: unknown | null,
+  preserveAdapterContent = false,
 ) {
   const record =
     decision.adapterRecord &&
@@ -3119,7 +3239,11 @@ function canonicalAssistant(
     !Array.isArray(decision.adapterRecord)
       ? cloneJson(decision.adapterRecord)
       : {};
-  const assistant: any = { ...record, role: 'assistant', content };
+  const exactAdapterContent =
+    preserveAdapterContent && typeof (record as any).content === 'string'
+      ? String((record as any).content)
+      : content;
+  const assistant: any = { ...record, role: 'assistant', content: exactAdapterContent };
   if (toolCall) assistant.tool_calls = [toolCall];
   else delete assistant.tool_calls;
   return assistant;

@@ -115,9 +115,13 @@ export type LmStudioLocalRequestIdentity = Readonly<{
   actionContractSha256: string;
   responseSchemaSha256: string;
   responseFormatSha256: string;
-  messageLayoutProtocol: 'behold.ollama-local-resident-session-message-layout.v1';
+  messageLayoutProtocol:
+    | 'behold.ollama-local-resident-session-message-layout.v1'
+    | 'behold.ollama-local-resident-session-message-layout.v2';
   workingContinuityProtocol:
-    'behold.resident-working-continuity.v1' | 'behold.resident-factual-continuity.v1';
+    | 'behold.resident-working-continuity.v1'
+    | 'behold.resident-factual-continuity.v1'
+    | 'behold.resident-continuous-transcript.v1';
   stablePrefixSha256: string;
 }>;
 
@@ -389,7 +393,7 @@ export function assertLmStudioLocalResidentTreatment(
 ) {
   const policy = lmStudioLocalPolicy(policyValue);
   const expected =
-    request.policyProfile === 'resident-v2'
+    request.policyProfile === 'resident-v3' || request.policyProfile === 'resident-v2'
       ? LMSTUDIO_LOCAL_ACTION_ONLY_RESIDENT_SESSION_TRANSPORT_PROTOCOL
       : request.policyProfile === 'legible-resident-v1'
         ? LMSTUDIO_LOCAL_RESIDENT_SESSION_TRANSPORT_PROTOCOL
@@ -441,6 +445,13 @@ export function createLmStudioLocalJsonActionRequest(
       : { reasoning_effort: policy.settings.reasoningEffort }),
     stream: false as const,
   });
+  if (envelope.workingContinuityProtocol === 'behold.resident-continuous-transcript.v1') {
+    assertConservativeLmStudioContextAdmission(
+      body,
+      policy.settings.maxOutputTokens,
+      policy.settings.contextTokens,
+    );
+  }
   const identity: LmStudioLocalRequestIdentity = deepFreeze({
     protocol: LMSTUDIO_LOCAL_REQUEST_IDENTITY_PROTOCOL,
     transportProtocol: policy.transport.protocol,
@@ -698,6 +709,13 @@ export function assertLmStudioLocalWireRequest(
     throw new Error('LM Studio response format is not the exact strict resident schema wrapper');
   }
   const envelope = assertStrictLocalResidentSessionEnvelope(record.messages, jsonSchema.schema);
+  if (envelope.workingContinuityProtocol === 'behold.resident-continuous-transcript.v1') {
+    assertConservativeLmStudioContextAdmission(
+      value,
+      policy.settings.maxOutputTokens,
+      policy.settings.contextTokens,
+    );
+  }
   assertLmStudioPerceptionLayout(record.messages, perceptionProfile);
   if (
     envelope.schemaProtocol !== policy.transport.schemaProtocol ||
@@ -751,6 +769,24 @@ function assertLmStudioPerceptionLayout(
   const hasCamera = Array.isArray(current.content);
   if (hasCamera !== usesResidentCamera(perceptionProfile)) {
     throw new Error(`LM Studio wire perception differs from ${perceptionProfile}`);
+  }
+}
+
+function assertConservativeLmStudioContextAdmission(
+  wire: unknown,
+  maxOutputTokens: number,
+  contextTokens: number,
+) {
+  // LM Studio's official exact procedure is prompt-template application plus
+  // model-tokenizer counting. The OpenAI-compatible wire does not expose that
+  // preflight, so v3 uses the complete UTF-8 wire size as a conservative token
+  // upper bound and reserves a fixed template margin. It may fail early; it
+  // must never authorize middle truncation.
+  const conservativeInputTokens = Buffer.byteLength(JSON.stringify(wire), 'utf8') + 1_024;
+  if (conservativeInputTokens + maxOutputTokens > contextTokens) {
+    throw new Error(
+      `LM Studio request exceeds the admitted context window: ${conservativeInputTokens} conservative input tokens + ${maxOutputTokens} output > ${contextTokens}`,
+    );
   }
 }
 
@@ -1114,7 +1150,7 @@ export function parseLmStudioLocalJsonActionDecision(
     message,
     request,
     call,
-    request.policyProfile === 'resident-v2' ? 1 : 2,
+    request.policyProfile === 'resident-v3' ? 3 : request.policyProfile === 'resident-v2' ? 1 : 2,
   );
 }
 

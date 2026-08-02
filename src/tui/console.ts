@@ -24,7 +24,7 @@ import {
   lmStudioResidentInstanceId,
 } from '../mind/lmstudio-local';
 import { usesOllamaResidentSessionTransport } from '../mind/ollama-json-action';
-import { usesResidentSessionPolicy } from '../policy/profile';
+import { usesContinuousResidentTranscript, usesResidentSessionPolicy } from '../policy/profile';
 import { createRunJournal } from '../observability/journal';
 import {
   createResidentLifeCommit,
@@ -770,13 +770,15 @@ export async function runConsole(
               onPerceptionAdmitted: (frame) => retainBotViewerAdmittedFrame(bot, frame),
             }
           : {}),
-        workingContinuity:
-          (ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)) ||
-          lmStudioLocal ||
-          (usesResidentSessionPolicy(policyProfile) &&
-            (providerRoute?.protocol === 'behold.openrouter-route-policy.v2' ||
-              providerRoute?.protocol === 'behold.openrouter-route-policy.v3' ||
-              providerRoute?.protocol === 'behold.openrouter-route-policy.v4'))
+        workingContinuity: usesContinuousResidentTranscript(policyProfile)
+          ? 'continuous-transcript-v1'
+          : (ollamaLocal && usesOllamaResidentSessionTransport(ollamaLocal)) ||
+              lmStudioLocal ||
+              (usesResidentSessionPolicy(policyProfile) &&
+                (providerRoute?.protocol === 'behold.openrouter-route-policy.v2' ||
+                  providerRoute?.protocol === 'behold.openrouter-route-policy.v3' ||
+                  providerRoute?.protocol === 'behold.openrouter-route-policy.v4' ||
+                  providerRoute?.protocol === 'behold.openrouter-route-policy.v5'))
             ? 'resident-session-v1'
             : 'recent-action-v1',
         ...(releaseGate ? { experimentRelease: () => experimentRelease } : {}),
