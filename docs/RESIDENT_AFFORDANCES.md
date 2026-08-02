@@ -89,12 +89,15 @@ The stable catalog names everything a body implementation can ever attempt.
 For coordinate-bearing resident profiles it is not the prompt for every moment:
 the world adapter publishes an observation-bound subset through
 `actionsFor(observation)` and narrows inputs to exact current entity, block,
-inventory, roster, or own-memory references. The human-semantic profile instead
-keeps cursor-like player controls stable when filtering them would expose a
-private reachability or registry classification. A supplied control is an
-authorized attempt, not a promise that Minecraft preconditions hold or that it
-will succeed. Required roster and inventory arguments are still narrowed to
-visible names and the control is absent when no such referent exists. The
+inventory, roster, or own-memory references. The human-semantic profile may
+keep a cursor-like control across hidden Minecraft classifications, but it must
+not advertise an attempt whose required public body fact is visibly absent.
+Episode `000017` is the counterexample: an empty-handed resident was offered
+held-block placement, and a still resident with no owned action was offered
+`stop`. Execution-time revalidation remains necessary for world drift; it does
+not make a knowingly unusable current menu truthful. Required roster and
+inventory arguments are narrowed to visible names and the control is absent
+when no such referent exists. The
 generic controller may further restrict the surface for authorization or urgent
 attention, but it does not discover Minecraft objects or mechanics.
 

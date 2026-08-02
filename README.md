@@ -73,8 +73,12 @@ or one bodily intention. Zero creates neither a Minecraft attempt nor a
 synthetic action/consequence; generic time passage does not immediately poll the
 model again. Meaningful lived change or a bounded one-minute reconsideration
 may create the next opportunity. Focused and full repository checks pass, but
-this repaired contract has not yet been exercised through an ordinary live
-episode, so episode `000015` remains the latest live evidence for this defect.
+the first ordinary exercise did not produce a null intention. Qualified Oxford
+episode `000017` offered the nullable no-wait schema for 58 completed resident
+model turns, retained the exact provider bodies, and stopped with every
+provider admission settled. Neither resident chose null, so this is live
+evidence for removing `wait_for_event`, not yet evidence for the null chronology
+or its restart behavior.
 The first no-world follow-up also found that all three minimal session layouts
 still rejected the next request after null intention. The current wire now
 admits later lived experience directly after one or more exact null responses;
@@ -94,6 +98,16 @@ An opt-in private inspector can now materialize an exactly retained provider
 request, response, image, parsed decision, and matching canonical causal turn;
 ordinary episodes that did not retain model bodies remain explicitly
 unrecoverable at that literal level.
+
+Episode `000017` also falsified the claim that the current resident action
+surface is literally truthful. Exact requests offered `stop` while the resident
+was still and owned no active action, and offered `place_held_against_focus`
+while the resident held nothing; one such placement view also reported the
+focus only as nearby. The residents selected those advertised controls and the
+runtime produced a no-op success or ordinary failure. This is an open harness
+defect, not clean evidence of resident conduct. Ticket `beh-1h3a` is reopened,
+and no long habitat epoch should begin until the observation-bound offer surface
+stops advertising visibly unusable controls.
 
 The complete mature transcript later proved operationally too slow despite
 fitting Qwen's physical context window. `resident-v4` therefore makes the

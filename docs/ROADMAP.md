@@ -59,9 +59,14 @@ another long epoch remains premature. A later no-world audit found and repaired
 the immediate next-request wire failure after null intention. Resident-v3/v4
 now preserve that cognition as a first-class non-action event in the canonical
 private Lync chain and reconstruct it without inventing a Minecraft result;
-Behold, Lync, and Textile checks pass. `beh-wo5b` remains open until a short
-ordinary live null/wake/stop/resume exercises that composed boundary and the
-resulting source is visibly read through Textile. Tickets state observable product behavior; evidence and negative
+Behold, Lync, and Textile checks pass. Qualified Oxford episode `000017`
+subsequently exercised the nullable no-wait schema for 58 completed resident
+turns and stopped cleanly with exact provider bodies retained, but neither
+resident selected null; `beh-wo5b` therefore remains open. The same exact
+requests exposed visibly unusable advertised actions (`stop` with no active
+control and held-block placement with no held item), so literal contract ticket
+`beh-1h3a` is reopened and another long epoch remains premature. Tickets state
+observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves

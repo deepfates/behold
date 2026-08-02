@@ -24,10 +24,11 @@ The catalog says what this kind of body can ever do; `actionsFor` publishes an
 authorized observation-bound surface and may narrow inputs to exact perceived
 targets. A supplied control is an attempt the controller will accept, not a
 promise that every Minecraft precondition holds or that the attempt will
-succeed. The human-semantic profile deliberately retains cursor-like controls
-when removing one would reveal private reachability or registry classification;
-Minecraft returns their failure. Explicit visible referents such as roster and
-inventory names are still narrowed exactly and cannot be guessed when absent.
+succeed. The human-semantic profile may retain cursor-like controls when only a
+hidden Minecraft classification is uncertain, but not when an explicitly
+observed prerequisite is absent. Minecraft still returns failures after
+execution-time drift. Explicit visible referents such as roster and inventory
+names are narrowed exactly and cannot be guessed when absent.
 The adapter cannot introduce a capability absent from the catalog. A mind is a replaceable
 proposal adapter above that boundary. It does not own waking, authorization,
 execution, memory, or world truth.
@@ -86,16 +87,17 @@ offered only after the current cursor actually confirms the door.
 Minecraft-specific admission belongs to the Minecraft adapter. The generic
 controller applies task allowlists, bodily-attention constraints, serialization,
 and catalog authorization after `actionsFor`; it has no door, entity, inventory,
-or roster discovery rules. A world adapter failure therefore degrades to the
-explicit yield action instead of broadening capability.
+or roster discovery rules. A world-adapter failure remains explicit instead of
+broadening capability or inventing a yield action.
 
 The coordinate-bearing resident profile removes capabilities whose visible
 physical preconditions are absent and binds exact perceived targets in its
-schemas. The human-semantic profile instead preserves its stable cursor-control
-vocabulary so tool availability does not become a hidden classifier; the
-executor binds and rechecks the private current target, and an inapplicable
-attempt fails visibly. Both profiles omit argument-bearing controls when their
-required roster or inventory referents are visibly absent. Exact enums narrow
+schemas. The human-semantic profile avoids using tool availability as a hidden
+registry classifier, while still omitting controls whose required public body
+fact is visibly absent. The executor binds and rechecks the current target, and
+an attempt invalidated by later world drift fails visibly. Both profiles omit
+argument-bearing controls when their required roster or inventory referents are
+visibly absent. Exact enums narrow
 item names, entity ids, and door ids; equal numeric bounds narrow block
 positions without relying on provider-incompatible numeric enums. Older
 observations without item-use metadata retain a conservative

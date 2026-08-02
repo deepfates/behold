@@ -47,3 +47,9 @@ null/wake/stop/resume using the composed front door, its first resumed model
 request, and visible Textile reading from the resulting real source. Keep this
 ticket open until those facts are observed; do not replace them with a long
 soak.
+
+## Notes
+
+**2026-08-02T10:37:34Z**
+
+Ordinary qualified Oxford episode 000017 used the nullable resident-v4 schema, retained exact model bodies, and stopped cleanly, but neither resident chose null intention. Therefore no live cognition event or restart chronology was produced and this ticket remains open. The exercise found a more immediate false-affordance defect tracked by reopened beh-1h3a; repair that before another live attempt rather than trying to induce null conduct.

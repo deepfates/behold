@@ -1,6 +1,6 @@
 ---
 id: beh-1h3a
-status: closed
+status: open
 deps: []
 links: [beh-uumj, beh-wssv, beh-kgyy]
 created: 2026-08-01T23:24:51Z
@@ -73,3 +73,7 @@ manufacture that resident choice.
 **2026-08-02T09:06:32Z**
 
 2026-08-02 principal correction: the added requirement that a resident naturally choose a cursor-block action was not in this ticket acceptance and improperly made model conduct a product gate. The production interpreter path has exact adversarial coverage for no navigation, exact enum/count semantics, dispatch-vs-delivery, omissions, and orientation preservation; episode 000003 exercised same-life ordinary repaired cursor digging and independent Lync/Textile; episode 000014 exercised the current bodily-feedback contract and ordinary resume. This closes literal contract truth without prescribing or awaiting a resident choice. Future contrary live evidence may reopen the bug.
+
+**2026-08-02T10:37:34Z**
+
+Episode 000017 retained exact provider bodies and exercised the repaired no-wait schema through the ordinary qualified Oxford front door, but no resident returned null intention, so this ticket remains open. The run instead falsified the closure of literal action-contract truth. Exact Lark model turns at journal sequences 240 and 273 were offered and chose stop while observation reported pose.motion=still, no focus, empty inventory, and no owned resident action; the interpreter then treats stop as an unconditional successful control clear. Exact Sedge model turns at sequences 145 and 168 were offered and chose place_held_against_focus while heldItem=null and inventory empty; sequence 145 also reported focus proximity=nearby. These are not evidence of bad resident judgment alone: the supplied current-action catalog advertised bodily attempts whose observable prerequisites were absent. Current tests deliberately encode this for human-semantic focus controls. Reopened. Do not begin another long habitat epoch until the smallest truthful offer boundary is decided and exercised; preserve execution-time revalidation and do not add steering.
