@@ -1,6 +1,6 @@
 ---
 id: beh-e3jy
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-01T12:10:58Z
@@ -75,3 +75,7 @@ Ash copy: cursor catalog rebuild 4.314s, project/place scan 4.995s, and v4 fold
 rebuild 4.902s (14.212s before the first model request). This is bounded-memory
 but not tail-time migration; the ordinary resume must observe time to first
 decision rather than claiming an instantaneous restart.
+
+**2026-08-02T07:06:17Z**
+
+2026-08-02 current main df4fa29 completes the selected-life checkpoint boundary through Lync commit a5cbc3e. Lync now owns exact canonical source ordering and bounded-prefix union/ancestry semantics; Behold records all canonical prefixes plus the explicit selected loom/tip/depth/body digest/chain digest/locator, and historical v2 records report weaker selection coverage explicitly. Full Lync verification (201 tests, typecheck, examples, packed artifact) and full Behold npm run check passed. Read-only retained Ash capture bound 2,919 turns / 148,804,085 bytes in 12.68s without copying history. Ordinary unsteered exploratory legacy-habitat episode 000006 then resumed/stopped the mature same lives from clean df4fa29: completed head and cleanup were clean, the shared LM Studio model unloaded, and the episode independently reverified Ash depth 2,926 and Reed depth 1,193 across 204,908,676 authenticated bytes. Textile main read the exact source set as 4,119 readable turns plus 2 roots with zero unsupported, nonconforming, or warnings and zero retained raw bytes/private payload objects. The residents repeatedly yielded; that is conduct and not credited as behavioral acceptance. No package was published and no source was pushed.
