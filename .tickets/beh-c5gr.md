@@ -1,6 +1,6 @@
 ---
 id: beh-c5gr
-status: open
+status: closed
 deps: [beh-8tum]
 links: []
 created: 2026-08-02T02:02:47Z
@@ -28,3 +28,7 @@ An exact retained life reconstructs deterministically into chronological environ
 **2026-08-02T02:03:06Z**
 
 Grounding specimen: Oxford V4 episode 000001 Rowan request at 2026-08-02T01:39:06Z was 29,432 bytes in five reconstructed messages: identity charter, 3,998-character action contract, selected fold through turn 38, factual continuity for turns 42-44 explicitly declaring turns 39-41 absent, and current world JSON. It contained no retained assistant/tool transcript. This is the concrete failure the feature must remove.
+
+**2026-08-02T03:17:05Z**
+
+Completed by the provider-neutral resident-v3 projection plus exact Rowan replay and ordinary Oxford episodes 000003-000004. Canonical Lync now rebuilds each resident’s chronological private experience/assistant/outcome conversation without bounded-v2 folds; OpenRouter and LM Studio share the versioned layout; historical protocols remain unchanged; context admission fails visibly; exact stop/resume counts proved no middle gap/reset or cross-resident merge; and Textile opened the exact final source set after its owning browser adapter defects were repaired. The exercised DeepSeek trajectory remained repetitive, which is preserved as conduct rather than used to shrink the transcript requirement.
