@@ -68,3 +68,7 @@ Episode oxford-qualified-habitat-a-qwen36-camera-v1/000001 exposed the missing e
 **2026-08-01T23:53:58Z**
 
 Qualified resume episode 000003 added deployment evidence without expanding the claim: 14 resident-owned move_controls terminals passed the shared exact-pose settlement gate (1-8 samples, 51-426 ms) and every later camera request completed with no model_call_failed or camera/body mismatch. No external knockback occurred, so the episode does not exercise the newly repaired external-pose-drift branch; keep this ticket in progress until that specific live edge is crossed or its scope is reclassified.
+
+**2026-08-02T04:01:54Z**
+
+2026-08-02 episode 000007 added six successful resident-owned post-motion settlements (7-8 samples) with no camera/body mismatch. No external knockback occurred, so the repaired external-pose-drift branch remains live-unexercised and this ticket stays in progress.

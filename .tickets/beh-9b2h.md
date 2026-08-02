@@ -56,3 +56,7 @@ Added child beh-61if for the verified whole-history live-memory floor, with owni
 **2026-08-02T03:48:58Z**
 
 Resident-v3 checkpoint beh-c5gr is closed and changes the governing memory semantics: model-facing continuity is the complete chronological private conversation up to the verified model-context boundary, while streaming/index/checkpoint work exists to bound controller storage rather than curate experience. The open scale children remain beh-61if (decoded controller memory), beh-hmt6 (operational journal duplication), and beh-e3jy (incremental authenticated episode bindings).
+
+**2026-08-02T04:01:54Z**
+
+2026-08-02 re-entry identified the next honest boundary. Existing qualified camera lives are 148/159 turns and 8.5/10 MiB canonical Lync under resident-v2; their installed Qwen camera runtime is verified at 262,144 context tokens. Current resident-v3 preserves complete chronology and refuses over-context input, but LM Studio admission conservatively bounds the whole UTF-8 wire by bytes, so revising these mature camera lives to v3 would fail immediately rather than silently omit history. A fresh camera life would dodge the telos. Next product work is an explicit, versioned, resident-legible context-limit transition that preserves full canonical Lync and creates no inaccessible middle or curator fiction; then resume the same lives and inspect the exact first and sustained requests.

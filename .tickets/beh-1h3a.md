@@ -48,3 +48,7 @@ Episode 000004 loaded commit 2b6751a but did not independently choose a cursor-l
 **2026-08-02T01:14:32Z**
 
 Qualified episode 000006 exercised legal cursor-entity attack admission/revalidation but no resident independently chose a cursor-local block action, so the hidden-camera-preservation repair remains mechanically proven and deployment-shaped unexercised. Keep open without steering a resident to manufacture the action.
+
+**2026-08-02T04:01:54Z**
+
+2026-08-02 episode 000007 exercised the current ordinary camera/action path but neither resident independently selected a cursor-local block interaction. Movement, look, wait, and complete chat dispatch were observed; console proposal previews abbreviated long chat while Minecraft received the full sentence. Keep open specifically for an independently chosen cursor action proving no hidden orientation change; do not steer one into existence.

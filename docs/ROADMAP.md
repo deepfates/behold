@@ -41,9 +41,9 @@ minimal operator view and ethogram             ─┘
 The final exercise depends on all six capabilities. Authority and current-profile
 human/multi-resident coexistence are crossed. The continuous private transcript
 is also exercised below the current model-context boundary, while long-history
-storage remains open. Literal cursor/external-motion truth, lifecycle pressure,
-and the exact admitted-camera operator view remain active before multi-day
-acceptance. Tickets state observable product behavior; evidence and negative
+storage and an explicit real context-limit transition remain open. The compact
+operator view is crossed. Literal cursor/external-motion truth and lifecycle
+pressure remain active before multi-day acceptance. Tickets state observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves
@@ -116,10 +116,19 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   native player, and stopped cleanly again. First resumed requests contained
   only the matching resident's own continuity; Elm's own index retained all 14
   prior confirmed digs. Textile projected the two frozen unions as 335/357
-  readable resident events plus two roots each with no diagnostics. This closes
-  current long-run observability and current-profile coexistence, not growing
-  multi-day continuity, failure recovery, authority cleanup, or the habitat
-  telos.
+  readable resident events plus two roots each with no diagnostics. Qualified
+  camera episode 000007 then loaded the current admitted-frame projection in a
+  real browser: each card showed the exact frame supplied to Lark or Sedge,
+  bound to resident, body, run, observation, capture interval, digest, age, and
+  staleness alongside canonical causal and lifecycle facts. Sedge moved roughly
+  22 blocks toward Lark and dispatched complete Minecraft chat without a task;
+  all 38 completed local calls succeeded, two in-flight calls cancelled visibly
+  at duration stop, and the world, listeners, and shared model stopped cleanly.
+  Textile authenticated its 20,531,646-byte source set and projected 342
+  readable resident events plus two roots with no diagnostics. This closes the
+  compact operator-view checkpoint and current-profile coexistence, not growing
+  multi-day continuity, context-limit treatment, failure recovery, or the
+  habitat telos.
 - The separately named `semantic-plus-camera-v1` experiment now reaches the
   actual resident mind boundary. It lazily captures one exact first-person
   Prismarine frame, admits it against the selected raw body observation, binds
