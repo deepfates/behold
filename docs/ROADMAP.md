@@ -78,9 +78,11 @@ the null response followed by fresh camera experience, reached LM Studio, and
 Sedge continued for 18 new canonical turns. Both residents' accounts settled,
 Minecraft saved, all listeners closed, and the model unloaded. Textile's real
 ordered-prefix importer read 869 resident events and rendered cognition 400
-honestly; two unrelated historical placement-input presentation gaps are now
-tracked in Lync `lyn-gisl`. `beh-wo5b` and `beh-s37t` are closed. This clears the
-no-intention continuity prerequisite, not the repeated multi-day habitat. The
+honestly. Lync `0a511b6` and Textile `fdedaf8` now present the two retained
+held-focus placement attempts without inventing success; the exact episode
+re-import has zero unsupported diagnostics. `beh-wo5b` and `beh-s37t` are
+closed. This clears the no-intention continuity prerequisite, not the repeated
+multi-day habitat. The
 same episode's exact Sedge turn 401 was also materialized through the private
 inspector: its 62,655-byte request digest matched broker admission, its camera,
 schema, response, parsed turn, and canonical cause were present, and directory

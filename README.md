@@ -106,10 +106,11 @@ and was followed by 18 new canonical turns spanning looking, movement, chat,
 and exact private-life reads. No controller or model-call failure occurred;
 provider accounting settled, Minecraft saved, listeners closed, and the shared
 model unloaded. Textile's actual ordered-prefix importer rendered cognition 400
-as perception plus “chose no bodily action.” Two unrelated historical placement
-inputs remain explicitly unsupported in the Lync presenter and are tracked by
-`lyn-gisl`. Tickets `beh-wo5b` and `beh-s37t` are closed; this crosses truthful
-no-intention continuity, not the multi-day habitat telos.
+as perception plus “chose no bodily action.” Lync `0a511b6` now also presents
+the two retained held-focus placement attempts without claiming success; the
+same 869-event Textile import has zero unsupported diagnostics. Tickets
+`beh-wo5b` and `beh-s37t` are closed; this crosses truthful no-intention
+continuity, not the multi-day habitat telos.
 An opt-in private inspector can now materialize an exactly retained provider
 request, response, image, parsed decision, and matching canonical causal turn;
 ordinary episodes that did not retain model bodies remain explicitly

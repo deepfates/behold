@@ -82,3 +82,7 @@ is conduct, not a reason to steer.
 **2026-08-02T11:10:51Z**
 
 2026-08-02 stopped frontier after episodes 000018–000019: all four declared dependencies are now closed. The false-action offer surface was ordinarily re-exercised; natural null cognition committed without synthetic world action; the exact same life resumed from null turn 400 into sustained camera-bound requests; Textile rendered it; and the selected-treatment private inspector matched exact provider bytes to broker admission and canonical turn 401. Runtime is clean, Minecraft head completed at digest 7e4a0afa..., no ports or models remain. This does not satisfy either >1-day trial. The next capability action is beh-xzc6 itself, but do not start it inside this owner-requested morning checkpoint.
+
+**2026-08-02T11:17:36Z**
+
+2026-08-02 reader cleanup: Lync 0a511b6 now presents the two retained place_held_against_focus attempts without inferring inventory or success; full Lync verify passes. Textile fdedaf8 pins that exact packed candidate; its full verify passes and a fresh import of episode 000019 authenticated 68,444,160 bytes as 871 source events, 869 readable and two structural, with zero unsupported diagnostics. The remaining 12,278 diagnostics are named source-only/withheld fields. This removes a reader truthfulness gap only; neither >1-day trial has begun.
