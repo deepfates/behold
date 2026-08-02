@@ -1105,7 +1105,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         timeoutMs: opts.changeConfirmationTimeoutMs,
         stabilityWindowMs: opts.changeStabilityWindowMs,
         commandTimeoutMs: opts.worldCommandTimeoutMs,
-        perform: () => (bot as any).dig(b),
+        perform: () => (bot as any).dig(b, admittedCursorFocus === true ? 'ignore' : undefined),
         signal: execution?.signal,
       });
       const adjacentBlocks = result.ok ? adjacentSolidBlocks(bot, position) : [];
@@ -1430,7 +1430,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['on'],
     },
-    run: async ({ on, face = 'top' }) => {
+    run: async ({ on, face = 'top', preserveLook = false }) => {
       const ref = (bot as any).blockAt(new Vec3(on.x, on.y, on.z));
       if (!ref || isAirBlock(ref)) return { ok: false, error: 'no_solid_reference_block' };
       const faces: Record<string, Vec3> = {
@@ -1481,7 +1481,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         timeoutMs: opts.changeConfirmationTimeoutMs,
         stabilityWindowMs: opts.changeStabilityWindowMs,
         commandTimeoutMs: opts.worldCommandTimeoutMs,
-        perform: () => performPlacement(bot, ref, faceVector),
+        perform: () => performPlacement(bot, ref, faceVector, preserveLook === true),
       });
     },
     category: 'world',
@@ -1720,13 +1720,18 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z, maxDistance = 5 }, execution) =>
+    run: async (
+      { x, y, z, maxDistance = 5, interactionBlock = null, preserveLook = false },
+      execution,
+    ) =>
       activateToggleBlock(
         bot,
         { x: Number(x), y: Number(y), z: Number(z) },
         clamp(Number(maxDistance), 1, 6),
         opts,
         execution?.signal,
+        interactionBlock,
+        preserveLook === true,
       ),
     category: 'world',
     effects: { blockMutation: 'state' },
@@ -1948,10 +1953,15 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z, maxDistance = 6 }) => {
+    run: async ({ x, y, z, maxDistance = 6, interactionBlock = null, preserveLook = false }) => {
       const resolved = resolveContainerBlock(bot, { x, y, z, maxDistance });
       if (!resolved.ok) return resolved;
-      const container = await (bot as any).openContainer(resolved.block);
+      const container = await openContainerWithoutAutomaticLook(
+        bot,
+        resolved.block,
+        interactionBlock,
+        preserveLook === true,
+      );
       try {
         return {
           ok: true,
@@ -1982,7 +1992,10 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['name', 'x', 'y', 'z'],
     },
-    run: async ({ name, count = 1, x, y, z, maxDistance = 6 }, execution) => {
+    run: async (
+      { name, count = 1, x, y, z, maxDistance = 6, interactionBlock = null, preserveLook = false },
+      execution,
+    ) => {
       const invalidCount = invalidDiscreteItemCount(count);
       if (invalidCount) return invalidCount;
       const resolved = resolveContainerBlock(bot, { x, y, z, maxDistance });
@@ -2002,7 +2015,12 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       }
 
       const moved = Math.min(count, Math.max(0, Number(item.count) || 0));
-      const container = await (bot as any).openContainer(resolved.block);
+      const container = await openContainerWithoutAutomaticLook(
+        bot,
+        resolved.block,
+        interactionBlock,
+        preserveLook === true,
+      );
       try {
         const bodyBefore = openContainerBodyCount(container, bot, String(item.name));
         const containerBefore = countItems(container.containerItems?.() || [], String(item.name));
@@ -2057,12 +2075,20 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['name', 'x', 'y', 'z'],
     },
-    run: async ({ name, count = 1, x, y, z, maxDistance = 6 }, execution) => {
+    run: async (
+      { name, count = 1, x, y, z, maxDistance = 6, interactionBlock = null, preserveLook = false },
+      execution,
+    ) => {
       const invalidCount = invalidDiscreteItemCount(count);
       if (invalidCount) return invalidCount;
       const resolved = resolveContainerBlock(bot, { x, y, z, maxDistance });
       if (!resolved.ok) return resolved;
-      const container = await (bot as any).openContainer(resolved.block);
+      const container = await openContainerWithoutAutomaticLook(
+        bot,
+        resolved.block,
+        interactionBlock,
+        preserveLook === true,
+      );
       try {
         const item = namedInventoryItem(
           container.containerItems?.() || [],
@@ -2130,7 +2156,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       },
       required: ['x', 'y', 'z'],
     },
-    run: async ({ x, y, z, maxDistance = 6 }) => {
+    run: async ({ x, y, z, maxDistance = 6, preserveLook = false }) => {
       const explicit = [x, y, z].every((value) => Number.isFinite(Number(value)));
       const bed = explicit
         ? (bot as any).blockAt?.(new Vec3(Number(x), Number(y), Number(z)))
@@ -2141,7 +2167,11 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       if (!bed || !(bot as any).isABed?.(bed)) {
         return { ok: false, error: 'bed_not_found' };
       }
-      await (bot as any).sleep(bed);
+      if (preserveLook === true) {
+        await runWithoutAutomaticLook(bot, () => (bot as any).sleep(bed));
+      } else {
+        await (bot as any).sleep(bed);
+      }
       return {
         ok: !!(bot as any).isSleeping,
         ...(!!(bot as any).isSleeping ? {} : { error: 'sleep_unconfirmed' }),
@@ -2624,7 +2654,10 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
       if (!focused.ok) return focused;
       const face = blockFaceName(focused.block.face);
       if (!face) return { ok: false, error: 'focused_block_face_unavailable' };
-      return runExistingCommand('place_against', { on: focused.position, face }, execution);
+      return runExistingCommand('place_against', { on: focused.position, face }, execution, {
+        interactionBlock: focused.block,
+        preserveLook: true,
+      });
     },
     category: 'world',
     effects: { blockMutation: 'place' },
@@ -2643,12 +2676,20 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
           'toggle_block',
           { ...focused.position, maxDistance: HUMAN_SEMANTIC_INTERACTION_DISTANCE },
           execution,
+          { interactionBlock: focused.block, preserveLook: true },
         );
       }
       if (typeof (bot as any).activateBlock !== 'function') {
         return { ok: false, error: 'block_use_input_unavailable' };
       }
-      await (bot as any).activateBlock(focused.block);
+      const interaction = blockInteraction(
+        focused.block,
+        (bot as any).entity?.position,
+        focused.position,
+      );
+      await runWithoutAutomaticLook(bot, () =>
+        (bot as any).activateBlock(focused.block, interaction.face, interaction.cursor),
+      );
       return {
         ok: true,
         status: 'use_input_dispatched',
@@ -2694,6 +2735,7 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
             maxDistance: HUMAN_SEMANTIC_INTERACTION_DISTANCE,
           },
           execution,
+          { interactionBlock: focused.block, preserveLook: true },
         );
       },
       category: 'inventory',
@@ -2714,16 +2756,22 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         'sleep_in_bed',
         { ...focused.position, maxDistance: HUMAN_SEMANTIC_INTERACTION_DISTANCE },
         execution,
+        { interactionBlock: focused.block, preserveLook: true },
       );
     },
     category: 'self-care',
     effects: { blockMutation: 'state' },
   });
 
-  async function runExistingCommand(name: string, args: any, execution?: CommandExecution) {
+  async function runExistingCommand(
+    name: string,
+    args: any,
+    execution?: CommandExecution,
+    cursor?: { interactionBlock?: any; preserveLook?: boolean },
+  ) {
     const command = specs.find((candidate) => candidate.name === name);
     if (!command) return { ok: false, error: 'body_delegate_unavailable', delegate: name };
-    return command.run(args, execution);
+    return command.run({ ...args, ...cursor }, execution);
   }
 
   function summarizeBlock(b: any) {
@@ -2945,6 +2993,40 @@ type ContainerResolution =
         | 'container_out_of_reach';
       [key: string]: unknown;
     };
+
+async function runWithoutAutomaticLook<T>(bot: Bot, operation: () => Promise<T>): Promise<T> {
+  const subject = bot as any;
+  const originalLookAt = subject.lookAt;
+  if (typeof originalLookAt !== 'function') return operation();
+  // The interpreter serializes body actions. Cursor-local actions already carry
+  // an admitted raycast target, so Mineflayer's preparatory look would be an
+  // additional, undisclosed body input rather than part of the chosen action.
+  subject.lookAt = async () => undefined;
+  try {
+    return await operation();
+  } finally {
+    subject.lookAt = originalLookAt;
+  }
+}
+
+async function openContainerWithoutAutomaticLook(
+  bot: Bot,
+  block: any,
+  interactionBlock: any,
+  preserveLook: boolean,
+) {
+  if (!preserveLook) return (bot as any).openContainer(block);
+  const position = integerBlockPosition(block?.position);
+  if (!position) throw new Error('focused_container_position_unavailable');
+  const interaction = blockInteraction(
+    interactionBlock ?? block,
+    (bot as any).entity?.position,
+    position,
+  );
+  return runWithoutAutomaticLook(bot, () =>
+    (bot as any).openContainer(block, interaction.face, interaction.cursor),
+  );
+}
 
 function resolveContainerBlock(
   bot: Bot,
@@ -3650,6 +3732,7 @@ async function activateToggleBlock(
   opts: InterpreterOptions,
   signal?: AbortSignal,
   interactionBlock?: any,
+  preserveLook = false,
 ): Promise<any> {
   if (signal?.aborted) return cancelledAction('minecraft-block-activation');
   const block = (bot as any).blockAt?.(new Vec3(position.x, position.y, position.z));
@@ -3681,7 +3764,9 @@ async function activateToggleBlock(
     const target = toggleInteractionTarget(block, interactionBlock, position, property);
     const targetPosition = integerBlockPosition(target.position) ?? position;
     const interaction = blockInteraction(target, me, targetPosition);
-    await (bot as any).activateBlock(target, interaction.face, interaction.cursor);
+    const activate = () => (bot as any).activateBlock(target, interaction.face, interaction.cursor);
+    if (preserveLook) await runWithoutAutomaticLook(bot, activate);
+    else await activate();
   } catch (error: any) {
     commandError = String(error?.message || error || 'block_activation_failed');
   }
@@ -4082,13 +4167,16 @@ function isPlacementSupport(block: any) {
   return block.boundingBox == null || block.boundingBox !== 'empty';
 }
 
-function performPlacement(bot: Bot, reference: any, faceVector: Vec3) {
+function performPlacement(bot: Bot, reference: any, faceVector: Vec3, preserveLook = false) {
   const placeWithOptions = (bot as any)._placeBlockWithOptions;
   if (typeof placeWithOptions === 'function') {
     return placeWithOptions.call(bot, reference, faceVector, {
       swingArm: 'right',
-      forceLook: true,
+      forceLook: preserveLook ? 'ignore' : true,
     });
+  }
+  if (preserveLook) {
+    throw new Error('cursor_placement_without_automatic_look_unavailable');
   }
   return (bot as any).placeBlock(reference, faceVector);
 }

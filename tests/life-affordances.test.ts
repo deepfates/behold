@@ -370,6 +370,7 @@ test('digging an admitted cursor block never hides an approach action', async ()
   bot.entity.pitch = 0;
   const position = new Vec3(0, 68, -3);
   let pathfinderCalls = 0;
+  let digForceLook: unknown = null;
   let block: any = {
     name: 'oak_log',
     type: 17,
@@ -396,7 +397,8 @@ test('digging an admitted cursor block never hides an approach action', async ()
       pathfinderCalls += 1;
     },
   };
-  bot.dig = async (target: any) => {
+  bot.dig = async (target: any, forceLook: unknown) => {
+    digForceLook = forceLook;
     const previous = target;
     block = airAt(position);
     bot.emit('blockUpdate', previous, block);
@@ -424,7 +426,331 @@ test('digging an admitted cursor block never hides an approach action', async ()
   assert.equal(result.ok, true);
   assert.equal(result.navigation, null);
   assert.equal(pathfinderCalls, 0);
+  assert.equal(digForceLook, 'ignore');
+  assert.equal(bot.entity.yaw, 0);
+  assert.equal(bot.entity.pitch, 0);
   assert.deepEqual(bot.entity.position, new Vec3(0, 64, 0));
+});
+
+test('using an admitted cursor block suppresses Mineflayer automatic camera movement', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.entity.yaw = 0.75;
+  bot.entity.pitch = -0.25;
+  const position = new Vec3(1, 64, 0);
+  const block = {
+    name: 'crafting_table',
+    type: 58,
+    stateId: 58,
+    boundingBox: 'block',
+    position,
+    face: 5,
+    intersect: new Vec3(1, 64.5, 0.5),
+  };
+  bot.world = { raycast: () => block };
+  let lookCalls = 0;
+  let activations = 0;
+  bot.lookAt = async () => {
+    lookCalls += 1;
+    bot.entity.yaw = 2;
+    bot.entity.pitch = 0.5;
+  };
+  bot.activateBlock = async () => {
+    activations += 1;
+    await bot.lookAt();
+  };
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:1:64:0',
+        kind: 'block',
+        name: 'crafting_table',
+        source: 'cursor',
+        position: { x: 1, y: 64, z: 0 },
+        distance: 1,
+        reachable: true,
+        face: 'east',
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot).run(
+    'use_focused_block',
+    {},
+    { observation: admitted },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'use_input_dispatched');
+  assert.equal(activations, 1);
+  assert.equal(lookCalls, 0);
+  assert.equal(bot.entity.yaw, 0.75);
+  assert.equal(bot.entity.pitch, -0.25);
+});
+
+test('cursor interaction restores ordinary look behavior after a failed action', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  const position = new Vec3(1, 64, 0);
+  const block = {
+    name: 'crafting_table',
+    type: 58,
+    stateId: 58,
+    boundingBox: 'block',
+    position,
+    face: 5,
+    intersect: new Vec3(1, 64.5, 0.5),
+  };
+  bot.world = { raycast: () => block };
+  let lookCalls = 0;
+  const originalLookAt = async () => {
+    lookCalls += 1;
+  };
+  bot.lookAt = originalLookAt;
+  bot.activateBlock = async () => {
+    await bot.lookAt();
+    throw new Error('server_rejected_use');
+  };
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:1:64:0',
+        kind: 'block',
+        name: 'crafting_table',
+        source: 'cursor',
+        position: { x: 1, y: 64, z: 0 },
+        distance: 1,
+        reachable: true,
+        face: 'east',
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot).run(
+    'use_focused_block',
+    {},
+    { observation: admitted },
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(String(result.error), /server_rejected_use/);
+  assert.equal(lookCalls, 0);
+  assert.equal(bot.lookAt, originalLookAt);
+  await bot.lookAt();
+  assert.equal(lookCalls, 1);
+});
+
+test('using an admitted toggle preserves view while retaining Minecraft state confirmation', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.entity.yaw = 0.75;
+  bot.entity.pitch = -0.25;
+  const position = new Vec3(1, 64, 0);
+  let powered = false;
+  let lever: any = {
+    name: 'lever',
+    type: 69,
+    stateId: 69,
+    boundingBox: 'block',
+    position,
+    face: 5,
+    intersect: new Vec3(1, 64.5, 0.5),
+    getProperties: () => ({ powered }),
+  };
+  bot.world = { raycast: () => lever };
+  bot.blockAt = () => lever;
+  let lookCalls = 0;
+  bot.lookAt = async () => {
+    lookCalls += 1;
+    bot.entity.yaw = 2;
+    bot.entity.pitch = 0.5;
+  };
+  bot.activateBlock = async () => {
+    await bot.lookAt();
+    const previous = lever;
+    powered = true;
+    lever = { ...lever, stateId: 70, getProperties: () => ({ powered }) };
+    bot.emit('blockUpdate', previous, lever);
+  };
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:1:64:0',
+        kind: 'block',
+        name: 'lever',
+        source: 'cursor',
+        position: { x: 1, y: 64, z: 0 },
+        distance: 1,
+        reachable: true,
+        face: 'east',
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot, { changeStabilityWindowMs: 1 }).run(
+    'use_focused_block',
+    {},
+    { observation: admitted },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.verified, true);
+  assert.equal(lookCalls, 0);
+  assert.equal(bot.entity.yaw, 0.75);
+  assert.equal(bot.entity.pitch, -0.25);
+});
+
+test('focused container and bed use preserve the admitted camera orientation', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.entity.yaw = 0.6;
+  bot.entity.pitch = -0.2;
+  let lookCalls = 0;
+  bot.lookAt = async () => {
+    lookCalls += 1;
+    bot.entity.yaw = 2;
+    bot.entity.pitch = 0.5;
+  };
+  const position = new Vec3(1, 64, 0);
+  let block: any = {
+    name: 'chest',
+    type: 54,
+    stateId: 54,
+    boundingBox: 'block',
+    position,
+    face: 5,
+    intersect: new Vec3(1, 64.5, 0.5),
+  };
+  bot.world = { raycast: () => block };
+  bot.blockAt = () => block;
+  bot.openContainer = async () => {
+    await bot.lookAt();
+    return { containerItems: () => [], close: () => {} };
+  };
+  const observation = () => ({
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:1:64:0',
+        kind: 'block',
+        name: block.name,
+        source: 'cursor',
+        position: { x: 1, y: 64, z: 0 },
+        distance: 1,
+        reachable: true,
+        face: 'east',
+      },
+    },
+  });
+  const interpreter = buildInterpreter(bot);
+
+  const inspected = await interpreter.run(
+    'inspect_focused_container',
+    {},
+    { observation: observation() },
+  );
+  assert.equal(inspected.ok, true);
+  assert.equal(lookCalls, 0);
+  assert.equal(bot.entity.yaw, 0.6);
+  assert.equal(bot.entity.pitch, -0.2);
+
+  block = { ...block, name: 'red_bed', type: 120, stateId: 120 };
+  bot.isABed = () => true;
+  bot.isSleeping = false;
+  bot.sleep = async () => {
+    await bot.lookAt();
+    bot.isSleeping = true;
+  };
+  const slept = await interpreter.run('sleep_in_focused_bed', {}, { observation: observation() });
+  assert.equal(slept.ok, true);
+  assert.equal(lookCalls, 0);
+  assert.equal(bot.entity.yaw, 0.6);
+  assert.equal(bot.entity.pitch, -0.2);
+});
+
+test('placing against admitted cursor focus uses the exact face without turning the camera', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0.5, 64, 0.5);
+  bot.entity.yaw = 0.4;
+  bot.entity.pitch = -0.1;
+  bot.heldItem = { name: 'stone' };
+  const referencePosition = new Vec3(1, 64, 0);
+  const placedPosition = new Vec3(2, 64, 0);
+  const reference = {
+    name: 'stone_bricks',
+    type: 98,
+    stateId: 98,
+    boundingBox: 'block',
+    position: referencePosition,
+    face: 5,
+    intersect: new Vec3(2, 64.5, 0.5),
+  };
+  let placed: any = {
+    name: 'air',
+    type: 0,
+    stateId: 0,
+    boundingBox: 'empty',
+    position: placedPosition,
+  };
+  bot.world = { raycast: () => reference };
+  bot.blockAt = (at: Vec3) =>
+    at.x === referencePosition.x && at.y === referencePosition.y && at.z === referencePosition.z
+      ? reference
+      : placed;
+  let lookCalls = 0;
+  let forceLook: unknown = null;
+  bot.lookAt = async () => {
+    lookCalls += 1;
+    bot.entity.yaw = 2;
+    bot.entity.pitch = 0.5;
+  };
+  bot._placeBlockWithOptions = async (_block: any, _face: Vec3, options: any) => {
+    forceLook = options.forceLook;
+    if (options.forceLook !== 'ignore') await bot.lookAt();
+    const before = placed;
+    placed = {
+      name: 'stone',
+      type: 1,
+      stateId: 1,
+      boundingBox: 'block',
+      position: placedPosition,
+    };
+    bot.emit('blockUpdate', before, placed);
+  };
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'block:overworld:1:64:0',
+        kind: 'block',
+        name: 'stone_bricks',
+        source: 'cursor',
+        position: { x: 1, y: 64, z: 0 },
+        distance: 1,
+        reachable: true,
+        face: 'east',
+      },
+    },
+  };
+
+  const result = await buildInterpreter(bot, {
+    safetyProfile: 'vanilla-player-v1',
+    changeStabilityWindowMs: 1,
+  }).run('place_held_against_focus', {}, { observation: admitted });
+
+  assert.equal(result.ok, true);
+  assert.equal(forceLook, 'ignore');
+  assert.equal(lookCalls, 0);
+  assert.equal(bot.entity.yaw, 0.4);
+  assert.equal(bot.entity.pitch, -0.1);
 });
 
 test('look_direction exposes bounded relative player orientation without raw angles', async () => {

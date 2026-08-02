@@ -1,6 +1,6 @@
 ---
 id: beh-1h3a
-status: closed
+status: open
 deps: []
 links: [beh-uumj, beh-wssv, beh-kgyy]
 created: 2026-08-01T23:24:51Z
@@ -32,3 +32,11 @@ Read-only audit of exact retained requests and code confirmed: focused dig could
 **2026-08-01T23:53:58Z**
 
 Same-life ordinary resume episode 000003 exercised the literal contract. Lark and Sedge each independently completed a focused oak-leaf dig with a Minecraft blockUpdate and navigation=null; later movement was explicit move_controls. Exact chat/whisper dispatch and recipient receipt remained distinct. Across 50 model turns there were zero missing/omitted event windows. Separate canonical Lync prefixes advanced to 5,264,387 and 4,869,543 bytes. Textile projected the exact 10,133,930-byte ordered set as 210 readable turns plus two roots with zero unsupported_* diagnostics after repairing one focused-use failure presenter gap. Focused adversarial coverage owns the unexercised inventory/count variants; full Behold check is 689 pass/1 intentional skip.
+
+**2026-08-01T23:59:20Z**
+
+Post-acceptance systematic cursor audit found a second literalness defect. In retained episode 000003, focused dig changed Lark yaw 1.5708→1.2017 and pitch 0→-0.1388, and changed Sedge pitch 0→-0.1492, because Mineflayer dig automatically looks at block center. The public cursor action did not disclose or request that orientation input. Mineflayer placement and activateBlock/openContainer/sleep paths contain the same automatic look. Reopened to make current-observation cursor actions preserve view orientation, with exact conformance tests; generic non-cursor actions retain their disclosed behavior.
+
+**2026-08-02T00:18:00Z**
+
+The owning repair now suppresses only Mineflayer's preparatory look for actions already bound to the exact admitted cursor block: dig, place, use/toggle, container access, and bed use. Explicit look actions and non-cursor coordinate actions retain their existing orientation semantics. The suppression is restored in `finally`, including after a rejected interaction. Focused conformance covers exact target/face use, unchanged yaw/pitch, zero hidden pathfinding, persistent toggle/placement consequences, and failure restoration. Full `npm run check`: 694 pass, 1 intentional skip. Keep open until an ordinary live cursor action proves no unexplained orientation change in the deployment-shaped path.
