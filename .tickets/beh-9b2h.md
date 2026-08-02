@@ -11,17 +11,17 @@ parent: beh-06av
 tags: [memory, lync, privacy, long-running]
 ---
 
-# Keep private resident lives usable as Lync histories grow
+# Keep continuous private lives usable as canonical histories grow
 
-Keep each resident supplied with timely, bounded, truthful continuity as its canonical Lync life grows from hundreds of turns toward multi-day scale. Evaluate information availability and isolation, not whether a model recalls or uses facts wisely.
+Keep each resident supplied with timely, truthful, isolated continuity as its canonical Lync life grows from hundreds of turns toward multi-day scale. Controller storage must remain bounded without silently curating the resident's subjective history. Evaluate information availability and isolation, not whether a model recalls or uses facts wisely.
 
 ## Design
 
-Canonical Lync bytes remain authoritative. Bounded indexes, retrieval, and projections must expose omissions and provenance, never silently replace history or import another resident context. Coordinate owning Lync or Textile changes through their repositories when the seam genuinely belongs there.
+Canonical Lync bytes remain authoritative. The live controller streams rather than retaining redundant decoded history, while the model session receives the complete chronological private transcript for as long as it fits the model's verified context. Any later memory treatment must begin at an explicit, versioned, observable context boundary; it may not create an inaccessible middle, duplicate curator narrative, or import another resident's context. Coordinate owning Lync or Textile changes through their repositories when the seam genuinely belongs there.
 
 ## Acceptance Criteria
 
-Across ordinary long-run and stop/resume exercises, each resident request contains only that resident identity and selected own-life continuity; recent unconsumed lived events arrive without silent loss; older human interactions and Minecraft-confirmed consequences remain retrievable within declared bounds; growth does not cause unbounded decision latency or context failure; and exact Lync histories remain readable through Textile. Model recognition is reported as conduct, not required.
+Across ordinary long-run and stop/resume exercises, each resident request contains only that resident's identity and chronological own-life conversation, with no silent loss, inaccessible middle, foreign private context, or premature fold while the complete life fits the verified model context. Controller memory, journals, and episode checkpoints grow according to their declared bounded or incremental ownership rather than copying cumulative private history. A real context-limit transition fails visibly until an explicit treatment is accepted. Decision latency remains usable and exact canonical Lync histories remain readable through Textile. Model recognition is reported as conduct, not required.
 
 ## Notes
 
@@ -52,3 +52,7 @@ The shared upstream seam for bounded controller reads and bounded Textile projec
 **2026-08-01T13:55:40Z**
 
 Added child beh-61if for the verified whole-history live-memory floor, with owning Lync seam lyn-hh9v. This is now a dependency because bounded resident working memory cannot be accepted while underlying Lync and Behold live layers retain complete payload history. The active six-hour epoch remains undisturbed and will provide the first real memory/reopen measurement.
+
+**2026-08-02T03:48:58Z**
+
+Resident-v3 checkpoint beh-c5gr is closed and changes the governing memory semantics: model-facing continuity is the complete chronological private conversation up to the verified model-context boundary, while streaming/index/checkpoint work exists to bound controller storage rather than curate experience. The open scale children remain beh-61if (decoded controller memory), beh-hmt6 (operational journal duplication), and beh-e3jy (incremental authenticated episode bindings).

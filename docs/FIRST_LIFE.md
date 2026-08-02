@@ -54,6 +54,17 @@ continuity. Later episodes 000039 and 000040 sustained two isolated lives for
 world, bodies, private histories, human dialogue, and Minecraft-confirmed
 consequences.
 
+The current `resident-v3` treatment strengthens what “private history” means at
+the model boundary. Rather than a selected fold plus recent dossier, it rebuilds
+the resident's chronological Lync life as experience, its exact retained model
+response, and Minecraft outcome messages for as long as that complete
+conversation fits the verified model context. Oxford episodes 000003-000004
+continued Juniper and Rowan through a clean stop/resume with exact private
+message growth and no inaccessible middle. Their renewed repetitive social chat
+is therefore a model trajectory observed under continuous experience, not a
+reason to steer them or silently curate their histories. Multi-day storage and a
+real context-limit transition remain open.
+
 On August 1 the action-only `resident-v2` path ran Birch and Cedar through a
 90-second ordinary episode and a 60-second resume on one shared local Gemma 4
 12B instance. Both received distinct bounded views, chose and completed bodily

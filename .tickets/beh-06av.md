@@ -10,17 +10,17 @@ assignee: deepfates
 tags: [telos, living-world, residents, observability]
 ---
 
-# Sustain unsteered resident life in one observable persistent habitat
+# Make sustained independent resident life ordinary in one persistent habitat
 
-Carry the crossed First Life substrate into durable ordinary habitation. Preserve the resident causal loop as histories, consequences, residents, humans, and runtime pressure accumulate. This epic grades habitat fidelity and operation, never the wisdom, productivity, survival, sociability, or adaptation of resident conduct.
+Make `behold live` an ordinary persistent Minecraft habitat that independently minded residents can genuinely inhabit over time. A person can start it, watch it, enter it through the native client, stop it, and resume the same world and lives. Behold grades the truth and operability of that habitat, never the wisdom, productivity, survival, sociability, or adaptation of resident conduct.
 
 ## Design
 
-Use Minecraft as world and consequence authority, Lync as canonical private life history, and Textile plus Behold views as read-only projections. Improve from consequential live failures inward. Prefer abstractions that expose authority or reduce mutable state; do not build a parallel evidence product.
+Use Minecraft as world and consequence authority, the connected body as first-person experience and control-attempt authority, and Lync as each resident's canonical private life. Textile and Behold views remain read-only projections. Give models truthful information, usable player-scale actions, timely consequences, and continuous private history without steering what they should do. Improve from consequential live failures inward; prefer repairs that expose authority or remove mutable duplication over a parallel evidence product.
 
 ## Acceptance Criteria
 
-Repeated long-running ordinary worlds demonstrate timely bounded embodied perception, faithful action-or-yield settlement, isolated durable identity, accumulated Minecraft consequences, native human and multi-resident coexistence, clean stop/resume and recovery, and usable operator observability. The final acceptance must use the supported current resident contract without tasks, prescribed actions, scripted exchanges, hidden reflexes, or conduct scoring. Negative resident choices remain data.
+Through the supported ordinary front door, repeated long-running worlds demonstrate truthful and timely first-person experience, faithful action-or-yield settlement, isolated durable identity, uninterrupted private continuity up to an explicit model-context boundary, accumulated Minecraft-authoritative consequences, native-human and multi-resident coexistence, clean stop/resume and recovery, and usable operator observability. The final acceptance uses no tasks, prescribed actions, scripted exchanges, hidden reflexes, or conduct scoring. Resident competence, repetition, silence, death, destruction, or surprise remains conduct. Child `beh-xzc6` owns the concrete repeated multi-day completion boundary; smaller exercises close only their own checkpoints.
 
 ## Notes
 
@@ -31,3 +31,7 @@ Baseline at creation: closed First Life tickets beh-n4fe, beh-kpqx, and beh-rhxm
 **2026-08-02T01:16:09Z**
 
 Nearest qualified-habitat interface checkpoint completed through ordinary same-life episode 000006 on Behold 3342033 + Place b872237. The run used one qualified Oxford world, two isolated Qwen camera lives on one shared LM Studio weight, zero steering, complete bounded experience under a 76-event combat burst, explicit exact-vs-baseline cognition binding, legal combat admission/revalidation, clean save/stop, and independently readable canonical Lync. Exact Textile import exposed and repaired stale private-whisper presentation at Textile b9bc03b. Resident choices remain ungraded conduct. Repeated multi-day habitation and the unchosen live cursor-block action remain open horizons/tickets.
+
+**2026-08-02T03:48:58Z**
+
+2026-08-02 telos reconciliation after continuous-transcript acceptance: the epic now states the ordinary human-facing habitat outcome rather than a mechanics program. Existing tickets already cover the smallest coherent checkpoint algebra, so no duplicate framework was created. Final multi-day acceptance beh-xzc6 now also depends on literal action/perception truth (beh-1h3a) and the remaining external-motion perception boundary (beh-uumj). Completed resident-v3 work beh-c5gr is retained under growing-history ownership as a crossed subjective-continuity checkpoint; bounded controller storage remains separate. Optional model-by-perception work beh-gidu remains diagnostic rather than a telos blocker.

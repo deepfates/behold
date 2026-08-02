@@ -31,21 +31,24 @@ Its checkpoint graph is deliberately small:
 
 ```text
 habitat authority and mutable-state simplicity ─┐
-growing private-life continuity              │
-ordinary lifecycle resilience                ├─→ repeated multi-day habitat
-current resident and native-human coexistence│
-minimal operator view and ethogram            ─┘
+literal action and perception truth             │
+growing continuous private-life history         │
+ordinary lifecycle resilience                   ├─→ repeated multi-day habitat
+current resident and native-human coexistence   │
+minimal operator view and ethogram             ─┘
 ```
 
-The final exercise depends on all five capabilities. Current-profile human and
-multi-resident coexistence and the minimal operator view are exercised; growing
-continuity, lifecycle pressure, and authority simplification remain open before
-multi-day acceptance. Tickets state observable product behavior; evidence and
-negative conduct belong in their notes. The checkpoints do not grade whether a
-resident survives, builds, socializes, adapts, or makes good decisions. They
-grade whether Behold gives each resident truthful opportunities and
-consequences, preserves its isolated life, and lets an operator inhabit and
-understand the same world without a parallel truth system.
+The final exercise depends on all six capabilities. Authority and current-profile
+human/multi-resident coexistence are crossed. The continuous private transcript
+is also exercised below the current model-context boundary, while long-history
+storage remains open. Literal cursor/external-motion truth, lifecycle pressure,
+and the exact admitted-camera operator view remain active before multi-day
+acceptance. Tickets state observable product behavior; evidence and negative
+conduct belong in their notes. The checkpoints do not grade whether a resident
+survives, builds, socializes, adapts, or makes good decisions. They grade whether
+Behold gives each resident truthful opportunities and consequences, preserves
+its isolated life, and lets an operator inhabit and understand the same world
+without a parallel truth system.
 
 The San Francisco world remains valuable terrain, not the product goal by
 itself. Come–See–Do–Report remains a useful regression test, not the organizing
@@ -56,7 +59,23 @@ Progress is tracked through the [verification ladder](VERIFICATION_LADDER.md).
 Minecraft life and survival are one world competence pack beside the foundation
 scoreboard; they do not define whether the portable inhabitant loop is complete.
 
-### Current truth (updated 2026-08-01)
+### Current truth (updated 2026-08-02)
+
+- `resident-v3` now reconstructs one resident's model session as the complete
+  chronological private Lync conversation—experience, exact retained model
+  response, Minecraft settlement—followed by one fresh complete view. It does
+  not use the earlier fold-plus-recent dossier while the full transcript fits
+  the route's verified context. Oxford episodes 000003-000004 exercised two
+  isolated lives through ordinary clean stop/resume: Juniper's first resumed
+  request reconstructed 83 turns as 252 messages and Rowan's reconstructed 76
+  as 231; later requests grew monotonically without a fold, reset, or middle
+  gap. DeepSeek V4 Flash remained timely but returned to repetitive social chat,
+  which is retained as conduct. Textile candidate `0c3252a` opened the exact
+  22,915,469-byte final source set as 190 readable resident turns plus two
+  structural roots after its visible multi-file/chunk-bound reader defects were
+  repaired. This crosses the uninterrupted subjective-history checkpoint, not
+  controller-memory scale, a real context-limit transition, or the habitat
+  telos.
 
 - Place's measured Oxford derivative now enters the ordinary living front door
   as habitat-qualified rather than through a provisional override. Qualified

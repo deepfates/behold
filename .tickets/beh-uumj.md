@@ -7,6 +7,7 @@ created: 2026-08-01T08:44:12Z
 type: bug
 priority: 1
 assignee: deepfates
+parent: beh-06av
 tags: [perception, camera, timing]
 ---
 

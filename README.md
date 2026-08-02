@@ -39,10 +39,12 @@ The active frontier is the enduring
 [resident-habitat telos](.tickets/beh-06av.md): keep that causal substrate
 truthful and operable as histories, consequences, residents, humans, and
 runtime pressure accumulate. Its checkpoints cover authority and mutable-state
-simplicity, growing private continuity, lifecycle resilience, contemporary
-multi-resident/human coexistence, and a compact operator view. They converge on
-repeated multi-day ordinary habitation. Resident conduct remains the subject of
-observation, not a hidden completion score.
+simplicity, literal action/perception truth, growing private continuity,
+lifecycle resilience, contemporary multi-resident/human coexistence, and a
+compact operator view. They converge on repeated multi-day ordinary habitation.
+The current continuous-transcript path crosses one subjective-continuity
+checkpoint; it does not close long-history storage or the telos. Resident
+conduct remains the subject of observation, not a hidden completion score.
 
 The smaller action-only `resident-v2` path has crossed an ordinary two-resident
 live/lens/stop/resume exercise. Elm and Pine shared one Gemma 4 12B LM Studio

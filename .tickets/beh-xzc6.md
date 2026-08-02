@@ -1,7 +1,7 @@
 ---
 id: beh-xzc6
 status: in_progress
-deps: [beh-yjkx, beh-8x0n, beh-aps8, beh-9b2h, beh-kogb]
+deps: [beh-yjkx, beh-8x0n, beh-aps8, beh-9b2h, beh-kogb, beh-1h3a, beh-uumj]
 links: []
 created: 2026-08-01T09:35:45Z
 type: task
@@ -17,11 +17,11 @@ Run the composed habitat long enough and often enough for time, history growth, 
 
 ## Design
 
-Prefer local LM Studio minds and the ordinary behold live, watch, stop, and resume front door. Seal only operational bounds and costs, not desired conduct. Let residents choose or yield. Use existing Minecraft, lifecycle, Lync, episode, and Textile authorities; add no receipt framework. Each failure must update the owning ticket or expose a genuinely new one before another run.
+Prefer local LM Studio minds and the ordinary behold live, watch, stop, and resume front door. Use `resident-v3` or a direct successor that preserves its uninterrupted private transcript and visible context boundary; do not retreat to an earlier curated dossier to make duration easier. Seal only operational bounds and costs, not desired conduct. Let residents choose or yield. Use existing Minecraft, lifecycle, Lync, episode, and Textile authorities; add no receipt framework. Each failure must update the owning ticket or expose a genuinely new one before another run.
 
 ## Acceptance Criteria
 
-At least two independently started habitat trials each accumulate more than one day of ordinary live time across cleanly related episodes, including at least one continuous six-hour epoch, stop/resume in both, multiple isolated residents, current-profile native-human presence in at least one, accumulated Minecraft-authoritative consequences, and Textile-readable private lives. Throughout the retained intervals, bounded perception and decisions remain timely under declared hardware/model conditions, event loss and stale data are visible, every admitted decision reaches one explicit outcome and every admitted action one authenticated terminal, world and life heads remain recoverable, and the operator view remains usable. Resident death, repetition, silence, poor judgment, or lack of building neither passes nor fails the trial; only habitat fidelity and operation do.
+At least two independently started habitat trials each accumulate more than one day of ordinary live time across cleanly related episodes, including at least one continuous six-hour epoch, stop/resume in both, multiple isolated residents, current-profile native-human presence in at least one, accumulated Minecraft-authoritative consequences, and Textile-readable private lives. Throughout the retained intervals, first-person perception and decisions remain timely under declared hardware/model conditions; each resident's chronological private conversation stays complete until an explicit verified context boundary; event loss and stale data are visible; every admitted decision reaches one explicit outcome and every admitted action one authenticated terminal; world and life heads remain recoverable; and the operator view remains usable. Resident death, repetition, silence, poor judgment, or lack of building neither passes nor fails the trial; only habitat fidelity and operation do.
 
 ## Notes
 
@@ -40,3 +40,7 @@ Episode 000002 reached its declared six-hour boundary and stopped through the or
 **2026-08-01T19:42:00Z**
 
 Current-build episode 000004 resumed the same world and lives through the ordinary front door for 20 minutes, then reached its declared duration and stopped cleanly. The world head is `completed_run`; server save, resident shutdown, broker drain, control release, and the shared LM Studio unload all completed with no owned process left. The broker admitted and completed 97/97 calls with zero unsettled quota. Ash committed 46 consecutive turns and Reed 48; one Reed camera/body-pose mismatch rejected a perception before admission and was visibly recorded, then later requests and actions continued. Textile's real ordered-source projector read the exact 204,115,140-byte prefixes in 5.8 seconds as 4,089 source events, 4,087 readable turns plus two structural events, with zero unsupported, nonconforming, or warning diagnostics. This accepts the bounded repair/resume checkpoint, not the repeated multi-day habitat milestone.
+
+**2026-08-02T03:50:31Z**
+
+2026-08-02 sequencing correction: the earlier six-hour mechanics run remains valuable pressure evidence but predates the uninterrupted resident-v3 experience. Do not begin the final repeated multi-day acceptance while its open dependencies are knowingly unmet. The final trials must use resident-v3 or a direct continuity-preserving successor; models remain free to repeat, fail, die, or do nothing. The next work is whichever open child exposes the most consequential current mismatch, not another duration receipt.
