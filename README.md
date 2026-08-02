@@ -47,14 +47,20 @@ checkpoint; it does not close long-history storage or the telos. Resident
 conduct remains the subject of observation, not a hidden completion score.
 
 The complete mature transcript later proved operationally too slow despite
-fitting Qwen's physical context window. The current `resident-v4` candidate
-therefore makes the transition into a finite inference epoch explicit, keeps
-canonical Lync life intact, and lets the resident request exact byte-bounded
-pages from only its own history. The present eight-turn span is grounded in a
-retained no-world latency sweep; it is not yet claimed as live-accepted. The
-next ordinary exercise must resume the same mature Oxford lives, preserve
-camera and identity isolation, and reproduce the same boundary and recall
-after stop/resume.
+fitting Qwen's physical context window. `resident-v4` therefore makes the
+transition into a finite inference epoch explicit, keeps canonical Lync life
+intact, and lets the resident request exact byte-bounded pages from only its own
+history. Ordinary Oxford episodes 000010-000012 exercised that treatment on the
+same mature Lark and Sedge lives through clean stop/resume. Both residents
+independently requested old private-life ranges; epoch and page identity
+reproduced across restart; one shared Qwen weight retained isolated sessions;
+and successful decisions remained roughly 3.5-12.8 seconds. Episode 000011
+exposed a slow-preflight camera-expiry defect; episode 000012 exercised the
+bounded current-experience refresh with no duplicate experience or model-call
+failure. Textile's read-only ordered-source path opened the exact 27.1 MB
+episode-000012 prefix set as 445 resident turns plus two roots. This crosses the
+finite-context checkpoint, not controller/journal/checkpoint growth or the
+multi-day habitat telos.
 
 The smaller action-only `resident-v2` path has crossed an ordinary two-resident
 live/lens/stop/resume exercise. Elm and Pine shared one Gemma 4 12B LM Studio
@@ -267,7 +273,11 @@ SECONDS` for a bounded episode; Ctrl-C requests the same clean drain, save,
   is live; no declaration releases or directs the residents. The optional
   `--native-player USERNAME` flag adds a post-episode observation check for one
   username. It cannot establish client provenance, and it is not required for
-  ordinary human entry.
+  ordinary human entry. In new episode records, `nativeHuman` remains only that
+  optional declared-player assessment. The separate `externalPlayers` summary
+  always reports conservatively observed unmanaged Minecraft players from the
+  already-bound server log and resident journals without inferring that a
+  player was a particular client or a biological human.
 - A clean stop records the new persistent world head and an authenticated episode
   record. The record binds the Place control transcript, byte-identical Place-owned
   Minecraft server log, cognition/accounting evidence, per-life body journals,

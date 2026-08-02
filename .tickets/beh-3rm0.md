@@ -1,6 +1,6 @@
 ---
 id: beh-3rm0
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-02T04:10:26Z
@@ -46,3 +46,7 @@ Deployment-shaped no-world Qwen 3.6 35B-A3B text sweep over retained Sedge turns
 **2026-08-02T05:33:44Z**
 
 Adversarial review found and the working tree repairs three false-experience edges before live use. Epoch rollover now happens before the next decision and retains the immediately preceding turn as an explicit exact handoff; live and restart therefore cannot disagree about the context under which a choice was made, and no action outcome disappears at the boundary. Recall no longer nests copied pages recursively inside later canonical turns: Lync records exact returned source bindings plus byte/message counts and a content digest, while the active context reconstructs and verifies the same page after restart. The final visible page is whole-turn-bounded at 128,000 bytes over a separately bounded raw source scan; admission checks historical turns and commit checks new turns against both bounds so no unreadable turn can silently enter a v4 life. Raw LM Studio and OpenRouter admission now rejects undeclared epoch/page fields, validates epoch arithmetic and complete page content binding, resident-v4 cannot be configured without its advertised reader, and OpenRouter dispatches v4 responses through the v4 decoder rather than the resident-v3 schema. These are implemented mechanics under test, not ordinary live acceptance.
+
+**2026-08-02T06:17:02Z**
+
+2026-08-02 ordinary live acceptance is complete. Episodes 000010-000012 resumed the same qualified Oxford world and mature Lark/Sedge lives under resident-v4. One Qwen 3.6 35B-A3B LM Studio weight served isolated resident sessions; exact epoch/page identity reproduced across clean stop/resume; both residents independently requested exact private-life ranges, including turn 1 and later turns 185-187; successful decision latency remained roughly 3.5-12.8 seconds. Episode 000011 exposed one pre-provider stale-camera failure after slow prefix preflight. Commit 30d52e7 replaces only the unadmitted current experience and retries once; episode 000012 exercised that repair with no model-call failure or duplicate current experience. Canonical lives remained separate and every model-facing event window was complete. Textile's supported ordered-source importer authenticated episode 000012's exact 27,096,711-byte two-source prefix set and opened 447 events as 445 readable resident turns plus two structural roots, read-only, with zero unsupported or nonconforming events. The visible local reader opened the same history; its source-only/withheld-field presentation diagnostics are disclosures, not missing turns. Model use of recall remains conduct. Acceptance met; multi-day scale and controller/journal/checkpoint growth remain owned by beh-9b2h.

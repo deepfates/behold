@@ -123,6 +123,22 @@ resident-visible page; its deployment-shaped latency and continuation remain
 part of live acceptance. Whether a resident follows continuation or uses
 recalled experience well is conduct.
 
+That live acceptance is now exercised. Qualified Oxford episodes 000010-000012
+continued the same mature Lark and Sedge lives under resident-v4 with one shared
+Qwen 3.6 35B-A3B weight and separate resident sessions. Both residents chose
+`read_private_life` without steering, first for turn 1 and later for turns
+185–187. Clean stop/resume reproduced the same authenticated epoch and page
+bindings in the first requests, and successful model latency remained roughly
+3.5–12.8 seconds. Episode 000011 retained one pre-provider stale-camera failure
+after slow prefix preflight. The bounded repair replaces only the unadmitted
+current experience and retries once; episode 000012 exercised it without a
+duplicate current message or model-call failure. Textile's read-only
+ordered-source importer authenticated 27,096,711 bytes and opened 445 resident
+turns plus two structural roots with no unsupported or nonconforming event.
+Its numerous `source_only_*` and withheld-local-reference diagnostics disclose
+safe projection boundaries rather than missing turns. Multi-day scale and
+controller/journal/checkpoint growth remain separate open work.
+
 ## Grounded failure specimen
 
 Oxford V4 episode `000001`, Rowan request at

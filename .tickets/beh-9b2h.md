@@ -64,3 +64,7 @@ Resident-v3 checkpoint beh-c5gr is closed and changes the governing memory seman
 **2026-08-02T04:23:36Z**
 
 2026-08-02 correction to the 04:01 note: the canonical file byte sizes were not a valid estimate of the resident-visible Qwen prompt. The current tree now uses LM Studio's exact loaded prompt template and tokenizer. Direct measurement of the full stopped episode-000007 projections is 172,695 prompt tokens for Lark's 179 turns and 148,085 for Sedge's 163 before the small current contract/view increment, within 262,144. Same-life resident-v3 continuation is therefore the next acceptance; beh-3rm0 retains the explicit epoch and exact resident-controlled Lync recall work for the actual future boundary.
+
+**2026-08-02T06:17:02Z**
+
+2026-08-02 resident-v4 child beh-3rm0 crossed the explicit finite-context boundary through ordinary same-life live/stop/resume and actual Textile reading. The checkpoint proves resident-visible epochs, exact own-Lync range recall without curator selection, isolated shared-weight sessions, reproducible restart identity, and usable short-epoch latency. It does not close this parent: bounded decoded controller memory (beh-61if), journal duplication (beh-hmt6), checkpoint growth (beh-e3jy), and multi-day pressure remain open. The next high-information move is a substantially larger-life restart/memory-growth exercise, not another short context demo.

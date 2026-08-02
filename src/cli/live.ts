@@ -49,6 +49,7 @@ const LIVE_ECOLOGY_LOG_PROTOCOL = 'behold.live-ecology-log.v1' as const;
 const LIVE_LYNC_SNAPSHOT_PROTOCOL = 'behold.live-lync-snapshot.v1' as const;
 const LIVE_TEXTILE_IMPORT_PROTOCOL = 'behold.live-textile-import.v1' as const;
 const LIVE_NATIVE_HUMAN_PROTOCOL = 'behold.live-native-human.v2' as const;
+const LIVE_EXTERNAL_PLAYERS_PROTOCOL = 'behold.live-external-players.v1' as const;
 
 export async function runLiveCli(argv: string[]) {
   const parsed = parseArgs({
@@ -532,6 +533,10 @@ export async function runLiveCli(argv: string[]) {
           residents: run.residents,
         })
       : null;
+    const externalPlayers = summarizeExternalPlayers({
+      ecologyLogFile: ecologyLog.file,
+      residents: run.residents,
+    });
     const episodeRecord = writeEpisodeRecord({
       file: path.join(episodeRoot, 'episode-record.json'),
       sessionId,
@@ -546,6 +551,7 @@ export async function runLiveCli(argv: string[]) {
       ecologyLog,
       accountingScopeId,
       nativeHuman,
+      externalPlayers,
       residentRevision,
     });
     process.stdout.write(`\n[behold live] stopped cleanly\n`);
@@ -899,6 +905,7 @@ function writeEpisodeRecord(input: {
   ecologyLog: ReturnType<typeof preservePlaceServerLog>;
   accountingScopeId: string;
   nativeHuman: ReturnType<typeof assessNativeHumanEntry> | null;
+  externalPlayers: ReturnType<typeof summarizeExternalPlayers>;
   residentRevision: ReturnType<typeof readLiveResidentRevision> | null;
 }) {
   const episodeRoot = path.dirname(path.resolve(input.file));
@@ -967,6 +974,7 @@ function writeEpisodeRecord(input: {
       authority: 'operator_only',
     })),
     nativeHuman: input.nativeHuman,
+    externalPlayers: input.externalPlayers,
     lives,
     textile: {
       presenterProfile: presenterProfiles.length === 1 ? presenterProfiles[0] : null,
@@ -979,6 +987,131 @@ function writeEpisodeRecord(input: {
   const record = deepFreeze({ ...base, digest: sha256(stableJson(base)) });
   publishLiveCheckpointJson(input.file, record);
   return Object.freeze({ file: input.file, record });
+}
+
+export function summarizeExternalPlayers(input: {
+  ecologyLogFile: string;
+  residents: ReadonlyArray<
+    Readonly<{ entityId: string; bodyUsername: string; journalDirectory: string }>
+  >;
+}) {
+  const managedBodies = new Set(
+    input.residents.map((resident) => resident.bodyUsername.toLowerCase()),
+  );
+  const journalEvents = input.residents.flatMap((resident) =>
+    listFiles(resident.journalDirectory, '.jsonl').flatMap((source) =>
+      fs
+        .readFileSync(plainFile(source.file, `${resident.entityId} run journal`), 'utf8')
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .filter(
+          (event) =>
+            ['setup_external_player_intervention', 'external_player_intervention'].includes(
+              event?.type,
+            ) &&
+            event?.data?.protocol === 'behold.external-player-intervention.v1' &&
+            event?.data?.classification === 'native_human_or_unmanaged_player' &&
+            /^[A-Za-z0-9_]{1,16}$/.test(String(event?.data?.username || '')) &&
+            !managedBodies.has(String(event.data.username).toLowerCase()),
+        )
+        .map((event) => ({
+          username: String(event.data.username),
+          entityId: resident.entityId,
+          bodyUsername: resident.bodyUsername,
+          file: source.file,
+          sequence: event.sequence,
+          at: event.at,
+          phase:
+            event.type === 'setup_external_player_intervention'
+              ? ('setup' as const)
+              : ('runtime' as const),
+          kind: event.data.kind,
+          ...(typeof event.data.channel === 'string' ? { channel: event.data.channel } : {}),
+        })),
+    ),
+  );
+  const serverLines = fs
+    .readFileSync(plainFile(input.ecologyLogFile, 'external-player ecology log'), 'utf8')
+    .split(/\r?\n/);
+  const names = new Map<string, string>();
+  for (const event of journalEvents) names.set(event.username.toLowerCase(), event.username);
+  for (const text of serverLines) {
+    const content = text.match(/^\[([^\]]+)\] \[Server thread\/INFO\]: (.*)$/)?.[2] ?? '';
+    const username =
+      content.match(/^([A-Za-z0-9_]{1,16}) joined the game$/)?.[1] ??
+      content.match(/^\[Not Secure\] <([A-Za-z0-9_]{1,16})> /)?.[1] ??
+      content.match(/^<([A-Za-z0-9_]{1,16})> /)?.[1];
+    if (username && !managedBodies.has(username.toLowerCase())) {
+      names.set(username.toLowerCase(), username);
+    }
+  }
+  const players = [...names.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([lowerName, username]) => {
+      const serverEvents = serverLines.flatMap((text, index) => {
+        const match = text.match(/^\[([^\]]+)\] \[Server thread\/INFO\]: (.*)$/);
+        if (!match) return [];
+        const [, serverTime, content] = match;
+        const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let kind: 'logged_in' | 'joined' | 'left' | 'chat' | 'event' | null = null;
+        let detail: string | null = null;
+        if (
+          new RegExp(`^${escaped}\\[`, 'i').test(content) &&
+          / logged in with entity id /.test(content)
+        ) {
+          kind = 'logged_in';
+        } else if (new RegExp(`^${escaped} joined the game$`, 'i').test(content)) {
+          kind = 'joined';
+        } else if (new RegExp(`^${escaped} left the game$`, 'i').test(content)) {
+          kind = 'left';
+        } else {
+          const chat =
+            content.match(/^\[Not Secure\] <([A-Za-z0-9_]{1,16})> (.*)$/) ??
+            content.match(/^<([A-Za-z0-9_]{1,16})> (.*)$/);
+          if (chat?.[1]?.toLowerCase() === lowerName) {
+            kind = 'chat';
+            detail = chat[2] ?? '';
+          } else if (new RegExp(`^${escaped} `, 'i').test(content)) {
+            kind = 'event';
+            detail = content.slice(username.length + 1);
+          }
+        }
+        return kind
+          ? [{ line: index + 1, serverTime, kind, ...(detail == null ? {} : { detail }) }]
+          : [];
+      });
+      const residentWitnesses = input.residents.map((resident) => {
+        const events = journalEvents
+          .filter(
+            (event) =>
+              event.entityId === resident.entityId && event.username.toLowerCase() === lowerName,
+          )
+          .map(
+            ({ username: _username, entityId: _entityId, bodyUsername: _bodyUsername, ...event }) =>
+              event,
+          );
+        return {
+          entityId: resident.entityId,
+          bodyUsername: resident.bodyUsername,
+          observed: events.length > 0,
+          events,
+        };
+      });
+      return {
+        username,
+        classification: 'unmanaged_player_client_provenance_unknown' as const,
+        serverEvents,
+        residentWitnesses,
+      };
+    });
+  return deepFreeze({
+    protocol: LIVE_EXTERNAL_PLAYERS_PROTOCOL,
+    authority:
+      'observed unmanaged Minecraft players only; client provenance and biological human identity are not inferred',
+    ecologyLogFile: path.resolve(input.ecologyLogFile),
+    players,
+  });
 }
 
 export function assessNativeHumanEntry(input: {

@@ -40,10 +40,10 @@ minimal operator view and ethogram             ─┘
 
 The final exercise depends on all six capabilities. Authority and current-profile
 human/multi-resident coexistence are crossed. The continuous private transcript
-is also exercised below the current model-context boundary, while long-history
-storage and an explicit real context-limit transition remain open. The compact
-operator view is crossed. Literal cursor/external-motion truth and lifecycle
-pressure remain active before multi-day acceptance. Tickets state observable product behavior; evidence and negative
+and explicit finite-context transition are exercised, while long-history
+controller, journal, and checkpoint growth remain open. The compact operator
+view is crossed. Literal cursor/external-motion truth and lifecycle pressure
+remain active before multi-day acceptance. Tickets state observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves
@@ -88,7 +88,7 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   resident-v3 revision with complete chronology. Episode 000009 then showed
   the distinct operational boundary: the same complete 148k–173k-token lives
   fit, but Qwen produced no committed choice across four 60-second timeouts and
-  five calls cancelled by bodily urgency or shutdown. The current unexercised
+  five calls cancelled by bodily urgency or shutdown. The exercised
   resident-v4 successor makes adoption an explicit canonical epoch boundary,
   retains at most eight chronological prior turns per request (including one
   exact causal handoff at a boundary), and gives the resident an exact
@@ -98,9 +98,15 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   8/16/24/32-turn text epochs at
   6.07/11.88/18.56/23.89 seconds; the empty transition took 2.38 seconds and
   Qwen independently requested old private life. Foreign epoch/page identities
-  fail before either LM Studio or OpenRouter. Ordinary mature-life
-  live/stop/resume and camera latency remain open before this checkpoint can
-  close.
+  fail before either LM Studio or OpenRouter. Episodes 000010-000012 then ran
+  those same mature Lark and Sedge lives through ordinary live/stop/resume.
+  Both residents chose exact historical reads, restart reproduced the same
+  epoch/page bindings, successful calls remained roughly 3.5-12.8 seconds, and
+  episode 000012 exercised one bounded refresh after slow preflight expired the
+  current camera. Textile's supported read-only importer opened its 27,096,711
+  authenticated bytes as 445 readable resident turns plus two structural roots
+  with zero unsupported or nonconforming events. This closes the finite-context
+  checkpoint, not long-history storage pressure or multi-day acceptance.
 
 - Place's measured Oxford derivative now enters the ordinary living front door
   as habitat-qualified rather than through a provisional override. Qualified

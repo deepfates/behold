@@ -44,3 +44,7 @@ Current-build episode 000004 resumed the same world and lives through the ordina
 **2026-08-02T03:50:31Z**
 
 2026-08-02 sequencing correction: the earlier six-hour mechanics run remains valuable pressure evidence but predates the uninterrupted resident-v3 experience. Do not begin the final repeated multi-day acceptance while its open dependencies are knowingly unmet. The final trials must use resident-v3 or a direct continuity-preserving successor; models remain free to repeat, fail, die, or do nothing. The next work is whichever open child exposes the most consequential current mismatch, not another duration receipt.
+
+**2026-08-02T06:17:02Z**
+
+2026-08-02 resident-v4 episodes 000010-000012 crossed the explicit context-boundary prerequisite on the same mature Oxford lives, including exact resident-chosen Lync recall, isolated shared-weight sessions, clean stop/resume, current human-player coexistence in episode 000012, and a real read-only Textile import of 445 readable turns. This removes the finite-context treatment as a blocker but does not count as a long trial. Growing controller/journal/checkpoint ownership, lifecycle pressure, literal cursor action evidence, external-motion perception, and the repeated multi-day boundary remain open.

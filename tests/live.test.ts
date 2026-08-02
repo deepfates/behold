@@ -21,6 +21,7 @@ import {
   selectLiveHistorySeed,
   selectLiveResidentConfiguration,
   shouldRecordPlaceOnlyCleanup,
+  summarizeExternalPlayers,
 } from '../src/cli/live';
 import {
   captureLiveLyncCheckpoint,
@@ -770,6 +771,67 @@ test('native-human treatment requires the server and every resident to witness t
         residents,
       }),
     /collides with a managed resident body/,
+  );
+});
+
+test('episode external-player summary is independent of optional human assessment', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-live-external-players-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const ecology = path.join(root, 'minecraft-server.log');
+  fs.writeFileSync(
+    ecology,
+    [
+      '[12:00:00] [Server thread/INFO]: Ada[/127.0.0.1:50000] logged in with entity id 3 at (1, 2, 3)',
+      '[12:00:00] [Server thread/INFO]: Ada joined the game',
+      '[12:00:01] [Server thread/INFO]: First joined the game',
+      '[12:00:02] [Server thread/INFO]: [Not Secure] <Ada> Follow me.',
+      '[12:00:03] [Server thread/INFO]: Ada was slain by Zombie',
+      '',
+    ].join('\n'),
+  );
+  const residents = ['First', 'Second'].map((entityId, index) => {
+    const journalDirectory = path.join(root, entityId);
+    fs.mkdirSync(journalDirectory);
+    fs.writeFileSync(
+      path.join(journalDirectory, 'run.jsonl'),
+      `${JSON.stringify({
+        sequence: index + 2,
+        at: `2026-08-02T12:00:0${index}.000Z`,
+        agent: entityId,
+        type: index === 0 ? 'setup_external_player_intervention' : 'external_player_intervention',
+        data: {
+          protocol: 'behold.external-player-intervention.v1',
+          kind: index === 0 ? 'joined' : 'chat',
+          username: 'Ada',
+          classification: 'native_human_or_unmanaged_player',
+          ...(index === 0 ? {} : { channel: 'public', text: 'Follow me.' }),
+        },
+      })}\n`,
+    );
+    return { entityId, bodyUsername: entityId, journalDirectory };
+  });
+
+  const summary = summarizeExternalPlayers({ ecologyLogFile: ecology, residents });
+  assert.equal(summary.protocol, 'behold.live-external-players.v1');
+  assert.deepEqual(
+    summary.players.map((player) => player.username),
+    ['Ada'],
+  );
+  assert.equal(summary.players[0]?.classification, 'unmanaged_player_client_provenance_unknown');
+  assert.deepEqual(
+    summary.players[0]?.serverEvents.map((event) => event.kind),
+    ['logged_in', 'joined', 'chat', 'event'],
+  );
+  assert.deepEqual(
+    summary.players[0]?.residentWitnesses.map((witness) => ({
+      entityId: witness.entityId,
+      observed: witness.observed,
+      phase: witness.events[0]?.phase,
+    })),
+    [
+      { entityId: 'First', observed: true, phase: 'setup' },
+      { entityId: 'Second', observed: true, phase: 'runtime' },
+    ],
   );
 });
 
