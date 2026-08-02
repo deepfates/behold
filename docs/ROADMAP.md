@@ -56,10 +56,12 @@ episode; it correctly refuses episode `000015`, whose ordinary no-body retention
 cannot reproduce literal provider bytes. Full repository checks pass. Neither
 repair has yet been exercised together in a fresh ordinary live episode, so
 another long epoch remains premature. A later no-world audit found and repaired
-the immediate next-request wire failure after null intention, but also proved
-that resident-v3/v4 cannot yet reconstruct that cognition from canonical Lync
-after process restart. `beh-wo5b` owns the first-class non-action private-life
-event and blocks the multi-day acceptance. Tickets state observable product behavior; evidence and negative
+the immediate next-request wire failure after null intention. Resident-v3/v4
+now preserve that cognition as a first-class non-action event in the canonical
+private Lync chain and reconstruct it without inventing a Minecraft result;
+Behold, Lync, and Textile checks pass. `beh-wo5b` remains open until a short
+ordinary live null/wake/stop/resume exercises that composed boundary and the
+resulting source is visibly read through Textile. Tickets state observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves

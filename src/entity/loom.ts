@@ -16,6 +16,7 @@ import { sanitizeName } from '../observability/journal';
 import {
   decodeEntityTurnFromLync,
   encodeEntityTurnForLync,
+  type EntityCognitionObservationPresentation,
   type EntityTurnObservationPresentation,
 } from './turn-observation-binding';
 import type { FileLoomCursor, FileLoomTurn } from '@deepfates/lync/file-loom-cursor' with {
@@ -30,8 +31,7 @@ import {
   type UnmanagedControllerAdmissionProof,
 } from '../runtime/world-control';
 
-export type EntityTurn = {
-  protocol: 'behold.entity-turn.v1';
+type EntityLifeEventBase = {
   circleId?: string;
   id: string;
   entityId: string;
@@ -44,20 +44,25 @@ export type EntityTurn = {
     actions: string;
     safety: string;
   };
-  /** Present on turns admitted through a matched-population release barrier. */
+  /** Present on events admitted through a matched-population release barrier. */
   experimentRelease?: ExperimentReleaseReference;
   attention?: ResidentAttention;
   startedAt: number;
   completedAt: number;
   /** Private controller frame. Lync stores its public projection separately. */
   observation: any;
-  /** Exact safe mind-facing observation pair retained for Lync presentation. */
-  observationPresentation?: EntityTurnObservationPresentation;
   utterance: {
     assistant: any;
     /** Public action-level continuity; present only for legible-resident-v1 model turns. */
     publicCommitment?: ResidentPublicActionCommitment;
   };
+};
+
+/** Historical and current action-bearing resident-life event. Its wire shape is unchanged. */
+export type EntityActionTurn = EntityLifeEventBase & {
+  protocol: 'behold.entity-turn.v1';
+  /** Exact safe mind-facing observation pair retained for Lync presentation. */
+  observationPresentation?: EntityTurnObservationPresentation;
   action: {
     id: string;
     name: string;
@@ -84,6 +89,32 @@ export type EntityTurn = {
   nextObservation: any;
 };
 
+/** A resident experienced the world and explicitly chose no bodily action. */
+export type EntityCognitionTurn = EntityLifeEventBase & {
+  protocol: 'behold.entity-cognition-turn.v1';
+  /** Exact safe mind-facing observation retained for Lync presentation. */
+  observationPresentation?: EntityCognitionObservationPresentation;
+};
+
+/** One chronological private life. Action and non-action cognition share its sequence. */
+export type EntityLifeTurn = EntityActionTurn | EntityCognitionTurn;
+
+/** Compatibility name for action-oriented APIs and evaluators. */
+export type EntityTurn = EntityActionTurn;
+
+export function isEntityActionTurn(turn: EntityLifeTurn): turn is EntityActionTurn {
+  return turn.protocol === 'behold.entity-turn.v1';
+}
+
+export function isEntityCognitionTurn(turn: EntityLifeTurn): turn is EntityCognitionTurn {
+  return turn.protocol === 'behold.entity-cognition-turn.v1';
+}
+
+/** Explicit action-only projection for evaluators whose claim is about bodily attempts. */
+export function entityActionTurns(turns: readonly EntityLifeTurn[]): EntityTurn[] {
+  return turns.filter(isEntityActionTurn);
+}
+
 export type EntityLoom = {
   backend: 'lync';
   circleId: string | null;
@@ -98,21 +129,24 @@ export type EntityLoom = {
   tip: () => string | null;
   /** Explicit whole-life read for non-live callers and compatibility tools. */
   readAll: () => Promise<EntityTurn[]>;
-  /** Stream the selected life in order without retaining decoded predecessors. */
+  /** Compatibility action-only view. Use readLife for exact cognition chronology. */
   scan: () => AsyncIterable<EntityTurn>;
-  /** Stream turns with their cursor-authenticated canonical chain bindings. */
   scanBound: () => AsyncIterable<BoundEntityTurn>;
-  /** Read only the bounded selected suffix. */
   tail: (limit?: number) => Promise<EntityTurn[]>;
-  /** Read a bounded selected suffix with canonical chain bindings. */
   tailBound: (limit?: number) => Promise<BoundEntityTurn[]>;
+  /** Exact selected private-life chronology, including explicit non-action cognition. */
+  readLife: () => Promise<EntityLifeTurn[]>;
+  scanLife: () => AsyncIterable<EntityLifeTurn>;
+  scanLifeBound: () => AsyncIterable<BoundEntityLifeTurn>;
+  tailLife: (limit?: number) => Promise<EntityLifeTurn[]>;
+  tailLifeBound: (limit?: number) => Promise<BoundEntityLifeTurn[]>;
   /** Read one exact selected-life interval in whole-turn, byte-bounded pages. */
   recallRange: (
     startSequence: number,
     endSequence: number,
     maxBytes: number,
   ) => Promise<EntityLifeRecallPage>;
-  append: (turn: EntityTurn) => Promise<EntityTurnCommitReceipt>;
+  append: (turn: EntityLifeTurn) => Promise<EntityTurnCommitReceipt>;
   close: () => Promise<void>;
 };
 
@@ -123,6 +157,11 @@ export type EntityTurnCanonicalBinding = Readonly<{
 
 export type BoundEntityTurn = Readonly<{
   turn: EntityTurn;
+  source: EntityTurnCanonicalBinding;
+}>;
+
+export type BoundEntityLifeTurn = Readonly<{
+  turn: EntityLifeTurn;
   source: EntityTurnCanonicalBinding;
 }>;
 
@@ -142,7 +181,7 @@ export type EntityLifeRecallPage = Readonly<{
   bytes: number;
   complete: boolean;
   nextSequence: number | null;
-  turns: readonly BoundEntityTurn[];
+  turns: readonly BoundEntityLifeTurn[];
 }>;
 
 export type EntityTurnCommitReceipt = Readonly<{
@@ -327,7 +366,7 @@ type EntityLoomManifest = {
 type LyncStoredTurn = {
   id: string;
   parentId: string | null;
-  payload: EntityTurn;
+  payload: EntityLifeTurn;
   meta?: EntityTurnMeta;
 };
 
@@ -340,7 +379,7 @@ type LyncEntityLoom = {
   info: () => Promise<{ meta?: EntityLoomMeta }>;
   appendTurn: (
     parentId: string | null,
-    payload: EntityTurn,
+    payload: EntityLifeTurn,
     meta?: EntityTurnMeta,
   ) => Promise<LyncStoredTurn>;
   hasTurn: (turnId: string) => Promise<boolean>;
@@ -397,7 +436,7 @@ export async function openEntityLoom(
       validateEntityTrajectory(legacy.turns, entityId, `legacy loom ${legacyFile}`);
       warnings.push(...legacy.warnings);
       const store = createFileEventStore(storageDirectory);
-      const looms = createLyncLooms<EntityTurn, EntityLoomMeta, EntityTurnMeta>({
+      const looms = createLyncLooms<EntityLifeTurn, EntityLoomMeta, EntityTurnMeta>({
         store,
         author: { actor: entityId, via: 'behold@0.1.0-alpha.0' },
       });
@@ -469,7 +508,7 @@ export async function openEntityLoom(
       await writeManifest(manifestFile, manifest);
     }
     let selectedLength = tipTurnId === null ? 0 : await cursor.depth(tipTurnId);
-    let lastTurn: EntityTurn | null = null;
+    let lastTurn: EntityLifeTurn | null = null;
     if (tipTurnId !== null) {
       const suffix = await cursor.tail(tipTurnId, Math.min(2, selectedLength));
       const decoded = suffix.map((item) => decodeCursorTurn(item, entityId));
@@ -516,24 +555,66 @@ export async function openEntityLoom(
       readAll: async () => {
         assertOpen();
         const turns: EntityTurn[] = [];
-        for await (const turn of scanSelectedCursor(cursor, tipTurnId, entityId)) turns.push(turn);
+        for await (const turn of scanSelectedCursor(cursor, tipTurnId, entityId)) {
+          if (isEntityActionTurn(turn)) turns.push(turn);
+        }
         return turns;
       },
       scan: () => {
         assertOpen();
-        return scanSelectedCursor(cursor, tipTurnId, entityId);
+        return scanSelectedActionTurns(cursor, tipTurnId, entityId);
       },
       scanBound: () => {
         assertOpen();
-        return scanSelectedCursorBound(cursor, tipTurnId, entityId);
+        return scanSelectedBoundActionTurns(cursor, tipTurnId, entityId);
       },
       tail: async (limit = 12) => {
+        assertOpen();
+        if (tipTurnId === null || limit <= 0) return [];
+        const wanted = Math.max(0, Math.floor(limit));
+        let depth = Math.min(selectedLength, Math.max(1, wanted));
+        while (true) {
+          const items = await cursor.tail(tipTurnId, depth);
+          const actions = items.map(decodeSelected).filter(isEntityActionTurn);
+          if (actions.length >= wanted || depth === selectedLength) return actions.slice(-wanted);
+          depth = Math.min(selectedLength, depth * 2);
+        }
+      },
+      tailBound: async (limit = 12) => {
+        assertOpen();
+        if (tipTurnId === null || limit <= 0) return [];
+        const wanted = Math.max(0, Math.floor(limit));
+        let depth = Math.min(selectedLength, Math.max(1, wanted));
+        while (true) {
+          const items = await cursor.tail(tipTurnId, depth);
+          const actions = items
+            .map((item) => boundCursorTurn(item, entityId))
+            .filter((bound): bound is BoundEntityTurn => isEntityActionTurn(bound.turn));
+          if (actions.length >= wanted || depth === selectedLength) return actions.slice(-wanted);
+          depth = Math.min(selectedLength, depth * 2);
+        }
+      },
+      readLife: async () => {
+        assertOpen();
+        const turns: EntityLifeTurn[] = [];
+        for await (const turn of scanSelectedCursor(cursor, tipTurnId, entityId)) turns.push(turn);
+        return turns;
+      },
+      scanLife: () => {
+        assertOpen();
+        return scanSelectedCursor(cursor, tipTurnId, entityId);
+      },
+      scanLifeBound: () => {
+        assertOpen();
+        return scanSelectedCursorBound(cursor, tipTurnId, entityId);
+      },
+      tailLife: async (limit = 12) => {
         assertOpen();
         if (tipTurnId === null || limit <= 0) return [];
         const items = await cursor.tail(tipTurnId, Math.max(0, Math.floor(limit)));
         return items.map(decodeSelected);
       },
-      tailBound: async (limit = 12) => {
+      tailLifeBound: async (limit = 12) => {
         assertOpen();
         if (tipTurnId === null || limit <= 0) return [];
         const items = await cursor.tail(tipTurnId, Math.max(0, Math.floor(limit)));
@@ -561,7 +642,7 @@ export async function openEntityLoom(
           throw new Error(`entity ${entityId} selected Lync recall anchors are unavailable`);
         }
 
-        const turns: BoundEntityTurn[] = [];
+        const turns: BoundEntityLifeTurn[] = [];
         let bytes = 2; // JSON encoding of an empty array.
         let expectedSequence = startSequence;
         for await (const item of cursor.scanThread({
@@ -745,7 +826,7 @@ export async function readEntityLifeRange(
   value: unknown,
   root = process.env.BEHOLD_ENTITY_DIR || path.resolve(process.cwd(), '.behold-entities'),
 ): Promise<
-  Readonly<{ reference: EntityLifeRangeReference; turns: readonly Readonly<EntityTurn>[] }>
+  Readonly<{ reference: EntityLifeRangeReference; turns: readonly Readonly<EntityLifeTurn>[] }>
 > {
   const range = parseEntityLifeRangeReference(value);
   const storageDirectory = path.join(root, sanitizeName(range.entityId), 'lync');
@@ -1246,7 +1327,7 @@ function decodeCursorTurn(
   item: FileLoomTurn<LyncEncodedEntityTurn, EntityTurnMeta>,
   entityId: string,
 ) {
-  const turn = decodeEntityTurnFromLync(item.payload) as EntityTurn;
+  const turn = decodeEntityTurnFromLync(item.payload) as EntityLifeTurn;
   validateLyncTurnMeta({ ...item, payload: turn }, entityId);
   return turn;
 }
@@ -1255,9 +1336,9 @@ async function* scanSelectedCursor(
   cursor: LyncEntityCursor,
   tip: string | null,
   entityId: string,
-): AsyncGenerator<EntityTurn> {
+): AsyncGenerator<EntityLifeTurn> {
   if (tip === null) return;
-  let previous: EntityTurn | null = null;
+  let previous: EntityLifeTurn | null = null;
   let count = 0;
   for await (const item of cursor.scanThread({ tip })) {
     const turn = decodeCursorTurn(item, entityId);
@@ -1272,9 +1353,9 @@ async function* scanSelectedCursorBound(
   cursor: LyncEntityCursor,
   tip: string | null,
   entityId: string,
-): AsyncGenerator<BoundEntityTurn> {
+): AsyncGenerator<BoundEntityLifeTurn> {
   if (tip === null) return;
-  let previous: EntityTurn | null = null;
+  let previous: EntityLifeTurn | null = null;
   let count = 0;
   for await (const item of cursor.scanThread({ tip })) {
     const bound = boundCursorTurn(item, entityId);
@@ -1285,10 +1366,30 @@ async function* scanSelectedCursorBound(
   }
 }
 
+async function* scanSelectedActionTurns(
+  cursor: LyncEntityCursor,
+  tip: string | null,
+  entityId: string,
+): AsyncGenerator<EntityTurn> {
+  for await (const turn of scanSelectedCursor(cursor, tip, entityId)) {
+    if (isEntityActionTurn(turn)) yield turn;
+  }
+}
+
+async function* scanSelectedBoundActionTurns(
+  cursor: LyncEntityCursor,
+  tip: string | null,
+  entityId: string,
+): AsyncGenerator<BoundEntityTurn> {
+  for await (const bound of scanSelectedCursorBound(cursor, tip, entityId)) {
+    if (isEntityActionTurn(bound.turn)) yield bound as BoundEntityTurn;
+  }
+}
+
 function boundCursorTurn(
   item: FileLoomTurn<LyncEncodedEntityTurn, EntityTurnMeta>,
   entityId: string,
-): BoundEntityTurn {
+): BoundEntityLifeTurn {
   return deepFreeze({
     turn: decodeCursorTurn(item, entityId),
     source: { protocol: 'lync.file-loom-chain.v1', digest: item.chainDigest },
@@ -1296,7 +1397,7 @@ function boundCursorTurn(
 }
 
 function validateEntityTrajectorySuffix(
-  turns: EntityTurn[],
+  turns: EntityLifeTurn[],
   entityId: string,
   selectedLength: number,
 ) {
@@ -1309,14 +1410,14 @@ function validateEntityTrajectorySuffix(
     const turn = turns[index];
     const expectedSequence = expectedFirst + index;
     if (
-      turn.protocol !== 'behold.entity-turn.v1' ||
+      !isEntityLifeTurnProtocol(turn.protocol) ||
       turn.entityId !== entityId ||
       turn.sequence !== expectedSequence ||
-      turn.id !== `${entityId}:turn:${expectedSequence}`
+      turn.id !== entityLifeTurnId(entityId, expectedSequence, turn.protocol)
     ) {
       throw new Error(`Lync loom suffix has invalid turn ${turn.id || '<unknown>'}`);
     }
-    assertEntityTurnPublicCommitment(turn);
+    assertEntityLifeTurnChoice(turn);
     if (index > 0 && turn.parentId !== turns[index - 1].id) {
       throw new Error('Lync loom suffix parent does not match its predecessor');
     }
@@ -1326,7 +1427,7 @@ function validateEntityTrajectorySuffix(
 function entityTurnCommitReceipt(
   loomId: string,
   appended: FileLoomTurn<LyncEncodedEntityTurn, EntityTurnMeta>,
-  turn: EntityTurn,
+  turn: EntityLifeTurn,
 ): EntityTurnCommitReceipt {
   return deepFreeze({
     protocol: 'behold.entity-turn-commit-receipt.v1',
@@ -1366,13 +1467,13 @@ function validateLyncTurnMeta(turn: LyncStoredTurn, entityId: string) {
   }
 }
 
-function assertLegacyCompatible(stored: EntityTurn[], legacy: EntityTurn[]) {
+function assertLegacyCompatible(stored: EntityLifeTurn[], legacy: EntityTurn[]) {
   if (!isLegacyCompatible(stored, legacy)) {
     throw new Error('legacy loom differs from the active Lync history; refusing to merge silently');
   }
 }
 
-function isLegacyCompatible(stored: EntityTurn[], legacy: EntityTurn[]) {
+function isLegacyCompatible(stored: EntityLifeTurn[], legacy: EntityTurn[]) {
   const overlap = Math.min(stored.length, legacy.length);
   for (let index = 0; index < overlap; index += 1) {
     if (JSON.stringify(stored[index]) !== JSON.stringify(legacy[index])) return false;
@@ -1421,15 +1522,15 @@ async function writeManifest(file: string, manifest: EntityLoomManifest) {
 }
 
 function validateNextTurn(
-  stored: EntityTurn[],
-  turn: EntityTurn,
+  stored: EntityLifeTurn[],
+  turn: EntityLifeTurn,
   entityId: string,
   selectedLength = stored.length,
 ) {
   const previous = stored.at(-1);
   const expectedSequence = previous ? previous.sequence + 1 : selectedLength + 1;
-  if (turn.protocol !== 'behold.entity-turn.v1') {
-    throw new Error('unsupported entity turn protocol');
+  if (!isEntityLifeTurnProtocol(turn.protocol)) {
+    throw new Error('unsupported entity life turn protocol');
   }
   if (turn.entityId !== entityId) {
     throw new Error(`entity loom expected ${entityId}, received ${turn.entityId}`);
@@ -1442,10 +1543,51 @@ function validateNextTurn(
   if (turn.parentId !== (previous?.id ?? null)) {
     throw new Error('entity turn parent does not match the current loom tip');
   }
-  if (turn.id !== `${entityId}:turn:${turn.sequence}`) {
+  if (turn.id !== entityLifeTurnId(entityId, turn.sequence, turn.protocol)) {
     throw new Error(`entity turn id ${turn.id} does not match its entity and sequence`);
   }
-  assertEntityTurnPublicCommitment(turn);
+  assertEntityLifeTurnChoice(turn);
+}
+
+function isEntityLifeTurnProtocol(value: unknown): value is EntityLifeTurn['protocol'] {
+  return value === 'behold.entity-turn.v1' || value === 'behold.entity-cognition-turn.v1';
+}
+
+function entityLifeTurnId(
+  entityId: string,
+  sequence: number,
+  protocol: EntityLifeTurn['protocol'],
+) {
+  return `${entityId}:${protocol === 'behold.entity-turn.v1' ? 'turn' : 'cognition'}:${sequence}`;
+}
+
+function assertEntityLifeTurnChoice(turn: EntityLifeTurn) {
+  if (isEntityActionTurn(turn)) return assertEntityTurnPublicCommitment(turn);
+  if (turn.utterance?.publicCommitment != null) {
+    throw new Error('entity cognition turn cannot carry an action-level public commitment');
+  }
+  const content = turn.utterance?.assistant?.content;
+  let choice: unknown;
+  try {
+    choice = JSON.parse(String(content));
+  } catch {
+    throw new Error('entity cognition turn must retain its exact JSON null choice');
+  }
+  if (
+    !choice ||
+    typeof choice !== 'object' ||
+    Array.isArray(choice) ||
+    Object.keys(choice as Record<string, unknown>)
+      .sort()
+      .join(',') !== 'action,arguments' ||
+    (choice as any).action !== null ||
+    !(choice as any).arguments ||
+    typeof (choice as any).arguments !== 'object' ||
+    Array.isArray((choice as any).arguments) ||
+    Object.keys((choice as any).arguments).length !== 0
+  ) {
+    throw new Error('entity cognition turn must be an explicit null bodily intention');
+  }
 }
 
 export function assertEntityTurnPublicCommitment(turn: EntityTurn) {
@@ -1466,8 +1608,8 @@ export function assertEntityTurnPublicCommitment(turn: EntityTurn) {
   return parsed;
 }
 
-function validateEntityTrajectory(turns: EntityTurn[], entityId: string, source: string) {
-  const accepted: EntityTurn[] = [];
+function validateEntityTrajectory(turns: EntityLifeTurn[], entityId: string, source: string) {
+  const accepted: EntityLifeTurn[] = [];
   for (const turn of turns) {
     try {
       validateNextTurn(accepted, turn, entityId);

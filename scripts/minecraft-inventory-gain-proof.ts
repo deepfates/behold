@@ -10,7 +10,7 @@ import {
   parseMinecraftInventoryGainSpecification,
 } from '../src/evaluation/minecraft-inventory-gain';
 import { createEvaluationEpisode, openEvaluationEpisode } from '../src/evaluation/episode';
-import { readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom';
+import { entityActionTurns, readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom';
 import { verifyWorldLifecycleJournal } from '../src/runtime/world-control';
 import {
   minecraftHistoryWorldDefinition,
@@ -259,7 +259,7 @@ async function main(argv = process.argv.slice(2)) {
       actEvents,
       restartEvents,
       life,
-      lifeTurns: lifeRead.turns,
+      lifeTurns: entityActionTurns(lifeRead.turns),
       episodeDefinition: episode.definition,
     });
     const reportFile = path.join(evidenceRoot, 'inventory-gain-result.json');
@@ -375,7 +375,7 @@ export async function verifyProof(fileValue: string) {
       actEvents,
       restartEvents,
       life: report.life,
-      lifeTurns: lifeRead.turns,
+      lifeTurns: entityActionTurns(lifeRead.turns),
       episodeDefinition: openedEpisode.definition,
     });
     const actConfigured: any = actLifecycle.events.find((event) => event.type === 'run_configured');

@@ -1,9 +1,16 @@
-import type { EntityTurn, EntityTurnCommitReceipt } from '../entity/loom';
+import type {
+  EntityCognitionTurn,
+  EntityLifeTurn,
+  EntityTurn,
+  EntityTurnCommitReceipt,
+} from '../entity/loom';
 import { HUMAN_SEMANTIC_OBSERVATION_PROTOCOL } from '../mind/minecraft-body';
 import { projectResidentVisibleValue } from '../mind/resident-visibility';
 
 export const RESIDENT_LIFE_COMMIT_PROTOCOL = 'behold.resident-life-commit.v1' as const;
 export const RESIDENT_LIFE_COMMIT_EVENT = 'resident_life_commit' as const;
+export const RESIDENT_COGNITION_COMMIT_EVENT = 'resident_cognition_commit' as const;
+export const RESIDENT_COGNITION_COMMIT_PROTOCOL = 'behold.resident-cognition-commit.v1' as const;
 export const OPERATIONAL_BODY_OBSERVATION_PROTOCOL =
   'behold.operational-body-observation.v1' as const;
 
@@ -97,6 +104,41 @@ export function createResidentLifeCommit(
       error: text(turn.outcome.error),
       cancellation: project(turn.outcome.cancellation ?? null),
     },
+    lync: clone(receipt),
+  });
+}
+
+/** Bounded public following data for an explicit non-action cognition event. */
+export function createResidentCognitionCommit(
+  turn: EntityCognitionTurn,
+  receipt: EntityTurnCommitReceipt,
+) {
+  assertReceiptMatchesTurn(receipt, turn);
+  const presentation = turn.observationPresentation;
+  return deepFreeze({
+    protocol: RESIDENT_COGNITION_COMMIT_PROTOCOL,
+    entity: {
+      id: turn.entityId,
+      turnId: turn.id,
+      sequence: turn.sequence,
+      parentTurnId: turn.parentId,
+      startedAt: turn.startedAt,
+      completedAt: turn.completedAt,
+    },
+    experience:
+      presentation?.protocol === 'behold.entity-cognition-observation-presentation.v1'
+        ? {
+            protocol: presentation.protocol,
+            bodyProfile: presentation.bodyProfile,
+            requestSha256: presentation.requestSha256,
+            observation: safeObservation(presentation.observation),
+          }
+        : null,
+    choice: {
+      utterance: text(turn.utterance?.assistant?.content),
+      action: null,
+    },
+    consequence: null,
     lync: clone(receipt),
   });
 }
@@ -256,7 +298,7 @@ function stripPrivateObservationContent(value: any, depth = 0): any {
   );
 }
 
-function assertReceiptMatchesTurn(receipt: EntityTurnCommitReceipt, turn: EntityTurn) {
+function assertReceiptMatchesTurn(receipt: EntityTurnCommitReceipt, turn: EntityLifeTurn) {
   if (
     receipt?.protocol !== 'behold.entity-turn-commit-receipt.v1' ||
     receipt.entityId !== turn.entityId ||

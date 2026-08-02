@@ -6,13 +6,17 @@ import path from 'node:path';
 import {
   assertEntityTurnPublicCommitment,
   assertEntityConnectionCapability,
+  entityActionTurns,
   historyMessages,
   openEntityLoom,
+  readEntityLifeRange,
   resolveEntityLifeRange,
   validateEntityLifeRangeReference,
+  type EntityCognitionTurn,
   type EntityTurn,
 } from '../src/entity/loom';
 import {
+  createEntityCognitionObservationPresentation,
   createEntityTurnObservationPresentation,
   decodeEntityTurnFromLync,
 } from '../src/entity/turn-observation-binding';
@@ -56,6 +60,73 @@ function turn(sequence: number, parentId: string | null, entityId = 'Scout'): En
     nextObservation: { sequence: sequence + 1 },
   };
 }
+
+function cognition(
+  sequence: number,
+  parentId: string | null,
+  entityId = 'Scout',
+): EntityCognitionTurn {
+  return {
+    protocol: 'behold.entity-cognition-turn.v1',
+    id: `${entityId}:cognition:${sequence}`,
+    entityId,
+    sequence,
+    parentId,
+    model: 'test/model',
+    startedAt: sequence * 10,
+    completedAt: sequence * 10 + 1,
+    observation: { sequence, self: { identity: entityId } },
+    utterance: {
+      assistant: { role: 'assistant', content: '{"action":null,"arguments":{}}' },
+    },
+  };
+}
+
+test('one Lync life preserves action-null-action chronology across restart', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-cognition-life-'));
+  const first = await openEntityLoom('Scout', root);
+  try {
+    await first.append(turn(1, null));
+    await first.append(cognition(2, 'Scout:turn:1'));
+    await first.append(turn(3, 'Scout:cognition:2'));
+    assert.deepEqual(
+      (await first.readLife()).map((event) => [event.protocol, event.id, event.parentId]),
+      [
+        ['behold.entity-turn.v1', 'Scout:turn:1', null],
+        ['behold.entity-cognition-turn.v1', 'Scout:cognition:2', 'Scout:turn:1'],
+        ['behold.entity-turn.v1', 'Scout:turn:3', 'Scout:cognition:2'],
+      ],
+    );
+    assert.deepEqual(
+      (await first.readAll()).map((event) => event.id),
+      ['Scout:turn:1', 'Scout:turn:3'],
+      'the compatibility action view must not invent an action for cognition',
+    );
+  } finally {
+    await first.close();
+  }
+
+  const resumed = await openEntityLoom('Scout', root);
+  try {
+    assert.deepEqual(
+      (await resumed.readLife()).map((event) => event.id),
+      ['Scout:turn:1', 'Scout:cognition:2', 'Scout:turn:3'],
+    );
+  } finally {
+    await resumed.close();
+  }
+  const range = await resolveEntityLifeRange('Scout', 1, 3, root);
+  const exact = await readEntityLifeRange(range, root);
+  assert.deepEqual(
+    exact.turns.map((event) => event.protocol),
+    ['behold.entity-turn.v1', 'behold.entity-cognition-turn.v1', 'behold.entity-turn.v1'],
+  );
+  assert.deepEqual(
+    entityActionTurns(exact.turns).map((event) => event.id),
+    ['Scout:turn:1', 'Scout:turn:3'],
+  );
+  fs.rmSync(root, { recursive: true, force: true });
+});
 
 function legibleTurn(): EntityTurn {
   const publicCommitment = {
@@ -540,6 +611,46 @@ test('human-semantic Lync turns bind a safe readable projection to unchanged pri
     () => decodeEntityTurnFromLync(releaseTampered),
     /binding does not match its turn or causal frames/,
   );
+});
+
+test('human-semantic null cognition stores its admitted view without inventing a terminal frame', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-lync-cognition-presentation-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const source = oxfordPilotShapedTurn();
+  const event: EntityCognitionTurn = {
+    protocol: 'behold.entity-cognition-turn.v1',
+    circleId: source.circleId,
+    id: `${source.entityId}:cognition:1`,
+    entityId: source.entityId,
+    sequence: 1,
+    parentId: null,
+    model: source.model,
+    profiles: source.profiles,
+    startedAt: source.startedAt,
+    completedAt: source.startedAt + 10,
+    observation: source.observation,
+    observationPresentation: createEntityCognitionObservationPresentation({
+      requestSha256: source.observationPresentation!.requestSha256,
+      observation: source.observationPresentation!.observation,
+    }),
+    utterance: {
+      assistant: { role: 'assistant', content: '{"action":null,"arguments":{}}' },
+    },
+  };
+  const life = await openEntityLoom(event.entityId, root, event.circleId);
+  await life.append(event);
+  const raw = fs.readFileSync(life.file, 'utf8');
+  assert.match(raw, /behold\.entity-cognition-observation-binding\.v1/);
+  assert.match(raw, /behold\.entity-cognition-private-frame\.v1/);
+  assert.doesNotMatch(raw, /nextObservation/);
+  await life.close();
+
+  const reopened = await openEntityLoom(event.entityId, root, event.circleId);
+  const [stored] = await reopened.readLife();
+  assert.equal(stored.protocol, 'behold.entity-cognition-turn.v1');
+  assert.deepEqual(stored.observation, event.observation);
+  assert.deepEqual(stored.observationPresentation, event.observationPresentation);
+  await reopened.close();
 });
 
 test('a replaceable scripted controller is remembered without impersonating the LLM', () => {

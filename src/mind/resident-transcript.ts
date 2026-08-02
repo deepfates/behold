@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import type { EntityTurn, EntityTurnCanonicalBinding } from '../entity/loom';
+import {
+  isEntityActionTurn,
+  type EntityLifeTurn,
+  type EntityTurn,
+  type EntityTurnCanonicalBinding,
+} from '../entity/loom';
 
 export const RESIDENT_CONTINUOUS_TRANSCRIPT_PROTOCOL =
   'behold.resident-continuous-transcript.v1' as const;
@@ -83,7 +88,7 @@ export function residentContextEpochBoundaryMessage(
 export function projectResidentContextEpoch(
   entityId: string,
   totalTurns: number,
-  turns: readonly EntityTurn[],
+  turns: readonly EntityLifeTurn[],
   options: ProjectionOptions &
     Readonly<{
       epochTurns?: number;
@@ -469,7 +474,7 @@ function parseMessageJson(content: string, label: string): any {
 }
 
 type ProjectionOptions = Readonly<{
-  projectObservation?: (observation: any, turn: EntityTurn) => any;
+  projectObservation?: (observation: any, turn: EntityLifeTurn) => any;
   projectValue?: (value: any) => any;
   /** Rehydrate a controller-owned cognitive outcome without changing canonical bytes. */
   projectOutcome?: (turn: EntityTurn) => EntityTurn['outcome'];
@@ -482,7 +487,7 @@ type ProjectionOptions = Readonly<{
  */
 export function projectResidentTranscript(
   entityId: string,
-  turns: readonly EntityTurn[],
+  turns: readonly EntityLifeTurn[],
   options: ProjectionOptions = {},
 ): ResidentTranscriptProjection {
   const messages: ResidentTranscriptMessage[] = [];
@@ -505,11 +510,10 @@ export function projectResidentTranscript(
 }
 
 export function projectResidentTranscriptTurn(
-  turn: EntityTurn,
+  turn: EntityLifeTurn,
   options: ProjectionOptions = {},
 ): readonly ResidentTranscriptMessage[] {
   const projectValue = options.projectValue ?? cloneJson;
-  const projectedOutcome = options.projectOutcome?.(turn) ?? turn.outcome;
   const admittedObservation = turn.observationPresentation?.observation;
   const observation = admittedObservation
     ? cloneJson(admittedObservation)
@@ -518,6 +522,18 @@ export function projectResidentTranscriptTurn(
     role: 'user',
     content: `What you experience:\n${stableJson(observation)}`,
   };
+
+  if (!isEntityActionTurn(turn)) {
+    const retainedContent = turn.utterance?.assistant?.content;
+    const canonicalChoice = stableJson({ action: null, arguments: {} });
+    const assistantContent =
+      typeof retainedContent === 'string' && retainedContent.length > 0
+        ? exactResidentChoice(retainedContent, canonicalChoice, turn.sequence)
+        : canonicalChoice;
+    return deepFreeze([experience, { role: 'assistant', content: assistantContent }]);
+  }
+
+  const projectedOutcome = options.projectOutcome?.(turn) ?? turn.outcome;
 
   if (options.mayReplayTurn?.(turn) === false || turn.action.source !== 'llm') {
     return deepFreeze([
@@ -593,20 +609,24 @@ function exactResidentChoice(content: string, canonicalChoice: string, sequence:
 }
 
 function assertTranscriptTurn(
-  turn: EntityTurn,
+  turn: EntityLifeTurn,
   entityId: string,
   expectedSequence: number,
   parentId: string | null,
 ) {
-  if (turn.protocol !== 'behold.entity-turn.v1') {
-    throw new Error('continuous resident transcript requires entity-turn v1');
+  if (
+    turn.protocol !== 'behold.entity-turn.v1' &&
+    turn.protocol !== 'behold.entity-cognition-turn.v1'
+  ) {
+    throw new Error('continuous resident transcript requires a supported entity-life turn');
   }
   if (turn.entityId !== entityId) {
     throw new Error(
       `continuous resident transcript expected ${entityId}, received ${turn.entityId}`,
     );
   }
-  if (turn.sequence !== expectedSequence || turn.id !== `${entityId}:turn:${expectedSequence}`) {
+  const kind = turn.protocol === 'behold.entity-turn.v1' ? 'turn' : 'cognition';
+  if (turn.sequence !== expectedSequence || turn.id !== `${entityId}:${kind}:${expectedSequence}`) {
     throw new Error(`continuous resident transcript is not contiguous at turn ${expectedSequence}`);
   }
   if (turn.parentId !== parentId) {

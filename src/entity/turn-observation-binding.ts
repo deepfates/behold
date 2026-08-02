@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 export const ENTITY_TURN_OBSERVATION_PRESENTATION_PROTOCOL =
   'behold.entity-turn-observation-presentation.v1' as const;
+export const ENTITY_COGNITION_OBSERVATION_PRESENTATION_PROTOCOL =
+  'behold.entity-cognition-observation-presentation.v1' as const;
 export const ENTITY_TURN_PRIVATE_CAUSAL_FRAMES_PROTOCOL =
   'behold.entity-turn-private-causal-frames.v1' as const;
 export const ENTITY_TURN_OBSERVATION_BINDING_PROTOCOL =
@@ -21,8 +23,17 @@ export type EntityTurnObservationPresentation = Readonly<{
   nextObservation: any;
 }>;
 
+export type EntityCognitionObservationPresentation = Readonly<{
+  protocol: typeof ENTITY_COGNITION_OBSERVATION_PRESENTATION_PROTOCOL;
+  bodyProfile: typeof HUMAN_SEMANTIC_BODY_PROFILE;
+  /** Hash of the complete admitted resident mind request containing observation. */
+  requestSha256: string;
+  /** Exact observation object admitted to the resident mind request. */
+  observation: any;
+}>;
+
 type TurnLike = {
-  protocol: 'behold.entity-turn.v1';
+  protocol: 'behold.entity-turn.v1' | 'behold.entity-cognition-turn.v1';
   circleId?: string;
   id: string;
   entityId: string;
@@ -39,10 +50,40 @@ type TurnLike = {
     releaseDigest: string;
   };
   observation: any;
-  nextObservation: any;
-  observationPresentation?: EntityTurnObservationPresentation;
+  nextObservation?: any;
+  observationPresentation?:
+    EntityTurnObservationPresentation | EntityCognitionObservationPresentation;
   [key: string]: any;
 };
+
+type CognitionPrivateFrame = Readonly<{
+  protocol: 'behold.entity-cognition-private-frame.v1';
+  observation: any;
+}>;
+
+type CognitionObservationBinding = Readonly<{
+  protocol: 'behold.entity-cognition-observation-binding.v1';
+  turn: Readonly<{
+    id: string;
+    entityId: string;
+    sequence: number;
+    circleId: string | null;
+  }>;
+  profiles: Readonly<{ body: string; actions: string }>;
+  experimentRelease: Readonly<{
+    protocol: string;
+    releaseId: string;
+    releaseDigest: string;
+  }> | null;
+  requestSha256: string;
+  observation: Readonly<{
+    source: 'admitted_resident_mind_request';
+    protocol: typeof HUMAN_SEMANTIC_OBSERVATION_PROTOCOL;
+    projectionSha256: string;
+    privateFrameSha256: string;
+  }>;
+  digest: string;
+}>;
 
 type PrivateCausalFrames = Readonly<{
   protocol: typeof ENTITY_TURN_PRIVATE_CAUSAL_FRAMES_PROTOCOL;
@@ -101,6 +142,20 @@ export function createEntityTurnObservationPresentation(input: {
   });
 }
 
+export function createEntityCognitionObservationPresentation(input: {
+  requestSha256: string;
+  observation: any;
+}): EntityCognitionObservationPresentation {
+  const requestSha256 = sha256Digest(input.requestSha256, 'resident mind request');
+  assertHumanSemanticObservation(input.observation, 'admitted observation');
+  return deepFreeze({
+    protocol: ENTITY_COGNITION_OBSERVATION_PRESENTATION_PROTOCOL,
+    bodyProfile: HUMAN_SEMANTIC_BODY_PROFILE,
+    requestSha256,
+    observation: cloneJson(input.observation),
+  });
+}
+
 /**
  * Lync's public turn paths contain only the versioned human-semantic body.
  * Raw frames remain byte-for-byte JSON values in a named private evidence
@@ -110,19 +165,23 @@ export function createEntityTurnObservationPresentation(input: {
 export function encodeEntityTurnForLync<T extends TurnLike>(turn: T): any {
   const presentation = turn.observationPresentation;
   if (!presentation) return turn;
-  assertTurnPresentationIdentity(turn, presentation);
+  if (turn.protocol === 'behold.entity-cognition-turn.v1') {
+    return encodeCognitionForLync(turn, presentation as EntityCognitionObservationPresentation);
+  }
+  const actionPresentation = presentation as EntityTurnObservationPresentation;
+  assertTurnPresentationIdentity(turn, actionPresentation);
 
   const privateCausalFrames: PrivateCausalFrames = {
     protocol: ENTITY_TURN_PRIVATE_CAUSAL_FRAMES_PROTOCOL,
     observation: cloneJson(turn.observation),
     nextObservation: cloneJson(turn.nextObservation),
   };
-  const binding = observationBinding(turn, presentation, privateCausalFrames);
+  const binding = observationBinding(turn, actionPresentation, privateCausalFrames);
   const { observationPresentation: _presentation, ...base } = turn;
   return {
     ...base,
-    observation: cloneJson(presentation.observation),
-    nextObservation: cloneJson(presentation.nextObservation),
+    observation: cloneJson(actionPresentation.observation),
+    nextObservation: cloneJson(actionPresentation.nextObservation),
     privateCausalFrames,
     observationBinding: binding,
   };
@@ -130,6 +189,9 @@ export function encodeEntityTurnForLync<T extends TurnLike>(turn: T): any {
 
 /** Restore Behold's raw in-process EntityTurn while verifying the stored pair. */
 export function decodeEntityTurnFromLync<T extends TurnLike>(value: T): T {
+  if (value.protocol === 'behold.entity-cognition-turn.v1') {
+    return decodeCognitionFromLync(value);
+  }
   const privateCausalFrames = value.privateCausalFrames as PrivateCausalFrames | undefined;
   const binding = value.observationBinding as ObservationBinding | undefined;
   if (!privateCausalFrames && !binding) return value;
@@ -167,6 +229,62 @@ export function decodeEntityTurnFromLync<T extends TurnLike>(value: T): T {
   } as T;
 }
 
+function encodeCognitionForLync<T extends TurnLike>(
+  turn: T,
+  presentation: EntityCognitionObservationPresentation,
+) {
+  assertCognitionPresentationIdentity(turn, presentation);
+  const privateFrame: CognitionPrivateFrame = {
+    protocol: 'behold.entity-cognition-private-frame.v1',
+    observation: cloneJson(turn.observation),
+  };
+  const binding = cognitionObservationBinding(turn, presentation, privateFrame);
+  const { observationPresentation: _presentation, ...base } = turn;
+  return {
+    ...base,
+    observation: cloneJson(presentation.observation),
+    privateFrame,
+    observationBinding: binding,
+  };
+}
+
+function decodeCognitionFromLync<T extends TurnLike>(value: T): T {
+  const privateFrame = value.privateFrame as CognitionPrivateFrame | undefined;
+  const binding = value.observationBinding as CognitionObservationBinding | undefined;
+  if (!privateFrame && !binding) return value;
+  if (!privateFrame || !binding) {
+    throw new Error('entity cognition observation evidence is only partially present');
+  }
+  if (privateFrame.protocol !== 'behold.entity-cognition-private-frame.v1') {
+    throw new Error('unsupported entity cognition private frame protocol');
+  }
+  const presentation = createEntityCognitionObservationPresentation({
+    requestSha256: binding.requestSha256,
+    observation: value.observation,
+  });
+  const turnForBinding = {
+    ...value,
+    observation: privateFrame.observation,
+    observationPresentation: presentation,
+  } as T;
+  const expected = cognitionObservationBinding(turnForBinding, presentation, privateFrame);
+  if (stableJson(binding) !== stableJson(expected)) {
+    throw new Error(
+      'entity cognition observation binding does not match its turn or private frame',
+    );
+  }
+  const {
+    privateFrame: _privateFrame,
+    observationBinding: _observationBinding,
+    ...publicTurn
+  } = value;
+  return {
+    ...publicTurn,
+    observation: cloneJson(privateFrame.observation),
+    observationPresentation: presentation,
+  } as T;
+}
+
 function assertTurnPresentationIdentity(
   turn: TurnLike,
   presentation: EntityTurnObservationPresentation,
@@ -184,6 +302,67 @@ function assertTurnPresentationIdentity(
   sha256Digest(presentation.requestSha256, 'resident mind request');
   assertHumanSemanticObservation(presentation.observation, 'admitted observation');
   assertHumanSemanticObservation(presentation.nextObservation, 'terminal observation projection');
+}
+
+function assertCognitionPresentationIdentity(
+  turn: TurnLike,
+  presentation: EntityCognitionObservationPresentation,
+) {
+  if (presentation.protocol !== ENTITY_COGNITION_OBSERVATION_PRESENTATION_PROTOCOL) {
+    throw new Error('unsupported entity cognition observation presentation protocol');
+  }
+  if (
+    turn.protocol !== 'behold.entity-cognition-turn.v1' ||
+    presentation.bodyProfile !== HUMAN_SEMANTIC_BODY_PROFILE ||
+    turn.profiles?.body !== HUMAN_SEMANTIC_BODY_PROFILE ||
+    turn.profiles?.actions !== HUMAN_SEMANTIC_BODY_PROFILE
+  ) {
+    throw new Error(
+      'entity cognition observation presentation does not match its event/body/action profile',
+    );
+  }
+  sha256Digest(presentation.requestSha256, 'resident mind request');
+  assertHumanSemanticObservation(presentation.observation, 'admitted observation');
+}
+
+function cognitionObservationBinding(
+  turn: TurnLike,
+  presentation: EntityCognitionObservationPresentation,
+  privateFrame: CognitionPrivateFrame,
+): CognitionObservationBinding {
+  assertCognitionPresentationIdentity(turn, presentation);
+  const release = turn.experimentRelease
+    ? {
+        protocol: experimentReleaseProtocol(turn.experimentRelease.protocol),
+        releaseId: sha256Digest(turn.experimentRelease.releaseId, 'experiment release id'),
+        releaseDigest: sha256Digest(
+          turn.experimentRelease.releaseDigest,
+          'experiment release digest',
+        ),
+      }
+    : null;
+  const base = {
+    protocol: 'behold.entity-cognition-observation-binding.v1' as const,
+    turn: {
+      id: requiredString(turn.id, 'turn id'),
+      entityId: requiredString(turn.entityId, 'turn entity id'),
+      sequence: positiveInteger(turn.sequence, 'turn sequence'),
+      circleId: turn.circleId == null ? null : requiredString(turn.circleId, 'turn circle id'),
+    },
+    profiles: {
+      body: requiredString(turn.profiles?.body, 'turn body profile'),
+      actions: requiredString(turn.profiles?.actions, 'turn action profile'),
+    },
+    experimentRelease: release,
+    requestSha256: sha256Digest(presentation.requestSha256, 'resident mind request'),
+    observation: {
+      source: 'admitted_resident_mind_request' as const,
+      protocol: HUMAN_SEMANTIC_OBSERVATION_PROTOCOL,
+      projectionSha256: valueSha256(presentation.observation),
+      privateFrameSha256: valueSha256(privateFrame.observation),
+    },
+  };
+  return deepFreeze({ ...base, digest: valueSha256(base) });
 }
 
 function observationBinding(

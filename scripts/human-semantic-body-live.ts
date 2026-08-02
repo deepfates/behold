@@ -13,6 +13,7 @@ import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
 import { buildInterpreter } from '../src/agent/interpreter';
 import { minecraftActionsForProfile } from '../src/agent/action-profiles';
 import {
+  entityActionTurns,
   openEntityLoom,
   readEntityLifeRange,
   resolveEntityLifeRange,
@@ -235,7 +236,7 @@ async function runProof() {
       throw new Error(`expected one source run journal, found ${journals.length}`);
     }
     const journalEvents = readJsonLines(journals[0]);
-    assessPersistedEvidence(phase, life.turns, journalEvents);
+    assessPersistedEvidence(phase, entityActionTurns(life.turns), journalEvents);
 
     await run.stop('human_semantic_body_live_complete');
     await run.finished;

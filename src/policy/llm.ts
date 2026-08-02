@@ -5,11 +5,16 @@ import type { Intent } from '../loop/arbiter';
 import type { EngineEvent } from '../loop/engine';
 import {
   historyMessages,
+  type BoundEntityLifeTurn,
   type EntityLifeRecallPage,
+  type EntityLifeTurn,
   type EntityTurn,
   type EntityTurnCanonicalBinding,
 } from '../entity/loom';
-import { createEntityTurnObservationPresentation } from '../entity/turn-observation-binding';
+import {
+  createEntityCognitionObservationPresentation,
+  createEntityTurnObservationPresentation,
+} from '../entity/turn-observation-binding';
 import type { ExperimentReleaseReference } from '../runtime/experiment-release';
 import type { InhabitantActionSpec, InhabitantInterface } from '../entity/interface';
 import { MANAGE_PROJECT_TOOL } from '../entity/projects';
@@ -126,6 +131,11 @@ export type Options = {
   decisionScheduling?: 'world-events' | 'fixed-pilot-slots';
   allowTools?: string[] | null;
   history?: EntityTurn[];
+  /** Exact chronological resident life, including explicit non-action cognition. */
+  lifeContext?: Readonly<{
+    totalTurns: number;
+    rebuild: () => AsyncIterable<BoundEntityLifeTurn>;
+  }>;
   /** Cursor-backed ordinary life; only its exact recent suffix is retained. */
   loomContext?: BoundedLoomContextState;
   /** Exact private selected-life reader. It never accepts an entity, path, loom, or tip. */
@@ -252,6 +262,10 @@ export type Options = {
   /** Operator-side evidence for a context substitution; never enters model context. */
   onContextIntervention?: (intervention: LoomContextIntervention) => void;
   onEntityTurn?: (turn: EntityTurn) => unknown | Promise<unknown>;
+  /** Canonical non-action cognition commit; never routed through action observers. */
+  onEntityCognitionTurn?: (
+    turn: Extract<EntityLifeTurn, { protocol: 'behold.entity-cognition-turn.v1' }>,
+  ) => unknown | Promise<unknown>;
 };
 
 type PendingAction = {
@@ -531,13 +545,14 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const continuousTranscript = usesContinuousResidentTranscript(policyProfile);
   const contextEpochs = usesResidentContextEpochs(policyProfile);
   const chronologicalTranscript = continuousTranscript || contextEpochs;
-  if (contextEpochs && !opts.loomContext) {
-    throw new Error('resident-v4 context epochs require a cursor-backed canonical Lync life');
+  if (contextEpochs && !opts.lifeContext && !opts.loomContext) {
+    throw new Error('resident-v4 context epochs require an exact cursor-backed canonical life');
   }
   if (contextEpochs && !opts.readPrivateLife) {
     throw new Error('resident-v4 context epochs require an exact private-life reader');
   }
   const contextEpochTurns = boundedContextEpochTurns(opts.contextEpochTurns);
+  const canonicalLifeContext = opts.lifeContext ?? opts.loomContext;
   const projectCurrentObservation = (frame: any, eventBatchLimit?: number) =>
     projectMinecraftCurrentObservation(
       frame,
@@ -712,7 +727,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let currentExperienceConsumed = false;
   let entitySequence = history.at(-1)?.sequence ?? 0;
   let parentTurnId = history.at(-1)?.id ?? null;
-  let lastEntityTurn: EntityTurn | null = history.at(-1) ?? null;
+  let lastEntityTurn: EntityLifeTurn | null = history.at(-1) ?? null;
   let lastActionSignature: string | null = null;
   let repeatedActionCount = 0;
   let consecutiveSocialCameraActions = trailingSocialCameraActions(history);
@@ -1421,10 +1436,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
       if (!decision.intent) {
         noIntentionAt = now();
-        // resident-v2 deliberately owns factual Lync continuity rather than a
-        // chronological provider transcript. Do not leak its uncommitted
+        if (chronologicalTranscript) await closeCognition(draft, decidedAt);
+        // resident-v2 deliberately owns factual action continuity rather than
+        // a chronological provider transcript. Do not leak its uncommitted
         // current-experience/assistant pair into that distinct wire layout.
-        if (!chronologicalTranscript) rebuildMessagesFromLoom();
+        else rebuildMessagesFromLoom();
         log('[policy] resident formed no bodily intention');
         turnActive = false;
         turnSteps = 0;
@@ -2254,6 +2270,79 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
   }
 
+  async function closeCognition(draft: TurnDraft, completedAt = now()) {
+    decisionCycle.enter('committing_turn', {
+      observationSequence: Number(draft.observation?.sequence),
+    });
+    const sequence = entitySequence + 1;
+    const turn: EntityLifeTurn = {
+      protocol: 'behold.entity-cognition-turn.v1',
+      ...(draft.observation?.circle?.id ? { circleId: String(draft.observation.circle.id) } : {}),
+      id: `${entityId}:cognition:${sequence}`,
+      entityId,
+      sequence,
+      parentId: parentTurnId,
+      model: draft.model,
+      profiles: {
+        policy: policyProfile,
+        body: bodyProfile,
+        actions: actionProfile,
+        safety: safetyProfile,
+      },
+      ...(draft.experimentRelease ? { experimentRelease: cloneJson(draft.experimentRelease) } : {}),
+      attention: draft.attention,
+      startedAt: draft.startedAt,
+      completedAt,
+      observation: draft.observation,
+      ...(usesHumanSemanticBody(bodyProfile)
+        ? {
+            observationPresentation: createEntityCognitionObservationPresentation({
+              requestSha256: draft.requestSha256,
+              observation: draft.modelObservation,
+            }),
+          }
+        : {}),
+      utterance: { assistant: draft.assistant },
+    };
+    if (contextEpochs) assertPrivateLifeTurnRecallable(turn);
+    const committed = await opts.onEntityCognitionTurn?.(turn);
+    if (
+      contextEpochs &&
+      (!isCanonicalTurnBinding(committed) || committed.protocol !== 'lync.file-loom-chain.v1')
+    ) {
+      throw new Error('resident cognition commit did not return a canonical Lync binding');
+    }
+    let currentIndex = -1;
+    for (let index = messages.length - 1; index >= 1; index -= 1) {
+      if (
+        messages[index]?.role === 'user' &&
+        String(messages[index].content).startsWith('What you experience:')
+      ) {
+        currentIndex = index;
+        break;
+      }
+    }
+    if (currentIndex < 1) {
+      throw new Error('continuous resident transcript lost its current experience boundary');
+    }
+    messages.splice(currentIndex);
+    messages.push(
+      ...projectResidentTranscriptTurn(turn, {
+        projectObservation: (observation) => projectCurrentObservation(observation),
+        ...(usesHumanSemanticBody(bodyProfile) ? { projectValue: projectHumanSemanticValue } : {}),
+      }),
+    );
+    entitySequence = sequence;
+    parentTurnId = turn.id;
+    lastEntityTurn = turn;
+    if (isCanonicalTurnBinding(committed)) {
+      lastCanonicalBinding = {
+        protocol: committed.protocol as 'lync.file-loom-chain.v1',
+        digest: committed.digest,
+      };
+    }
+  }
+
   function recordEmbodiedOutcome(tool: string, ok: boolean) {
     if (!EMBODIED_ACTION_TOOLS.has(tool) || ok) {
       failedEmbodiedTool = null;
@@ -2302,12 +2391,12 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   async function prepareContinuousTranscript() {
     if (!continuousTranscript || continuousTranscriptPrepared) return;
-    const turns: EntityTurn[] = [];
-    if (opts.loomContext) {
-      for await (const entry of opts.loomContext.rebuild()) turns.push(entry.turn);
-      if (turns.length !== opts.loomContext.totalTurns) {
+    const turns: EntityLifeTurn[] = [];
+    if (canonicalLifeContext) {
+      for await (const entry of canonicalLifeContext.rebuild()) turns.push(entry.turn);
+      if (turns.length !== canonicalLifeContext.totalTurns) {
         throw new Error(
-          `continuous resident transcript rebuilt ${turns.length} of ${opts.loomContext.totalTurns} canonical turns`,
+          `continuous resident transcript rebuilt ${turns.length} of ${canonicalLifeContext.totalTurns} canonical turns`,
         );
       }
     } else {
@@ -2327,14 +2416,15 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   async function prepareContextEpoch() {
     if (!contextEpochs || contextEpochPrepared) return;
-    const totalTurns = opts.loomContext!.totalTurns;
+    const totalTurns = canonicalLifeContext!.totalTurns;
     let firstContextEpochTurn: number | null = null;
-    const turns: EntityTurn[] = [];
+    const turns: EntityLifeTurn[] = [];
     let archivedBoundary: EntityTurnCanonicalBinding | null = null;
     let selectedTipBinding: EntityTurnCanonicalBinding | null = null;
     let previousBinding: EntityTurnCanonicalBinding | null = null;
     let scanned = 0;
-    for await (const entry of opts.loomContext!.rebuild()) {
+    let selectedTipId: string | null = null;
+    for await (const entry of canonicalLifeContext!.rebuild()) {
       scanned += 1;
       if (
         !isCanonicalTurnBinding(entry.source) ||
@@ -2350,6 +2440,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       };
       assertPrivateLifeTurnRecallable(entry.turn, source);
       selectedTipBinding = source;
+      selectedTipId = entry.turn.id;
       if (firstContextEpochTurn == null && entry.turn.profiles?.policy === 'resident-v4') {
         firstContextEpochTurn = entry.turn.sequence;
         contextEpochOriginTurn = entry.turn.sequence - 1;
@@ -2391,12 +2482,13 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     });
     messages.splice(1, Math.max(0, messages.length - 1), ...epoch.messages);
     entitySequence = totalTurns;
-    parentTurnId = totalTurns > 0 ? `${entityId}:turn:${totalTurns}` : null;
+    parentTurnId = selectedTipId;
     lastCanonicalBinding = selectedTipBinding;
     contextEpochPrepared = true;
   }
 
-  async function rehydratePrivateLifeTurn(turn: EntityTurn): Promise<EntityTurn> {
+  async function rehydratePrivateLifeTurn(turn: EntityLifeTurn): Promise<EntityLifeTurn> {
+    if (turn.protocol === 'behold.entity-cognition-turn.v1') return turn;
     if (
       turn.action.name !== READ_PRIVATE_LIFE_TOOL ||
       !turn.outcome.ok ||
@@ -2507,7 +2599,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   }
 
   function assertPrivateLifeTurnRecallable(
-    turn: EntityTurn,
+    turn: EntityLifeTurn,
     source: EntityTurnCanonicalBinding = {
       protocol: 'lync.file-loom-chain.v1',
       digest: '0'.repeat(64),

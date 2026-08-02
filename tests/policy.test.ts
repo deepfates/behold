@@ -12,7 +12,7 @@ import {
   startLLMPolicy,
 } from '../src/policy/llm';
 import { usesResidentProgressSafeguards } from '../src/policy/profile';
-import type { EntityTurn } from '../src/entity/loom';
+import type { EntityCognitionTurn, EntityTurn } from '../src/entity/loom';
 import type { BoundedLoomContextState, CanonicalTurnBinding } from '../src/entity/folding';
 import type { ResidentMind, ResidentMindRequest } from '../src/mind/interface';
 import { cognitionHeaderNames } from '../src/mind/cognition';
@@ -4704,7 +4704,7 @@ test('resident-v2 restart projects mixed legacy history as facts without legacy 
   }
 });
 
-test('resident-v3 restart presents the full private chronology and retains its exact response', async () => {
+test('resident-v3 commits null cognition and carries it in exact private chronology', async () => {
   const prior = [failedTurn(1, 'move_controls'), failedTurn(2, 'look_direction')];
   for (const turn of prior) {
     turn.profiles = {
@@ -4720,6 +4720,7 @@ test('resident-v3 restart presents the full private chronology and retains its e
   }
   const captured: ResidentMindRequest[] = [];
   const committed: EntityTurn[] = [];
+  const cognitions: EntityCognitionTurn[] = [];
   const binding = (sequence: number): CanonicalTurnBinding => ({
     protocol: 'lync.file-loom-chain.v1',
     digest: sequence.toString(16).padStart(64, '0'),
@@ -4780,6 +4781,10 @@ test('resident-v3 restart presents the full private chronology and retains its e
         committed.push(turn);
         return binding(turn.sequence);
       },
+      onEntityCognitionTurn: (turn) => {
+        cognitions.push(turn);
+        return binding(turn.sequence);
+      },
     },
   );
 
@@ -4799,7 +4804,33 @@ test('resident-v3 restart presents the full private chronology and retains its e
       JSON.stringify(conversation),
       /Folded view|factual-continuity|working-continuity/,
     );
-    assert.equal(committed.length, 0, 'no intention must not manufacture a canonical life turn');
+    assert.equal(committed.length, 0, 'no intention must not manufacture an action turn');
+    assert.equal(cognitions.length, 2);
+    assert.deepEqual(
+      cognitions.map((turn) => ({
+        protocol: turn.protocol,
+        id: turn.id,
+        sequence: turn.sequence,
+        parentId: turn.parentId,
+        content: turn.utterance.assistant.content,
+      })),
+      [
+        {
+          protocol: 'behold.entity-cognition-turn.v1',
+          id: 'Scout:cognition:3',
+          sequence: 3,
+          parentId: 'Scout:turn:2',
+          content: exactResponse,
+        },
+        {
+          protocol: 'behold.entity-cognition-turn.v1',
+          id: 'Scout:cognition:4',
+          sequence: 4,
+          parentId: 'Scout:cognition:3',
+          content: exactResponse,
+        },
+      ],
+    );
     assert.equal(
       (captured[1].conversation as any[]).some(
         (message) => message.role === 'assistant' && message.content === exactResponse,

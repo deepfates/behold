@@ -27,12 +27,14 @@ import { usesOllamaResidentSessionTransport } from '../mind/ollama-json-action';
 import { usesContinuousResidentTranscript, usesResidentSessionPolicy } from '../policy/profile';
 import { createRunJournal } from '../observability/journal';
 import {
+  createResidentCognitionCommit,
   createResidentLifeCommit,
   projectOperationalBodyObservation,
   projectOperationalModelTurn,
   RESIDENT_LIFE_COMMIT_EVENT,
+  RESIDENT_COGNITION_COMMIT_EVENT,
 } from '../observability/resident-life-commit';
-import { openEntityLoom } from '../entity/loom';
+import { isEntityActionTurn, openEntityLoom } from '../entity/loom';
 import { readLoomFoldCache, type BoundedLoomContextState } from '../entity/folding';
 import { createProjectMemory } from '../entity/projects';
 import { createPlaceMemory } from '../entity/places';
@@ -142,21 +144,23 @@ export async function runConsole(
   const entityLoom = await openEntityLoom(name, undefined, cfg.circle.id);
   const projects = createProjectMemory(name);
   const places = createPlaceMemory(name);
+  let priorActionTurns = 0;
   for await (const priorTurn of entityLoom.scan()) {
+    priorActionTurns += 1;
     projects.record(priorTurn);
     places.record(priorTurn);
   }
-  const priorEntityTurns = entityLoom.length();
+  const priorLifeTurns = entityLoom.length();
   const boundedTail = await entityLoom.tailBound(LIVE_FOLD_RECENT_TURNS + 1);
   const recentBound = boundedTail.slice(-LIVE_FOLD_RECENT_TURNS);
   const boundaryBound =
-    priorEntityTurns > recentBound.length
+    priorActionTurns > recentBound.length
       ? (boundedTail.at(-recentBound.length - 1) ?? null)
       : null;
   const residentLoomContext: BoundedLoomContextState = {
     protocol: 'behold.bounded-loom-context.v1',
     entityId: name,
-    totalTurns: priorEntityTurns,
+    totalTurns: priorActionTurns,
     recentTurns: recentBound.map((entry) => entry.turn),
     recentSources: recentBound.map((entry) => entry.source),
     fold: readLoomFoldCache(entityLoom.foldFile),
@@ -225,7 +229,7 @@ export async function runConsole(
     target: taskTarget,
     entityLoom: entityLoom.file,
     entityLoomBackend: entityLoom.backend,
-    priorEntityTurns,
+    priorEntityTurns: priorLifeTurns,
     activeProjects: projects.snapshot(),
     knownPlaces: places.snapshot(),
   });
@@ -243,7 +247,7 @@ export async function runConsole(
   }
   console.error(`[journal] ${journal.file}`);
   console.error(
-    `[entity] ${entityLoom.file} (${priorEntityTurns} prior turns, ${entityLoom.backend})`,
+    `[entity] ${entityLoom.file} (${priorLifeTurns} prior life events, ${entityLoom.backend})`,
   );
   console.error(`[circle] ${cfg.circle.id} (${cfg.circle.source})`);
   for (const warning of entityLoom.warnings) console.error(`[entity] ${warning}`);
@@ -852,6 +856,10 @@ export async function runConsole(
         loomContext: residentLoomContext,
         readPrivateLife: (startSequence, endSequence, maxBytes) =>
           entityLoom.recallRange(startSequence, endSequence, maxBytes),
+        lifeContext: {
+          totalTurns: priorLifeTurns,
+          rebuild: () => entityLoom.scanLifeBound(),
+        },
         foldCacheFile: entityLoom.foldFile,
         log: (s) => console.error(s),
         acceptEngineEvent: engine.acceptsEvent,
@@ -916,6 +924,14 @@ export async function runConsole(
           projects.record(turn);
           places.record(turn);
           appendJournal(RESIDENT_LIFE_COMMIT_EVENT, createResidentLifeCommit(turn, committed));
+          return { protocol: 'lync.file-loom-chain.v1' as const, digest: committed.chainDigest };
+        },
+        onEntityCognitionTurn: async (turn) => {
+          const committed = await entityLoom.append(turn);
+          appendJournal(
+            RESIDENT_COGNITION_COMMIT_EVENT,
+            createResidentCognitionCommit(turn, committed),
+          );
           return { protocol: 'lync.file-loom-chain.v1' as const, digest: committed.chainDigest };
         },
       },

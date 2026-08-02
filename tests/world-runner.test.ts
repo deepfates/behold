@@ -40,7 +40,7 @@ import { verifyCognitionBrokerJournal } from '../src/mind/cognition-broker';
 import { COGNITION_TRANSPORT_PROTOCOL, cognitionAccountId } from '../src/mind/cognition';
 import { verifyCognitionTransportCapture } from '../src/mind/transport-capture';
 import { openQuotaLedger, verifyQuotaLedger } from '../src/observability/quota-ledger';
-import { readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom';
+import { entityActionTurns, readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom';
 import {
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
@@ -2771,7 +2771,7 @@ test('provider-free multi-controller release keeps bodies, quotas, cognition ret
   for (const entityId of ['Scout', 'Builder']) {
     const range = await resolveEntityLifeRange(entityId, 1, 2, fixture.options.entityRoot);
     const life = await readEntityLifeRange(range, fixture.options.entityRoot);
-    readableHistories[entityId] = life.turns.map(
+    readableHistories[entityId] = entityActionTurns(life.turns).map(
       (turn) =>
         `${turn.entityId} t${turn.sequence}: ${turn.action.name} -> ${turn.outcome.eventType}`,
     );

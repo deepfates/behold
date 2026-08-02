@@ -19,7 +19,7 @@ the source event `id`, `parents`, `author`, `kind`, and one or more exact JSON
 source paths. Presentation MUST NOT rewrite, replace, append to, or repair the
 source loom.
 
-For new model turns using `minecraft-human-semantic-v1`, the public
+For new action turns using `minecraft-human-semantic-v1`, the public
 `observation` and `nextObservation` paths are the exact versioned semantic
 projections prepared at the admitted request and authenticated terminal frame.
 The private controller frames remain unchanged under
@@ -30,6 +30,14 @@ experiment release, and complete admitted resident-mind request hash. Behold
 verifies this binding before restoring private frames for replay or evaluation.
 Textile continues to read only the public allowlisted paths and must not recurse
 into `privateCausalFrames`.
+
+An explicit non-action decision is stored in the same private life as
+`behold.entity-cognition-turn.v1`. Its public `observation` is the exact admitted
+semantic projection; `privateFrame` retains the controller frame and
+`behold.entity-cognition-observation-binding.v1` binds both to the request and
+event identity. It has no `action`, `outcome`, or `nextObservation`. The exact
+assistant response is `{"action":null,"arguments":{}}`; this is a cognition
+record, not a wait action or a world consequence.
 
 Older retained lives are not silently rewritten. A legacy turn that stores a
 raw `behold.inhabitant.v2` frame on the public path remains exact source
@@ -46,7 +54,8 @@ Behold resident presentation is admitted only when both conditions hold:
    `org.behold.inhabitant.v2` for new lives.
 2. A child is `kind: "lync/turn"` with
    `payload.meta.protocol: "behold.entity-turn-link.v1"` and
-   `payload.payload.protocol: "behold.entity-turn.v1"`.
+   `payload.payload.protocol: "behold.entity-turn.v1"` or
+   `"behold.entity-cognition-turn.v1"`.
 
 `payload.payload.profiles.body` and `.actions` select the versioned domain
 allowlist below. An unsupported or missing profile is a named diagnostic, not a
@@ -71,6 +80,7 @@ type ResidentPresentation = {
     entityId: string;
     circleId: string;
     sequence: number;
+    eventKind: 'action' | 'cognition';
     model: string;
     profiles: { policy: string; body: string; actions: string; safety: string };
     releaseId?: string;
@@ -108,6 +118,10 @@ prose for the exact body/action profile pair
 - `utterance.assistant.content`, only when it is a nonempty string. This is the
   resident's public/visible utterance. Absence is not an error and must not be
   filled from another field.
+- For `behold.entity-cognition-turn.v1`, the only admitted assistant content is
+  the exact null-choice JSON. Present it as an explicit choice of no bodily
+  action. Do not call it an utterance, wait, success, failure, or Minecraft
+  result, and reject cognition records carrying action/consequence fields.
 - `action.name`, the versioned semantic `action.input`, `action.source`, and
   `action.kind`. Showing `source: script` in the Oxford fixture is important:
   it prevents scripted mechanics from being narrated as autonomous model

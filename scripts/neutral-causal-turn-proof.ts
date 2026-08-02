@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readEntityLifeRange, resolveEntityLifeRange } from '../src/entity/loom';
+import {
+  isEntityActionTurn,
+  readEntityLifeRange,
+  resolveEntityLifeRange,
+} from '../src/entity/loom';
 import {
   assessDecisionTurn,
   assessUncoachedDecisionTurn,
@@ -154,6 +158,9 @@ async function main() {
     );
     const lifeRead = await readEntityLifeRange(life, fixture.entityRoot);
     if (lifeRead.turns.length !== 1) throw new Error('turn proof expected one exact life turn');
+    if (!isEntityActionTurn(lifeRead.turns[0])) {
+      throw new Error('turn proof expected one exact action turn');
+    }
     const lifecycle = verifyWorldLifecycleJournal(run.control.journalFile);
     const runStarted = events.find((event) => event.type === 'run_started');
     if (!runStarted) throw new Error('resident journal has no run_started event');

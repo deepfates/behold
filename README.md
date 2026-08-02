@@ -70,7 +70,7 @@ path must be exercised before another one begins.
 The current implementation removes that pseudo-action from the minimal
 resident-v2/v3/v4 model contract. A cognitive opportunity may now produce zero
 or one bodily intention. Zero creates neither a Minecraft attempt nor a
-synthetic Lync action turn; generic time passage does not immediately poll the
+synthetic action/consequence; generic time passage does not immediately poll the
 model again. Meaningful lived change or a bounded one-minute reconsideration
 may create the next opportunity. Focused and full repository checks pass, but
 this repaired contract has not yet been exercised through an ordinary live
@@ -79,11 +79,17 @@ The first no-world follow-up also found that all three minimal session layouts
 still rejected the next request after null intention. The current wire now
 admits later lived experience directly after one or more exact null responses;
 resident-v2 deliberately rebuilds its factual-continuity view instead of
-leaking chronological messages into that different contract. One continuity
-defect remains open: resident-v3/v4 keep null cognition in the live provider
-conversation, but cannot yet reconstruct it from canonical Lync after process
-restart without falsely encoding it as an action. Ticket `beh-wo5b` owns that
-first-class private-life event boundary and blocks another long epoch.
+leaking chronological messages into that different contract. Resident-v3/v4
+now commit an explicit `behold.entity-cognition-turn.v1` beside action turns in
+the same canonical Lync chain. It binds the admitted experience and exact null
+response while omitting action, outcome, and terminal-observation fields.
+Action → null cognition → action survives an exercised Lync close/reopen, and
+provider transcript projection retains the null choice without a fabricated
+Minecraft return. Existing action-turn bytes remain unchanged. Lync and Textile
+now present this additive event honestly through their shared profile contract,
+with full repository checks passing. Ticket `beh-wo5b` remains open until an
+ordinary short live null/wake/stop/resume and visible reading of that real source
+exercise the composed boundary; another long epoch remains premature.
 An opt-in private inspector can now materialize an exactly retained provider
 request, response, image, parsed decision, and matching canonical causal turn;
 ordinary episodes that did not retain model bodies remain explicitly
@@ -533,7 +539,7 @@ Environment Variables
 LLM Autopilot (optional)
 
 - Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `google/gemini-3.5-flash`).
-- The ordinary `resident-v2` policy forms zero or one admitted bodily intention using the human-semantic body. A null intention is neither a Minecraft action nor a canonical life turn; the controller visibly schedules later cognition from meaningful lived change or bounded reconsideration. The policy supplies persistent identity, bounded own-life continuity, independent others, controls as attempts, and Minecraft consequences as authority—without a task, project, progress judgment, recovery choice, required action, or compulsory narration. Provider use requires the action-only OpenRouter v2 resident session; LM Studio uses `behold.lmstudio-local-resident-session.v2`. Current Ollama transports are legacy-only. Behold still validates and executes every proposal.
+- The ordinary `resident-v2` policy forms zero or one admitted bodily intention using the human-semantic body. A null intention is not a Minecraft action; resident-v2 discards it from its deliberately action/fact-only memory view, while chronological resident-v3/v4 preserve it as a first-class private cognition event. The controller schedules later cognition from meaningful lived change or bounded reconsideration. The policy supplies persistent identity, bounded own-life continuity, independent others, controls as attempts, and Minecraft consequences as authority—without a task, project, progress judgment, recovery choice, required action, or compulsory narration. Provider use requires the action-only OpenRouter v2 resident session; LM Studio uses `behold.lmstudio-local-resident-session.v2`. Current Ollama transports are legacy-only. Behold still validates and executes every proposal.
 - On restart, canonical Lync remains unchanged. `resident-v2` rebuilds a profile-bound, deterministic factual view containing chosen controls, typed terminal settlements, communication, and coarse post-action perception; it neither replays legacy commitments nor asks a model to infer projects for memory.
 - `resident-v3` is the exercised candidate for an uninterrupted private model conversation. It deterministically projects canonical Lync as chronological experience, exact retained assistant response, and Minecraft outcome messages, then appends one fresh complete current view. It refuses event gaps and context overflow rather than folding or truncating a middle. OpenRouter requires context-bound private route v5; LM Studio applies the exact loaded model's prompt template and tokenizer to the final message body and reserves output against the verified loaded context. See [Resident transcript](docs/RESIDENT_TRANSCRIPT.md). A no-world request carried all 52 retained Rowan turns. Ordinary Oxford episodes `000003` and `000004` then continued two isolated lives across clean stop/resume: Juniper's first resumed request contained 252 messages for 83 prior turns, Rowan's contained 231 for 76, and every settled request grew monotonically with no fold or reset. Textile's visible local reader authenticated episode `000004`'s exact 22,915,469-byte two-source set and opened 190 readable resident turns plus two structural roots. DeepSeek V4 Flash remained timely and schema-valid but quickly returned to repetitive social chat; that is observed model conduct, not evidence of a missing transcript middle. `resident-v3` is not yet the ordinary default.
 - `resident-v1` and `legible-resident-v1` remain readable, runnable named legacy treatments; changing the ordinary default does not reinterpret their histories.

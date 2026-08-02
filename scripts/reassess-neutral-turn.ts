@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { readEntityLifeRange } from '../src/entity/loom';
+import { isEntityActionTurn, readEntityLifeRange } from '../src/entity/loom';
 import {
   assessDecisionTurn,
   assessUncoachedDecisionTurn,
@@ -93,6 +93,9 @@ export async function reassessNeutralTurn(resultPath: string) {
     if (life.turns.length !== 1)
       throw new Error('neutral turn proof must bind exactly one life turn');
     const lifeTurn = life.turns[0];
+    if (!isEntityActionTurn(lifeTurn)) {
+      throw new Error('neutral turn proof must bind exactly one action turn');
+    }
 
     const events = parseRunJournal(fs.readFileSync(journalFile, 'utf8'));
     const entityTurn = events.find(

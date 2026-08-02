@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import type { EntityTurn } from '../src/entity/loom';
+import type { EntityCognitionTurn, EntityTurn } from '../src/entity/loom';
 import {
   assertResidentChronologicalWireOwner,
   projectResidentContextEpoch,
@@ -59,6 +59,45 @@ function turn(sequence: number, entityId = 'Rowan'): EntityTurn {
       result: { confirmation: 'minecraft', sequence },
     },
     nextObservation: { private: true, sequence: observation.sequence + 1 },
+  };
+}
+
+function nullCognition(
+  sequence: number,
+  parentId: string,
+  entityId = 'Rowan',
+): EntityCognitionTurn {
+  const observation = {
+    protocol: 'behold.minecraft-human-semantic-observation.v1',
+    sequence: sequence * 10,
+    self: { identity: entityId },
+    events: [],
+  };
+  return {
+    protocol: 'behold.entity-cognition-turn.v1',
+    id: `${entityId}:cognition:${sequence}`,
+    entityId,
+    sequence,
+    parentId,
+    model: 'fixture/model',
+    profiles: {
+      policy: 'resident-v4',
+      body: 'minecraft-human-semantic-v1',
+      actions: 'minecraft-human-semantic-v1',
+      safety: 'vanilla-player-v1',
+    },
+    startedAt: sequence * 100,
+    completedAt: sequence * 100 + 10,
+    observation: { private: true, sequence: observation.sequence },
+    observationPresentation: {
+      protocol: 'behold.entity-cognition-observation-presentation.v1',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      requestSha256: 'b'.repeat(64),
+      observation,
+    },
+    utterance: {
+      assistant: { role: 'assistant', content: '{"action":null,"arguments":{}}' },
+    },
   };
 }
 
@@ -142,6 +181,27 @@ test('context epochs expose one explicit boundary and retain the complete active
       }),
     /requires 3 active turns/,
   );
+});
+
+test('context epochs preserve null cognition without a fabricated consequence', () => {
+  const first = turn(1);
+  const cognition = nullCognition(2, first.id);
+  const third = turn(3);
+  third.parentId = cognition.id;
+  const epoch = projectResidentContextEpoch('Rowan', 3, [first, cognition, third], {
+    epochTurns: 4,
+  });
+  assert.deepEqual(
+    epoch.messages.map((message) => message.role),
+    ['user', 'assistant', 'user', 'user', 'assistant', 'user', 'assistant', 'user'],
+  );
+  const nullIndex = epoch.messages.findIndex(
+    (message) => message.role === 'assistant' && message.content.includes('"action":null'),
+  );
+  assert.ok(nullIndex > 0);
+  assert.match(epoch.messages[nullIndex - 1].content, /^What you experience:/);
+  assert.match(epoch.messages[nullIndex + 1].content, /^What you experience:/);
+  assert.doesNotMatch(epoch.messages[nullIndex + 1].content, /Minecraft returned/);
 });
 
 test('adopting context epochs starts a visible new life epoch instead of using turn-number modulo', () => {
