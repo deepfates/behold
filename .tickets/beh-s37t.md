@@ -11,14 +11,14 @@ parent: beh-06av
 tags: [harness, attention, living-world]
 ---
 
-# Make resident waiting an actual suspension rather than a polling loop
+# Remove waiting from the resident action vocabulary
 
-Ordinary episode 000015 exposed wait_for_event as a harness attractor: a resident yields for a new event, but the fixed four-second decision timer and generic time_passed experience wake it into nearly the same choice again. Recent waits then re-enter working continuity and reinforce the loop. This is a treatment defect, not evidence that waiting conduct is invalid.
+Ordinary episode 000015 exposed `wait_for_event` as a harness attractor: Behold appends it to every action catalog, asks the model to choose exactly one control, records waiting as a completed life turn, and then feeds those turns back into later context. The fixed four-second timer and generic `time_passed` experience made the attractor obvious, but making this pseudo-action suspend more precisely would preserve the deeper mistake. Inactivity is possible resident conduct; choosing a controller scheduler operation is not a Minecraft action or a meaningful life event.
 
 ## Design
 
-Preserve voluntary inactivity without repeatedly asking the model to choose it. A yielded resident remains suspended until an actual declared or attention-worthy world change, operator lifecycle event, or a separately named low-frequency reconsideration boundary. The wake cause must be resident-visible and operator-visible. Do not prescribe a productive action, infer goals, or add hidden reflexes.
+Let one cognitive opportunity return zero or one admitted bodily intention. Remove `wait_for_event` from the model-facing action catalog, response reminder, and action-result history. Behold owns when cognition is reconsidered, using a small explicit policy over meaningful experience change and elapsed time; that policy and each actual cognition admission remain operator-visible. A no-intention response must not manufacture a Minecraft consequence or a synthetic action turn. Preserve silence and inactivity without prescribing productive conduct, inferring goals, or adding hidden reflexes.
 
 ## Acceptance Criteria
 
-In an ordinary no-task resident session, one wait_for_event choice does not trigger another model call merely because AGENT_TICK_MS elapsed or a generic time_passed event was emitted. A later material world event wakes the same resident with the exact cause and all intervening experience intact. Pause, stop, and resume remain clean; canonical Lync records the yield and the later wake without synthetic repeated wait turns. Focused tests cover timer, material event, lifecycle, and stop/resume paths.
+In an ordinary no-task resident session, the exact model request offers only real current bodily controls (plus separately identified private-life recall where applicable), and the response contract permits no bodily intention. No-intention responses do not enter Minecraft's action stream or canonical Lync as synthetic `wait_for_event` actions. Behold does not re-call the model every four seconds solely because the previous response had no intention or generic time passed; a material lived change and a bounded low-frequency reconsideration can each create a visible new cognitive opportunity with all intervening experience intact. Pause, stop, and resume remain clean. Focused tests cover the literal request, no-intention handling, material change, reconsideration, lifecycle, and stop/resume paths.

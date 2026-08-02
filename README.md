@@ -51,16 +51,21 @@ The first declared long epoch, episode `000015`, was deliberately stopped after
 about eleven minutes when ordinary use exposed a treatment defect rather than
 useful habitation pressure. Of 54 resident decisions, 48 were
 `wait_for_event` and six read private-life pages; neither resident attempted a
-Minecraft action. The current yield path wakes again on the fixed decision
-timer and generic time passage, so recent waits become a self-reinforcing
-polling loop. That is a harness defect even though each individual choice was
-model-authored. The episode saved and cleaned up exactly, but it is not long-run
-evidence. Its ordinary `bodyRetention: none` record also cannot reproduce the
+Minecraft action. Behold itself appended `wait_for_event` to every action
+catalog, required an exactly-one-control response, recorded waiting as a
+completed life turn, and then fed those turns back into later context. The fixed
+decision timer and generic time passage made that harness attractor
+self-reinforcing. Treating the pseudo-action as a smarter suspension would
+preserve the deeper mistake: inactivity should be a no-intention result while
+cognition scheduling remains an explicit controller concern. The episode saved
+and cleaned up exactly, but it is not long-run evidence. Its ordinary
+`bodyRetention: none` record also cannot reproduce the
 literal provider request after the fact: canonical experience, exact returned
 choice, consequences, hashes, byte attribution, and usage survive, while the
 serialized messages, image, tools, schema, and raw response do not. No long
-acceptance epoch is currently running; truthful suspension and an explicitly
-private exact-turn inspection path must be repaired before another one begins.
+acceptance epoch is currently running; the resident contract must stop
+presenting waiting as an action, and an explicitly private exact-turn inspection
+path must be exercised before another one begins.
 
 The complete mature transcript later proved operationally too slow despite
 fitting Qwen's physical context window. `resident-v4` therefore makes the

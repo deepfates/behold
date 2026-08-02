@@ -44,11 +44,13 @@ coexistence, the literal action contract, and the compact operator view are
 crossed. Current-build episode `000015` began as the first declared 25-hour
 epoch but was deliberately stopped after about eleven minutes: 48 of 54
 resident decisions yielded and six read private history, exposing a
-self-reinforcing fixed-cadence wait loop rather than useful duration pressure.
-The run saved and cleaned up exactly, but it is not multi-day evidence. Because
-ordinary no-body retention also prevents exact reconstruction of the serialized
-model request, truthful suspension and a private exact-turn inspection path now
-block another long epoch. Tickets state observable product behavior; evidence and negative
+self-reinforcing harness attractor rather than useful duration pressure:
+`wait_for_event` was appended to every action catalog, required as one possible
+exactly-one-control response, committed as a life turn, and fed back as
+continuity. The run saved and cleaned up exactly, but it is not multi-day
+evidence. Because ordinary no-body retention also prevents exact reconstruction
+of the serialized model request, removing the wait pseudo-action and providing a
+private exact-turn inspection path now block another long epoch. Tickets state observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves
