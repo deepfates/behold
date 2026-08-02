@@ -48,9 +48,14 @@ self-reinforcing harness attractor rather than useful duration pressure:
 `wait_for_event` was appended to every action catalog, required as one possible
 exactly-one-control response, committed as a life turn, and fed back as
 continuity. The run saved and cleaned up exactly, but it is not multi-day
-evidence. Because ordinary no-body retention also prevents exact reconstruction
-of the serialized model request, removing the wait pseudo-action and providing a
-private exact-turn inspection path now block another long epoch. Tickets state observable product behavior; evidence and negative
+evidence. The current implementation permits zero or one bodily intention,
+creates no Minecraft or Lync action for zero intention, and separates meaningful
+experience wakeup from bounded low-frequency reconsideration. A private
+exact-turn inspector has also been exercised against a retained body-capture
+episode; it correctly refuses episode `000015`, whose ordinary no-body retention
+cannot reproduce literal provider bytes. Full repository checks pass. Neither
+repair has yet been exercised together in a fresh ordinary live episode, so
+another long epoch remains premature. Tickets state observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves

@@ -171,6 +171,123 @@ test('resident decision-cycle state exposes thought and durable life commit boun
   assert.equal(policy.state().decisionCycle.phase, 'stopped');
 });
 
+test('resident no-intention is not an action and generic time does not create a polling loop', async () => {
+  let clock = 1_000;
+  const requests: ResidentMindRequest[] = [];
+  const turns: EntityTurn[] = [];
+  const logs: string[] = [];
+  const events: any[] = [
+    { sequence: 1, type: 'spawned', salience: 'normal', source: 'body', data: {} },
+  ];
+  const observe = (sinceSequence = 0) => {
+    const newest = events.at(-1)?.sequence ?? 0;
+    return {
+      protocol: 'behold.inhabitant.v2',
+      sequence: newest,
+      observedAt: clock,
+      task: null,
+      self: { identity: 'QuietResident', currentAction: null },
+      scene: { entities: [] },
+      eventWindow: {
+        requestedAfterSequence: sinceSequence,
+        oldestAvailableSequence: 1,
+        newestAvailableSequence: newest,
+        missingBeforeOldest: 0,
+        complete: true,
+        deliveredOldestSequence: events.find((event) => event.sequence > sinceSequence)?.sequence,
+        deliveredNewestSequence: events.filter((event) => event.sequence > sinceSequence).at(-1)
+          ?.sequence,
+        omittedNewEvents: 0,
+      },
+      events: events.map((event) => ({ ...event, isNew: event.sequence > sinceSequence })),
+    };
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'QuietResident',
+      actions: [settlementMoveTool()],
+      attempt: () => assert.fail('no-intention must not enter the Minecraft action stream'),
+      observe,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      now: () => clock,
+      mind: {
+        id: 'no-intention-mind',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'no_action',
+            utterance: null,
+            action: null,
+            adapterRecord: { role: 'assistant', content: '{"action":null,"arguments":{}}' },
+            call: modelCallEvidence(`no-intention-${requests.length}`),
+          };
+        },
+      },
+      policyProfile: 'resident-v2',
+      log: (message) => logs.push(message),
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => turns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(requests.length, 1);
+    assert.deepEqual(
+      requests[0].actions.map((action) => action.name),
+      ['move_controls'],
+    );
+    assert.equal(turns.length, 0);
+    assert.ok(logs.includes('[policy] resident formed no bodily intention'), logs.join('\n'));
+    assert.equal(policy.state().noIntentionAt, clock);
+
+    policy.wake({ kind: 'timer' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests.length, 1);
+
+    events.push({
+      sequence: 2,
+      type: 'time_passed',
+      salience: 'normal',
+      source: 'body',
+      data: { elapsedMs: 3_000 },
+    });
+    clock += 3_000;
+    policy.wake({ kind: 'timer' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests.length, 1, 'generic time passage cannot create four-second polling');
+
+    events.push({
+      sequence: 3,
+      type: 'chat_received',
+      salience: 'normal',
+      source: 'body',
+      data: { from: 'Peer', text: 'hello', addressed: true },
+    });
+    policy.wake({ kind: 'timer' });
+    await until(() => requests.length === 2);
+    assert.equal(turns.length, 0);
+
+    events.push({
+      sequence: 4,
+      type: 'time_passed',
+      salience: 'normal',
+      source: 'body',
+      data: { elapsedMs: 60_000 },
+    });
+    clock += 60_000;
+    policy.wake({ kind: 'timer' });
+    await until(() => requests.length === 3);
+    assert.equal(turns.length, 0);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('resident decision-cycle state owns a physical intent through its authentic terminal', async () => {
   let attempted: any = null;
   let commitStarted!: () => void;
@@ -2233,7 +2350,7 @@ test('camera pose drift settles once and admits one coherent rebuilt decision fr
           requests.push(request);
           return {
             protocol: 'behold.mind-decision.v1',
-            disposition: 'wait',
+            disposition: 'no_action',
             utterance: null,
             action: null,
             call: modelCallEvidence('settled-camera-frame'),
@@ -2591,7 +2708,7 @@ test('one decision frame binds projection, actions, camera, request hash, and ac
     assert.equal((requests[0].observation as any).self.pose.position, undefined);
     assert.deepEqual(
       requests[0].actions.map((action) => action.name),
-      ['move_controls', 'wait_for_event'],
+      ['move_controls'],
     );
     assert.equal(
       requests[0].perception?.camera.binding.observationSha256,
@@ -4478,12 +4595,13 @@ test('resident-v2 charter supplies identity and causal truth without strategy or
   assert.match(system, /bounded first-person information/i);
   assert.match(system, /no task, project, next goal, preferred conduct, or recovery choice/i);
   assert.match(system, /other residents are independent beings/i);
-  assert.match(system, /choose exactly one supplied bodily control, or explicitly yield/i);
+  assert.match(system, /form zero or one bodily intention/i);
+  assert.match(system, /null action means you form no bodily intention/i);
   assert.match(system, /authorizes an attempt.*does not promise/i);
   assert.match(system, /Minecraft consequences are authoritative/i);
   assert.doesNotMatch(
     system,
-    /intention|expected observable|private reasoning|survival|shelter|food|materials|crafting|progress|repeat|inspect first|manage_project/i,
+    /expected observable|private reasoning|survival|shelter|food|materials|crafting|progress|repeat|inspect first|manage_project/i,
   );
 });
 
@@ -4610,16 +4728,16 @@ test('resident-v3 restart presents the full private chronology and retains its e
       for (const turn of prior) yield { turn, source: binding(turn.sequence) };
     },
   };
-  const exactResponse = '{"action":"wait_for_event","arguments":{"reason":"listen"}}';
+  const exactResponse = '{"action":null,"arguments":{}}';
   const mind: ResidentMind = {
     id: 'resident-v3-history-fixture',
     decide: async (request) => {
       captured.push(request);
       return {
         protocol: 'behold.mind-decision.v1',
-        disposition: 'wait',
+        disposition: 'no_action',
         utterance: null,
-        action: { name: 'wait_for_event', input: { reason: 'listen' } },
+        action: null,
         adapterRecord: { role: 'assistant', content: exactResponse },
         call: modelCallEvidence('resident-v3-history-fixture'),
       };
@@ -4673,12 +4791,13 @@ test('resident-v3 restart presents the full private chronology and retains its e
       JSON.stringify(conversation),
       /Folded view|factual-continuity|working-continuity/,
     );
-    assert.equal(committed[0]?.utterance.assistant.content, exactResponse);
-    assert.equal(committed[1]?.utterance.assistant.content, exactResponse);
-    assert.deepEqual(
-      captured[1].conversation.slice(0, captured[0].conversation.length),
-      captured[0].conversation,
-      'the previous complete request conversation must remain an exact prefix',
+    assert.equal(committed.length, 0, 'no intention must not manufacture a canonical life turn');
+    assert.equal(
+      (captured[1].conversation as any[]).some(
+        (message) => message.role === 'assistant' && message.content === exactResponse,
+      ),
+      true,
+      'the resident must retain its own exact no-intention response in live continuity',
     );
   } finally {
     await policy.stop();
@@ -4730,15 +4849,19 @@ test('resident-v4 exposes an explicit epoch and lets the resident read an exact 
       const action =
         decisions === 1
           ? { name: 'read_private_life', input: { startSequence: 1, endSequence: 1 } }
-          : { name: 'wait_for_event', input: { reason: 'listen' } };
+          : null;
       return {
         protocol: 'behold.mind-decision.v1',
-        disposition: decisions === 1 ? 'act' : 'wait',
+        disposition: decisions === 1 ? 'act' : 'no_action',
         utterance: null,
         action,
         adapterRecord: {
           role: 'assistant',
-          content: JSON.stringify({ action: action.name, arguments: action.input }),
+          content: JSON.stringify(
+            action
+              ? { action: action.name, arguments: action.input }
+              : { action: null, arguments: {} },
+          ),
         },
         call: modelCallEvidence('resident-v4-epoch-fixture'),
       };
@@ -4815,12 +4938,12 @@ test('resident-v4 exposes an explicit epoch and lets the resident read an exact 
         ),
       ),
     ]);
-    assert.equal(attempts, 0, 'private-life reads and yielding must never enter Minecraft');
+    assert.equal(attempts, 0, 'private-life reads and no-intention must never enter Minecraft');
     assert.equal(captured.length, 2);
     const first = captured[0];
     assert.deepEqual(
       first.actions.map((action) => action.name),
-      ['read_private_life', 'look_direction', 'wait_for_event'],
+      ['read_private_life', 'look_direction'],
     );
     const firstConversation = first.conversation as any[];
     assert.match(firstConversation[1].content, /behold\.resident-context-epoch\.v1/);

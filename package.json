@@ -52,6 +52,7 @@
     "verify:neutral-turn": "npm run build && node dist/scripts/reassess-neutral-turn.js",
     "eval:mind-differential": "npm run build && node dist/scripts/mind-differential.js",
     "eval:mind-extract": "npm run build && node dist/scripts/extract-mind-request.js",
+    "inspect:resident-turn": "npm run build && node dist/scripts/inspect-resident-turn.js",
     "eval:mind-pair": "npm run build && node dist/scripts/mind-compare.js",
     "viewer:patch": "node scripts/patch-prismarine-viewer.js",
     "test": "npm run build && node --test dist/tests/*.test.js",

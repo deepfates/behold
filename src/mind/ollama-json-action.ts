@@ -49,7 +49,7 @@ export const OLLAMA_LOCAL_EPOCH_RESIDENT_SESSION_MESSAGE_LAYOUT_PROTOCOL =
 const V1_CONTRACT_BEGIN = 'BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_BEGIN\n';
 const V1_CONTRACT_END = '\nBEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_END';
 const V1_CONTRACT_INSTRUCTION =
-  'Choose exactly one admitted action. Return only one JSON object with exactly the fields "action" and "arguments". Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
+  'Choose zero or one admitted bodily action. Return only one JSON object with exactly the fields "action" and "arguments". Use {"action":null,"arguments":{}} when you form no bodily intention. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
 const V2_CONTRACT_BEGIN = 'BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V2_BEGIN\n';
 const V2_CONTRACT_END = '\nBEHOLD_LOCAL_JSON_ACTION_CONTRACT_V2_END';
 export const V2_CONTRACT_INSTRUCTION =
@@ -57,22 +57,22 @@ export const V2_CONTRACT_INSTRUCTION =
 const V3_CONTRACT_BEGIN = 'BEHOLD_CONTINUOUS_JSON_ACTION_CONTRACT_V1_BEGIN\n';
 const V3_CONTRACT_END = '\nBEHOLD_CONTINUOUS_JSON_ACTION_CONTRACT_V1_END';
 const V3_CONTRACT_INSTRUCTION =
-  'Continue your private lived conversation. Choose exactly one admitted bodily action. Return only one JSON object with exactly the fields "action" and "arguments". This response will remain in your chronological life beside Minecraft\'s actual outcome. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
+  'Continue your private lived conversation. Choose zero or one admitted bodily action. Return only one JSON object with exactly the fields "action" and "arguments". Use {"action":null,"arguments":{}} when you form no bodily intention. A bodily action and Minecraft\'s actual outcome will remain in your chronological life. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
 const V4_CONTRACT_BEGIN = 'BEHOLD_CONTEXT_EPOCH_JSON_ACTION_CONTRACT_V1_BEGIN\n';
 const V4_CONTRACT_END = '\nBEHOLD_CONTEXT_EPOCH_JSON_ACTION_CONTRACT_V1_END';
 const V4_CONTRACT_INSTRUCTION =
-  'Continue your private lived conversation in the active explicit context epoch. Choose exactly one admitted bodily action, yield, or exact private-life read. Return only one JSON object with exactly the fields "action" and "arguments". This response and its actual bodily or private-life result will remain in your chronological life. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
+  'Continue your private lived conversation in the active explicit context epoch. Choose zero or one admitted bodily action, or an exact private-life read. Return only one JSON object with exactly the fields "action" and "arguments". Use {"action":null,"arguments":{}} when you form no bodily intention. A bodily action or private-life read and its actual result will remain in your chronological life. Do not use tool calls, Markdown, prose, corrections, or multiple candidates.\n';
 export const RESIDENT_SESSION_RESPONSE_REMINDER =
   'Respond now with one JSON object matching the resident action contract above. Publish a short intention and expected observable consequence, then choose exactly one supplied bodily control. Do not repeat the contract or add prose.';
 export const ACTION_ONLY_RESIDENT_SESSION_RESPONSE_REMINDER =
-  'Respond now with one JSON object matching the resident action contract above. Choose exactly one supplied bodily control, including wait_for_event when you choose to yield. Do not repeat the contract or add prose.';
+  'Respond now with one JSON object matching the resident action contract above. Choose zero or one supplied bodily control; use a null action when you form no bodily intention. Do not repeat the contract or add prose.';
 
 const schemaDescriptor = deepFreeze({
   protocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
   output: {
     type: 'object',
     alternatives: 'oneOf',
-    discriminator: { field: 'action', value: 'exact admitted action name' },
+    discriminator: { field: 'action', value: 'exact admitted action name or null' },
     arguments: { field: 'arguments', schema: 'exact admitted action inputSchema' },
     required: ['action', 'arguments'],
     additionalProperties: false,
@@ -586,11 +586,32 @@ export function parseStrictLocalJsonActionDecisionContent(
       : ['action', 'arguments'],
     'Strict local JSON action output',
   );
-  if (typeof decision.action !== 'string' || !decision.action) {
-    throw new Error('Strict local JSON action output action was not nonempty text');
-  }
   if (!plainRecord(decision.arguments)) {
     throw new Error('Strict local JSON action output arguments were not an object');
+  }
+  if (decision.action === null) {
+    if (version === 2) {
+      throw new Error('Strict local JSON action v2 requires a bodily action');
+    }
+    if (request.requiredAction) {
+      throw new Error(
+        `Strict local JSON action output selected no action while ${request.requiredAction} was required`,
+      );
+    }
+    if (Object.keys(decision.arguments).length > 0) {
+      throw new Error('Strict local JSON no-action output arguments were not empty');
+    }
+    return deepFreeze({
+      protocol: 'behold.mind-decision.v1',
+      disposition: 'no_action',
+      utterance: null,
+      action: null,
+      adapterRecord: cloneJson(adapterRecord),
+      call,
+    });
+  }
+  if (typeof decision.action !== 'string' || !decision.action) {
+    throw new Error('Strict local JSON action output action was not nonempty text or null');
   }
   if (!request.actions.some((action) => action.name === decision.action)) {
     throw new Error(
@@ -627,7 +648,9 @@ export function parseStrictLocalJsonActionDecisionContent(
 }
 
 function actionContract(request: Readonly<ResidentMindRequest>, version: 1 | 2 | 3 | 4) {
-  if (request.actions.length < 1) throw new Error('Ollama local action contract is empty');
+  if (version === 2 && request.actions.length < 1) {
+    throw new Error('Ollama local action contract is empty');
+  }
   return deepFreeze({
     protocol:
       version === 2
@@ -698,8 +721,12 @@ function parseActionContract(
   ) {
     throw new Error('Ollama local action contract profiles are not human-semantic v1');
   }
-  if (!Array.isArray(record.actions) || record.actions.length < 1) {
-    throw new Error('Ollama local action contract actions must be a nonempty array');
+  if (!Array.isArray(record.actions) || (version === 2 && record.actions.length < 1)) {
+    throw new Error(
+      version === 2
+        ? 'Ollama local action contract actions must be a nonempty array'
+        : 'Ollama local action contract actions must be an array',
+    );
   }
   const names = new Set<string>();
   const actions = record.actions.map((value: unknown, index: number) => {
@@ -761,41 +788,61 @@ function responseFormat(
   const selected = requiredAction
     ? actions.filter((action) => action.name === requiredAction)
     : actions;
-  if (selected.length < 1) throw new Error('Ollama local response format has no action variant');
+  if (selected.length < 1 && (version === 2 || requiredAction)) {
+    throw new Error('Ollama local response format has no action variant');
+  }
+  const noIntention =
+    version === 2 || requiredAction
+      ? []
+      : [
+          {
+            description: 'No bodily intention is formed for this cognitive opportunity.',
+            type: 'object',
+            properties: {
+              action: { const: null },
+              arguments: { type: 'object', properties: {}, additionalProperties: false },
+            },
+            required: ['action', 'arguments'],
+            additionalProperties: false,
+          },
+        ];
   return deepFreeze({
-    oneOf: selected.map((action) => ({
-      ...(action.description == null ? {} : { description: action.description }),
-      type: 'object',
-      properties: {
-        ...(version === 2
-          ? {
-              intention: {
-                type: 'string',
-                minLength: 1,
-                maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
-                pattern: '^[^\\r\\n]+$',
-                description:
-                  'One short public statement of what this action is for; never private reasoning.',
-              },
-              expectedObservableConsequence: {
-                type: 'string',
-                minLength: 1,
-                maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
-                pattern: '^[^\\r\\n]+$',
-                description:
-                  'One short public description of what the resident expects to observe if the action succeeds; never a claim that it already happened.',
-              },
-            }
-          : {}),
-        action: { const: action.name },
-        arguments: cloneJson(action.inputSchema),
-      },
-      required:
-        version === 2
-          ? ['intention', 'expectedObservableConsequence', 'action', 'arguments']
-          : ['action', 'arguments'],
-      additionalProperties: false,
-    })),
+    oneOf: [
+      ...selected.map((action) => ({
+        ...(action.description == null ? {} : { description: action.description }),
+        type: 'object',
+        properties: {
+          ...(version === 2
+            ? {
+                intention: {
+                  type: 'string',
+                  minLength: 1,
+                  maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+                  pattern: '^[^\\r\\n]+$',
+                  description:
+                    'One short public statement of what this action is for; never private reasoning.',
+                },
+                expectedObservableConsequence: {
+                  type: 'string',
+                  minLength: 1,
+                  maxLength: RESIDENT_PUBLIC_ACTION_COMMITMENT_MAX_CHARS,
+                  pattern: '^[^\\r\\n]+$',
+                  description:
+                    'One short public description of what the resident expects to observe if the action succeeds; never a claim that it already happened.',
+                },
+              }
+            : {}),
+          action: { const: action.name },
+          arguments: cloneJson(action.inputSchema),
+        },
+        required:
+          version === 2
+            ? ['intention', 'expectedObservableConsequence', 'action', 'arguments']
+            : ['action', 'arguments'],
+        additionalProperties: false,
+      })),
+      ...noIntention,
+    ],
   });
 }
 

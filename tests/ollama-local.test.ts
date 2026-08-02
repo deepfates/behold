@@ -111,12 +111,13 @@ test('strict JSON action request has no native tools and preserves the exact act
   assert.equal(Object.hasOwn(body, 'parallel_tool_calls'), false);
   assert.deepEqual(body.options, { num_ctx: 16_384, num_predict: 512, temperature: 0.2 });
   assert.equal(body.keep_alive, '5m');
-  assert.equal(body.format.oneOf.length, residentRequest.actions.length);
+  assert.equal(body.format.oneOf.length, residentRequest.actions.length + 1);
   residentRequest.actions.forEach((action, index) => {
     const variant = body.format.oneOf[index];
     assert.equal(variant.properties.action.const, action.name);
     assert.deepEqual(variant.properties.arguments, action.inputSchema);
   });
+  assert.equal(body.format.oneOf.at(-1).properties.action.const, null);
   assert.match(body.messages.at(-1).content, /BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_BEGIN/);
   assert.match(body.messages.at(-1).content, /"maximum":2000/);
   assert.deepEqual(
@@ -687,6 +688,25 @@ test('strict JSON action mind checks identity and accepts one exact action objec
     decision.call.request.formatSha256,
     decision.call.request.localActionTransport?.responseFormatSha256,
   );
+
+  const noIntentionMind = createOllamaLocalResidentMind({
+    bearer: 'resident-broker-bearer-that-is-long-enough',
+    endpoint: 'http://127.0.0.1:31000/v1/chat/completions',
+    policy: policy('test/model', DIGEST_3B, TEMPLATE_3B),
+    cognitionTransport: true,
+    fetch: async () =>
+      json({
+        model: 'test/model',
+        message: { role: 'assistant', content: '{"action":null,"arguments":{}}' },
+        done: true,
+        done_reason: 'stop',
+      }),
+  });
+  const noIntention = await noIntentionMind.decide(request() as any, {
+    signal: new AbortController().signal,
+  });
+  assert.equal(noIntention.disposition, 'no_action');
+  assert.equal(noIntention.action, null);
 
   const drifted = createOllamaLocalResidentMind({
     bearer: 'resident-broker-bearer-that-is-long-enough',

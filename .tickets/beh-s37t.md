@@ -22,3 +22,7 @@ Let one cognitive opportunity return zero or one admitted bodily intention. Remo
 ## Acceptance Criteria
 
 In an ordinary no-task resident session, the exact model request offers only real current bodily controls (plus separately identified private-life recall where applicable), and the response contract permits no bodily intention. No-intention responses do not enter Minecraft's action stream or canonical Lync as synthetic `wait_for_event` actions. Behold does not re-call the model every four seconds solely because the previous response had no intention or generic time passed; a material lived change and a bounded low-frequency reconsideration can each create a visible new cognitive opportunity with all intervening experience intact. Pause, stop, and resume remain clean. Focused tests cover the literal request, no-intention handling, material change, reconsideration, lifecycle, and stop/resume paths.
+
+## Progress
+
+Implemented locally on 2026-08-02 for the minimal resident-v2/v3/v4 treatments. Their strict schema now admits `{"action":null,"arguments":{}}`, omits `wait_for_event`, performs no Minecraft attempt or synthetic Lync action turn for null intention, ignores generic `time_passed` as a wakeup after null intention, and admits meaningful experience or a 60-second reconsideration. The focused policy test and full repository check pass. This is implemented and mechanically exercised, not yet exercised through ordinary `behold live`; keep the ticket open until a captured short live episode proves the literal request and clean lifecycle.

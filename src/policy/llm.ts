@@ -330,6 +330,7 @@ class MindDecisionError extends Error {
 const DEFAULT_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 export const DEFAULT_URGENT_DECISION_TIMEOUT_MS = 5_000;
 export const DEFAULT_LOOM_FOLD_MAX_OUTPUT_TOKENS = 1_024;
+export const DEFAULT_NO_INTENTION_RECONSIDERATION_MS = 60_000;
 const WAIT_TOOL = 'wait_for_event';
 const READ_PRIVATE_LIFE_TOOL = 'read_private_life';
 /** Final resident-visible message-array budget for one explicit recall result. */
@@ -580,9 +581,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const waitToolSpec = usesResidentV1Behavior(policyProfile)
     ? WAIT_TOOL_SPEC
     : NEUTRAL_WAIT_TOOL_SPEC;
-  const modelTools = executableTools.some((spec) => spec.function.name === WAIT_TOOL)
+  const modelTools = usesMinimalResidentChoice(policyProfile)
     ? executableTools
-    : [...executableTools, waitToolSpec];
+    : executableTools.some((spec) => spec.function.name === WAIT_TOOL)
+      ? executableTools
+      : [...executableTools, waitToolSpec];
   const executableCatalog = new Map(
     executableTools.map((spec) => [spec.function.name, spec] as const),
   );
@@ -716,6 +719,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   const trailingFailures = trailingFailedEmbodiedActions(history);
   let failedEmbodiedTool = trailingFailures.tool;
   let failedEmbodiedCount = trailingFailures.count;
+  let noIntentionAt: number | null = null;
   let suspended = false;
   let activeDecision: ActiveDecision | null = null;
   let continuingBodilyAttention: ResidentAttention | null = null;
@@ -773,9 +777,11 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       return [copy];
     });
     const offered = [...currentCognitiveTools, ...physicallyOffered];
-    const withYield = offered.some((spec) => spec.function.name === WAIT_TOOL)
+    const withYield = usesMinimalResidentChoice(policyProfile)
       ? offered
-      : [...offered, waitToolSpec];
+      : offered.some((spec) => spec.function.name === WAIT_TOOL)
+        ? offered
+        : [...offered, waitToolSpec];
     const actions = availableModelTools(withYield, experience.raw, attention, policyProfile);
     return Object.freeze({
       experience,
@@ -1080,7 +1086,16 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     }
     const admitsWithoutNewEvent =
       force || cause.kind === 'budget_resume' || cause.kind === 'resume';
-    if (!turnActive && !admitsWithoutNewEvent && !hasDecisionRelevantEvent(frame, lastSequence)) {
+    const materialExperience = hasMaterialDecisionRelevantEvent(frame, lastSequence);
+    const reconsideringNoIntention =
+      noIntentionAt != null && now() - noIntentionAt >= DEFAULT_NO_INTENTION_RECONSIDERATION_MS;
+    if (
+      !turnActive &&
+      !admitsWithoutNewEvent &&
+      !(noIntentionAt == null
+        ? hasDecisionRelevantEvent(frame, lastSequence)
+        : materialExperience || reconsideringNoIntention)
+    ) {
       decisionCycle.enter('idle');
       return;
     }
@@ -1307,6 +1322,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       const assistant = normalizeAssistant(decision.assistant);
       const decidedAt = now();
       if (decision.intent) {
+        noIntentionAt = null;
         decision.intent = {
           ...decision.intent,
           observationSequence: Number(frame.experience.raw?.sequence),
@@ -1403,20 +1419,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       }
 
       if (!decision.intent) {
-        const result = { ok: true, status: 'waiting_for_world_event', reason: 'no_action' };
-        await closeTurn(
-          draft,
-          {
-            id: rid('wait'),
-            name: WAIT_TOOL,
-            input: { reason: 'model proposed no action' },
-            kind: 'yield',
-            toolCallId: null,
-          },
-          { ok: true, eventType: 'wait_for_event', result },
-          observe(),
-        );
-        log('[policy] yielded: model proposed no action');
+        noIntentionAt = now();
+        log('[policy] resident formed no bodily intention');
         turnActive = false;
         turnSteps = 0;
         return;
@@ -2613,6 +2617,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       lastSequence,
       messageCount: messages.length,
       entityTurns: entitySequence,
+      noIntentionAt,
       suspended,
       stopped,
       modelRequestActive: activeModelRequest !== null,
@@ -2680,7 +2685,7 @@ export function controllerSystemPrompt(
       'You are a persistent embodied Minecraft resident. Your complete canonical private life is your continuing identity, including portions outside the active inference context.',
       'Current experience is bounded first-person information from this body. No task, project, next goal, preferred conduct, memory relevance, or recovery choice is supplied.',
       'Other residents are independent beings with their own bodies, information, and private lives.',
-      'Choose exactly one supplied bodily control, explicitly yield, or read an exact page from your own private life when you choose. Reading private life does not act in Minecraft and supplies no summary or selected memory.',
+      'Form zero or one bodily intention from the supplied controls, or read an exact page from your own private life. A null action means you form no bodily intention for this cognitive opportunity. Reading private life does not act in Minecraft and supplies no summary or selected memory.',
       'A supplied bodily control authorizes an attempt; it does not promise that current world preconditions hold or that the attempt will succeed.',
       'Minecraft consequences are authoritative. Do not turn an expectation, absence from view, recalled past state, or unobserved consequence into current fact.',
     ].join('\n');
@@ -2690,7 +2695,7 @@ export function controllerSystemPrompt(
       'You are a persistent embodied Minecraft resident. Your own lived trajectory is your continuing identity.',
       'Current experience is bounded first-person information from this body. No task, project, next goal, preferred conduct, or recovery choice is supplied.',
       'Other residents are independent beings with their own bodies, information, and lives.',
-      'Choose exactly one supplied bodily control, or explicitly yield. A supplied control authorizes an attempt; it does not promise that current world preconditions hold or that the attempt will succeed.',
+      'Form zero or one bodily intention from the supplied controls. A null action means you form no bodily intention for this cognitive opportunity. A supplied control authorizes an attempt; it does not promise that current world preconditions hold or that the attempt will succeed.',
       'Minecraft consequences are authoritative. Do not turn an expectation, absence from view, or unobserved consequence into fact.',
     ].join('\n');
   }
@@ -3413,6 +3418,16 @@ export function hasDecisionRelevantEvent(frame: any, lastSequence: number) {
   });
 }
 
+export function hasMaterialDecisionRelevantEvent(frame: any, lastSequence: number) {
+  if (!hasDecisionRelevantEvent(frame, lastSequence)) return false;
+  return (frame?.events || []).some(
+    (event: any) =>
+      event?.isNew &&
+      event.type !== 'time_passed' &&
+      hasDecisionRelevantEvent({ ...frame, events: [event] }, lastSequence),
+  );
+}
+
 function relevantChat(event: any, frame: any) {
   if (event?.data?.addressed === true) return true;
   const from = String(event?.data?.from || '').toLowerCase();
@@ -3702,10 +3717,6 @@ function validateMindDecision(
     }
   } else if (decision.publicCommitment != null) {
     fail('mind returned a legible-resident public commitment under another policy treatment');
-  }
-
-  if (usesMinimalResidentChoice(policyProfile) && decision.disposition === 'no_action') {
-    fail('resident-v2 must choose one supplied bodily control or explicitly yield');
   }
 
   if (decision.disposition === 'no_action') {

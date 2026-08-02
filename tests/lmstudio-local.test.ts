@@ -366,7 +366,14 @@ test('LM Studio resident-v2 session is action-only while preserving the stable o
     'behold.resident-factual-continuity.v1',
   );
   assert.match(body.messages[1].content, /BEHOLD_LOCAL_JSON_ACTION_CONTRACT_V1_BEGIN/);
-  assert.match(body.messages.at(-1).content, /including wait_for_event when you choose to yield/);
+  assert.match(body.messages.at(-1).content, /use a null action when you form no bodily intention/);
+  const noIntention = body.response_format.json_schema.schema.oneOf.at(-1);
+  assert.equal(noIntention.properties.action.const, null);
+  assert.deepEqual(noIntention.properties.arguments, {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  });
   assert.doesNotMatch(
     JSON.stringify(body),
     /expectedObservableConsequence|"intention"|public commitments|private reasoning/,

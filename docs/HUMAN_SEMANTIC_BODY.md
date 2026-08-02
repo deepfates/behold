@@ -179,5 +179,8 @@ world capture is now exercised through ordinary live and resume with two Qwen
 3.6 35B-A3B residents sharing one physical LM Studio weight instance and
 retaining separate resident contexts and Lync lives. Warm 512x512 capture took
 6–11 ms and resident calls took about 3.0–4.8 seconds across the two episodes.
-Both residents chose `wait_for_event` throughout; no controller changed that
-choice. The model-by-perception comparison remains unexercised.
+Both residents selected the then-required `wait_for_event` option throughout.
+That trajectory remains historical fact, but episode `000015` later showed the
+option plus fixed reconsideration formed a harness attractor. The current
+minimal resident contract permits null bodily intention instead. The
+model-by-perception comparison described here remains unexercised.

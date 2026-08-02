@@ -63,7 +63,7 @@ export type ResidentMindRequest = {
   }>;
   /** Bounded lived context. Adapters may project it into their own prompt form. */
   conversation: readonly unknown[];
-  /** The exact actions admitted for this decision, including explicit yield. */
+  /** The exact bodily or private-life actions admitted for this decision. Empty is valid. */
   actions: readonly ResidentMindAction[];
   /** A controller safety/lifecycle requirement, not a model suggestion. */
   requiredAction: string | null;

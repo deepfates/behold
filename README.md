@@ -67,6 +67,19 @@ acceptance epoch is currently running; the resident contract must stop
 presenting waiting as an action, and an explicitly private exact-turn inspection
 path must be exercised before another one begins.
 
+The current implementation removes that pseudo-action from the minimal
+resident-v2/v3/v4 model contract. A cognitive opportunity may now produce zero
+or one bodily intention. Zero creates neither a Minecraft attempt nor a
+synthetic Lync action turn; generic time passage does not immediately poll the
+model again. Meaningful lived change or a bounded one-minute reconsideration
+may create the next opportunity. Focused and full repository checks pass, but
+this repaired contract has not yet been exercised through an ordinary live
+episode, so episode `000015` remains the latest live evidence for this defect.
+An opt-in private inspector can now materialize an exactly retained provider
+request, response, image, parsed decision, and matching canonical causal turn;
+ordinary episodes that did not retain model bodies remain explicitly
+unrecoverable at that literal level.
+
 The complete mature transcript later proved operationally too slow despite
 fitting Qwen's physical context window. `resident-v4` therefore makes the
 transition into a finite inference epoch explicit, keeps canonical Lync life
@@ -110,8 +123,11 @@ The ordinary persistent-world path has also carried two Qwen 3.6 35B-A3B
 camera residents through a 90-second episode and a clean 30-second resume.
 They shared one physical LM Studio weight instance while retaining separate
 requests, quotas, bodies, and Lync lives. Warm frame capture took 6–11 ms;
-resident calls took about 3.0–4.8 seconds. Both residents repeatedly chose to
-wait, which is observed conduct rather than a harness failure. Textile read the
+resident calls took about 3.0–4.8 seconds. Both residents repeatedly selected
+the then-required `wait_for_event` option. That was originally classified as
+conduct; episode `000015` later showed the option and scheduler formed a harness
+attractor, so the old trajectory remains real but does not validate that
+treatment. Textile read the
 resumed 34-event Lync union with no diagnostics. A later sealed
 model-by-perception comparison was exercised descriptively but is causally
 inconclusive: Minecraft gave the four fresh bodies different spawn positions,
@@ -254,7 +270,7 @@ social adaptation remain open horizons.
 Authority in one ordinary resident cycle is deliberately small:
 
 ```text
-Minecraft/body -> bounded view -> model choice or yield -> engine attempt
+Minecraft/body -> bounded view -> zero or one bodily intention -> engine attempt
       ^                                                     |
       |                                                     v
       +------------- next view <- Lync turn <- Minecraft consequence
@@ -508,7 +524,7 @@ Environment Variables
 LLM Autopilot (optional)
 
 - Set `OPENROUTER_API_KEY` and choose an exact model via `LLM_MODEL` (defaults to `google/gemini-3.5-flash`).
-- The ordinary `resident-v2` policy proposes exactly one admitted action or explicit yield using the human-semantic body. It supplies persistent identity, bounded own-life continuity, independent others, controls as attempts, and Minecraft consequences as authority—without a task, project, progress judgment, recovery choice, required action, or compulsory narration. Provider use requires the action-only OpenRouter v2 resident session; LM Studio uses `behold.lmstudio-local-resident-session.v2`. Current Ollama transports are legacy-only. Behold still validates and executes every proposal.
+- The ordinary `resident-v2` policy forms zero or one admitted bodily intention using the human-semantic body. A null intention is neither a Minecraft action nor a canonical life turn; the controller visibly schedules later cognition from meaningful lived change or bounded reconsideration. The policy supplies persistent identity, bounded own-life continuity, independent others, controls as attempts, and Minecraft consequences as authority—without a task, project, progress judgment, recovery choice, required action, or compulsory narration. Provider use requires the action-only OpenRouter v2 resident session; LM Studio uses `behold.lmstudio-local-resident-session.v2`. Current Ollama transports are legacy-only. Behold still validates and executes every proposal.
 - On restart, canonical Lync remains unchanged. `resident-v2` rebuilds a profile-bound, deterministic factual view containing chosen controls, typed terminal settlements, communication, and coarse post-action perception; it neither replays legacy commitments nor asks a model to infer projects for memory.
 - `resident-v3` is the exercised candidate for an uninterrupted private model conversation. It deterministically projects canonical Lync as chronological experience, exact retained assistant response, and Minecraft outcome messages, then appends one fresh complete current view. It refuses event gaps and context overflow rather than folding or truncating a middle. OpenRouter requires context-bound private route v5; LM Studio applies the exact loaded model's prompt template and tokenizer to the final message body and reserves output against the verified loaded context. See [Resident transcript](docs/RESIDENT_TRANSCRIPT.md). A no-world request carried all 52 retained Rowan turns. Ordinary Oxford episodes `000003` and `000004` then continued two isolated lives across clean stop/resume: Juniper's first resumed request contained 252 messages for 83 prior turns, Rowan's contained 231 for 76, and every settled request grew monotonically with no fold or reset. Textile's visible local reader authenticated episode `000004`'s exact 22,915,469-byte two-source set and opened 190 readable resident turns plus two structural roots. DeepSeek V4 Flash remained timely and schema-valid but quickly returned to repetitive social chat; that is observed model conduct, not evidence of a missing transcript middle. `resident-v3` is not yet the ordinary default.
 - `resident-v1` and `legible-resident-v1` remain readable, runnable named legacy treatments; changing the ordinary default does not reinterpret their histories.
@@ -581,6 +597,7 @@ Managed population
 - Quota-controlled populations can put equal `providerQuotas` on every resident and pass a stable `--accountingScope`. These hard per-life quotas separate resident-decision provider attempts from auxiliary context work and survive owner epochs; they intentionally cannot be combined with the purpose-blind `--maxModelCalls`. Equality prevents resource monopoly but does not make heterogeneous providers/models a fair comparison. Exact meanings and limitations are in [`docs/EXPERIMENT_ACCOUNTING.md`](docs/EXPERIMENT_ACCOUNTING.md).
 - Quota-controlled mode is all-ready gated: Minecraft time freezes before resident connection, every normal policy/body/credential must durably arm against one exact population and frozen-world basis, and no model request is admitted until one shared release epoch is committed. Later turns carry that release reference, while actual first/second/later observation order remains explicit rather than being called simultaneous.
 - Every managed provider attempt retains content digests and byte counts, route/model/provider, timing, terminal, and reported usage/cost in the authenticated cognition journal. Set `BEHOLD_RECORD_MODEL_IO=1` for a sealed run that additionally retains exact content-addressed request/response bodies under the private `_cognition/transport` boundary. Full-capture protocols and verification remain unchanged when opted in; ordinary runs create no body files or file references. Ax correction retries are off by default; explicit corrections are separately charged and recorded. Malformed model output, provider/transport failure, cancellation, and loom fallback remain named outcomes instead of becoming successful model turns.
+- For an opted-in episode, `npm run inspect:resident-turn -- --episode <absolute-episode-directory> --entity <resident-id> --model-turn <resident-run-journal-sequence> --out <new-private-directory>` verifies and materializes the exact provider request and response, extracted camera content, parsed model turn, and matching canonical causal turn when one exists. It refuses episodes without exact body retention and never reconstructs missing bytes from summaries.
 - The OpenRouter native-tool resident session uses the native tools as the sole model-visible action schemas. A compact v2 metadata message binds the exact profiles, optional required control, complete reconstructed action-contract digest, and native-tools digest; the cognition broker independently reconstructs and rejects drift before upstream. Required-control requests retain the full bodily vocabulary and constrain only `tool_choice`. The request-prefix digest is an exact cache/evidence coordinate for that request, not a claim that changing visible referents produce a lifetime-stable prefix.
 - The v4 OpenRouter strict-JSON resident route keeps the same factual `resident-v2` action contract while binding reasoning disabled, exact endpoint/no fallback, `zdr: true`, and `data_collection: deny`. Route v5 adds an exact context-window identity and conservative pre-launch admission for `resident-v3`. Older route versions retain their exact semantics.
 - A separately named local Ollama strict-JSON action transport uses native loopback `/api/chat` bytes without native Ollama tools, an OpenRouter provider object, or fallback semantics. Its resident config binds the transport/schema version, exact installed tag/content/template digests, and common context/output/temperature/load settings; read-only preflight proves cloud-disabled config, completion capability, template identity, and context before world authority is acquired. The exact canonical human-semantic action catalog is repeated in the ordinary message and native `format` schema, one action object is decoded without correction or normalization, and Behold's original action validator remains the final pre-intent boundary. Local runs still require durable per-resident quotas and the all-ready release.
