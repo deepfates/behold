@@ -226,6 +226,53 @@ test('human-semantic controls never admit guessed visible referents or waking wh
   );
 });
 
+test('human-semantic combat is offered only for an exact legal cursor target', () => {
+  const attack = schemaTool('attack_focused_entity', {});
+  const frame: any = {
+    protocol: 'behold.inhabitant.v2',
+    self: { inventory: [], condition: {} },
+    scene: {
+      focus: {
+        id: 'entity:7',
+        kind: 'entity',
+        name: 'arrow',
+        source: 'cursor',
+        reachable: true,
+      },
+      entities: [
+        {
+          id: 'entity:7',
+          kind: 'projectile',
+          name: 'arrow',
+          source: 'vision',
+          visibility: 'visible',
+        },
+      ],
+      social: { playersOnline: [] },
+    },
+  };
+
+  assert.deepEqual(
+    minecraftInhabitantActionsFor([attack], frame, {
+      bodyProfile: 'minecraft-human-semantic-v1',
+    }),
+    [],
+  );
+
+  frame.scene.focus.name = 'skeleton';
+  frame.scene.entities[0] = {
+    ...frame.scene.entities[0],
+    kind: 'hostile',
+    name: 'skeleton',
+  };
+  assert.deepEqual(
+    minecraftInhabitantActionsFor([attack], frame, {
+      bodyProfile: 'minecraft-human-semantic-v1',
+    }).map((action) => action.function.name),
+    ['attack_focused_entity'],
+  );
+});
+
 test('current inventory uses and cursor focus produce exact native action inputs', () => {
   const actions = [
     schemaTool('drop_item', { name: { type: 'string' } }),

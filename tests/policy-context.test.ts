@@ -731,7 +731,7 @@ test('resident factual continuity preserves lived facts without legacy steering 
         sequence: 2,
         type: 'chat_received',
         isNew: true,
-        data: { from: 'Wren', text: 'Are you still there?' },
+        data: { from: 'Wren', text: 'Are you still there?', channel: 'private' },
       },
     ],
   };
@@ -754,7 +754,7 @@ test('resident factual continuity preserves lived facts without legacy steering 
     bodyMoved: false,
   });
   assert.deepEqual(projected?.experiences[0].communication?.heard, [
-    { from: 'Wren', text: 'Are you still there?' },
+    { from: 'Wren', text: 'Are you still there?', channel: 'private' },
   ]);
   assert.deepEqual(projected?.experiences[0].after?.condition, {
     health: 17,

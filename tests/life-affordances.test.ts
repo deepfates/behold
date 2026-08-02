@@ -432,6 +432,61 @@ test('digging an admitted cursor block never hides an approach action', async ()
   assert.deepEqual(bot.entity.position, new Vec3(0, 64, 0));
 });
 
+test('focused combat refuses a projectile before sending Minecraft attack input', async () => {
+  const bot = baseBot();
+  bot.game = { dimension: 'overworld' };
+  bot.entity.position = new Vec3(0, 64, 0);
+  bot.entity.yaw = 0;
+  bot.entity.pitch = 0;
+  bot.entity.eyeHeight = 1.62;
+  const arrow = {
+    id: 7,
+    name: 'arrow',
+    type: 'projectile',
+    position: new Vec3(0, 65.4, -2),
+    width: 0.5,
+    height: 0.5,
+  };
+  bot.entities[7] = arrow;
+  bot.world = { raycast: () => null };
+  let attacks = 0;
+  bot.attack = () => {
+    attacks += 1;
+  };
+  const admitted = {
+    protocol: 'behold.inhabitant.v2',
+    scene: {
+      focus: {
+        id: 'entity:7',
+        kind: 'entity',
+        name: 'arrow',
+        source: 'cursor',
+        reachable: true,
+      },
+      entities: [
+        {
+          id: 'entity:7',
+          kind: 'projectile',
+          name: 'arrow',
+          source: 'vision',
+          visibility: 'visible',
+        },
+      ],
+    },
+  };
+
+  const result = await buildInterpreter(bot).run(
+    'attack_focused_entity',
+    {},
+    { observation: admitted },
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'focused_entity_not_attackable');
+  assert.equal(result.entityType, 'projectile');
+  assert.equal(attacks, 0);
+});
+
 test('using an admitted cursor block suppresses Mineflayer automatic camera movement', async () => {
   const bot = baseBot();
   bot.game = { dimension: 'overworld' };

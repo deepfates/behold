@@ -542,15 +542,21 @@ export class InhabitantExperience {
   }
 
   private bindWorldEvents() {
-    const onChat = (username: string, message: string) => {
-      if (username === (this.bot as any).username) return;
-      const lower = String(message).toLowerCase();
-      const name = String((this.bot as any).username || '').toLowerCase();
-      const addressed = !!name && lower.includes(name);
-      // Addressing is truthful social metadata, not an emergency classification.
-      // Ordinary speech may wake cognition, but it must not preempt resident-owned thought.
-      this.record('chat_received', { from: username, text: message, addressed }, 'high', 'event');
-    };
+    const onIncomingSpeech =
+      (channel: 'public' | 'private') => (username: string, message: string) => {
+        if (username === (this.bot as any).username) return;
+        const lower = String(message).toLowerCase();
+        const name = String((this.bot as any).username || '').toLowerCase();
+        const addressed = channel === 'private' || (!!name && lower.includes(name));
+        // Addressing is truthful social metadata, not an emergency classification.
+        // Ordinary speech may wake cognition, but it must not preempt resident-owned thought.
+        this.record(
+          'chat_received',
+          { from: username, text: message, channel, addressed },
+          'high',
+          'event',
+        );
+      };
     const onSpawn = () => this.record('spawned', {}, 'high', 'body');
     const onDeath = () => this.record('died', {}, 'urgent', 'body');
     const onHealth = () => {
@@ -676,7 +682,8 @@ export class InhabitantExperience {
     const onWake = () => this.record('woke_up', {}, 'high', 'body');
     const onRain = () => this.captureStateTransitions();
 
-    this.bind('chat', onChat);
+    this.bind('chat', onIncomingSpeech('public'));
+    this.bind('whisper', onIncomingSpeech('private'));
     this.bind('spawn', onSpawn);
     this.bind('death', onDeath);
     this.bind('health', onHealth);

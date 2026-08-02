@@ -1,6 +1,10 @@
 import type { InhabitantActionSpec } from '../entity/interface';
 import { digPositionIssueForBody } from './body-geometry';
-import { usesResidentSafety, type MinecraftSafetyProfile } from './action-profiles';
+import {
+  minecraftEntityAcceptsAttackInput,
+  usesResidentSafety,
+  type MinecraftSafetyProfile,
+} from './action-profiles';
 import { usesHumanSemanticBody, type MinecraftBodyProfile } from '../mind/minecraft-body';
 
 export type MinecraftAffordanceOptions = Readonly<{
@@ -60,6 +64,9 @@ export function minecraftInhabitantActionsFor(
       }
       if (name === 'wake_up') {
         return frame?.self?.condition?.sleeping === true ? [spec] : [];
+      }
+      if (name === 'attack_focused_entity') {
+        return currentAttackableEntityFocus(frame) ? [spec] : [];
       }
       return [spec];
     });
@@ -200,6 +207,27 @@ export function minecraftInhabitantActionsFor(
     }
     return [spec];
   });
+}
+
+function currentAttackableEntityFocus(frame: any) {
+  const focus = frame?.scene?.focus;
+  if (
+    focus?.kind !== 'entity' ||
+    focus?.source !== 'cursor' ||
+    focus?.reachable !== true ||
+    !Array.isArray(frame?.scene?.entities)
+  ) {
+    return null;
+  }
+  return (
+    frame.scene.entities.find(
+      (entity: any) =>
+        entity?.id === focus.id &&
+        entity?.source === 'vision' &&
+        entity?.visibility === 'visible' &&
+        minecraftEntityAcceptsAttackInput(entity?.kind ?? entity?.type),
+    ) ?? null
+  );
 }
 
 export function withExactStringEnum(

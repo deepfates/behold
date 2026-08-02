@@ -205,10 +205,26 @@ test('inhabitant observation preserves embodied state, provenance, and new event
   assert.deepEqual(chat?.data, {
     from: 'importdf',
     text: 'Scout, come here',
+    channel: 'public',
     addressed: true,
   });
 
-  const seenAgain = experience.observe(afterChat.sequence);
+  now = 1250;
+  bot.emit('whisper', 'importdf', 'Meet me by the arch.');
+  const afterWhisper = experience.observe(afterChat.sequence);
+  const whisper = afterWhisper.events.find(
+    (event) => event.type === 'chat_received' && event.data?.channel === 'private',
+  );
+  assert.equal(whisper?.isNew, true);
+  assert.equal(whisper?.salience, 'high');
+  assert.deepEqual(whisper?.data, {
+    from: 'importdf',
+    text: 'Meet me by the arch.',
+    channel: 'private',
+    addressed: true,
+  });
+
+  const seenAgain = experience.observe(afterWhisper.sequence);
   assert.equal(seenAgain.events.find((event) => event.type === 'chat_received')?.isNew, false);
 
   bot.emit('health');

@@ -14,6 +14,7 @@ import { surveyArea } from '../skills/survey';
 import { digPositionIssueForBody } from './body-geometry';
 import {
   HUMAN_SEMANTIC_INTERACTION_DISTANCE,
+  minecraftEntityAcceptsAttackInput,
   usesResidentSafety,
   type MinecraftSafetyProfile,
 } from './action-profiles';
@@ -2609,6 +2610,14 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
     run: async (_args, execution) => {
       const focused = focusedEntityAtAdmission(bot, execution?.observation, sceneEntityReference);
       if (!focused.ok) return focused;
+      if (!minecraftEntityAcceptsAttackInput(focused.entity?.type)) {
+        return {
+          ok: false,
+          error: 'focused_entity_not_attackable',
+          target: focused.privateTarget,
+          entityType: String(focused.entity?.type || 'unknown'),
+        };
+      }
       if (typeof (bot as any).attack !== 'function') {
         return { ok: false, error: 'attack_input_unavailable' };
       }

@@ -40,3 +40,7 @@ Post-acceptance systematic cursor audit found a second literalness defect. In re
 **2026-08-02T00:18:00Z**
 
 The owning repair now suppresses only Mineflayer's preparatory look for actions already bound to the exact admitted cursor block: dig, place, use/toggle, container access, and bed use. Explicit look actions and non-cursor coordinate actions retain their existing orientation semantics. The suppression is restored in `finally`, including after a rejected interaction. Focused conformance covers exact target/face use, unchanged yaw/pitch, zero hidden pathfinding, persistent toggle/placement consequences, and failure restoration. Full `npm run check`: 694 pass, 1 intentional skip. Keep open until an ordinary live cursor action proves no unexplained orientation change in the deployment-shaped path.
+
+**2026-08-02T00:29:00Z**
+
+Episode 000004 loaded commit 2b6751a but did not independently choose a cursor-local block interaction, so the hidden-camera repair remains mechanically proven and live-unexercised. The same run found separate private-whisper and illegal-projectile-attack defects now tracked in beh-tm0q and beh-bf41.

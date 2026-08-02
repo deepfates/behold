@@ -944,13 +944,14 @@ function reduceCanonicalAnchorIndex(
       if (type === 'chat_received') {
         const from = boundedText(event?.data?.from ?? event?.data?.user ?? 'someone', 80);
         const text = boundedText(event?.data?.text ?? '', 300);
-        const key = `${event?.sequence ?? ''}\u0000${from}\u0000${text}`;
+        const channel = event?.data?.channel === 'private' ? 'private' : 'public';
+        const key = `${event?.sequence ?? ''}\u0000${channel}\u0000${from}\u0000${text}`;
         if (text && !seenDialogue.has(key)) {
           seenDialogue.add(key);
           dialogueKeys.push(key);
           pushBoundedLine(
             dialogue,
-            `[t${turn.sequence}] heard ${from}: ${JSON.stringify(text)}`,
+            `[t${turn.sequence}] heard${channel === 'private' ? ' privately from' : ''} ${from}: ${JSON.stringify(text)}`,
             limit,
           );
         }
@@ -1098,10 +1099,13 @@ function canonicalAnchorSummary(
         if (type === 'chat_received') {
           const from = boundedText(event?.data?.from ?? event?.data?.user ?? 'someone', 80);
           const text = boundedText(event?.data?.text ?? '', 300);
-          const key = `${event?.sequence ?? ''}\u0000${from}\u0000${text}`;
+          const channel = event?.data?.channel === 'private' ? 'private' : 'public';
+          const key = `${event?.sequence ?? ''}\u0000${channel}\u0000${from}\u0000${text}`;
           if (text && !seenDialogue.has(key)) {
             seenDialogue.add(key);
-            dialogue.push(`[t${turn.sequence}] heard ${from}: ${JSON.stringify(text)}`);
+            dialogue.push(
+              `[t${turn.sequence}] heard${channel === 'private' ? ' privately from' : ''} ${from}: ${JSON.stringify(text)}`,
+            );
           }
         }
         if (['died', 'spawned', 'dimension_changed'].includes(type)) {

@@ -128,7 +128,7 @@ export type ResidentFactualContinuity = {
     after?: ResidentWorkingContinuity['experiences'][number]['perceptionAfter'];
     communication?: {
       said?: string;
-      heard?: Array<{ from: string; text: string }>;
+      heard?: Array<{ from: string; text: string; channel?: 'private' }>;
     };
   }>;
 };
@@ -378,6 +378,7 @@ function historicalChat(observation: any) {
     .map((event: any) => ({
       from: boundedContinuityText(event?.data?.from ?? event?.data?.user ?? 'someone', 80),
       text: boundedContinuityText(event?.data?.text ?? '', 300),
+      ...(event?.data?.channel === 'private' ? { channel: 'private' as const } : {}),
     }))
     .filter((entry: any) => entry.text);
 }

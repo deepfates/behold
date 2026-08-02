@@ -395,7 +395,7 @@ export async function runConsole(
 
   const cache: any = { chatTail: [], nearby: [], cursor: null, last: null };
   const recordExternalPlayerIntervention = (
-    kind: 'joined' | 'left' | 'chat',
+    kind: 'joined' | 'left' | 'chat' | 'whisper',
     usernameValue: unknown,
     detail: Record<string, unknown> = {},
   ) => {
@@ -421,15 +421,19 @@ export async function runConsole(
     recordExternalPlayerIntervention('joined', player?.username),
   );
   bot.on('playerLeft', (player: any) => recordExternalPlayerIntervention('left', player?.username));
-  bot.on('chat', (user: string, text: string) => {
+  const receiveSpeech = (channel: 'public' | 'private') => (user: string, text: string) => {
     if (user === (bot as any).username) return;
     const policySignal = incomingChatPolicySignal(user, managedBodyUsernames);
-    recordExternalPlayerIntervention('chat', user, { text });
-    cache.chatTail.push({ user, text });
+    recordExternalPlayerIntervention(channel === 'private' ? 'whisper' : 'chat', user, {
+      text,
+      channel,
+    });
+    cache.chatTail.push({ user, text, channel });
     cache.chatTail = cache.chatTail.slice(-3);
     appendJournal(experimentActive ? 'chat_received' : 'setup_chat_received', {
       user,
       text,
+      channel,
       senderPopulation:
         policySignal === 'wake' ? 'managed_resident_peer' : 'native_human_or_unmanaged_player',
     });
@@ -462,7 +466,9 @@ export async function runConsole(
         });
       }
     }
-  });
+  };
+  bot.on('chat', receiveSpeech('public'));
+  bot.on('whisper', receiveSpeech('private'));
 
   const updateSense = () => {
     try {

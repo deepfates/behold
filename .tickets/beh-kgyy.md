@@ -1,6 +1,6 @@
 ---
 id: beh-kgyy
-status: closed
+status: open
 deps: []
 links: [beh-uumj, beh-wssv, beh-1h3a]
 created: 2026-08-01T02:02:25Z
@@ -58,3 +58,7 @@ Episode oxford-qualified-habitat-a-qwen36-camera-v1/000001 falsified the closed 
 **2026-08-01T23:53:58Z**
 
 Qualified same-life resume episode 000003 exercised the repaired projection through 50 model turns (23 Lark, 27 Sedge). Every model-facing eventWindow was complete with missingBeforeOldest=0 and omittedNewEvents=0, despite sustained pressure-plate and glass/wood sound traffic. Raw setup/action-time observations may correctly show bounded-history gaps before projection; no such gap entered a model request. Closing this bounded event-pressure defect; multi-day pressure remains under the telos epic.
+
+**2026-08-02T00:29:00Z**
+
+Episode 000004 falsified the episode-000003 closure under combat pressure. Sedge model-facing sequence 189 had missingBeforeOldest=12 and omittedNewEvents=28; sequence 297 had missingBeforeOldest=33 and omittedNewEvents=26 while urgent decisions were slow. This is renewed interface uncertainty: determine whether decision-relevant combat facts were lost or whether the cursor accounting honestly compacted only redundant visibility churn. Do not classify model conduct until exact model-facing windows are audited.

@@ -13,6 +13,22 @@ export type MinecraftSafetyProfile = (typeof MINECRAFT_SAFETY_PROFILES)[number];
 /** One ordinary first-person block-interaction horizon across perception and execution. */
 export const HUMAN_SEMANTIC_INTERACTION_DISTANCE = 4.5;
 
+const MINECRAFT_ATTACKABLE_ENTITY_TYPES = new Set([
+  'player',
+  'mob',
+  'animal',
+  'living',
+  'ambient',
+  'hostile',
+  'water_creature',
+  'passive',
+]);
+
+/** Mineflayer entity classes for which vanilla accepts an ordinary attack input. */
+export function minecraftEntityAcceptsAttackInput(value: unknown) {
+  return MINECRAFT_ATTACKABLE_ENTITY_TYPES.has(String(value || '').toLowerCase());
+}
+
 export type MinecraftActionClass =
   'player-intention' | 'disclosed-composite-skill' | 'resident-memory-utility' | 'unclassified';
 
