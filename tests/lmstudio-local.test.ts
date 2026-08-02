@@ -453,6 +453,62 @@ test('LM Studio resident-v3 wire carries continuous chronology for exact runtime
   assert.match((large.body.messages as any[]).at(-1).content, /x{20000}/);
 });
 
+test('LM Studio broker ownership accepts the resident-v3 current experience without a legacy reminder', async (t) => {
+  const fixture = await artifactFixture(t);
+  const legacyPolicy = policy(fixture);
+  const residentPolicy: LmStudioLocalPolicy = {
+    ...legacyPolicy,
+    transport: {
+      ...legacyPolicy.transport,
+      protocol: 'behold.lmstudio-local-resident-session.v2',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+    },
+  };
+  const residentRequest = {
+    ...request(residentPolicy.modelKey),
+    policyProfile: 'resident-v3',
+    conversation: [
+      { role: 'system', content: 'You are OxfordAster.' },
+      {
+        role: 'user',
+        content: `What you experience:\n${JSON.stringify({
+          protocol: 'behold.minecraft-human-semantic-observation.v1',
+          self: { identity: 'OxfordAster' },
+        })}`,
+      },
+    ],
+  } as any;
+  const instanceId = lmStudioResidentInstanceId(residentPolicy);
+  const serialized = createLmStudioLocalJsonActionRequest(
+    residentRequest,
+    residentPolicy,
+    instanceId,
+  );
+
+  assert.deepEqual(
+    assertLmStudioLocalWireRequest(
+      serialized.body,
+      residentPolicy,
+      instanceId,
+      'OxfordAster',
+      'semantic-only-v1',
+    ),
+    serialized.identity,
+  );
+  assert.throws(
+    () =>
+      assertLmStudioLocalWireRequest(
+        serialized.body,
+        residentPolicy,
+        instanceId,
+        'OxfordBirch',
+        'semantic-only-v1',
+      ),
+    /belongs to another resident/,
+  );
+});
+
 test('LM Studio camera perception adds one bound image without changing semantic text or prefix', async (t) => {
   const fixture = await artifactFixture(t);
   const residentPolicy = policy(fixture);

@@ -1005,7 +1005,12 @@ function assertResidentWireOwner(messagesValue: unknown, residentIdentity: strin
   }
   const currentText = residentSessionCurrentText(current.content);
   const jsonStart = currentText.indexOf('{');
-  const jsonEnd = currentText.lastIndexOf('\n\nRespond now with one JSON object');
+  const reminderStart = currentText.lastIndexOf('\n\nRespond now with one JSON object');
+  // resident-v3 keeps the exact current experience as the final message; the
+  // action contract is already the preceding system message, so it does not
+  // append the older response reminder. Ownership must parse both versioned
+  // layouts rather than requiring the superseded suffix.
+  const jsonEnd = reminderStart > jsonStart ? reminderStart : currentText.length;
   if (jsonStart < 0 || jsonEnd <= jsonStart) {
     throw new Error('LM Studio resident current observation is missing its exact body identity');
   }
