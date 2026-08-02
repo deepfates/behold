@@ -1,6 +1,6 @@
 ---
 id: beh-aps8
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-01T09:35:31Z
@@ -44,3 +44,23 @@ Episode 000001 (2026-08-01T11:16:45Z–11:47:14Z) exposed a duration/quota compo
 **2026-08-01T14:12:04Z**
 
 Manifest durability follow-up: the selected resident tip manifest now writes an exclusive temp file, fsyncs it, renames atomically, and fsyncs the containing directory. An injected post-rename directory-fsync failure leaves the canonical empty life and renamed manifest recoverable, removes the runtime lease, leaks no temp, and reopens exactly. Focused 19/19 and full check 655 pass with one existing skip.
+
+**2026-08-02T08:51:00Z**
+
+Acceptance reconciliation against retained primary artifacts closes this bounded
+lifecycle prerequisite rather than carrying it as a permanent proxy for the
+multi-day trial. Oxford episode 000007 settled 225/225 cognition attempts and
+saved/stopped after quota pressure. Qualified Lark/Sedge canonical lives retain
+multiple real death/respawn boundaries: stale choices terminate as
+`body_life_boundary_changed`, later turns continue under the same isolated
+resident identities, and obstruction remains visible rather than corrected.
+Qualified episode 000009 retained five visible local-model failures while its
+broker and both quota ledgers ended with zero unsettled calls and a completed
+world head. Gemini owner epoch 36 retained exact prepared/completed recovery
+evidence classified `abandoned_after_save_ack`; ordinary recovery released the
+dead owner without a false successful episode, and episode 000043 reopened the
+saved world and separate Iris/Moss lives before a clean stop. EntityLoom close
+and selected-tip durability are independently covered by the current full
+check (730 pass, one intentional skip). Recurrence under multi-day pressure is
+part of beh-xzc6; it does not keep this already-exercised lifecycle contract
+open indefinitely.

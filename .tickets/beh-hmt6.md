@@ -59,3 +59,18 @@ and transport growth and the live lens consumes the bounded public commit.
 **2026-08-01T19:42:00Z**
 
 Episode 000004 exercised the integrated ordinary default for 20 minutes: 94 new canonical private turns extended immutable prefixes of the two 204.1 MB lives, while the two operational journals totaled about 6.2 MB and contained bounded `behold.resident-life-commit.v1` projections plus authenticated Lync locators. No cognition transport directory or exact request/response bodies were retained; the broker kept hashes, timing, usage, and 97/97 terminal settlements. This is positive ordinary growth evidence. The ticket remains open until the live lens path and longer-run growth criterion are checked directly rather than inferred from the record.
+
+**2026-08-02T08:51:00Z**
+
+Adversarial reconciliation found the remaining concrete duplication instead of
+closing this from the earlier handoff. Episode 000014 no longer copied complete
+`entity_turn` values, private causal frames, camera bytes, or model transport
+bodies, and the live lens successfully folded its bounded life commits.
+However, periodic `observation` lines still copied the body's raw private scene,
+absolute pose, inventory, and events; they occupied 1,579,245 of Lark's
+2,772,922 journal bytes and 853,548 of Sedge's 1,961,545. The current candidate
+replaces every setup/readiness/periodic body sample with
+`behold.operational-body-observation.v1`: health, liveness, event-window status,
+and action progress without scene, events, inventory, orientation, or position.
+The full check passes 730 with one intentional skip. Keep open only until one
+ordinary run proves the deployed journal/lens shape and measures the reduction.

@@ -68,3 +68,13 @@ Resident-v3 checkpoint beh-c5gr is closed and changes the governing memory seman
 **2026-08-02T06:17:02Z**
 
 2026-08-02 resident-v4 child beh-3rm0 crossed the explicit finite-context boundary through ordinary same-life live/stop/resume and actual Textile reading. The checkpoint proves resident-visible epochs, exact own-Lync range recall without curator selection, isolated shared-weight sessions, reproducible restart identity, and usable short-epoch latency. It does not close this parent: bounded decoded controller memory (beh-61if), journal duplication (beh-hmt6), checkpoint growth (beh-e3jy), and multi-day pressure remain open. The next high-information move is a substantially larger-life restart/memory-growth exercise, not another short context demo.
+
+**2026-08-02T08:51:00Z**
+
+Reconciliation confirms the controller, incremental checkpoint, complete
+chronology, and explicit finite-context children are crossed. The only bounded
+scale defect still owned here is beh-hmt6's raw periodic body snapshot in the
+operational journal; its current candidate removes that duplicate and awaits an
+ordinary deployed measurement. Once that passes, close this prerequisite.
+Repeated multi-day pressure remains the final beh-xzc6 exercise rather than a
+reason to keep every bounded scale child perpetually open.

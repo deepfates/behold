@@ -4,6 +4,8 @@ import { projectResidentVisibleValue } from '../mind/resident-visibility';
 
 export const RESIDENT_LIFE_COMMIT_PROTOCOL = 'behold.resident-life-commit.v1' as const;
 export const RESIDENT_LIFE_COMMIT_EVENT = 'resident_life_commit' as const;
+export const OPERATIONAL_BODY_OBSERVATION_PROTOCOL =
+  'behold.operational-body-observation.v1' as const;
 
 /**
  * Bounded public following data for one canonical private resident turn.
@@ -125,6 +127,60 @@ export function projectOperationalModelTurn(turn: any): any {
   });
 }
 
+/**
+ * Keep enough of a raw body sample to diagnose readiness and liveness without
+ * copying the resident's exact private view into the operational journal.
+ * Model-facing semantic experience is recorded only in the bounded public
+ * model/commit projections; complete private experience remains canonical in
+ * Lync.
+ */
+export function projectOperationalBodyObservation(observation: any): any {
+  return deepFreeze({
+    protocol: OPERATIONAL_BODY_OBSERVATION_PROTOCOL,
+    sourceProtocol: text(observation?.protocol),
+    sequence: nonNegativeInteger(observation?.sequence),
+    observedAt: nullableFinite(observation?.observedAt),
+    eventWindow: {
+      complete: observation?.eventWindow?.complete === true,
+      missingBeforeOldest: nonNegativeInteger(observation?.eventWindow?.missingBeforeOldest),
+      oldestAvailableSequence: nonNegativeInteger(
+        observation?.eventWindow?.oldestAvailableSequence,
+      ),
+      newestAvailableSequence: nonNegativeInteger(
+        observation?.eventWindow?.newestAvailableSequence,
+      ),
+    },
+    body: {
+      identity: text(observation?.self?.identity),
+      username: text(observation?.self?.body?.username),
+      uuid: text(observation?.self?.body?.uuid),
+      condition: {
+        health: nullableFinite(observation?.self?.condition?.health),
+        food: nullableFinite(observation?.self?.condition?.food),
+        oxygen: nullableFinite(observation?.self?.condition?.oxygen),
+        sleeping: observation?.self?.condition?.sleeping === true,
+        dimension: text(observation?.self?.condition?.dimension),
+      },
+      pose: {
+        onGround: observation?.self?.pose?.onGround === true,
+        moving:
+          Math.hypot(
+            finite(observation?.self?.pose?.velocity?.x) ?? 0,
+            finite(observation?.self?.pose?.velocity?.y) ?? 0,
+            finite(observation?.self?.pose?.velocity?.z) ?? 0,
+          ) >= 0.01,
+      },
+      currentAction: observation?.self?.currentAction
+        ? {
+            id: text(observation.self.currentAction.id),
+            tool: text(observation.self.currentAction.tool),
+            status: text(observation.self.currentAction.status),
+          }
+        : null,
+    },
+  });
+}
+
 function publicModelCall(value: any) {
   if (!value || typeof value !== 'object') return null;
   const call = clone(value);
@@ -222,6 +278,17 @@ function text(value: unknown): string | null {
 function finite(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function nullableFinite(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  return finite(value);
 }
 
 function clone<T>(value: T): T {

@@ -7,6 +7,7 @@ import type { EntityTurn, EntityTurnCommitReceipt } from '../src/entity/loom';
 import { createRunJournal } from '../src/observability/journal';
 import {
   createResidentLifeCommit,
+  projectOperationalBodyObservation,
   projectOperationalModelTurn,
   RESIDENT_LIFE_COMMIT_EVENT,
 } from '../src/observability/resident-life-commit';
@@ -74,6 +75,54 @@ test('resident run journal retains only bounded public life and model projection
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('operational body samples retain health and liveness without copying the private view', () => {
+  const projected = projectOperationalBodyObservation({
+    protocol: 'behold.inhabitant.v2',
+    sequence: 19,
+    observedAt: 1_900,
+    eventWindow: {
+      complete: true,
+      missingBeforeOldest: 0,
+      oldestAvailableSequence: 10,
+      newestAvailableSequence: 19,
+    },
+    self: {
+      identity: 'Scout',
+      body: { username: 'ScoutBody', uuid: 'body-uuid' },
+      pose: {
+        position: { x: 123, y: 64, z: -456 },
+        yaw: 1.2,
+        pitch: -0.3,
+        velocity: { x: 0.2, y: 0, z: 0 },
+        onGround: true,
+      },
+      condition: {
+        health: 17,
+        food: 14,
+        oxygen: null,
+        sleeping: false,
+        dimension: 'overworld',
+      },
+      inventory: [{ name: 'diamond', count: 64 }],
+      currentAction: { id: 'action-1', tool: 'move_controls', status: 'running', input: {} },
+    },
+    scene: { secret: 'RAW_PRIVATE_SCENE' },
+    events: [{ type: 'private_event', data: { secret: true } }],
+  });
+
+  assert.equal(projected.protocol, 'behold.operational-body-observation.v1');
+  assert.equal(projected.body.identity, 'Scout');
+  assert.equal(projected.body.condition.health, 17);
+  assert.equal(projected.body.condition.oxygen, null);
+  assert.equal(projected.eventWindow.oldestAvailableSequence, 10);
+  assert.equal(projected.body.pose.moving, true);
+  assert.equal(projected.body.currentAction.tool, 'move_controls');
+  assert.equal(JSON.stringify(projected).includes('RAW_PRIVATE_SCENE'), false);
+  assert.equal(JSON.stringify(projected).includes('diamond'), false);
+  assert.equal(JSON.stringify(projected).includes('123'), false);
+  assert.equal(JSON.stringify(projected).includes('-456'), false);
 });
 
 test('resident lens reads the public commit and retains legacy entity-turn compatibility', () => {

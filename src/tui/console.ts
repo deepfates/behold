@@ -28,6 +28,7 @@ import { usesContinuousResidentTranscript, usesResidentSessionPolicy } from '../
 import { createRunJournal } from '../observability/journal';
 import {
   createResidentLifeCommit,
+  projectOperationalBodyObservation,
   projectOperationalModelTurn,
   RESIDENT_LIFE_COMMIT_EVENT,
 } from '../observability/resident-life-commit';
@@ -621,7 +622,10 @@ export async function runConsole(
   };
 
   bot.once('spawn', () => {
-    appendJournal(releaseGate ? 'setup_spawned' : 'spawned', experience.observe());
+    appendJournal(
+      releaseGate ? 'setup_spawned' : 'spawned',
+      projectOperationalBodyObservation(experience.observe()),
+    );
     recordTaskProgress();
     show();
     void (bot as any)
@@ -643,7 +647,10 @@ export async function runConsole(
             observe: () => experience.observe(),
           });
           if (releaseGate) {
-            appendJournal('setup_operator_hook_completed', experience.observe());
+            appendJournal(
+              'setup_operator_hook_completed',
+              projectOperationalBodyObservation(experience.observe()),
+            );
             appendJournal('setup_operator_intervention', {
               protocol: 'behold.operator-intervention.v1',
               kind: 'programmatic_setup_hook',
@@ -668,7 +675,10 @@ export async function runConsole(
           });
         }
         if (releaseGate) {
-          appendJournal('setup_local_world_ready', readyObservation);
+          appendJournal(
+            'setup_local_world_ready',
+            projectOperationalBodyObservation(readyObservation),
+          );
           const arm = releaseGate.arm({
             journalFile: journal.file,
             setupObservation: readyObservation,
@@ -684,7 +694,7 @@ export async function runConsole(
           experimentActive = true;
           appendJournal('experiment_release_observed', observed);
         } else {
-          appendJournal('local_world_ready', readyObservation);
+          appendJournal('local_world_ready', projectOperationalBodyObservation(readyObservation));
         }
         startPolicyIfReady();
         show();
@@ -712,7 +722,10 @@ export async function runConsole(
           appendJournal('observation_error', { error: error?.message || String(error) });
           return;
         }
-        appendJournal(experimentActive ? 'observation' : 'setup_observation', observation);
+        appendJournal(
+          experimentActive ? 'observation' : 'setup_observation',
+          projectOperationalBodyObservation(observation),
+        );
       }
     }, 1500);
   });
