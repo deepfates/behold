@@ -382,7 +382,7 @@ test('LM Studio resident-v2 session is action-only while preserving the stable o
   assert.deepEqual(assertLmStudioLocalWireRequest(body, residentPolicy), serialized.identity);
 });
 
-test('LM Studio resident-v3 carries continuous chronology and refuses context overflow', async (t) => {
+test('LM Studio resident-v3 wire carries continuous chronology for exact runtime admission', async (t) => {
   const fixture = await artifactFixture(t);
   const legacyPolicy = policy(fixture);
   const residentPolicy: LmStudioLocalPolicy = {
@@ -439,21 +439,18 @@ test('LM Studio resident-v3 carries continuous chronology and refuses context ov
     ),
     serialized.identity,
   );
-  assert.throws(
-    () =>
-      createLmStudioLocalJsonActionRequest(
-        {
-          ...residentRequest,
-          conversation: [
-            ...residentRequest.conversation.slice(0, -1),
-            { role: 'user', content: `What you experience:\n${'x'.repeat(20_000)}` },
-          ],
-        },
-        residentPolicy,
-        instanceId,
-      ),
-    /exceeds the admitted context window/,
+  const large = createLmStudioLocalJsonActionRequest(
+    {
+      ...residentRequest,
+      conversation: [
+        ...residentRequest.conversation.slice(0, -1),
+        { role: 'user', content: `What you experience:\n${'x'.repeat(20_000)}` },
+      ],
+    },
+    residentPolicy,
+    instanceId,
   );
+  assert.match((large.body.messages as any[]).at(-1).content, /x{20000}/);
 });
 
 test('LM Studio camera perception adds one bound image without changing semantic text or prefix', async (t) => {

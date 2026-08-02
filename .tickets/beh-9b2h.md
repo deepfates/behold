@@ -1,7 +1,7 @@
 ---
 id: beh-9b2h
 status: open
-deps: [beh-e3jy, beh-61if, beh-hmt6, beh-c5gr]
+deps: [beh-e3jy, beh-61if, beh-hmt6, beh-c5gr, beh-3rm0]
 links: []
 created: 2026-08-01T09:35:31Z
 type: task
@@ -60,3 +60,7 @@ Resident-v3 checkpoint beh-c5gr is closed and changes the governing memory seman
 **2026-08-02T04:01:54Z**
 
 2026-08-02 re-entry identified the next honest boundary. Existing qualified camera lives are 148/159 turns and 8.5/10 MiB canonical Lync under resident-v2; their installed Qwen camera runtime is verified at 262,144 context tokens. Current resident-v3 preserves complete chronology and refuses over-context input, but LM Studio admission conservatively bounds the whole UTF-8 wire by bytes, so revising these mature camera lives to v3 would fail immediately rather than silently omit history. A fresh camera life would dodge the telos. Next product work is an explicit, versioned, resident-legible context-limit transition that preserves full canonical Lync and creates no inaccessible middle or curator fiction; then resume the same lives and inspect the exact first and sustained requests.
+
+**2026-08-02T04:23:36Z**
+
+2026-08-02 correction to the 04:01 note: the canonical file byte sizes were not a valid estimate of the resident-visible Qwen prompt. The current tree now uses LM Studio's exact loaded prompt template and tokenizer. Direct measurement of the full stopped episode-000007 projections is 172,695 prompt tokens for Lark's 179 turns and 148,085 for Sedge's 163 before the small current contract/view increment, within 262,144. Same-life resident-v3 continuation is therefore the next acceptance; beh-3rm0 retains the explicit epoch and exact resident-controlled Lync recall work for the actual future boundary.

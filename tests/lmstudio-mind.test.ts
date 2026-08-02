@@ -8,6 +8,8 @@ import {
 import type { ResidentMindRequest } from '../src/mind/interface';
 import { lmStudioResidentInstanceId, type LmStudioLocalPolicy } from '../src/mind/lmstudio-local';
 import {
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+  OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_V2_SHA256,
 } from '../src/mind/ollama-json-action';
@@ -121,6 +123,59 @@ test('LM Studio mind sends one exact strict resident request and retains its ide
     total_tokens: 120,
     reasoning_tokens: 0,
   });
+});
+
+test('resident-v3 mind admits the final wire through the exact loaded tokenizer before broker use', async () => {
+  const base = policy();
+  const continuousPolicy: LmStudioLocalPolicy = {
+    ...base,
+    transport: {
+      ...base.transport,
+      protocol: 'behold.lmstudio-local-resident-session.v2',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+    },
+  };
+  const instance = lmStudioResidentInstanceId(continuousPolicy);
+  const observed: any = {};
+  const mind = createLmStudioLocalResidentMind({
+    bearer: BEARER,
+    endpoint: BROKER,
+    policy: continuousPolicy,
+    modelInstanceId: instance,
+    cognitionTransport: true,
+    createContextClient(baseUrl) {
+      observed.baseUrl = baseUrl;
+      return exactContextClient(observed, continuousPolicy.settings.contextTokens, 1_234);
+    },
+    fetch: async (_input, init) =>
+      isPrefixReadiness(init)
+        ? response(instance, { ready: true })
+        : response(instance, {
+            action: 'move_controls',
+            arguments: { direction: 'forward', durationMs: 500 },
+          }),
+  });
+  const continuousRequest: ResidentMindRequest = {
+    ...request(),
+    model: continuousPolicy.modelKey,
+    policyProfile: 'resident-v3',
+    conversation: [
+      request().conversation[0],
+      { role: 'user', content: 'What you experience:\n{"sequence":1}' },
+    ],
+  };
+
+  await mind.prepare!(continuousRequest, { signal: new AbortController().signal });
+  const decision = await mind.decide(continuousRequest, {
+    signal: new AbortController().signal,
+  });
+  const admission = (decision.call.request as any).lmStudioContextAdmission;
+  assert.equal(observed.baseUrl, 'ws://127.0.0.1:1234');
+  assert.equal(observed.query.identifier, instance);
+  assert.equal(admission.inputTokens, 1_234);
+  assert.equal(admission.loadedContextTokens, continuousPolicy.settings.contextTokens);
+  assert.equal(admission.totalReservedTokens, 1_234 + continuousPolicy.settings.maxOutputTokens);
 });
 
 test('LM Studio urgent contract drift uses the prepared runtime without an in-horizon rewarm', async () => {
@@ -542,6 +597,34 @@ function request(): ResidentMindRequest {
       },
     ],
     requiredAction: null,
+  };
+}
+
+function exactContextClient(observed: any, contextTokens: number, inputTokens: number) {
+  return {
+    files: {
+      async prepareImageBase64(name: string) {
+        return { image: name };
+      },
+    },
+    llm: {
+      createDynamicHandle(query: unknown) {
+        observed.query = query;
+        return {
+          async applyPromptTemplate(chat: unknown) {
+            observed.chat = chat;
+            return `formatted:${JSON.stringify(chat)}`;
+          },
+          async getContextLength() {
+            return contextTokens;
+          },
+          async countTokens() {
+            return inputTokens;
+          },
+        };
+      },
+    },
+    async [Symbol.asyncDispose]() {},
   };
 }
 

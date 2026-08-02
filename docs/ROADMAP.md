@@ -77,6 +77,17 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   controller-memory scale, a real context-limit transition, or the habitat
   telos.
 
+- LM Studio resident-v3 admission now uses the official loaded-model prompt
+  template and tokenizer against the final message body, verifies the loaded
+  context length, and reserves the configured output cap before broker use.
+  The previous whole-wire byte upper bound was safe but falsely classified the
+  mature Oxford camera lives as already over context. Their complete visible
+  transcripts through episode 000007 measure about 172,695 and 148,085 Qwen
+  tokens before the small current contract/view increment, inside the loaded
+  262,144-token window. The immediate acceptance is therefore a same-life
+  resident-v3 revision with complete chronology; explicit epoch-and-recall
+  treatment remains open for the actual future boundary.
+
 - Place's measured Oxford derivative now enters the ordinary living front door
   as habitat-qualified rather than through a provisional override. Qualified
   episodes 000001-000005 exposed three concrete interface defects under hostile

@@ -28,6 +28,10 @@ import {
   RESIDENT_CAMERA_MAX_AGE_MS,
   RESIDENT_CAMERA_MAX_CAPTURE_DURATION_MS,
 } from '../perception/resident-camera-frame';
+import {
+  admitExactLmStudioContext,
+  type LmStudioExactContextAdmission,
+} from './lmstudio-context-admission';
 
 export type LmStudioLocalResidentMindOptions = Readonly<{
   /** Runner-owned broker credential; never forwarded to LM Studio. */
@@ -42,6 +46,8 @@ export type LmStudioLocalResidentMindOptions = Readonly<{
   recordModelIO?: boolean;
   now?: () => number;
   fetch?: typeof fetch;
+  /** Test seam for the official SDK context counter; production leaves this unset. */
+  createContextClient?: (baseUrl: string) => any;
 }>;
 
 export type LmStudioLocalLoomSummarizerOptions = Readonly<{
@@ -74,6 +80,7 @@ type LmStudioCallRequestEvidence = ModelCallEvidence['request'] &
     lmStudioActionTransport: LmStudioLocalRequestIdentity;
     requestedModelInstance: string;
     lmStudioPrefixReadiness: LmStudioPrefixReadinessEvidence;
+    lmStudioContextAdmission?: LmStudioExactContextAdmission;
   }>;
 
 export type LmStudioPrefixReadinessEvidence = Readonly<{
@@ -127,6 +134,17 @@ export function createLmStudioLocalResidentMind(
       const startedAt = now();
       const requestId = `lmstudio-${randomUUID()}`;
       const serialized = createLmStudioLocalJsonActionRequest(request, policy, modelInstanceId);
+      const contextAdmission =
+        serialized.identity.workingContinuityProtocol === 'behold.resident-continuous-transcript.v1'
+          ? await admitExactLmStudioContext({
+              endpointOrigin: new URL(policy.endpoint).origin,
+              modelInstanceId,
+              messages: (serialized.body as any).messages,
+              maxOutputTokens: policy.settings.maxOutputTokens,
+              admittedContextTokens: policy.settings.contextTokens,
+              ...(options.createContextClient ? { createClient: options.createContextClient } : {}),
+            })
+          : undefined;
       const readinessKey = prefixReadinessKey(serialized.identity);
       const exactReadiness = prefixReadiness.get(readinessKey);
       const prepared =
@@ -167,6 +185,7 @@ export function createLmStudioLocalResidentMind(
         lmStudioActionTransport: serialized.identity,
         requestedModelInstance: modelInstanceId,
         lmStudioPrefixReadiness: readiness,
+        ...(contextAdmission ? { lmStudioContextAdmission: contextAdmission } : {}),
         ...(options.recordModelIO ? { body: cloneJson(body) } : {}),
       };
       const priority = request.attention?.mode === 'urgent' ? 'urgent' : 'deliberative';

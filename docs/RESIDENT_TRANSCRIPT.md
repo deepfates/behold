@@ -29,16 +29,25 @@ verified model context; it must fail visibly at a real context boundary rather
 than create an inaccessible middle.
 
 Context admission is part of the treatment, not an adapter afterthought.
-Resident-v3 OpenRouter sessions use route v5 to bind a declared provider/model context window and count
-the complete UTF-8 request conservatively before launch. LM Studio already
-binds the loaded instance's context length; its OpenAI-compatible v3 path uses
-the complete wire bytes plus a template margin as a conservative upper bound.
-It can fail earlier than necessary but cannot silently authorize a middle cut.
-LM Studio documents the exact higher-fidelity procedure as applying the model's
-prompt template, counting with that model's tokenizer, and comparing with the
-loaded context length:
-<https://lmstudio.ai/docs/typescript/tokenization>. Replacing the conservative
-bound with that exact preflight is an optimization, not permission to truncate.
+Resident-v3 OpenRouter sessions use route v5 to bind a declared provider/model
+context window and count the complete UTF-8 request conservatively before
+launch. LM Studio binds the exact loaded instance and now applies that model's
+prompt template to the final OpenAI-compatible message body, counts the result
+with the same loaded tokenizer, verifies the loaded context length, and reserves
+the configured maximum output before sending the broker request. Camera input
+is represented through LM Studio's own image-file placeholder in that template.
+The admission and formatted-prompt digest are retained with the model-call
+evidence. This follows LM Studio's documented procedure:
+<https://lmstudio.ai/docs/typescript/tokenization>. It authorizes the complete
+transcript or fails; it never grants permission to truncate.
+
+The earlier UTF-8-byte upper bound was safe but materially premature. Against
+the installed Qwen 3.6 35B-A3B 262,144-token instance, the complete stopped
+Oxford camera lives through episode 000007 measured about 172,695 and 148,085
+prompt tokens before the small current contract/view increment, despite their
+canonical Lync files being 10 and 8.5 MiB. Those same mature lives therefore
+still fit complete chronology; they should cross resident-v3 before an explicit
+finite-context epoch is introduced.
 
 ## Grounded failure specimen
 
