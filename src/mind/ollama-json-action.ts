@@ -1104,6 +1104,7 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
           ['action', 'arguments'],
           `Continuous resident assistant response ${index}`,
         );
+        const nextContent = next === current ? currentText : String(next?.content);
         if (
           !choice.arguments ||
           typeof choice.arguments !== 'object' ||
@@ -1115,7 +1116,7 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
           if (Object.keys(choice.arguments).length !== 0) {
             throw new Error('Continuous resident no-intention response arguments are not empty');
           }
-          if (next?.role !== 'user' || !String(next.content).startsWith('What you experience:')) {
+          if (next?.role !== 'user' || !nextContent.startsWith('What you experience:')) {
             throw new Error(
               'Continuous resident no-intention response must be followed by later lived experience',
             );
@@ -1124,8 +1125,8 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
           typeof choice.action !== 'string' ||
           !choice.action ||
           next?.role !== 'user' ||
-          (!String(next.content).startsWith('What Minecraft returned after your ') &&
-            !String(next.content).startsWith('What your private life returned:'))
+          (!nextContent.startsWith('What Minecraft returned after your ') &&
+            !nextContent.startsWith('What your private life returned:'))
         ) {
           throw new Error(
             'Continuous resident action response must be followed by its Minecraft or private-life outcome',

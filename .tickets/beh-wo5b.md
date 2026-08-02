@@ -53,3 +53,7 @@ soak.
 **2026-08-02T10:37:34Z**
 
 Ordinary qualified Oxford episode 000017 used the nullable resident-v4 schema, retained exact model bodies, and stopped cleanly, but neither resident chose null intention. Therefore no live cognition event or restart chronology was produced and this ticket remains open. The exercise found a more immediate false-affordance defect tracked by reopened beh-1h3a; repair that before another live attempt rather than trying to induce null conduct.
+
+**2026-08-02T11:00:44Z**
+
+2026-08-02 episode 000018 produced the first ordinary resident-v4 null cognition. Sedge’s exact {"action":null,"arguments":{}} committed as canonical cognition turn 400 with no action or consequence, and later Lark chat arrived. Every subsequent camera-bound wake then failed before provider admission with “Continuous resident no-intention response must be followed by later lived experience”; Sedge stalled while Lark continued. Root cause: the strict wire validator decoded the current multimodal text+image message for the top-level current-observation check but coerced the same message to [object Object],[object Object] when checking the preceding null. The current candidate uses the already-decoded text for that chronological edge. A camera-shaped live-policy regression reproduces the exact failure before the fix and passes after it; full npm run check passes. Still required: ordinary same-life resume from canonical turn 400, sustained later requests, clean stop, and visible Textile reading.

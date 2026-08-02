@@ -1,6 +1,6 @@
 ---
 id: beh-1h3a
-status: open
+status: closed
 deps: []
 links: [beh-uumj, beh-wssv, beh-kgyy]
 created: 2026-08-01T23:24:51Z
@@ -81,3 +81,7 @@ Episode 000017 retained exact provider bodies and exercised the repaired no-wait
 **2026-08-02T10:46:10Z**
 
 Owning repair implemented after exact episode-000017 audit. New human-semantic resident requests do not include stop; the interpreter and engine retain it for authenticated human/operator preemption, and historical stop turns remain replayable. The observation-bound compiler now omits focus actions without one exact reachable cursor block, requires the currently held item to have place use before offering place_held_against_focus, requires a recognized container or bed for their named controls, narrows deposits to owned inventory names, and while sleeping offers only chat/whisper/wake. Execution still revalidates every admitted target against world drift. Regression tests reproduce the empty/still/no-focus Lark frame and empty-handed Sedge placement cases, cover usable chest and sleeping states, and assert historical replay compatibility. npm run check passes. Keep open for one short ordinary same-life request audit and clean lifecycle; do not require any resident to choose a particular action.
+
+**2026-08-02T11:00:44Z**
+
+2026-08-02 episode 000018 exercised the current observation-bound offer compiler through the ordinary same-life qualified Oxford front door with exact provider bodies. Both residents’ first no-focus, held-null model requests offered exactly read_private_life, chat, whisper, look_direction, move_controls, and null—no stop, dig, placement, container, or bed fiction. The episode stopped cleanly with separate Lync lives and all provider admissions settled. This satisfies the deployment-shaped request/lifecycle boundary without requiring a resident to choose a prescribed action. A separate naturally occurring null-continuation failure belongs to beh-wo5b.

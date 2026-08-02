@@ -23,6 +23,7 @@ import { createEngine } from '../src/loop/engine';
 import { createOllamaLocalResidentMind } from '../src/mind/ollama';
 import { residentMindRequestSha256 } from '../src/mind/request-artifact';
 import {
+  createStrictLocalResidentSessionEnvelope,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
   OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
   OLLAMA_LOCAL_JSON_ACTION_TRANSPORT_PROTOCOL,
@@ -4838,6 +4839,138 @@ test('resident-v3 commits null cognition and carries it in exact private chronol
       true,
       'the resident must retain its own exact no-intention response in live continuity',
     );
+  } finally {
+    await policy.stop();
+  }
+});
+
+test('resident-v4 carries null cognition into a later camera-shaped lived request', async () => {
+  const prior = Array.from({ length: 5 }, (_, index) =>
+    failedTurn(index + 1, index % 2 === 0 ? 'move_controls' : 'look_direction'),
+  );
+  for (const turn of prior) {
+    turn.profiles = {
+      policy: 'resident-v4',
+      body: 'minecraft-human-semantic-v1',
+      actions: 'minecraft-human-semantic-v1',
+      safety: 'vanilla-player-v1',
+    };
+    turn.utterance.assistant.content = JSON.stringify({
+      action: turn.action.name,
+      arguments: turn.action.input,
+    });
+  }
+  const binding = (sequence: number): CanonicalTurnBinding => ({
+    protocol: 'lync.file-loom-chain.v1',
+    digest: sequence.toString(16).padStart(64, '0'),
+  });
+  let observationSequence = 60;
+  let latestObservation: any = null;
+  let wireFailure: unknown = null;
+  const requests: ResidentMindRequest[] = [];
+  const cognitions: EntityCognitionTurn[] = [];
+  const mind: ResidentMind = {
+    id: 'resident-v4-null-continuation-fixture',
+    decide: async (request) => {
+      requests.push(request);
+      try {
+        createStrictLocalResidentSessionEnvelope({
+          ...request,
+          perception: {
+            profile: 'semantic-plus-camera-v1',
+            camera: settlementCameraFrame(latestObservation),
+          },
+        });
+      } catch (error) {
+        wireFailure = error;
+        throw error;
+      }
+      return {
+        protocol: 'behold.mind-decision.v1',
+        disposition: 'no_action',
+        utterance: null,
+        action: null,
+        adapterRecord: { role: 'assistant', content: '{"action":null,"arguments":{}}' },
+        call: modelCallEvidence('resident-v4-null-continuation-fixture'),
+      };
+    },
+  };
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('look_direction')],
+      attempt: () => true,
+      observe: () => {
+        const base = settlementExperience(0, observationSequence);
+        latestObservation = {
+          ...base,
+          eventWindow: {
+            ...base.eventWindow,
+            requestedAfterSequence: observationSequence - 1,
+          },
+          events:
+            observationSequence === 60
+              ? []
+              : [
+                  {
+                    sequence: observationSequence,
+                    type: 'chat_received',
+                    salience: 'high',
+                    isNew: true,
+                    data: { from: 'Robin', text: 'Are you there?' },
+                  },
+                ],
+        };
+        return latestObservation;
+      },
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      mind,
+      policyProfile: 'resident-v4',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      contextEpochTurns: 8,
+      loomContext: {
+        protocol: 'behold.bounded-loom-context.v1',
+        entityId: 'Scout',
+        totalTurns: prior.length,
+        recentTurns: prior.slice(-1),
+        recentSources: [binding(prior.length)],
+        fold: null,
+        foldSource: null,
+        rebuild: async function* () {
+          for (const turn of prior) yield { turn, source: binding(turn.sequence) };
+        },
+      },
+      readPrivateLife: async () => assert.fail('private life was not requested'),
+      acceptEngineEvent: () => true,
+      onEntityTurn: (turn) => binding(turn.sequence),
+      onEntityCognitionTurn: (turn) => {
+        cognitions.push(turn);
+        return binding(turn.sequence);
+      },
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(cognitions.length, 1, String(wireFailure));
+    observationSequence = 61;
+    await policy.tick();
+    assert.equal(requests.length, 2);
+    assert.equal(cognitions.length, 2);
+    assert.equal(wireFailure, null);
+    const conversation = requests[1].conversation as any[];
+    const nullIndex = conversation.findIndex(
+      (message) =>
+        message.role === 'assistant' && message.content === '{"action":null,"arguments":{}}',
+    );
+    assert.ok(nullIndex >= 0);
+    assert.match(conversation[nullIndex + 1].content, /^What you experience:/);
+    assert.match(conversation[nullIndex + 1].content, /Are you there/);
   } finally {
     await policy.stop();
   }

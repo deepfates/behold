@@ -63,13 +63,19 @@ private Lync chain and reconstruct it without inventing a Minecraft result;
 Behold, Lync, and Textile checks pass. Qualified Oxford episode `000017`
 subsequently exercised the nullable no-wait schema for 58 completed resident
 turns and stopped cleanly with exact provider bodies retained, but neither
-resident selected null; `beh-wo5b` therefore remains open. The same exact
-requests exposed visibly unusable advertised actions (`stop` with no active
-control and held-block placement with no held item), so literal contract ticket
-`beh-1h3a` is reopened and another long epoch remains premature. The current
-candidate removes resident `stop`, gates focus/item/container/bed actions on
-their current public prerequisites, preserves operator stop and historical
-replay, and passes the full repository check; ordinary re-exercise remains.
+resident selected null. The same exact requests exposed visibly unusable
+advertised actions (`stop` with no active control and held-block placement with
+no held item). Episode `000018` exercised the repaired offer compiler through
+the ordinary same-life path and closed `beh-1h3a`: empty-hand/no-focus frames
+offered no such fiction, provider accounting settled, and the world stopped
+cleanly. The run also naturally produced Sedge's canonical null cognition turn
+400, followed by later peer chat, then exposed a distinct camera-wire defect:
+the validator stringified a multimodal current observation while checking the
+null-to-later-experience edge and rejected every later wake before provider
+admission. The current candidate validates the already-decoded text instead;
+its exact camera-shaped regression and full repository check pass. `beh-wo5b`
+remains open for ordinary resume from turn 400, sustained later requests, clean
+stop, and visible Textile reading. Another long epoch remains premature.
 Tickets state
 observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident

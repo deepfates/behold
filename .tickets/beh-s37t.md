@@ -40,3 +40,7 @@ Morning acceptance coordinate (do not run as a long epoch while beh-wo5b is open
 **2026-08-02T10:37:34Z**
 
 Ordinary qualified Oxford episode 000017 exercised the literal no-wait schema with 58 completed resident model turns across Lark and Sedge and no wait_for_event entry. It stopped cleanly with all 71 provider admissions settled and exact model bodies retained. Neither resident returned null, so no live null/wake/resume fact exists. The episode also exposed a separate reopened literal-action-catalog defect in beh-1h3a; do not treat its stop/place choices as clean conduct evidence until that offer boundary is repaired.
+
+**2026-08-02T11:00:44Z**
+
+Episode 000018 naturally exercised null intention through the ordinary camera resident path: Sedge formed no bodily intention and Behold created no Minecraft attempt or synthetic consequence. The canonical cognition commit succeeded. The later wake exposed the distinct multimodal chronology defect in beh-wo5b, now repaired in the current candidate with full checks passing. Keep this ticket open until the ordinary resumed life proves later cognition and clean lifecycle.

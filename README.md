@@ -94,6 +94,15 @@ now present this additive event honestly through their shared profile contract,
 with full repository checks passing. Ticket `beh-wo5b` remains open until an
 ordinary short live null/wake/stop/resume and visible reading of that real source
 exercise the composed boundary; another long epoch remains premature.
+Episode `000018` then produced the first ordinary null cognition: Sedge's exact
+null response became canonical cognition turn 400 with no action or consequence,
+and a later peer chat arrived. Its next camera-bound request nevertheless failed
+before provider admission. The strict wire validator decoded the multimodal
+text-plus-image current observation at the top level but mistakenly stringified
+that same value while checking that it followed the null response. The current
+candidate validates that edge against the already-decoded text; an exact
+camera-shaped regression and the full repository check pass. Ordinary resume
+from turn 400 remains the acceptance boundary.
 An opt-in private inspector can now materialize an exactly retained provider
 request, response, image, parsed decision, and matching canonical causal turn;
 ordinary episodes that did not retain model bodies remain explicitly
@@ -105,15 +114,17 @@ was still and owned no active action, and offered `place_held_against_focus`
 while the resident held nothing; one such placement view also reported the
 focus only as nearby. The residents selected those advertised controls and the
 runtime produced a no-op success or ordinary failure. This is an open harness
-defect, not clean evidence of resident conduct. Ticket `beh-1h3a` is reopened,
-and no long habitat epoch should begin until the observation-bound offer surface
-is exercised in ordinary use. The current implementation removes resident
+defect, not clean evidence of resident conduct. The current implementation removes resident
 `stop` while retaining it for operator preemption and historical replay, omits
 focus-bound controls when no reachable focus exists, requires a held placeable
 item for placement, requires the visible block kind for container and bed
 controls, and limits a sleeping body to communication and waking. Execution
-still revalidates against world drift. Exact counterexample coverage and the
-full repository check pass; deployment-shaped re-exercise remains open.
+still revalidates against world drift. Episode `000018` exercised the repaired
+compiler through the same-life ordinary front door: both initial no-focus,
+empty-hand requests offered only private-life recall, communication, looking,
+bounded movement, and null. It stopped cleanly with isolated Lync lives and
+settled provider accounting, so `beh-1h3a` is closed. The null-continuation
+failure it exposed is tracked separately in `beh-wo5b`.
 
 The complete mature transcript later proved operationally too slow despite
 fitting Qwen's physical context window. `resident-v4` therefore makes the
