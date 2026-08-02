@@ -38,6 +38,7 @@ import {
 import { stagePlaceHistorySeed } from '../runtime/place-history-seed';
 import {
   captureLiveLyncCheckpoint,
+  captureLiveSelectedLife,
   LIVE_EPISODE_RECORD_V2_PROTOCOL,
   publishLiveCheckpointJson,
 } from '../runtime/live-lync-checkpoint';
@@ -537,7 +538,7 @@ export async function runLiveCli(argv: string[]) {
       ecologyLogFile: ecologyLog.file,
       residents: run.residents,
     });
-    const episodeRecord = writeEpisodeRecord({
+    const episodeRecord = await writeEpisodeRecord({
       file: path.join(episodeRoot, 'episode-record.json'),
       sessionId,
       episodeId,
@@ -891,7 +892,7 @@ function readLivePlan(file: string) {
   }>;
 }
 
-function writeEpisodeRecord(input: {
+async function writeEpisodeRecord(input: {
   file: string;
   sessionId: string;
   episodeId: string;
@@ -909,11 +910,18 @@ function writeEpisodeRecord(input: {
   residentRevision: ReturnType<typeof readLiveResidentRevision> | null;
 }) {
   const episodeRoot = path.dirname(path.resolve(input.file));
+  const selectedLives = await Promise.all(
+    input.run.residents.map((resident) => {
+      const directory = path.join(input.entityRoot, sanitizeName(resident.entityId), 'lync');
+      return captureLiveSelectedLife({ entityId: resident.entityId, directory });
+    }),
+  );
   const checkpoint = captureLiveLyncCheckpoint({
     episodeRoot,
-    residents: input.run.residents.map((resident) => ({
+    residents: input.run.residents.map((resident, index) => ({
       entityId: resident.entityId,
       directory: path.join(input.entityRoot, sanitizeName(resident.entityId), 'lync'),
+      canonicalCheckpoint: selectedLives[index]?.checkpoint,
     })),
   });
   const lives = input.run.residents.map((resident, index) => {
@@ -929,6 +937,8 @@ function writeEpisodeRecord(input: {
       lyncDirectory: captured.lyncDirectory,
       manifestFile: path.join(directory, 'manifest.json'),
       sourceFiles: captured.sourceFiles,
+      canonicalSourceFiles: captured.canonicalSourceFiles,
+      selectedLife: selectedLives[index],
       runJournalDirectory: resident.journalDirectory,
       runJournalFiles: listFiles(resident.journalDirectory, '.jsonl'),
     };

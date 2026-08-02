@@ -1,6 +1,6 @@
 ---
 id: beh-61if
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-08-01T13:55:23Z
@@ -57,3 +57,7 @@ Ordinary episode 000004 exercised the repair on the same stopped world and exact
 **2026-08-02T02:02:47Z**
 
 Owner correction 2026-08-01: bounded controller storage is not authorization to curate the resident's subjective history. The retained V4 request explicitly omitted turns 39-41 while pointing at inaccessible canonical Lync. Ticket title/design/acceptance now separate streaming storage from the new full-transcript inference policy; prior implementation evidence remains valid only for storage and cursor mechanics.
+
+**2026-08-02T06:34:29Z**
+
+2026-08-02 large-life acceptance: current main 096881a reopened the exact retained Ash (148,587,175-byte canonical prefix; 2,910 turns) and Reed (55,527,965 bytes; 1,177 turns) lives without a world. Cursor-only open took 25-32 ms; with both open, forced-GC heap rose about 1.0 MiB before bounded reads rather than by 204 MiB. Exact turn 1 and newest suffix reads succeeded; close removed both leases; source hashes were unchanged. Deployment-shaped streaming hydration of project/place reducers took 7.62 s for Ash and 2.84 s for Reed; retained heap after GC was about 5.6 MiB in each process. Ordinary exploratory legacy-habitat episode 000005 then resumed the same stopped world and lives through the supported live front door. Despite the roughly 3x source-size difference, vmmap measured settled controller footprints of about 281/272 MiB and peaks of 524/593 MiB (the smaller Reed life peaked higher), contradicting a payload-sized retained copy. Each resident settled 9/9 model turns with zero model-call failures at 6.37-7.72 s, then world save, controller/viewer shutdown, leases, listeners, and the shared 19.03-GiB Qwen instance all closed cleanly. Current Textile main authenticated the exact 204,563,126-byte episode prefix as 4,105 readable turns plus 2 roots, zero unsupported/nonconforming/warnings, retaining no raw bytes or private payload objects. Episode 000005 remains explicitly exploratory because its Place entrance predates habitat qualification; that does not weaken this storage/controller acceptance. The separate parent still owns journal/checkpoint growth, qualified-context semantics, and multi-day pressure.

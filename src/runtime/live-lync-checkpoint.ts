@@ -1,10 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { FileLoomCheckpoint } from '@deepfates/lync/file-loom-checkpoint' with {
+  'resolution-mode': 'import',
+};
 
 export const LIVE_EPISODE_RECORD_V1_PROTOCOL = 'behold.live-episode-record.v1' as const;
 export const LIVE_EPISODE_RECORD_V2_PROTOCOL = 'behold.live-episode-record.v2' as const;
 export const LIVE_LYNC_PREFIX_PROTOCOL = 'behold.live-lync-prefix.v2' as const;
+export const LIVE_LYNC_CANONICAL_PREFIX_PROTOCOL = 'behold.live-lync-canonical-prefix.v1' as const;
+export const LIVE_SELECTED_LIFE_PROTOCOL = 'behold.live-selected-life.v1' as const;
 export const LIVE_TEXTILE_SOURCE_SET_PROTOCOL = 'behold.live-textile-source-set.v2' as const;
 
 const LIVE_LYNC_SNAPSHOT_V1_PROTOCOL = 'behold.live-lync-snapshot.v1' as const;
@@ -27,7 +32,44 @@ export type LiveLyncPrefix = Readonly<{
   preservation: 'immutable_prefix_of_canonical_append_only_source';
 }>;
 
-type ResidentSourceInput = Readonly<{ entityId: string; directory: string }>;
+export type LiveLyncCanonicalPrefix = Readonly<{
+  protocol: typeof LIVE_LYNC_CANONICAL_PREFIX_PROTOCOL;
+  entityId: string;
+  sourceFile: string;
+  sourceKind: 'loom' | 'conflicts' | 'pending';
+  presentationProfile: PresentationProfile | null;
+  startOffset: 0;
+  endOffset: number;
+  sizeBytes: number;
+  sha256: string;
+  preservation: 'immutable_prefix_of_canonical_append_only_source';
+}>;
+
+export type LiveSelectedLife = Readonly<{
+  protocol: typeof LIVE_SELECTED_LIFE_PROTOCOL;
+  entityId: string;
+  circleId: string | null;
+  loomId: string;
+  tipTurnId: string | null;
+  depth: number;
+  bodyDigest: string | null;
+  chainDigest: string | null;
+  canonical: Readonly<{
+    source: string;
+    line: number;
+    start: number;
+    end: number;
+    terminator: '' | '\n';
+    rawSha256: string;
+  }> | null;
+  checkpoint: FileLoomCheckpoint | null;
+}>;
+
+type ResidentSourceInput = Readonly<{
+  entityId: string;
+  directory: string;
+  canonicalCheckpoint?: FileLoomCheckpoint | null;
+}>;
 
 export function captureLiveLyncCheckpoint(input: {
   episodeRoot: string;
@@ -45,16 +87,30 @@ export function captureLiveLyncCheckpoint(input: {
     }
     seenEntities.add(resident.entityId);
     const directory = plainDirectory(resident.directory, `${resident.entityId} Lync directory`);
-    const names = fs
-      .readdirSync(directory, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.lync'))
-      .map((entry) => entry.name)
-      .sort((left, right) => left.localeCompare(right));
-    if (names.length === 0) {
+    const canonicalNames = resident.canonicalCheckpoint
+      ? resident.canonicalCheckpoint.sources.map((source) => source.file)
+      : fs
+          .readdirSync(directory, { withFileTypes: true })
+          .filter((entry) => entry.isFile() && isCanonicalLyncSourceName(entry.name))
+          .map((entry) => entry.name)
+          .sort(compareCanonicalLyncSourceNames);
+    const loomNames = canonicalNames.filter((name) => name.endsWith('.lync'));
+    if (loomNames.length === 0) {
       throw new Error(`live episode record requires a Lync source for ${resident.entityId}`);
     }
-    const sourceFiles = names.map((name) => {
-      const prefix = capturePrefix(path.join(directory, name), resident.entityId);
+    const canonicalSourceFiles = canonicalNames.map((name) => {
+      const prefix = captureCanonicalPrefix(path.join(directory, name), resident.entityId);
+      const checkpointSource = resident.canonicalCheckpoint?.sources.find(
+        (source) => source.file === name,
+      );
+      if (
+        checkpointSource &&
+        (checkpointSource.size !== prefix.sizeBytes || checkpointSource.sha256 !== prefix.sha256)
+      ) {
+        throw new Error(
+          `Lync checkpoint source changed before episode capture for ${resident.entityId}`,
+        );
+      }
       if (path.dirname(prefix.sourceFile) !== directory) {
         throw new Error(`resident Lync source escapes ${resident.entityId}'s canonical directory`);
       }
@@ -65,14 +121,19 @@ export function captureLiveLyncCheckpoint(input: {
         );
       }
       seenSources.set(prefix.sourceFile, resident.entityId);
-      const basename = path.basename(prefix.sourceFile);
-      const priorPath = seenBasenames.get(basename);
-      if (priorPath != null && priorPath !== prefix.sourceFile) {
-        throw new Error(`resident Lync source basename is ambiguous: ${basename}`);
-      }
-      seenBasenames.set(basename, prefix.sourceFile);
       return prefix;
     });
+    const sourceFiles = canonicalSourceFiles
+      .filter((source) => source.sourceKind === 'loom')
+      .map((source) => captureTextilePrefix(source));
+    for (const source of sourceFiles) {
+      const basename = path.basename(source.sourceFile);
+      const priorPath = seenBasenames.get(basename);
+      if (priorPath != null && priorPath !== source.sourceFile) {
+        throw new Error(`resident Lync source basename is ambiguous: ${basename}`);
+      }
+      seenBasenames.set(basename, source.sourceFile);
+    }
     const profiles = [...new Set(sourceFiles.map((source) => source.presentationProfile))];
     if (profiles.length !== 1) {
       throw new Error(`resident ${resident.entityId} has mixed Lync presentation profiles`);
@@ -82,6 +143,7 @@ export function captureLiveLyncCheckpoint(input: {
       profile: profiles[0]!,
       lyncDirectory: directory,
       sourceFiles,
+      canonicalSourceFiles,
     });
   });
 
@@ -130,24 +192,111 @@ export function captureLiveLyncCheckpoint(input: {
 }
 
 /**
+ * Bind Behold's selected private branch after the resident controller has
+ * drained and closed. Lync supplies the canonical locator and chain identity;
+ * the episode record supplies the immutable selection statement.
+ */
+export async function captureLiveSelectedLife(input: {
+  entityId: string;
+  directory: string;
+}): Promise<LiveSelectedLife> {
+  const directory = plainDirectory(input.directory, `${input.entityId} Lync directory`);
+  const manifestFile = plainFile(
+    path.join(directory, 'manifest.json'),
+    `${input.entityId} selected-life manifest`,
+  );
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  if (
+    manifest?.protocol !== 'behold.entity-loom-manifest.v1' ||
+    manifest.entityId !== input.entityId ||
+    typeof manifest.loomId !== 'string' ||
+    !manifest.loomId.startsWith('lync:') ||
+    (manifest.tipTurnId !== null && typeof manifest.tipTurnId !== 'string')
+  ) {
+    throw new Error(`invalid selected-life manifest for ${input.entityId}`);
+  }
+  const { openFileLoomCursor } = await import('@deepfates/lync/file-loom-cursor');
+  const cursor = await openFileLoomCursor({
+    dir: directory,
+    loomId: manifest.loomId,
+    author: { actor: 'behold-episode-checkpoint', via: 'behold@0.1.0-alpha.0' },
+  });
+  try {
+    const info = await cursor.info();
+    const meta = info.meta as Record<string, unknown> | undefined;
+    if (
+      meta?.protocol !== 'behold.entity-loom.v1' ||
+      meta.entityId !== input.entityId ||
+      !SUPPORTED_PROFILES.includes(meta.profile as PresentationProfile)
+    ) {
+      throw new Error(`selected Lync loom does not belong to ${input.entityId}`);
+    }
+    const circleId = typeof meta.circleId === 'string' && meta.circleId ? meta.circleId : null;
+    if (manifest.tipTurnId === null) {
+      return deepFreeze({
+        protocol: LIVE_SELECTED_LIFE_PROTOCOL,
+        entityId: input.entityId,
+        circleId,
+        loomId: manifest.loomId,
+        tipTurnId: null,
+        depth: 0,
+        bodyDigest: null,
+        chainDigest: null,
+        canonical: null,
+        checkpoint: null,
+      });
+    }
+
+    const { captureFileLoomCheckpoint } = await import('@deepfates/lync/file-loom-checkpoint');
+    const checkpoint = await captureFileLoomCheckpoint({
+      dir: directory,
+      loomId: manifest.loomId,
+      tip: manifest.tipTurnId,
+    });
+    const tip = checkpoint.tip;
+    return deepFreeze({
+      protocol: LIVE_SELECTED_LIFE_PROTOCOL,
+      entityId: input.entityId,
+      circleId,
+      loomId: manifest.loomId,
+      tipTurnId: checkpoint.tip.id,
+      depth: tip.depth,
+      bodyDigest: tip.bodyDigest,
+      chainDigest: tip.chainDigest,
+      canonical: {
+        source: checkpoint.tip.locator.file,
+        line: checkpoint.tip.locator.line,
+        start: checkpoint.tip.locator.start,
+        end: checkpoint.tip.locator.end,
+        terminator: checkpoint.tip.locator.terminator,
+        rawSha256: checkpoint.tip.locator.rawSha256,
+      },
+      checkpoint,
+    });
+  } finally {
+    cursor.close();
+  }
+}
+
+/**
  * Authenticate the Lync portion of either historical copied v1 episode records
  * or current canonical-prefix v2 records. This never writes or materializes a
  * union; callers may hand the returned ordered sources to a compatible reader.
  */
-export function verifyLiveEpisodeLyncCheckpoint(record: any) {
+export async function verifyLiveEpisodeLyncCheckpoint(record: any) {
   verifyEpisodeRecordDigest(record);
   if (record.protocol === LIVE_EPISODE_RECORD_V1_PROTOCOL) return verifyV1(record);
   if (record.protocol === LIVE_EPISODE_RECORD_V2_PROTOCOL) return verifyV2(record);
   throw new Error('unsupported live episode record protocol');
 }
 
-export function readAndVerifyLiveEpisodeLyncCheckpoint(fileValue: string) {
+export async function readAndVerifyLiveEpisodeLyncCheckpoint(fileValue: string) {
   const file = plainFile(fileValue, 'live episode record');
   return verifyLiveEpisodeLyncCheckpoint(JSON.parse(fs.readFileSync(file, 'utf8')));
 }
 
-export function materializeLiveEpisodeLyncCheckpoint(record: any, destinationValue: string) {
-  const verified = verifyLiveEpisodeLyncCheckpoint(record);
+export async function materializeLiveEpisodeLyncCheckpoint(record: any, destinationValue: string) {
+  const verified = await verifyLiveEpisodeLyncCheckpoint(record);
   const destination = path.resolve(destinationValue);
   fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
   const output = fs.openSync(
@@ -213,7 +362,7 @@ function appendVerifiedPrefix(source: any, output: number) {
   }
 }
 
-function capturePrefix(fileValue: string, entityId: string): LiveLyncPrefix {
+function captureCanonicalPrefix(fileValue: string, entityId: string): LiveLyncCanonicalPrefix {
   const resolved = path.resolve(fileValue);
   const descriptor = openReadOnlyNoFollow(resolved, `${entityId} Lync source`);
   try {
@@ -223,21 +372,24 @@ function capturePrefix(fileValue: string, entityId: string): LiveLyncPrefix {
       throw new Error(`${entityId} Lync source path is not canonical`);
     }
     const sizeBytes = exactFileSize(before.size, `${entityId} Lync source`);
-    const captured = hashDescriptorPrefix(descriptor, sizeBytes, true);
+    const sourceKind = canonicalLyncSourceKind(path.basename(sourceFile));
+    const captured = hashDescriptorPrefix(descriptor, sizeBytes, sourceKind === 'loom');
     const after = regularFileStats(descriptor, `${entityId} Lync source`);
     if (!sameSnapshot(before, after)) {
       throw new Error(`Lync source was not stable while capturing ${entityId}`);
     }
     assertPathStillNamesExactSnapshot(sourceFile, before, `${entityId} Lync source`);
     return deepFreeze({
-      protocol: LIVE_LYNC_PREFIX_PROTOCOL,
+      protocol: LIVE_LYNC_CANONICAL_PREFIX_PROTOCOL,
       entityId,
       sourceFile,
+      sourceKind,
+      presentationProfile:
+        sourceKind === 'loom' ? presentationProfile(captured.firstLine, entityId) : null,
       startOffset: 0,
       endOffset: sizeBytes,
       sizeBytes,
       sha256: captured.sha256,
-      presentationProfile: presentationProfile(captured.firstLine, entityId),
       preservation: 'immutable_prefix_of_canonical_append_only_source',
     });
   } finally {
@@ -245,14 +397,53 @@ function capturePrefix(fileValue: string, entityId: string): LiveLyncPrefix {
   }
 }
 
-function verifyV2(record: any) {
+function captureTextilePrefix(source: LiveLyncCanonicalPrefix): LiveLyncPrefix {
+  if (source.sourceKind !== 'loom' || source.presentationProfile == null) {
+    throw new Error('only canonical Lync loom files are Textile presentation sources');
+  }
+  return deepFreeze({
+    protocol: LIVE_LYNC_PREFIX_PROTOCOL,
+    entityId: source.entityId,
+    sourceFile: source.sourceFile,
+    startOffset: 0,
+    endOffset: source.endOffset,
+    sizeBytes: source.sizeBytes,
+    sha256: source.sha256,
+    presentationProfile: source.presentationProfile,
+    preservation: source.preservation,
+  });
+}
+
+function isCanonicalLyncSourceName(name: string) {
+  return name.endsWith('.lync') || name.endsWith('.conflicts') || name === 'pending.events';
+}
+
+function canonicalLyncSourceKind(name: string): LiveLyncCanonicalPrefix['sourceKind'] {
+  if (name.endsWith('.lync')) return 'loom';
+  if (name.endsWith('.conflicts')) return 'conflicts';
+  if (name === 'pending.events') return 'pending';
+  throw new Error(`unsupported canonical Lync source ${name}`);
+}
+
+function compareCanonicalLyncSourceNames(left: string, right: string) {
+  if (left === 'pending.events') return right === 'pending.events' ? 0 : 1;
+  if (right === 'pending.events') return -1;
+  return left.localeCompare(right);
+}
+
+async function verifyV2(record: any) {
   const lives = episodeLives(record);
-  const flattened = lives.flatMap((life: any) => {
+  const selectedLives: LiveSelectedLife[] = [];
+  const selectionCoverage: Array<
+    Readonly<{ entityId: string; status: 'bound' | 'canonical-prefixes-only' | 'textile-only' }>
+  > = [];
+  const flattened: any[] = [];
+  for (const life of lives) {
     if (!Array.isArray(life.sourceFiles) || life.sourceFiles.length === 0) {
       throw new Error(`live v2 episode has no Lync sources for ${life.entityId}`);
     }
     const directory = plainDirectory(life.lyncDirectory, `${life.entityId} Lync directory`);
-    return life.sourceFiles.map((source: any) => {
+    const textileSources = life.sourceFiles.map((source: any) => {
       if (
         source?.protocol !== LIVE_LYNC_PREFIX_PROTOCOL ||
         source.entityId !== life.entityId ||
@@ -279,7 +470,30 @@ function verifyV2(record: any) {
       }
       return source;
     });
-  });
+    const hasCanonicalSources = life.canonicalSourceFiles !== undefined;
+    const hasSelectedLife = life.selectedLife !== undefined;
+    if (hasSelectedLife && !hasCanonicalSources) {
+      throw new Error(`live v2 checkpoint selection fields are incomplete for ${life.entityId}`);
+    }
+    if (hasCanonicalSources && hasSelectedLife) {
+      const canonicalSources = verifyCanonicalLifeCheckpoint(life, directory, textileSources);
+      selectedLives.push(
+        await verifySelectedLifeCheckpoint(
+          life.selectedLife,
+          life.entityId,
+          directory,
+          canonicalSources,
+        ),
+      );
+      selectionCoverage.push({ entityId: life.entityId, status: 'bound' });
+    } else if (hasCanonicalSources) {
+      verifyCanonicalLifeCheckpoint(life, directory, textileSources);
+      selectionCoverage.push({ entityId: life.entityId, status: 'canonical-prefixes-only' });
+    } else {
+      selectionCoverage.push({ entityId: life.entityId, status: 'textile-only' });
+    }
+    flattened.push(...textileSources);
+  }
   assertResidentIsolation(flattened);
   assertUniqueSourceBasenames(flattened);
 
@@ -329,7 +543,13 @@ function verifyV2(record: any) {
   if (stableJson(manifest.sources) !== stableJson(expectedSources)) {
     throw new Error('live v2 Textile source-set order differs from resident sources');
   }
-  return deepFreeze({ version: 2 as const, orderedSources: expectedSources, artifact });
+  return deepFreeze({
+    version: 2 as const,
+    orderedSources: expectedSources,
+    selectedLives,
+    selectionCoverage,
+    artifact,
+  });
 }
 
 function verifyV1(record: any) {
@@ -410,6 +630,200 @@ function verifyPrefix(file: string, sizeBytes: number, expectedSha256: string, e
   } finally {
     fs.closeSync(descriptor);
   }
+}
+
+function verifyCanonicalLifeCheckpoint(
+  life: any,
+  directory: string,
+  textileSources: ReadonlyArray<any>,
+): LiveLyncCanonicalPrefix[] {
+  if (!Array.isArray(life.canonicalSourceFiles) || life.canonicalSourceFiles.length === 0) {
+    throw new Error(`live v2 episode has no canonical Lync sources for ${life.entityId}`);
+  }
+  const sources = life.canonicalSourceFiles.map((source: any) => {
+    const sourceKind = canonicalLyncSourceKind(path.basename(String(source?.sourceFile || '')));
+    if (
+      source?.protocol !== LIVE_LYNC_CANONICAL_PREFIX_PROTOCOL ||
+      source.entityId !== life.entityId ||
+      source.sourceKind !== sourceKind ||
+      source.startOffset !== 0 ||
+      source.endOffset !== source.sizeBytes ||
+      !Number.isSafeInteger(source.sizeBytes) ||
+      source.sizeBytes < 0 ||
+      !exactSha256(source.sha256) ||
+      source.preservation !== 'immutable_prefix_of_canonical_append_only_source' ||
+      (sourceKind === 'loom'
+        ? !SUPPORTED_PROFILES.includes(source.presentationProfile)
+        : source.presentationProfile !== null)
+    ) {
+      throw new Error(`malformed canonical Lync prefix for ${life.entityId}`);
+    }
+    const sourceFile = plainFile(source.sourceFile, `${life.entityId} canonical Lync source`);
+    if (source.sourceFile !== sourceFile || path.dirname(sourceFile) !== directory) {
+      throw new Error(`canonical Lync prefix escapes ${life.entityId}'s directory`);
+    }
+    const verified = verifyCanonicalPrefix(sourceFile, source);
+    if (sourceKind === 'loom' && verified.profile !== source.presentationProfile) {
+      throw new Error(`canonical Lync profile changed for ${life.entityId}`);
+    }
+    return source as LiveLyncCanonicalPrefix;
+  });
+  assertCanonicalSourceSet(life.entityId, directory, sources);
+  const expectedTextile = sources
+    .filter((source) => source.sourceKind === 'loom')
+    .map((source) => ({
+      sourceFile: source.sourceFile,
+      sizeBytes: source.sizeBytes,
+      sha256: source.sha256,
+      presentationProfile: source.presentationProfile,
+    }));
+  const actualTextile = textileSources.map((source) => ({
+    sourceFile: source.sourceFile,
+    sizeBytes: source.sizeBytes,
+    sha256: source.sha256,
+    presentationProfile: source.presentationProfile,
+  }));
+  if (stableJson(expectedTextile) !== stableJson(actualTextile)) {
+    throw new Error(`Textile sources differ from canonical loom sources for ${life.entityId}`);
+  }
+  return sources;
+}
+
+function verifyCanonicalPrefix(file: string, source: LiveLyncCanonicalPrefix) {
+  const descriptor = openReadOnlyNoFollow(file, `${source.entityId} canonical Lync source`);
+  try {
+    const before = regularFileStats(descriptor, `${source.entityId} canonical Lync source`);
+    if (before.size < source.sizeBytes) {
+      throw new Error(`canonical Lync prefix was truncated for ${source.entityId}`);
+    }
+    const actual = hashDescriptorPrefix(descriptor, source.sizeBytes, source.sourceKind === 'loom');
+    const after = regularFileStats(descriptor, `${source.entityId} canonical Lync source`);
+    if (!sameFile(before, after) || after.size < source.sizeBytes) {
+      throw new Error(`canonical Lync prefix changed while verifying ${source.entityId}`);
+    }
+    assertPathStillNamesDescriptor(
+      file,
+      before,
+      source.sizeBytes,
+      `${source.entityId} canonical Lync source`,
+    );
+    if (actual.sha256 !== source.sha256) {
+      throw new Error(`canonical Lync prefix digest mismatch for ${source.entityId}`);
+    }
+    return {
+      profile:
+        source.sourceKind === 'loom'
+          ? presentationProfile(actual.firstLine, source.entityId)
+          : null,
+    };
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function assertCanonicalSourceSet(
+  entityId: string,
+  directory: string,
+  sources: ReadonlyArray<LiveLyncCanonicalPrefix>,
+) {
+  const names = sources.map((source) => {
+    if (source.entityId !== entityId || path.dirname(source.sourceFile) !== directory) {
+      throw new Error(`canonical Lync source ownership differs for ${entityId}`);
+    }
+    return path.basename(source.sourceFile);
+  });
+  if (new Set(names).size !== names.length) {
+    throw new Error(`canonical Lync source is duplicated for ${entityId}`);
+  }
+  const ordered = [...names].sort(compareCanonicalLyncSourceNames);
+  if (stableJson(names) !== stableJson(ordered)) {
+    throw new Error(`canonical Lync source order changed for ${entityId}`);
+  }
+  if (!sources.some((source) => source.sourceKind === 'loom')) {
+    throw new Error(`canonical Lync source set has no loom for ${entityId}`);
+  }
+}
+
+async function verifySelectedLifeCheckpoint(
+  selected: any,
+  entityId: string,
+  directory: string,
+  sources: ReadonlyArray<LiveLyncCanonicalPrefix>,
+): Promise<LiveSelectedLife> {
+  if (
+    selected?.protocol !== LIVE_SELECTED_LIFE_PROTOCOL ||
+    selected.entityId !== entityId ||
+    (selected.circleId !== null && typeof selected.circleId !== 'string') ||
+    typeof selected.loomId !== 'string' ||
+    !selected.loomId.startsWith('lync:') ||
+    !Number.isSafeInteger(selected.depth) ||
+    selected.depth < 0
+  ) {
+    throw new Error(`malformed selected Lync life for ${entityId}`);
+  }
+  if (selected.depth === 0) {
+    if (
+      selected.tipTurnId !== null ||
+      selected.bodyDigest !== null ||
+      selected.chainDigest !== null ||
+      selected.canonical !== null ||
+      selected.checkpoint !== null
+    ) {
+      throw new Error(`empty selected Lync life has a tip for ${entityId}`);
+    }
+    return selected as LiveSelectedLife;
+  }
+  const canonical = selected.canonical;
+  if (
+    typeof selected.tipTurnId !== 'string' ||
+    !exactSha256(selected.bodyDigest) ||
+    !exactSha256(selected.chainDigest) ||
+    !canonical ||
+    typeof canonical.source !== 'string' ||
+    !Number.isSafeInteger(canonical.line) ||
+    canonical.line < 2 ||
+    !Number.isSafeInteger(canonical.start) ||
+    !Number.isSafeInteger(canonical.end) ||
+    canonical.start < 0 ||
+    canonical.end <= canonical.start ||
+    !['', '\n'].includes(canonical.terminator) ||
+    !exactSha256(canonical.rawSha256)
+  ) {
+    throw new Error(`malformed selected Lync tip for ${entityId}`);
+  }
+  const checkpoint = selected.checkpoint as FileLoomCheckpoint | undefined;
+  if (
+    !checkpoint ||
+    checkpoint.loomId !== selected.loomId ||
+    checkpoint.tip.id !== selected.tipTurnId
+  ) {
+    throw new Error(`selected Lync checkpoint identity differs for ${entityId}`);
+  }
+  const expectedSources = sources.map((source) => ({
+    file: path.basename(source.sourceFile),
+    size: source.sizeBytes,
+    sha256: source.sha256,
+  }));
+  if (stableJson(checkpoint.sources) !== stableJson(expectedSources)) {
+    throw new Error(`selected Lync checkpoint source set differs for ${entityId}`);
+  }
+  const { verifyFileLoomCheckpoint } = await import('@deepfates/lync/file-loom-checkpoint');
+  const actual = await verifyFileLoomCheckpoint(directory, checkpoint);
+  if (
+    actual.id !== selected.tipTurnId ||
+    actual.depth !== selected.depth ||
+    actual.bodyDigest !== selected.bodyDigest ||
+    actual.chainDigest !== selected.chainDigest ||
+    actual.locator.file !== canonical.source ||
+    actual.locator.line !== canonical.line ||
+    actual.locator.start !== canonical.start ||
+    actual.locator.end !== canonical.end ||
+    actual.locator.terminator !== canonical.terminator ||
+    actual.locator.rawSha256 !== canonical.rawSha256
+  ) {
+    throw new Error(`selected Lync tip identity differs for ${entityId}`);
+  }
+  return selected as LiveSelectedLife;
 }
 
 function hashDescriptorPrefix(descriptor: number, sizeBytes: number, retainFirstLine: boolean) {
