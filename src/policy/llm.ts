@@ -702,6 +702,8 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
   let turnSteps = 0;
   let pending: PendingAction | null = null;
   let currentExperience: CurrentExperienceFrame | null = null;
+  let currentExperienceMessageIndex: number | null = null;
+  let currentExperiencePreviousSequence = 0;
   let entitySequence = history.at(-1)?.sequence ?? 0;
   let parentTurnId = history.at(-1)?.id ?? null;
   let lastEntityTurn: EntityTurn | null = history.at(-1) ?? null;
@@ -1170,7 +1172,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       if (opts.experimentRelease && !experimentRelease) {
         throw new Error('resident cognition cannot begin before experiment release');
       }
-      const decision = await withModelRequest(async (signal) => {
+      const decideForCurrentExperience = async (signal: AbortSignal) => {
         let deadline = armUrgentDecisionDeadline(frame, startedAt);
         try {
           const perception = await captureSettledDecisionPerception(frame, signal);
@@ -1265,7 +1267,27 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
         } finally {
           if (deadline) clearTimeout(deadline);
         }
-      });
+      };
+      let decision: Awaited<ReturnType<typeof decideForCurrentExperience>>;
+      try {
+        decision = await withModelRequest(decideForCurrentExperience);
+      } catch (error: any) {
+        if (!usesResidentCamera(perceptionProfile) || error?.code !== 'resident_camera_stale') {
+          throw error;
+        }
+        refreshUnadmittedCurrentExperience();
+        if (!currentExperience) throw new Error('resident camera refresh lost current experience');
+        frame = createResidentDecisionFrame(currentExperience, true);
+        activeDecision = {
+          model: frame.model,
+          attention: frame.attention,
+          startedAt,
+          observationSequence: Number(frame.experience.raw?.sequence) || lastSequence,
+          interruption: activeDecision?.interruption ?? null,
+        };
+        log('[policy] refreshed current experience after camera expired during mind preflight');
+        decision = await withModelRequest(decideForCurrentExperience);
+      }
       if (stopped || suspended) {
         turnActive = false;
         turnSteps = 0;
@@ -2037,6 +2059,7 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
   function appendWorldUpdate(frame: any, label: string) {
     if (hasNewProjectProgressEvidence(frame, lastSequence)) consecutiveProjectActions = 0;
+    currentExperiencePreviousSequence = lastSequence;
     currentExperience = createCurrentExperience(frame);
     const projected = currentExperience.model;
     if (chronologicalTranscript) assertContinuousCurrentExperience(projected);
@@ -2046,11 +2069,40 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
     } else if (!Array.isArray(frame?.events) && Number.isFinite(Number(frame?.sequence))) {
       lastSequence = Math.max(lastSequence, Number(frame.sequence));
     }
+    currentExperienceMessageIndex = messages.length;
     messages.push(
       chronologicalTranscript
         ? residentCurrentExperienceMessage(projected)
         : worldUpdateMessage(projected, label, lastTool, opts.workingContinuity),
     );
+  }
+
+  function refreshUnadmittedCurrentExperience() {
+    if (
+      currentExperienceMessageIndex == null ||
+      currentExperienceMessageIndex !== messages.length - 1
+    ) {
+      throw new Error('resident camera refresh cannot replace a non-current experience');
+    }
+    lastSequence = currentExperiencePreviousSequence;
+    const frame = observe();
+    currentExperience = createCurrentExperience(frame);
+    const projected = currentExperience.model;
+    if (chronologicalTranscript) assertContinuousCurrentExperience(projected);
+    const deliveredSequence = projected?.eventWindow?.deliveredNewestSequence;
+    if (Number.isFinite(Number(deliveredSequence))) {
+      lastSequence = Math.max(lastSequence, Number(deliveredSequence));
+    } else if (!Array.isArray(frame?.events) && Number.isFinite(Number(frame?.sequence))) {
+      lastSequence = Math.max(lastSequence, Number(frame.sequence));
+    }
+    messages[currentExperienceMessageIndex] = chronologicalTranscript
+      ? residentCurrentExperienceMessage(projected)
+      : worldUpdateMessage(
+          projected,
+          'Refreshed world experience',
+          lastTool,
+          opts.workingContinuity,
+        );
   }
 
   async function closeTurn(

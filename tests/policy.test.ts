@@ -2108,6 +2108,79 @@ test('camera perception fails before mind admission and never downgrades to sema
   }
 });
 
+test('camera expiry during mind preflight replaces the unadmitted experience and retries once', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const captures: any[] = [];
+  const opportunities: any[] = [];
+  const errors: any[] = [];
+  const modelTurns: any[] = [];
+  let sequence = 0;
+  const observe = () => settlementExperience(0, ++sequence);
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [],
+      attempt: () => assert.fail('the recovered decision yields; no action should be attempted'),
+      observe,
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      perceptionProfile: 'semantic-plus-camera-v1',
+      capturePerception: async (observation: any) => {
+        captures.push(observation);
+        return settlementCameraFrame(observation);
+      },
+      mind: {
+        id: 'camera-preflight-retry',
+        decide: async (request) => {
+          requests.push(request);
+          if (requests.length === 1) {
+            const error: Error & { code?: string } = new Error(
+              'resident camera frame is outside its admitted time horizon',
+            );
+            error.code = 'resident_camera_stale';
+            throw error;
+          }
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'wait',
+            utterance: null,
+            action: null,
+            call: modelCallEvidence('camera-preflight-retry'),
+          };
+        },
+      },
+      acceptEngineEvent: () => true,
+      onDecisionOpportunity: (event) => opportunities.push(event),
+      onModelError: (error) => errors.push(error),
+      onModelTurn: (turn) => modelTurns.push(turn),
+    },
+  );
+
+  try {
+    await policy.tick();
+    assert.equal(requests.length, 2);
+    assert.equal(captures.length, 2);
+    assert.equal(requests[0].conversation.length, requests[1].conversation.length);
+    assert.notEqual(
+      (requests[0].observation as any).sequence,
+      (requests[1].observation as any).sequence,
+    );
+    assert.equal(
+      requests[1].perception?.camera.binding.observationSequence,
+      (requests[1].observation as any).sequence,
+    );
+    assert.equal((requests[1].conversation as any[]).at(-1)?.role, 'user');
+    assert.equal(opportunities.filter((event) => event.phase === 'scheduled').length, 2);
+    assert.equal(opportunities.filter((event) => event.phase === 'terminal').length, 2);
+    assert.deepEqual(errors, []);
+    assert.equal(modelTurns.length, 1);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('camera pose drift settles once and admits one coherent rebuilt decision frame', async () => {
   const requests: ResidentMindRequest[] = [];
   const captureInputs: any[] = [];
