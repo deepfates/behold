@@ -56,7 +56,10 @@ export function directOpenRouterRequestBody(
           schema: envelope.responseSchema,
         },
       },
-      reasoning: { effort: 'minimal' as const, exclude: true as const },
+      reasoning:
+        routePolicy?.protocol === 'behold.openrouter-route-policy.v4'
+          ? { enabled: false as const, exclude: true as const }
+          : { effort: 'minimal' as const, exclude: true as const },
       ...(request.model.includes('gpt-5') ? {} : { temperature: 0.2 }),
       stream: false as const,
       ...(routePolicy ? openRouterWirePolicy(routePolicy) : {}),

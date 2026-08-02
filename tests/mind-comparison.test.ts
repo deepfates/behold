@@ -265,6 +265,78 @@ test('a legible provider resident uses the strict session schema and distinct ro
   );
 });
 
+test('a v4 factual resident disables reasoning and binds private exact routing', async () => {
+  const bodies: any[] = [];
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v4',
+    routes: [{ requestTag: 'deepinfra/fp4', responseProvider: 'DeepInfra' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+    residentDecisionFormat: 'strict_json',
+    reasoningEnabled: false,
+    zdr: true,
+    dataCollection: 'deny',
+  } as const;
+  const mind = createDirectResidentMind({
+    apiKey: 'test-key',
+    model: 'test/model',
+    routePolicy,
+    recordModelIO: true,
+    endpoint: 'https://models.example.test/v1/chat/completions',
+    fetch: async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        JSON.stringify({
+          id: 'reasoning-disabled-generation',
+          model: 'test/model',
+          provider: 'DeepInfra',
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  action: 'move_direction',
+                  arguments: { direction: 'forward', distance: 2 },
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+  });
+  const factual = {
+    ...request(),
+    policyProfile: 'resident-v2',
+    bodyProfile: 'minecraft-human-semantic-v1',
+    actionProfile: 'minecraft-human-semantic-v1',
+    observation: {
+      ...request().observation,
+      protocol: 'behold.minecraft-human-semantic-observation.v1',
+      self: { ...request().observation.self, identity: 'Scout' },
+    },
+  } as any;
+
+  const decision = await mind.decide(factual, { signal: new AbortController().signal });
+
+  assert.deepEqual(bodies[0].reasoning, { enabled: false, exclude: true });
+  assert.deepEqual(bodies[0].provider, {
+    order: ['deepinfra/fp4'],
+    allow_fallbacks: false,
+    require_parameters: true,
+    zdr: true,
+    data_collection: 'deny',
+  });
+  assert.doesNotThrow(() =>
+    assertOpenRouterRouteRequest(bodies[0], 'test/model', routePolicy, null, 'resident-v2'),
+  );
+  assert.equal(decision.action?.name, 'move_direction');
+  assert.equal((decision.call.request as any).providerResidentSession.reasoningEnabled, false);
+});
+
 test('the provider resident-session transport refuses another resident identity', () => {
   const routePolicy = {
     protocol: 'behold.openrouter-route-policy.v2',

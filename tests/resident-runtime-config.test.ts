@@ -162,4 +162,21 @@ test('ordinary resident-v2 refuses a controller task and requires an explicit pr
     ).profiles.policy,
     'resident-v2',
   );
+  const routeV4 = JSON.stringify({
+    protocol: 'behold.openrouter-route-policy.v4',
+    routes: [{ requestTag: 'deepinfra/fp4', responseProvider: 'DeepInfra' }],
+    allowFallbacks: false,
+    maxOutputTokens: 256,
+    residentDecisionFormat: 'strict_json',
+    reasoningEnabled: false,
+    zdr: true,
+    dataCollection: 'deny',
+  });
+  assert.equal(
+    resolveResidentRuntimeConfig(
+      {},
+      { ...base, LLM_MODEL: 'test/model', BEHOLD_OPENROUTER_ROUTE_POLICY: routeV4 },
+    ).profiles.policy,
+    'resident-v2',
+  );
 });

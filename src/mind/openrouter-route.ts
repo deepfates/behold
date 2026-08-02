@@ -5,6 +5,7 @@ import type { ResidentPolicyProfile } from '../policy/profile';
 export const OPENROUTER_ROUTE_POLICY_PROTOCOL = 'behold.openrouter-route-policy.v1' as const;
 export const OPENROUTER_ROUTE_POLICY_V2_PROTOCOL = 'behold.openrouter-route-policy.v2' as const;
 export const OPENROUTER_ROUTE_POLICY_V3_PROTOCOL = 'behold.openrouter-route-policy.v3' as const;
+export const OPENROUTER_ROUTE_POLICY_V4_PROTOCOL = 'behold.openrouter-route-policy.v4' as const;
 
 export type OpenRouterRoutePolicyV1 = Readonly<{
   protocol: typeof OPENROUTER_ROUTE_POLICY_PROTOCOL;
@@ -35,8 +36,22 @@ export type OpenRouterRoutePolicyV3 = Readonly<{
   reasoningEffort: 'none';
 }>;
 
+export type OpenRouterRoutePolicyV4 = Readonly<{
+  protocol: typeof OPENROUTER_ROUTE_POLICY_V4_PROTOCOL;
+  routes: readonly Readonly<{ requestTag: string; responseProvider: string }>[];
+  allowFallbacks: false;
+  maxOutputTokens: number;
+  residentDecisionFormat: 'strict_json';
+  reasoningEnabled: false;
+  zdr: true;
+  dataCollection: 'deny';
+}>;
+
 export type OpenRouterRoutePolicy =
-  OpenRouterRoutePolicyV1 | OpenRouterRoutePolicyV2 | OpenRouterRoutePolicyV3;
+  | OpenRouterRoutePolicyV1
+  | OpenRouterRoutePolicyV2
+  | OpenRouterRoutePolicyV3
+  | OpenRouterRoutePolicyV4;
 
 export type OpenRouterResponseIdentity = Readonly<{
   ok: boolean;
@@ -52,7 +67,11 @@ export function assertOpenRouterResidentTreatment(
   policyValue: OpenRouterRoutePolicy,
 ) {
   const policy = openRouterRoutePolicy(policyValue);
-  if (policyProfile === 'resident-v2' && policy.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL) {
+  if (
+    policyProfile === 'resident-v2' &&
+    policy.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL &&
+    policy.protocol !== OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+  ) {
     throw new Error('resident-v2 requires OpenRouter resident-session route v2');
   }
   if (
@@ -73,27 +92,35 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
   const keys = Object.keys(value).sort();
   const routed =
     value.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL ||
-    value.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL;
+    value.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL ||
+    value.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL;
   const nativeTools = value.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL;
-  const expected = routed
-    ? [
-        'allowFallbacks',
-        'maxOutputTokens',
-        'protocol',
-        ...(nativeTools ? ['reasoningEffort', 'residentDecisionFormat'] : []),
-        'routes',
-      ]
-    : ['allowFallbacks', 'maxOutputTokens', 'order', 'protocol'];
+  const disabledStrictJson = value.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL;
+  const expected = (
+    routed
+      ? [
+          'allowFallbacks',
+          'maxOutputTokens',
+          'protocol',
+          ...(nativeTools ? ['reasoningEffort', 'residentDecisionFormat'] : []),
+          ...(disabledStrictJson
+            ? ['dataCollection', 'reasoningEnabled', 'residentDecisionFormat', 'zdr']
+            : []),
+          'routes',
+        ]
+      : ['allowFallbacks', 'maxOutputTokens', 'order', 'protocol']
+  ).sort();
   if (JSON.stringify(keys) !== JSON.stringify(expected)) {
     throw new Error('OpenRouter route policy fields do not match the versioned contract');
   }
   if (
     value.protocol !== OPENROUTER_ROUTE_POLICY_PROTOCOL &&
     value.protocol !== OPENROUTER_ROUTE_POLICY_V2_PROTOCOL &&
-    value.protocol !== OPENROUTER_ROUTE_POLICY_V3_PROTOCOL
+    value.protocol !== OPENROUTER_ROUTE_POLICY_V3_PROTOCOL &&
+    value.protocol !== OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
   ) {
     throw new Error(
-      `OpenRouter route policy protocol must be ${OPENROUTER_ROUTE_POLICY_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V2_PROTOCOL}, or ${OPENROUTER_ROUTE_POLICY_V3_PROTOCOL}`,
+      `OpenRouter route policy protocol must be ${OPENROUTER_ROUTE_POLICY_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V2_PROTOCOL}, ${OPENROUTER_ROUTE_POLICY_V3_PROTOCOL}, or ${OPENROUTER_ROUTE_POLICY_V4_PROTOCOL}`,
     );
   }
   if (nativeTools && value.residentDecisionFormat !== 'native_tools') {
@@ -101,6 +128,17 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
   }
   if (nativeTools && value.reasoningEffort !== 'none') {
     throw new Error('OpenRouter v3 reasoningEffort must be none');
+  }
+  if (
+    disabledStrictJson &&
+    (value.residentDecisionFormat !== 'strict_json' ||
+      value.reasoningEnabled !== false ||
+      value.zdr !== true ||
+      value.dataCollection !== 'deny')
+  ) {
+    throw new Error(
+      'OpenRouter v4 must bind strict JSON, disabled reasoning, ZDR, and denied data collection',
+    );
   }
   if (value.allowFallbacks !== false) {
     throw new Error('OpenRouter route policy allowFallbacks must be exactly false');
@@ -124,6 +162,18 @@ export function openRouterRoutePolicy(value: unknown): OpenRouterRoutePolicy {
       maxOutputTokens: Number(value.maxOutputTokens),
       residentDecisionFormat: 'native_tools' as const,
       reasoningEffort: 'none' as const,
+    });
+  }
+  if (disabledStrictJson) {
+    return deepFreeze({
+      protocol: OPENROUTER_ROUTE_POLICY_V4_PROTOCOL,
+      routes: routes!,
+      allowFallbacks: false as const,
+      maxOutputTokens: Number(value.maxOutputTokens),
+      residentDecisionFormat: 'strict_json' as const,
+      reasoningEnabled: false as const,
+      zdr: true as const,
+      dataCollection: 'deny' as const,
     });
   }
   if (routed) {
@@ -175,6 +225,9 @@ export function openRouterWirePolicy(value: OpenRouterRoutePolicy) {
       // validates its returned identity/output instead of trusting that
       // incomplete metadata filter.
       require_parameters: policy.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL ? false : true,
+      ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+        ? { zdr: true as const, data_collection: 'deny' as const }
+        : {}),
     }),
   });
 }
@@ -188,7 +241,10 @@ export function assertOpenRouterRouteRequest(
 ) {
   const policy = openRouterRoutePolicy(expectedPolicy);
   if (!plainRecord(value)) throw new Error('request body must be an object');
-  if (policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL) {
+  if (
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V2_PROTOCOL ||
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+  ) {
     const generationFields = expectedModel.includes('gpt-5') ? [] : ['temperature'];
     const record = exactRecord(
       value,
@@ -212,12 +268,24 @@ export function assertOpenRouterRouteRequest(
     ) {
       throw new Error('OpenRouter resident-session generation settings differ');
     }
-    const reasoning = exactRecord(
-      record.reasoning,
-      ['effort', 'exclude'],
-      'OpenRouter resident-session reasoning',
-    );
-    if (reasoning.effort !== 'minimal' || reasoning.exclude !== true) {
+    const reasoning =
+      policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+        ? exactRecord(
+            record.reasoning,
+            ['enabled', 'exclude'],
+            'OpenRouter resident-session reasoning',
+          )
+        : exactRecord(
+            record.reasoning,
+            ['effort', 'exclude'],
+            'OpenRouter resident-session reasoning',
+          );
+    if (
+      reasoning.exclude !== true ||
+      (policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL
+        ? reasoning.enabled !== false
+        : reasoning.effort !== 'minimal')
+    ) {
       throw new Error('OpenRouter resident-session reasoning differs');
     }
     const responseFormat = exactRecord(
@@ -306,14 +374,24 @@ export function assertOpenRouterRouteRequest(
     throw new Error('request provider policy is missing');
   }
   const providerKeys = Object.keys(value.provider).sort();
-  if (
-    JSON.stringify(providerKeys) !==
-    JSON.stringify(['allow_fallbacks', 'order', 'require_parameters'])
-  ) {
+  const expectedProviderKeys = [
+    'allow_fallbacks',
+    ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ? ['data_collection'] : []),
+    'order',
+    'require_parameters',
+    ...(policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL ? ['zdr'] : []),
+  ].sort();
+  if (JSON.stringify(providerKeys) !== JSON.stringify(expectedProviderKeys)) {
     throw new Error('request provider fields differ from admitted route contract');
   }
   if (value.provider.allow_fallbacks !== false) {
     throw new Error('request provider fallbacks are not disabled');
+  }
+  if (
+    policy.protocol === OPENROUTER_ROUTE_POLICY_V4_PROTOCOL &&
+    (value.provider.zdr !== true || value.provider.data_collection !== 'deny')
+  ) {
+    throw new Error('request provider privacy policy differs from the admitted route contract');
   }
   const expectedRequireParameters =
     policy.protocol === OPENROUTER_ROUTE_POLICY_V3_PROTOCOL ? false : true;

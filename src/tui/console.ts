@@ -775,7 +775,8 @@ export async function runConsole(
           lmStudioLocal ||
           (usesResidentSessionPolicy(policyProfile) &&
             (providerRoute?.protocol === 'behold.openrouter-route-policy.v2' ||
-              providerRoute?.protocol === 'behold.openrouter-route-policy.v3'))
+              providerRoute?.protocol === 'behold.openrouter-route-policy.v3' ||
+              providerRoute?.protocol === 'behold.openrouter-route-policy.v4'))
             ? 'resident-session-v1'
             : 'recent-action-v1',
         ...(releaseGate ? { experimentRelease: () => experimentRelease } : {}),

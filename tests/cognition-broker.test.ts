@@ -861,6 +861,83 @@ test('an authenticated resident-v2 client rejects the narrated treatment before 
   );
 });
 
+test('the transport gate binds reasoning-disabled private resident routing', async () => {
+  let upstreamCalls = 0;
+  const routePolicy = {
+    protocol: 'behold.openrouter-route-policy.v4',
+    routes: [{ requestTag: 'deepinfra/fp4', responseProvider: 'DeepInfra' }],
+    allowFallbacks: false,
+    maxOutputTokens: 512,
+    residentDecisionFormat: 'strict_json',
+    reasoningEnabled: false,
+    zdr: true,
+    dataCollection: 'deny',
+  } as const;
+  const factualRequest = {
+    ...nativeResidentRequest(),
+    policyProfile: 'resident-v2' as const,
+  };
+  const exact = directOpenRouterRequestBody(factualRequest as any, routePolicy) as any;
+  const broker = await startCognitionBroker({
+    upstreamEndpoint: 'https://upstream.invalid/v1/chat/completions',
+    allowedUpstreamOrigins: ['https://upstream.invalid'],
+    upstreamApiKey: UPSTREAM_KEY,
+    clients: [
+      {
+        ...client('a'),
+        routePolicy,
+        residentIdentity: 'Scout',
+        policyProfile: 'resident-v2',
+      },
+    ],
+    maxConcurrent: 1,
+    fetch: async (_input, init) => {
+      upstreamCalls += 1;
+      const body = JSON.parse(String(init?.body));
+      assert.deepEqual(body.reasoning, { enabled: false, exclude: true });
+      assert.deepEqual(body.provider, {
+        order: ['deepinfra/fp4'],
+        allow_fallbacks: false,
+        require_parameters: true,
+        zdr: true,
+        data_collection: 'deny',
+      });
+      return jsonResponse({
+        id: 'private-disabled-route',
+        model: 'fixture/model',
+        provider: 'DeepInfra',
+        choices: [{ message: { role: 'assistant', content: '{}' } }],
+      });
+    },
+  });
+
+  try {
+    const drift = structuredClone(exact);
+    drift.reasoning = { effort: 'minimal', exclude: true };
+    const rejected = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify(drift),
+      'deliberative',
+      'reasoning-drift',
+    );
+    assert.equal(rejected.status, 400);
+    assert.equal(upstreamCalls, 0);
+
+    const admitted = await brokerRequest(
+      broker,
+      'a',
+      JSON.stringify(exact),
+      'deliberative',
+      'private-disabled-route',
+    );
+    assert.equal(admitted.status, 200);
+    assert.equal(upstreamCalls, 1);
+  } finally {
+    await broker.close();
+  }
+});
+
 test('the transport gate rejects native resident envelope drift before upstream', async () => {
   let upstreamCalls = 0;
   const routePolicy = {

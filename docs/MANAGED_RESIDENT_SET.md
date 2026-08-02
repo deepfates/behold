@@ -59,6 +59,28 @@ same endpoint, transport/schema, and settings; per-model tag, content digest,
 and template digest remain exact resident identities. Its configured `model`
 must equal the exact Ollama tag.
 
+For a text-only `resident-v2` model that should not spend the bodily horizon on
+hidden reasoning, the v4 OpenRouter route additionally binds reasoning disabled
+and the request-level privacy filters. Endpoint tags and returned provider names
+are distinct OpenRouter identities and both must be declared exactly:
+
+```json
+{
+  "protocol": "behold.openrouter-route-policy.v4",
+  "routes": [{ "requestTag": "deepinfra/fp4", "responseProvider": "DeepInfra" }],
+  "allowFallbacks": false,
+  "maxOutputTokens": 512,
+  "residentDecisionFormat": "strict_json",
+  "reasoningEnabled": false,
+  "zdr": true,
+  "dataCollection": "deny"
+}
+```
+
+This is a versioned inference contract, not a claim that every model becomes
+fast when reasoning is disabled. It remains subject to the normal model,
+provider-response, resident-identity, schema, quota, and cognition-broker gates.
+
 For sustained `legible-resident-v1` life, use the separately versioned
 `behold.ollama-local-resident-session.v1` transport. It keeps a nonzero
 `keepAlive`, places the charter and exact admitted action contract ahead of

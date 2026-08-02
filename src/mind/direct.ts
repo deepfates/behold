@@ -89,7 +89,9 @@ export function createDirectResidentMind(options: DirectResidentMindOptions): Re
                 actionContractSha256: residentSession.actionContractSha256,
                 responseSchemaSha256: residentSession.responseSchemaSha256,
                 stablePrefixSha256: residentSession.stablePrefixSha256,
-                reasoningEffort: 'minimal',
+                ...(routePolicy?.protocol === 'behold.openrouter-route-policy.v4'
+                  ? { reasoningEnabled: false }
+                  : { reasoningEffort: 'minimal' }),
                 reasoningExcluded: true,
               },
             }

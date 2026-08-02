@@ -169,6 +169,7 @@ export function resolveResidentRuntimeConfig(
     policy === 'resident-v2' &&
     Boolean(environment.OPENROUTER_API_KEY) &&
     providerRoute?.protocol !== 'behold.openrouter-route-policy.v2' &&
+    providerRoute?.protocol !== 'behold.openrouter-route-policy.v4' &&
     !ollamaLocal &&
     !lmStudioLocal
   ) {
