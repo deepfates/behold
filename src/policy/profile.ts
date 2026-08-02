@@ -18,7 +18,7 @@ export function residentPolicyProfile(value: unknown): ResidentPolicyProfile {
   );
 }
 
-/** The ordinary uncoached action-or-yield treatment. */
+/** The ordinary uncoached treatment permitting zero or one bodily intention. */
 export function usesMinimalResidentChoice(profile: ResidentPolicyProfile) {
   return profile === 'resident-v4' || profile === 'resident-v3' || profile === 'resident-v2';
 }

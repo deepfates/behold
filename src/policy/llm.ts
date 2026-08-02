@@ -481,9 +481,10 @@ const DELIBERATIVE_CONTINUITY_BYTES = 16_000;
 /**
  * A persistent controller coroutine over the shared action stream.
  *
- * A wake event begins a controller turn. The model may yield an action, receive
- * its real result, and yield another action. The turn ends only when it calls
- * wait_for_event, produces no action, or exhausts its bounded step budget.
+ * A wake event begins a controller turn. The model may form a bodily intention,
+ * receive its real result, and form another. The turn ends when a minimal
+ * resident forms no bodily intention, a legacy treatment yields, or the bounded
+ * step budget is exhausted.
  */
 export function startLLMPolicy(environment: InhabitantInterface, opts: Options) {
   const log = (s: string) => (opts.log ? opts.log(s) : void 0);
@@ -1420,6 +1421,10 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
       if (!decision.intent) {
         noIntentionAt = now();
+        // resident-v2 deliberately owns factual Lync continuity rather than a
+        // chronological provider transcript. Do not leak its uncommitted
+        // current-experience/assistant pair into that distinct wire layout.
+        if (!chronologicalTranscript) rebuildMessagesFromLoom();
         log('[policy] resident formed no bodily intention');
         turnActive = false;
         turnSteps = 0;

@@ -271,6 +271,14 @@ test('resident no-intention is not an action and generic time does not create a 
     policy.wake({ kind: 'timer' });
     await until(() => requests.length === 2);
     assert.equal(turns.length, 0);
+    assert.equal(
+      (requests[1].conversation as any[]).some(
+        (message) =>
+          message.role === 'assistant' && message.content === '{"action":null,"arguments":{}}',
+      ),
+      false,
+      'resident-v2 must not leak an uncommitted chronological response into its factual-continuity wire',
+    );
 
     events.push({
       sequence: 4,

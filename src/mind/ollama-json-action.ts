@@ -1084,16 +1084,13 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
       }
       if (message.role === 'assistant') {
         const previous = dynamicMessages[index - 1];
-        const next = dynamicMessages[index + 1];
+        const next = dynamicMessages[index + 1] ?? current;
         if (
           previous?.role !== 'user' ||
-          !String(previous.content).startsWith('What you experience:') ||
-          next?.role !== 'user' ||
-          (!String(next.content).startsWith('What Minecraft returned after your ') &&
-            !String(next.content).startsWith('What your private life returned:'))
+          !String(previous.content).startsWith('What you experience:')
         ) {
           throw new Error(
-            'Continuous resident assistant response must remain between experience and Minecraft outcome',
+            'Continuous resident assistant response must follow one exact lived experience',
           );
         }
         let parsed: unknown;
@@ -1108,13 +1105,31 @@ function assertResidentSessionMessageLayout(value: unknown[], version: 1 | 2 | 3
           `Continuous resident assistant response ${index}`,
         );
         if (
-          typeof choice.action !== 'string' ||
-          !choice.action ||
           !choice.arguments ||
           typeof choice.arguments !== 'object' ||
           Array.isArray(choice.arguments)
         ) {
-          throw new Error('Continuous resident assistant response is not an action choice');
+          throw new Error('Continuous resident assistant response arguments are not an object');
+        }
+        if (choice.action === null) {
+          if (Object.keys(choice.arguments).length !== 0) {
+            throw new Error('Continuous resident no-intention response arguments are not empty');
+          }
+          if (next?.role !== 'user' || !String(next.content).startsWith('What you experience:')) {
+            throw new Error(
+              'Continuous resident no-intention response must be followed by later lived experience',
+            );
+          }
+        } else if (
+          typeof choice.action !== 'string' ||
+          !choice.action ||
+          next?.role !== 'user' ||
+          (!String(next.content).startsWith('What Minecraft returned after your ') &&
+            !String(next.content).startsWith('What your private life returned:'))
+        ) {
+          throw new Error(
+            'Continuous resident action response must be followed by its Minecraft or private-life outcome',
+          );
         }
       } else if (
         !message.content.startsWith('What you experience:') &&

@@ -75,6 +75,15 @@ model again. Meaningful lived change or a bounded one-minute reconsideration
 may create the next opportunity. Focused and full repository checks pass, but
 this repaired contract has not yet been exercised through an ordinary live
 episode, so episode `000015` remains the latest live evidence for this defect.
+The first no-world follow-up also found that all three minimal session layouts
+still rejected the next request after null intention. The current wire now
+admits later lived experience directly after one or more exact null responses;
+resident-v2 deliberately rebuilds its factual-continuity view instead of
+leaking chronological messages into that different contract. One continuity
+defect remains open: resident-v3/v4 keep null cognition in the live provider
+conversation, but cannot yet reconstruct it from canonical Lync after process
+restart without falsely encoding it as an action. Ticket `beh-wo5b` owns that
+first-class private-life event boundary and blocks another long epoch.
 An opt-in private inspector can now materialize an exactly retained provider
 request, response, image, parsed decision, and matching canonical causal turn;
 ordinary episodes that did not retain model bodies remain explicitly

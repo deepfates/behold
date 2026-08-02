@@ -460,6 +460,69 @@ test('LM Studio resident-v3 wire carries continuous chronology for exact runtime
   assert.match((large.body.messages as any[]).at(-1).content, /x{20000}/);
 });
 
+test('LM Studio resident-v3 wire carries null intention directly into later lived experience', async (t) => {
+  const fixture = await artifactFixture(t);
+  const legacyPolicy = policy(fixture);
+  const residentPolicy: LmStudioLocalPolicy = {
+    ...legacyPolicy,
+    transport: {
+      ...legacyPolicy.transport,
+      protocol: 'behold.lmstudio-local-resident-session.v2',
+      schemaProtocol: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_PROTOCOL,
+      schemaSha256: OLLAMA_LOCAL_JSON_ACTION_SCHEMA_SHA256,
+    },
+  };
+  const residentRequest = {
+    ...request(residentPolicy.modelKey),
+    policyProfile: 'resident-v3',
+    conversation: [
+      { role: 'system', content: 'You are OxfordAster.' },
+      { role: 'user', content: 'What you experience:\n{"sequence":1}' },
+      { role: 'assistant', content: '{"action":null,"arguments":{}}' },
+      { role: 'user', content: 'What you experience:\n{"sequence":2}' },
+      { role: 'assistant', content: '{"action":null,"arguments":{}}' },
+      { role: 'user', content: 'What you experience:\n{"sequence":3}' },
+    ],
+  } as any;
+  const instanceId = lmStudioResidentInstanceId(residentPolicy);
+  const serialized = createLmStudioLocalJsonActionRequest(
+    residentRequest,
+    residentPolicy,
+    instanceId,
+  );
+
+  assert.deepEqual(
+    (serialized.body.messages as any[]).slice(2).map((message) => message.role),
+    ['user', 'assistant', 'user', 'assistant', 'user'],
+  );
+  assert.deepEqual(
+    assertLmStudioLocalJsonActionRequest(
+      serialized.body,
+      residentRequest,
+      residentPolicy,
+      instanceId,
+    ),
+    serialized.identity,
+  );
+  assert.throws(
+    () =>
+      createLmStudioLocalJsonActionRequest(
+        {
+          ...residentRequest,
+          conversation: [
+            { role: 'system', content: 'You are OxfordAster.' },
+            { role: 'user', content: 'What you experience:\n{"sequence":1}' },
+            { role: 'assistant', content: '{"action":null,"arguments":{"reason":"wait"}}' },
+            { role: 'user', content: 'What you experience:\n{"sequence":2}' },
+          ],
+        },
+        residentPolicy,
+        instanceId,
+      ),
+    /no-intention response arguments are not empty/,
+  );
+});
+
 test('LM Studio resident-v4 wire authenticates the explicit private-life epoch owner', async (t) => {
   const fixture = await artifactFixture(t);
   const legacyPolicy = policy(fixture);

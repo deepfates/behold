@@ -55,7 +55,11 @@ exact-turn inspector has also been exercised against a retained body-capture
 episode; it correctly refuses episode `000015`, whose ordinary no-body retention
 cannot reproduce literal provider bytes. Full repository checks pass. Neither
 repair has yet been exercised together in a fresh ordinary live episode, so
-another long epoch remains premature. Tickets state observable product behavior; evidence and negative
+another long epoch remains premature. A later no-world audit found and repaired
+the immediate next-request wire failure after null intention, but also proved
+that resident-v3/v4 cannot yet reconstruct that cognition from canonical Lync
+after process restart. `beh-wo5b` owns the first-class non-action private-life
+event and blocks the multi-day acceptance. Tickets state observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves
@@ -434,9 +438,9 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
 ### Supported foundations and retained history
 
 - `resident-v2` is now the ordinary policy default at the runtime front door.
-  It combines the human-semantic body and vanilla risk with one action-or-yield
-  decision, stable own-life continuity, and no controller task, project,
-  progress guard, recovery choice, required action, intention, expected
+  It combines the human-semantic body and vanilla risk with a zero-or-one
+  bodily-intention decision, stable own-life continuity, and no controller
+  task, project, progress guard, recovery choice, required action, public intention, expected
   consequence, or private reasoning field. Its separately versioned LM Studio
   and OpenRouter v2 strict-session wires preserve the same action-only meaning and
   reject profile/schema drift before action admission. Focused no-world tests

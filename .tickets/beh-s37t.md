@@ -26,3 +26,9 @@ In an ordinary no-task resident session, the exact model request offers only rea
 ## Progress
 
 Implemented locally on 2026-08-02 for the minimal resident-v2/v3/v4 treatments. Their strict schema now admits `{"action":null,"arguments":{}}`, omits `wait_for_event`, performs no Minecraft attempt or synthetic Lync action turn for null intention, ignores generic `time_passed` as a wakeup after null intention, and admits meaningful experience or a 60-second reconsideration. The focused policy test and full repository check pass. This is implemented and mechanically exercised, not yet exercised through ordinary `behold live`; keep the ticket open until a captured short live episode proves the literal request and clean lifecycle.
+
+## Notes
+
+**2026-08-02T09:47:50Z**
+
+2026-08-02 no-world audit found and repaired the immediate continuous-wire consequence of null intention: resident-v3/v4 layout validation had still required every assistant response to be followed by a Minecraft/private-life outcome, so the second cognition after null intention would have failed before provider admission. The layout now admits an exact null response directly between two lived-experience messages and rejects nonempty null arguments; focused LM Studio wire tests pass. Durable stop/resume retention of the null cognition is a distinct canonical-life defect tracked in beh-wo5b, which now blocks beh-xzc6.
