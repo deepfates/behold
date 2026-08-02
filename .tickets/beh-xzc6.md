@@ -48,3 +48,14 @@ Current-build episode 000004 resumed the same world and lives through the ordina
 **2026-08-02T06:17:02Z**
 
 2026-08-02 resident-v4 episodes 000010-000012 crossed the explicit context-boundary prerequisite on the same mature Oxford lives, including exact resident-chosen Lync recall, isolated shared-weight sessions, clean stop/resume, current human-player coexistence in episode 000012, and a real read-only Textile import of 445 readable turns. This removes the finite-context treatment as a blocker but does not count as a long trial. Growing controller/journal/checkpoint ownership, lifecycle pressure, literal cursor action evidence, external-motion perception, and the repeated multi-day boundary remain open.
+
+**2026-08-02T08:18:52Z**
+
+Episode 000014 closes the external-motion and transactional unread-experience
+prerequisites on the current build: two natural injury/pose-drift replacements
+retained exact complete ranges, native human coexistence was real, body-motion
+receipts were readable, and the completed world/lives stopped cleanly. It was a
+five-minute discriminating exercise and does not count toward either required
+multi-day trial. Remaining prerequisites still include the independently
+chosen cursor-block orientation edge plus sustained controller/journal/
+checkpoint and lifecycle pressure before beginning final-duration acceptance.

@@ -39,3 +39,17 @@ Nearest qualified-habitat interface checkpoint completed through ordinary same-l
 **2026-08-02T07:24:28Z**
 
 2026-08-02 correction to the prior episode-000006 checkpoint: emitted windows self-reported complete, but exact request audit found one silent model-facing gap during camera pose-drift recovery (Lark events 133-170). Reopened beh-kgyy and made it a beh-xzc6 prerequisite. Current code makes experience consumption transactional until a valid choice returns, including camera settlement, stale preflight, provider failure, urgent interruption, and resident-v4 epoch rollover. Focused/full tests pass; ordinary qualified re-exercise remains before closure.
+
+**2026-08-02T08:18:52Z**
+
+Qualified same-life episode 000014 exercised the repaired experience/body seam
+in actual co-presence rather than a scripted probe. Authenticated native player
+`importdf` joined and conversed with both residents; Lark independently moved
+about 25 blocks to reunite with Sedge and the human, while Sedge's repeated
+zero-motion attempts at a visible wall remain conduct. Natural injury triggered
+both external-pose replacement paths with complete unread ranges. All 63 model
+turns had zero missing/omitted events, all attempts settled, and clean stop
+saved the world and isolated lives. Canonical Lync now presents the exact 56.6
+MB episode prefix as 692/692 readable events, including 13 truthful motion
+receipts. This closes two truthful-interface children, not the cursor-action,
+scale/lifecycle, or repeated multi-day telos boundary.

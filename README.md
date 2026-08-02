@@ -179,8 +179,18 @@ experience as unconsumed until a valid resident choice returns. Camera
 settlement, stale preflight, provider failure, and urgent interruption rebuild
 from the last consumed boundary, including across resident-v4 epoch rollover.
 Focused tests retain exact unread canaries through both ordinary and
-epoch-boundary replacement. A current-build ordinary exercise remains required
-before closing the deployment-shaped perception defect.
+epoch-boundary replacement. Current-build ordinary episode 000014 then
+naturally moved both residents during Minecraft injury. Their replacement
+requests retained exact complete unread ranges 71-86 and 159-184 with zero
+missing or omitted events, and both continued deciding normally. The same
+episode carried authenticated native-player conversation and 13 independently
+chosen movement intervals; Lark traversed about 25 blocks to reunite with the
+group, while Sedge repeatedly received truthful zero-motion consequences at a
+visible wall. Those different choices are conduct. Clean stop saved the world
+and lives. The vendored canonical Lync presenter reads all 692 events in the
+exact 56.6 MB episode source set, including the coordinate-free motion receipts,
+with zero unsupported or unclaimed events. This closes the repaired perception
+edge, not the remaining cursor-action or multi-day habitat boundary.
 
 A heterogeneous OpenRouter comparison then exercised the same continuing lives
 with GPT-5.6 Luna and Gemini 3.6 Flash. In episode 000042 Luna drove Iris from

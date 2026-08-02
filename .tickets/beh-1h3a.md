@@ -56,3 +56,16 @@ Qualified episode 000006 exercised legal cursor-entity attack admission/revalida
 **2026-08-02T08:01:48Z**
 
 Exact episode-000006 and current-code audit found a distinct literal bodily-feedback defect. `move_controls` reduced the whole bounded interval to endpoint distance >=0.1, so clean requested-axis progress, lateral displacement/knockback, sub-threshold motion, and moved-then-returned all collapsed into one `bodyMoved` bit. The current candidate records a coordinate-free `behold.body-transition.v1` from Mineflayer move samples: requested-axis/lateral/vertical displacement in the control-start egocentric frame, net/path/maximum-excursion distance, orientation deltas, and sample count, with cause explicitly unknown. The compatibility bit remains derived from net distance; factual continuity, facts-only folds, and post-motion settlement preserve the richer receipt without coordinates, collision inference, route help, or behavior policy. Focused tests include a 0.8-block traveled out-and-back interval whose endpoint remains unchanged; the full check passes. Keep open for an ordinary same-life exercise and the pre-existing independently chosen cursor-orientation edge.
+
+**2026-08-02T08:18:52Z**
+
+Same-life ordinary episode 000014 exercised all 13 independently selected
+`move_controls` intervals with the coordinate-free body-transition receipt.
+Lark's nine attempts reported eight moving intervals and one exact zero-motion
+interval (29.525 blocks total sampled path); Sedge's four attempts all reported
+zero motion while facing an interaction-distance wall. Every receipt satisfied
+`bodyMoved === (netDistance >= 0.1)`, and the newly vendored canonical Lync
+presenter rendered all 13 without inferring collision or route success. This
+accepts the bodily-feedback sub-edge. The ticket stays open only for the
+pre-existing independently chosen cursor-block orientation exercise; do not
+manufacture that resident choice.

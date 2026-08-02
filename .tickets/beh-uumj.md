@@ -1,6 +1,6 @@
 ---
 id: beh-uumj
-status: in_progress
+status: closed
 deps: []
 links: [beh-5vwp, beh-wssv, beh-kgyy, beh-1h3a]
 created: 2026-08-01T08:44:12Z
@@ -76,3 +76,16 @@ Qualified resume episode 000003 added deployment evidence without expanding the 
 **2026-08-02T07:24:28Z**
 
 2026-08-02 exact episode-000006 audit found a separate camera-settlement information defect owned by reopened beh-kgyy: a pre-decision pose-drift replacement consumed events 133-170 before model admission. The current repair makes the experience cursor transactional and composes it with resident-v4 epoch rollover. This ticket continues to own exact pose/frame settlement and the unexercised external-drift deployment edge; do not wait for a random cursor action or treat resident conduct as its gate.
+
+**2026-08-02T08:18:52Z**
+
+Ordinary current-build episode 000014 naturally exercised the external-motion
+branch for both Qwen camera residents after Minecraft injury. Sedge settled the
+changed exact pose in 14 samples/752 ms and Lark in 16 samples/821 ms before
+camera admission. Their following requests were bound to the reacquired poses,
+completed normally, and contained the complete unread experience ranges; no
+camera/body mismatch or unbounded retry occurred. Eight resident-owned Lark
+movements separately crossed the shared post-motion gate in 52-416 ms. Clean
+duration stop saved the world and removed viewers, controllers, listeners, and
+the shared LM Studio instance. The truthful shared pose/frame boundary is now
+mechanically and deployment exercised.

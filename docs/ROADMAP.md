@@ -42,8 +42,9 @@ The final exercise depends on all six capabilities. Authority and current-profil
 human/multi-resident coexistence are crossed. The continuous private transcript
 and explicit finite-context transition are exercised, while long-history
 controller, journal, and checkpoint growth remain open. The compact operator
-view is crossed. Literal cursor/external-motion truth and lifecycle pressure
-remain active before multi-day acceptance. Tickets state observable product behavior; evidence and negative
+view is crossed. The independently chosen cursor-action edge and lifecycle
+pressure remain active before multi-day acceptance. Tickets state observable
+product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether
 Behold gives each resident truthful opportunities and consequences, preserves
@@ -130,8 +131,15 @@ scoreboard; they do not define whether the portable inhabitant loop is complete.
   silently advanced Lark past events 133–170 before model admission. The
   current tree makes experience consumption transactional across camera
   settlement, stale preflight, provider failure, urgent interruption, and
-  resident-v4 epoch rollover. Focused regressions pass; a current-build
-  ordinary exercise remains before closing that repaired deployment edge.
+  resident-v4 epoch rollover. Current-build ordinary episode 000014 naturally
+  exercised external pose drift for both residents after Minecraft injury. The
+  exact replacement requests preserved complete unread ranges 71-86 and
+  159-184 with zero missing or omitted events, then continued normally. The
+  same episode exercised native-human conversation and 13 truthful movement
+  receipts before a clean saved stop. Canonical Lync presented all 692 events
+  in its authenticated 56.6 MB source set. This closes the repaired external
+  motion/experience edge, not the remaining cursor-block or multi-day habitat
+  boundary.
 - The ordinary `behold live` foreground now prints a compact habitat lens over
   its existing lifecycle and resident journals. It exposes body and population
   state, decision timing, causal action progress and terminals, Lync tips,

@@ -1,6 +1,6 @@
 ---
 id: beh-kgyy
-status: open
+status: closed
 deps: []
 links: [beh-uumj, beh-wssv, beh-1h3a]
 created: 2026-08-01T02:02:25Z
@@ -78,3 +78,16 @@ Qualified same-life ordinary episode 000006 exercised commit 3342033 under susta
 **2026-08-02T08:01:48Z**
 
 Current-build ordinary episode 000013 ran the same qualified Oxford world and mature Lark/Sedge resident-v4 lives for 15 minutes. All ordinary model-facing event windows declared complete with zero missing and omitted events; Sedge's model-turn windows advanced contiguously. Lark's apparent 499→505 cursor jump occurred exactly at an explicit epoch rollover: the canonical prior-turn handoff remained in the conversation and the current-experience message carried events 500–505; the following historical read replayed the same range. A focused regression now asserts all unread canaries remain in that current epoch message beside its handoff. The episode did exercise a stale initial camera preflight refresh but not a natural pre-decision pose-drift replacement with unread events, so the deployment-shaped edge remains open rather than inferred closed.
+
+**2026-08-02T08:18:52Z**
+
+Current-build ordinary episode 000014 crossed the remaining deployment edge
+without steering. Minecraft injury moved both residents while unread human
+chat, resident chat, sound, condition, hurt, and visibility events accumulated.
+Sedge's replacement reacquired sequences 71-86 from consumed boundary 70;
+Lark's reacquired 159-184 from boundary 158. The exact admitted requests then
+carried those same complete ranges, including typed pressure summaries, with
+missingBeforeOldest=0 and omittedNewEvents=0. All 63 model-facing windows in
+the episode were complete, every quota attempt settled, and ordinary stop saved
+a completed world head. This closes the transactional unread-experience defect;
+longer pressure remains part of multi-day habitat acceptance.
