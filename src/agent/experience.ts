@@ -241,7 +241,11 @@ export class InhabitantExperience {
   ) {
     const opts = this.options;
     this.task = opts.task ?? null;
-    this.eventHistory = Math.max(8, Math.min(200, Number(opts.eventHistory ?? 40)));
+    // One resident decision can legitimately span dozens of raw Minecraft
+    // events under combat or dense ecology. Keep a finite raw horizon large
+    // enough for several ordinary decision intervals; the model projection
+    // separately compacts repetitive pressure into typed bounded summaries.
+    this.eventHistory = Math.max(8, Math.min(200, Number(opts.eventHistory ?? 200)));
     this.pulseIntervalMs = Math.max(10_000, Number(opts.pulseIntervalMs ?? 30_000));
     this.now = opts.now ?? (() => Date.now());
     this.lastCondition = {

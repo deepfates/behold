@@ -85,6 +85,16 @@ export type LmStudioPrefixReadinessEvidence = Readonly<{
   call: ModelCallEvidence;
 }>;
 
+type LmStudioDecisionReadinessEvidence = LmStudioPrefixReadinessEvidence &
+  Readonly<{
+    decisionBinding: Readonly<{
+      requestedStablePrefixSha256: string;
+      requestedActionContractSha256: string;
+      exactPrefixMatch: boolean;
+      use: 'exact_prefill' | 'prepared_runtime_baseline';
+    }>;
+  }>;
+
 /**
  * Strict LM Studio resident-session adapter. It performs one authenticated
  * broker request and never owns correction, retry, normalization, tools, or
@@ -103,12 +113,14 @@ export function createLmStudioLocalResidentMind(
     throw new Error('LM Studio resident mind requires the authenticated cognition broker');
   }
   const prefixReadiness = new Map<string, Promise<LmStudioPrefixReadinessEvidence>>();
+  let runtimeBaseline: Promise<LmStudioPrefixReadinessEvidence> | null = null;
 
   return {
     id: 'direct-lmstudio-local-json-action',
     async prepare(request, { signal }) {
       assertResidentModel(request);
-      return await ensurePrefixReadiness(request, signal);
+      runtimeBaseline ??= ensurePrefixReadiness(request, signal);
+      return await runtimeBaseline;
     },
     async decide(request, { signal }) {
       assertResidentModel(request);
@@ -116,12 +128,17 @@ export function createLmStudioLocalResidentMind(
       const requestId = `lmstudio-${randomUUID()}`;
       const serialized = createLmStudioLocalJsonActionRequest(request, policy, modelInstanceId);
       const readinessKey = prefixReadinessKey(serialized.identity);
-      if (request.attention?.mode === 'urgent' && !prefixReadiness.has(readinessKey)) {
+      const exactReadiness = prefixReadiness.get(readinessKey);
+      const prepared =
+        request.attention?.mode === 'urgent' && !exactReadiness
+          ? runtimeBaseline
+          : ensurePrefixReadiness(request, signal);
+      if (!prepared) {
         throw new Error(
-          'LM Studio urgent resident action contract has no prepared prefix; refusing in-horizon readiness work',
+          'LM Studio resident decision has no prepared runtime baseline; refusing inference before setup readiness',
         );
       }
-      const readiness = await ensurePrefixReadiness(request, signal);
+      const readiness = bindDecisionReadiness(await prepared, serialized.identity);
       if (request.perception) {
         admitResidentCameraFrameFreshness({
           frame: request.perception.camera,
@@ -501,6 +518,24 @@ export function createLmStudioLocalResidentMind(
     >,
   ) {
     return `${identity.stablePrefixSha256}:${identity.actionContractSha256}`;
+  }
+
+  function bindDecisionReadiness(
+    readiness: LmStudioPrefixReadinessEvidence,
+    identity: Pick<LmStudioLocalRequestIdentity, 'stablePrefixSha256' | 'actionContractSha256'>,
+  ): LmStudioDecisionReadinessEvidence {
+    const exactPrefixMatch =
+      readiness.request.stablePrefixSha256 === identity.stablePrefixSha256 &&
+      readiness.request.actionContractSha256 === identity.actionContractSha256;
+    return Object.freeze({
+      ...readiness,
+      decisionBinding: Object.freeze({
+        requestedStablePrefixSha256: identity.stablePrefixSha256,
+        requestedActionContractSha256: identity.actionContractSha256,
+        exactPrefixMatch,
+        use: exactPrefixMatch ? ('exact_prefill' as const) : ('prepared_runtime_baseline' as const),
+      }),
+    });
   }
 }
 

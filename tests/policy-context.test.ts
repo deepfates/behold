@@ -153,21 +153,20 @@ test('repetitive ordinary sounds cannot crowd later lived changes out of a causa
   const projected = projectCurrentModelObservation(frame, 4);
   assert.deepEqual(
     projected.events.map((item: any) => item.type),
-    ['sound_sequence_heard', 'visible_block_changed', 'chat_received'],
+    ['experience_pressure_sequence', 'visible_block_changed', 'chat_received'],
   );
-  assert.equal(projected.events[0].data.compaction, 'behold.sound-sequence.v1');
+  assert.equal(projected.events[0].data.compaction, 'behold.experience-pressure-sequence.v1');
   assert.equal(projected.events[0].data.fromSequence, 1);
   assert.equal(projected.events[0].data.throughSequence, 24);
-  assert.equal(projected.events[0].data.omittedIndividualEvents, 24);
+  assert.equal(projected.events[0].data.eventCount, 24);
   assert.deepEqual(
-    projected.events[0].data.occurrences.map((occurrence: any) => ({
-      range: [occurrence.fromSequence, occurrence.throughSequence],
+    projected.events[0].data.sounds.entries.map((occurrence: any) => ({
       count: occurrence.count,
-      direction: occurrence.data.relativeDirection,
+      direction: occurrence.relativeDirection,
     })),
     [
-      { range: [1, 12], count: 12, direction: 'right' },
-      { range: [13, 24], count: 12, direction: 'behind' },
+      { count: 12, direction: 'right' },
+      { count: 12, direction: 'behind' },
     ],
   );
   assert.equal(projected.eventWindow.deliveredNewestSequence, 32);
@@ -212,18 +211,33 @@ test('combat sound pressure retains exact high occurrences and tail social conse
   const projected = projectCurrentModelObservation(frame, 5);
   assert.deepEqual(
     projected.events.map((item: any) => item.type),
-    [
-      'sound_sequence_heard',
-      'visible_entity_hurt',
-      'visible_entity_died',
-      'chat_received',
-      'chat_received',
-    ],
+    ['experience_pressure_sequence', 'visible_entity_died', 'chat_received', 'chat_received'],
   );
   assert.equal(projected.events[0].salience, 'high');
   assert.equal(projected.events[0].data.fromSequence, 1);
-  assert.equal(projected.events[0].data.throughSequence, 20);
-  assert.equal(projected.events[0].data.omittedIndividualEvents, 20);
+  assert.equal(projected.events[0].data.throughSequence, 21);
+  assert.equal(projected.events[0].data.eventCount, 21);
+  assert.deepEqual(projected.events[0].data.eventTypeCounts, {
+    sound_heard: 20,
+    visible_entity_hurt: 1,
+  });
+  assert.deepEqual(projected.events[0].data.entities.entries, [
+    {
+      id: 'player:importdf',
+      name: 'importdf',
+      kind: null,
+      becameVisible: 0,
+      leftView: 0,
+      hurt: 1,
+      latestRelation: {
+        proximity: null,
+        relativeDirection: null,
+        lastSeenDistance: null,
+        observationPhase: null,
+        transition: 'visible_entity_hurt',
+      },
+    },
+  ]);
   assert.deepEqual(
     projected.events.slice(-2).map((item: any) => item.data.text),
     ["sedge! you're back", 'can you help us'],

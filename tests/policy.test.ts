@@ -5719,7 +5719,9 @@ test('ordinary policy keeps pace with sustained repetitive ecology inside the bo
         (request) =>
           request.observation.eventWindow.complete === true &&
           request.observation.eventWindow.omittedNewEvents === 0 &&
-          request.observation.events.some((event: any) => event.type === 'sound_sequence_heard') &&
+          request.observation.events.some(
+            (event: any) => event.type === 'experience_pressure_sequence',
+          ) &&
           request.observation.events.some((event: any) => event.type === 'visible_block_changed'),
       ),
     );

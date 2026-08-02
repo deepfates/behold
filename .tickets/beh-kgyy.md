@@ -62,3 +62,7 @@ Qualified same-life resume episode 000003 exercised the repaired projection thro
 **2026-08-02T00:29:00Z**
 
 Episode 000004 falsified the episode-000003 closure under combat pressure. Sedge model-facing sequence 189 had missingBeforeOldest=12 and omittedNewEvents=28; sequence 297 had missingBeforeOldest=33 and omittedNewEvents=26 while urgent decisions were slow. This is renewed interface uncertainty: determine whether decision-relevant combat facts were lost or whether the cursor accounting honestly compacted only redundant visibility churn. Do not classify model conduct until exact model-facing windows are audited.
+
+**2026-08-02T00:58:35Z**
+
+Episode 000005 exact-capture audit classified the renewed gap as an interface defect. At model boundaries, unread intervals reached 66 raw events; repeated sound, self-hurt/condition, and visibility pressure coexisted with death/spawn and human chat. Sedge model request sequence 165 explicitly lost 12 earlier events and deferred 25 later ones. A current-tree replay over recoverable raw intervals shows that typed contiguous pressure compaction can preserve all anchors in at most 10 visible items, with zero omission; the owning repair is in progress and raises the finite raw horizon from 40 to 200 so one ordinary 8-15s combat decision interval does not evict facts before projection.

@@ -628,6 +628,21 @@ test('a slow controller is told when bounded event history has a gap', () => {
   experience.destroy();
 });
 
+test('the ordinary raw horizon spans several combat-rate decision intervals', () => {
+  const bot = fakeBot();
+  const experience = new InhabitantExperience(bot);
+  for (let index = 1; index <= 120; index += 1) {
+    experience.record('fixture_pressure', { index });
+  }
+
+  const observation = experience.observe(0);
+  assert.equal(observation.events[0]?.sequence, 1);
+  assert.equal(observation.events.at(-1)?.sequence, 120);
+  assert.equal(observation.eventWindow.missingBeforeOldest, 0);
+  assert.equal(observation.eventWindow.complete, true);
+  experience.destroy();
+});
+
 test('ordinary world changes become attention events and instances stay isolated', () => {
   const first = fakeBot();
   const second = fakeBot();

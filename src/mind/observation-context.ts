@@ -874,25 +874,181 @@ function selectModelEventBatch(unread: any[], visibleLimit: number) {
   const visible: any[] = [];
   const suppressed: any[] = [];
 
-  for (const event of unread) {
+  const projected = compactExperiencePressure(unread);
+  for (const item of projected) {
+    const event = item.event;
     if (!isModelRelevantEvent(event)) {
-      delivered.push(event);
-      suppressed.push(event);
+      delivered.push(...item.covered);
+      suppressed.push(...item.covered);
       continue;
     }
 
     const previous = visible.at(-1);
     if (rawCompactableSound(event) && compactableSoundProjection(previous)) {
-      delivered.push(event);
+      delivered.push(...item.covered);
       visible[visible.length - 1] = compactSoundSequence(previous, event);
       continue;
     }
     if (visible.length >= visibleLimit) break;
-    delivered.push(event);
+    delivered.push(...item.covered);
     visible.push(event);
   }
 
   return { delivered, visible, suppressed };
+}
+
+const PRESSURE_EVENT_TYPES = new Set([
+  'sound_heard',
+  'self_hurt',
+  'condition_changed',
+  'entity_became_visible',
+  'entity_left_view',
+  'visible_entity_hurt',
+]);
+
+/**
+ * Combat and dense ecology can produce more raw sensory edges than one model
+ * call can display individually. Collapse only contiguous pressure stretches;
+ * chat, death/spawn, inventory, material changes, failures, and other causal
+ * anchors remain individual and preserve their order around the summary.
+ */
+function compactExperiencePressure(events: any[]) {
+  const projected: Array<{ event: any; covered: any[] }> = [];
+  let pressure: any[] = [];
+  const flush = () => {
+    if (pressure.length === 1) {
+      projected.push({ event: pressure[0], covered: pressure });
+    } else if (pressure.length > 1) {
+      projected.push({ event: pressureSequence(pressure), covered: pressure });
+    }
+    pressure = [];
+  };
+  for (const event of events) {
+    if (PRESSURE_EVENT_TYPES.has(String(event?.type || ''))) {
+      pressure.push(event);
+      continue;
+    }
+    flush();
+    projected.push({ event, covered: [event] });
+  }
+  flush();
+  return projected;
+}
+
+function pressureSequence(events: any[]) {
+  const first = events[0];
+  const last = events.at(-1);
+  const conditions = events.filter((event) => event?.type === 'condition_changed');
+  const latestCondition = conditions.at(-1)?.data?.current ?? null;
+  const healthValues = conditions.flatMap((event) =>
+    [event?.data?.previous?.health, event?.data?.current?.health].filter(Number.isFinite),
+  );
+  const sounds = events.filter((event) => event?.type === 'sound_heard');
+  const entities = new Map<string, any>();
+  for (const event of events) {
+    if (
+      !['entity_became_visible', 'entity_left_view', 'visible_entity_hurt'].includes(event?.type)
+    ) {
+      continue;
+    }
+    const data = event?.data || {};
+    const key = String(data.id || `${data.kind || 'entity'}:${data.name || 'unknown'}`);
+    const current = entities.get(key) || {
+      id: data.id ?? null,
+      name: data.name ?? null,
+      kind: data.kind ?? null,
+      becameVisible: 0,
+      leftView: 0,
+      hurt: 0,
+      latestRelation: null,
+    };
+    if (event.type === 'entity_became_visible') current.becameVisible += 1;
+    if (event.type === 'entity_left_view') current.leftView += 1;
+    if (event.type === 'visible_entity_hurt') current.hurt += 1;
+    current.latestRelation = compactContinuityValue({
+      proximity: data.proximity ?? null,
+      relativeDirection: data.relativeDirection ?? null,
+      lastSeenDistance: data.lastSeenDistance ?? null,
+      observationPhase: data.observationPhase ?? null,
+      transition: event.type,
+    });
+    entities.set(key, current);
+  }
+  return {
+    sequence: last.sequence,
+    at: last.at,
+    type: 'experience_pressure_sequence',
+    salience: highestSalience(events),
+    source: 'event',
+    isNew: events.some((event) => event?.isNew === true),
+    data: {
+      compaction: 'behold.experience-pressure-sequence.v1',
+      fromSequence: first.sequence,
+      throughSequence: last.sequence,
+      eventCount: events.length,
+      eventTypeCounts: eventTypeCounts(events),
+      ...(sounds.length > 0 ? { sounds: pressureSoundCounts(sounds) } : {}),
+      ...(conditions.length > 0
+        ? {
+            condition: {
+              changes: conditions.length,
+              latest: compactContinuityValue(latestCondition),
+              minimumHealth: healthValues.length > 0 ? Math.min(...healthValues) : null,
+            },
+          }
+        : {}),
+      ...(entities.size > 0
+        ? {
+            entities: {
+              entries: [...entities.values()].slice(0, 16),
+              distinctEntities: entities.size,
+              omittedDistinctEntities: Math.max(0, entities.size - 16),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+function pressureSoundCounts(events: any[]) {
+  const counts = new Map<string, any>();
+  for (const event of events) {
+    const data = event?.data || {};
+    const key = JSON.stringify({
+      sound: data.sound ?? null,
+      distanceBand: data.distanceBand ?? null,
+      relativeDirection: data.relativeDirection ?? null,
+    });
+    const current = counts.get(key) || {
+      sound: data.sound ?? null,
+      distanceBand: data.distanceBand ?? null,
+      relativeDirection: data.relativeDirection ?? null,
+      count: 0,
+    };
+    current.count += 1;
+    counts.set(key, current);
+  }
+  return {
+    entries: [...counts.values()].slice(0, 16),
+    distinctPatterns: counts.size,
+    omittedDistinctPatterns: Math.max(0, counts.size - 16),
+  };
+}
+
+function highestSalience(events: any[]) {
+  const rank = new Map([
+    ['ambient', 0],
+    ['normal', 1],
+    ['high', 2],
+    ['urgent', 3],
+  ]);
+  return events.reduce(
+    (highest, event) =>
+      (rank.get(String(event?.salience)) ?? 0) > (rank.get(highest) ?? 0)
+        ? String(event.salience)
+        : highest,
+    'ambient',
+  );
 }
 
 function rawCompactableSound(event: any) {
