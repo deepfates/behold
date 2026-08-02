@@ -10,7 +10,7 @@ function baseBot() {
   const bot: any = new EventEmitter();
   bot.version = '1.21.4';
   bot.username = 'Scout';
-  bot.entity = { id: 1, position: new Vec3(0, 64, 0) };
+  bot.entity = { id: 1, position: new Vec3(0, 64, 0), yaw: 0, pitch: 0 };
   bot.entities = { 1: bot.entity };
   bot.inventoryItems = [] as any[];
   bot.inventory = { items: () => bot.inventoryItems };
@@ -205,7 +205,7 @@ test('bounded human controls never invoke pathfinding and always release on succ
   assert.ok(clears >= 4, 'controls are cleared before and after both bounded intervals');
 });
 
-test('bounded human controls classify meaningful motion from exact endpoint displacement', async () => {
+test('bounded human controls report coordinate-free motion in the control-start frame', async () => {
   const exercise = async (startX: number, endX: number) => {
     const bot = baseBot();
     bot.entity.position = new Vec3(startX, 64, 0);
@@ -220,18 +220,59 @@ test('bounded human controls classify meaningful motion from exact endpoint disp
     return result;
   };
 
-  assert.equal((await exercise(0.1, 0.1)).bodyMoved, false, 'exact no-op stays false');
-  assert.equal(
-    (await exercise(0.1, 0.6)).bodyMoved,
-    true,
-    'material movement within one block is visible',
-  );
+  const stationary = await exercise(0.1, 0.1);
+  assert.equal(stationary.bodyMoved, false, 'exact no-op stays false');
+  assert.deepEqual(stationary.bodyTransition, {
+    protocol: 'behold.body-transition.v1',
+    observation: 'motion_observed_during_control_interval_cause_unknown',
+    frame: 'egocentric_at_control_start',
+    units: { distance: 'blocks', angle: 'radians' },
+    requestedAxisProgress: 0,
+    lateralDisplacement: 0,
+    verticalDisplacement: 0,
+    netDistance: 0,
+    pathDistance: 0,
+    maxExcursion: 0,
+    yawDelta: 0,
+    pitchDelta: 0,
+    sampleCount: 2,
+  });
+  const lateral = await exercise(0.1, 0.6);
+  assert.equal(lateral.bodyMoved, true, 'material movement within one block is visible');
+  assert.equal(lateral.bodyTransition.requestedAxisProgress, 0);
+  assert.equal(lateral.bodyTransition.lateralDisplacement, 0.5);
+  assert.equal(lateral.bodyTransition.netDistance, 0.5);
+  assert.equal(lateral.bodyTransition.pathDistance, 0.5);
   assert.equal(
     (await exercise(0.99, 1.01)).bodyMoved,
     false,
     'a sub-threshold block-boundary crossing stays false',
   );
   assert.equal((await exercise(0, 1.1)).bodyMoved, true, 'block-scale movement stays true');
+});
+
+test('bounded human controls retain path and excursion when the endpoint returns to start', async () => {
+  const bot = baseBot();
+  bot.clearControlStates = () => {};
+  bot.setControlState = (name: string, enabled: boolean) => {
+    if (name !== 'forward' || !enabled) return;
+    bot.entity.position = new Vec3(0, 64, -0.4);
+    bot.emit('move');
+    bot.entity.position = new Vec3(0, 64, 0);
+    bot.emit('move');
+  };
+
+  const result = await buildInterpreter(bot).run('move_controls', {
+    direction: 'forward',
+    durationMs: 100,
+  });
+
+  assert.equal(result.bodyMoved, false, 'legacy compatibility follows net endpoint distance');
+  assert.equal(result.bodyTransition.requestedAxisProgress, 0);
+  assert.equal(result.bodyTransition.netDistance, 0);
+  assert.equal(result.bodyTransition.pathDistance, 0.8);
+  assert.equal(result.bodyTransition.maxExcursion, 0.4);
+  assert.equal(result.bodyTransition.sampleCount, 4);
 });
 
 test('a focused human action fails closed when the crosshair target changed after admission', async () => {

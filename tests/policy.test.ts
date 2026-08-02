@@ -2381,7 +2381,14 @@ test('resident-v4 epoch rollover retains every unread event through camera pose 
       (requests[0].observation as any).events.map((event: any) => event.sequence),
       [1, 2, 3, 4, 5],
     );
-    assert.match(String((requests[0].conversation as any[]).at(-1)?.content), /"canary-5"/);
+    const currentMessage = String((requests[0].conversation as any[]).at(-1)?.content);
+    for (const sequence of [2, 3, 4, 5]) {
+      assert.match(
+        currentMessage,
+        new RegExp(`canary-${sequence}`),
+        `the current epoch message carries unread event ${sequence} beside its canonical handoff`,
+      );
+    }
   } finally {
     await policy.stop();
   }
@@ -2671,7 +2678,28 @@ test('semantic and camera continuations share one bounded post-motion pose settl
         sequence: 1,
         at: Date.now(),
         type: 'action_completed',
-        data: { intent: intents[0], result: { ok: true, bodyMoved: true } },
+        data: {
+          intent: intents[0],
+          result: {
+            ok: true,
+            bodyMoved: false,
+            bodyTransition: {
+              protocol: 'behold.body-transition.v1',
+              observation: 'motion_observed_during_control_interval_cause_unknown',
+              frame: 'egocentric_at_control_start',
+              units: { distance: 'blocks', angle: 'radians' },
+              requestedAxisProgress: 0.02,
+              lateralDisplacement: 0,
+              verticalDisplacement: 0,
+              netDistance: 0.02,
+              pathDistance: 0.02,
+              maxExcursion: 0.02,
+              yawDelta: 0,
+              pitchDelta: 0,
+              sampleCount: 3,
+            },
+          },
+        },
       } as any);
       await until(() => requests.length === 2);
       assert.equal((requests[1].observation as any).self.pose.motion, 'still');

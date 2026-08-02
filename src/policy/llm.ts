@@ -64,6 +64,7 @@ import {
   type MinecraftActionProfile,
   type MinecraftSafetyProfile,
 } from '../agent/action-profiles';
+import { bodyTransitionShowsPoseChange } from '../entity/body-transition';
 import {
   isNeutralPolicy,
   residentPolicyProfile,
@@ -1909,10 +1910,9 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
 
     preparingContext = true;
     try {
-      const settlement =
-        event.type === 'action_completed' && event.data?.result?.bodyMoved === true
-          ? await settleBodyPose('post_body_motion', finished.intent.tool)
-          : null;
+      const settlement = bodilyResultChangedPose(event.data?.result)
+        ? await settleBodyPose('post_body_motion', finished.intent.tool)
+        : null;
       const nextObservation = settlement?.observation ?? observe();
       await closeTurn(
         finished.draft,
@@ -2662,9 +2662,13 @@ function assertContinuousCurrentExperience(projected: any) {
 
 function completedBodilyResponse(tool: string, result: any) {
   if (!BODILY_RESPONSE_TOOLS.has(tool) || result?.ok !== true) return false;
-  if (result?.bodyMoved === false) return false;
+  if (!bodilyResultChangedPose(result) && result?.bodyMoved === false) return false;
   if (result?.status === 'already_within_requested_range') return false;
   return true;
+}
+
+function bodilyResultChangedPose(result: any) {
+  return bodyTransitionShowsPoseChange(result?.bodyTransition) || result?.bodyMoved === true;
 }
 
 export function controllerSystemPrompt(

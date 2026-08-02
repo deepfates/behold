@@ -132,6 +132,39 @@ Minecraft confirmation source. It still withholds absolute positions, private
 controller frames, provider material, and unrecognized nested fields. A new
 profile extends presentation; it never relabels or regenerates a v1 life.
 
+The following additional v2 shapes are ratified because retained ordinary life
+now depends on them:
+
+- `experience_pressure_sequence` may present its exact represented event range
+  and count, type counts, bounded sound patterns, HUD condition changes and
+  minimum health, and bounded entity visibility/hurt summaries. Stable entity
+  IDs, exact last-seen distance, and observation phase remain source-only.
+- `visible_entity_died` may present only the observed display name, kind, and
+  proximity. It must not infer a killer or cause.
+- `read_private_life` may present the resident-chosen requested turn range. A
+  `private_life_page_returned` outcome may present the returned range, message
+  count, completeness, and next sequence. Digests, locators, hashes, byte sizes,
+  and the duplicated returned messages remain source-only.
+- `body_life_boundary_changed` may say that death/respawn invalidated the choice
+  before bodily action and name the invalidating event types. It may not expose
+  controller sequence or timing internals.
+- `use_focused_block` with `use_input_dispatched` may name the visible target and
+  say only that input was dispatched; it must not claim a resulting world
+  change. `stop` may say bodily controls were released. An
+  `inspect_focused_container` attempt may be named while its unknown or failed
+  result remains explicitly factual.
+- A `move_controls` result may carry `behold.body-transition.v1` with exact
+  literals `motion_observed_during_control_interval_cause_unknown`,
+  `egocentric_at_control_start`, and units `blocks`/`radians`, followed by finite
+  `requestedAxisProgress`, `lateralDisplacement`, `verticalDisplacement`,
+  `netDistance`, `pathDistance`, `maxExcursion`, `yawDelta`, `pitchDelta`, and a
+  non-negative integer `sampleCount`. This is coordinate-free proprioception:
+  it may say motion was observed and that cause is unknown, but must not infer
+  collision, useful progress, or that the held controls caused external motion.
+  `bodyMoved` is the compatibility bit `netDistance >= 0.1`; a mismatch is a
+  named inconsistency and withholds transition prose. Absolute start/end pose or
+  any additional coordinate field remains source-only.
+
 ## Forbidden inference and private fields
 
 The presenter MUST NOT:

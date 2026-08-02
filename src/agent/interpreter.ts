@@ -29,6 +29,7 @@ import type {
   WorldChangeEvidence,
   WorldChangeExecutor,
 } from '../safety/world-change';
+import { BODY_TRANSITION_PROTOCOL, type BodyTransition } from '../entity/body-transition';
 
 const CARDINAL_DIRECTIONS: Record<string, { x: number; z: number }> = {
   north: { x: 0, z: -1 },
@@ -2578,24 +2579,35 @@ export function buildInterpreter(bot: Bot, opts: InterpreterOptions = {}) {
         return { ok: false, error: 'unknown_movement_direction' };
       }
       const heldForMs = clamp(Number(durationMs), 100, 2000);
-      const before = positionOf(bot);
-      (bot as any).clearControlStates?.();
+      const bodyTransition = createBodyTransitionTracker(bot, movement);
+      if (!bodyTransition) return { ok: false, error: 'body_pose_unavailable' };
       try {
+        (bot as any).clearControlStates?.();
         (bot as any).setControlState(movement, true);
         if (jump) (bot as any).setControlState('jump', true);
         if (sprint) (bot as any).setControlState('sprint', true);
         if (sneak) (bot as any).setControlState('sneak', true);
         await waitForFightTick(heldForMs, execution?.signal);
-        if (execution?.signal?.aborted) return cancelledAction('bounded-body-controls');
+        if (execution?.signal?.aborted) {
+          const transition = bodyTransition.finish();
+          return {
+            ...cancelledAction('bounded-body-controls'),
+            bodyTransition: transition,
+            bodyMoved: transition.netDistance >= 0.1,
+          };
+        }
+        const transition = bodyTransition.finish();
         return {
           ok: true,
           direction: movement,
           heldForMs,
           controls: { jump: !!jump, sprint: !!sprint, sneak: !!sneak },
-          bodyMoved: movedMeaningfully(before, positionOf(bot)),
+          bodyTransition: transition,
+          bodyMoved: transition.netDistance >= 0.1,
           confirmation: 'mineflayer:bounded_control_interval',
         };
       } finally {
+        bodyTransition.dispose();
         (bot as any).clearControlStates?.();
       }
     },
@@ -5935,11 +5947,70 @@ function positionOf(bot: Bot) {
   return position ? { x: position.x, y: position.y, z: position.z } : null;
 }
 
-function movedMeaningfully(
-  before: { x: number; y: number; z: number } | null,
-  after: { x: number; y: number; z: number } | null,
-) {
-  return before !== null && after !== null && distance(before, after) >= 0.1;
+function createBodyTransitionTracker(bot: Bot, direction: string) {
+  const start = bodyPoseOf(bot);
+  if (!start) return null;
+  const requestedAxis = relativeHorizontalDirection(start.yaw, direction);
+  if (!requestedAxis) return null;
+  let previous = start.position;
+  let pathDistance = 0;
+  let maxExcursion = 0;
+  let sampleCount = 1;
+  let disposed = false;
+
+  const sample = () => {
+    const pose = bodyPoseOf(bot);
+    if (!pose) return;
+    pathDistance += distance(previous, pose.position);
+    maxExcursion = Math.max(maxExcursion, distance(start.position, pose.position));
+    previous = pose.position;
+    sampleCount += 1;
+  };
+  (bot as any).on?.('move', sample);
+
+  return {
+    finish(): BodyTransition {
+      sample();
+      const final = bodyPoseOf(bot) ?? start;
+      const dx = final.position.x - start.position.x;
+      const dy = final.position.y - start.position.y;
+      const dz = final.position.z - start.position.z;
+      const lateralAxis = { x: -requestedAxis.z, z: requestedAxis.x };
+      return {
+        protocol: BODY_TRANSITION_PROTOCOL,
+        observation: 'motion_observed_during_control_interval_cause_unknown',
+        frame: 'egocentric_at_control_start',
+        units: { distance: 'blocks', angle: 'radians' },
+        requestedAxisProgress: roundMotion(dx * requestedAxis.x + dz * requestedAxis.z),
+        lateralDisplacement: roundMotion(dx * lateralAxis.x + dz * lateralAxis.z),
+        verticalDisplacement: roundMotion(dy),
+        netDistance: roundMotion(distance(start.position, final.position)),
+        pathDistance: roundMotion(pathDistance),
+        maxExcursion: roundMotion(maxExcursion),
+        yawDelta: roundMotion(normalizeYaw(final.yaw - start.yaw)),
+        pitchDelta: roundMotion(final.pitch - start.pitch),
+        sampleCount,
+      };
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      (bot as any).removeListener?.('move', sample);
+    },
+  };
+}
+
+function bodyPoseOf(bot: Bot) {
+  const position = positionOf(bot);
+  const yaw = Number((bot as any).entity?.yaw);
+  const pitch = Number((bot as any).entity?.pitch);
+  if (!position || !Number.isFinite(yaw) || !Number.isFinite(pitch)) return null;
+  return { position, yaw, pitch };
+}
+
+function roundMotion(value: number) {
+  const rounded = Math.round(value * 10_000) / 10_000;
+  return Object.is(rounded, -0) ? 0 : rounded;
 }
 
 function positionRecord(position: { x: number; y: number; z: number }) {

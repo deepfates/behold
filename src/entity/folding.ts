@@ -4,6 +4,7 @@ import path from 'node:path';
 import { projectResidentVisibleValue, residentTurnMayReplay } from '../mind/resident-visibility';
 import type { EntityTurn } from './loom';
 import { projectHistoricalModelObservation } from '../mind/observation-context';
+import { projectBodyTransition } from './body-transition';
 
 const FOLD_EVENT_BATCH = 24;
 
@@ -743,12 +744,18 @@ function factualFoldOutcome(turn: EntityTurn) {
     turn.outcome.result && typeof turn.outcome.result === 'object'
       ? (turn.outcome.result as Record<string, unknown>)
       : null;
+  const bodyTransition = projectBodyTransition(result?.bodyTransition);
   return {
     ok: turn.outcome.ok,
     eventType: token(turn.outcome.eventType) ?? 'unknown',
     ...(token(turn.outcome.error) ? { error: token(turn.outcome.error) } : {}),
-    ...(typeof result?.bodyMoved === 'boolean'
-      ? { result: { bodyMoved: result.bodyMoved } }
+    ...(bodyTransition || typeof result?.bodyMoved === 'boolean'
+      ? {
+          result: {
+            ...(bodyTransition ? { bodyTransition } : {}),
+            ...(typeof result?.bodyMoved === 'boolean' ? { bodyMoved: result.bodyMoved } : {}),
+          },
+        }
       : token(result?.status)
         ? { result: { status: token(result?.status) } }
         : {}),

@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { EntityTurn } from '../entity/loom';
 import { projectResidentVisibleValue } from './resident-visibility';
 import { HUMAN_SEMANTIC_INTERACTION_DISTANCE } from '../agent/action-profiles';
+import { projectBodyTransition, type BodyTransition } from '../entity/body-transition';
 
 const MODEL_EVENT_BATCH = 12;
 const RECENT_ACTION_TURN_LIMIT = 6;
@@ -123,6 +124,7 @@ export type ResidentFactualContinuity = {
       terminal: 'completed' | 'failed' | 'blocked' | 'yielded' | 'input_dispatched';
       eventType: string;
       code?: string;
+      bodyTransition?: BodyTransition;
       bodyMoved?: boolean;
     };
     after?: ResidentWorkingContinuity['experiences'][number]['perceptionAfter'];
@@ -363,10 +365,12 @@ function factualSettlement(
           : turn.outcome.ok
             ? ('completed' as const)
             : ('failed' as const);
+  const bodyTransition = projectBodyTransition(result?.bodyTransition);
   return {
     terminal,
     eventType,
     ...(code ? { code } : {}),
+    ...(bodyTransition ? { bodyTransition } : {}),
     ...(typeof result?.bodyMoved === 'boolean' ? { bodyMoved: result.bodyMoved } : {}),
   };
 }
@@ -483,11 +487,15 @@ function workingActualConsequence(turn: EntityTurn) {
       turn.outcome.result && typeof turn.outcome.result === 'object'
         ? (turn.outcome.result as Record<string, unknown>)
         : null;
+    const transition = projectBodyTransition(result?.bodyTransition);
+    if (transition) {
+      return bodyTransitionConsequence(transition);
+    }
     if (result?.bodyMoved === true) {
-      return 'Minecraft confirmed that the resident body moved.';
+      return 'Minecraft observed that the resident body moved during the control interval.';
     }
     if (result?.bodyMoved === false) {
-      return 'Minecraft completed the movement input but confirmed no body movement.';
+      return 'Minecraft completed the movement input and observed no net body movement.';
     }
     const status = String(result?.status || '');
     if (/_input_dispatched$/.test(status)) {
@@ -496,6 +504,16 @@ function workingActualConsequence(turn: EntityTurn) {
     return 'Minecraft reported that the action completed successfully.';
   }
   return `Minecraft reported that the action failed${code}.`;
+}
+
+function bodyTransitionConsequence(transition: BodyTransition) {
+  const signed = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(4)}`;
+  return [
+    'Motion was observed during the control interval; cause unknown.',
+    `In the control-start egocentric frame: requested-axis ${signed(transition.requestedAxisProgress)} blocks, lateral ${signed(transition.lateralDisplacement)}, vertical ${signed(transition.verticalDisplacement)};`,
+    `net ${transition.netDistance.toFixed(4)}, path ${transition.pathDistance.toFixed(4)}, maximum excursion ${transition.maxExcursion.toFixed(4)};`,
+    `yaw delta ${signed(transition.yawDelta)} radians, pitch delta ${signed(transition.pitchDelta)} radians; ${transition.sampleCount} samples.`,
+  ].join(' ');
 }
 
 function rememberedPerception(observation: any) {

@@ -384,6 +384,40 @@ test('facts-only resident projection rejects a legacy fold and rebuilds without 
   assert.equal(JSON.stringify(turns), canonicalBefore);
 });
 
+test('facts-only folding retains bodily transition without absolute pose', () => {
+  const turn = entityTurn(1, 'Scout');
+  turn.action.name = 'move_controls';
+  turn.outcome.result = {
+    ok: true,
+    bodyMoved: false,
+    bodyTransition: {
+      protocol: 'behold.body-transition.v1',
+      observation: 'motion_observed_during_control_interval_cause_unknown',
+      frame: 'egocentric_at_control_start',
+      units: { distance: 'blocks', angle: 'radians' },
+      requestedAxisProgress: 0,
+      lateralDisplacement: 0,
+      verticalDisplacement: 0,
+      netDistance: 0,
+      pathDistance: 0.8,
+      maxExcursion: 0.4,
+      yawDelta: 0,
+      pitchDelta: 0,
+      sampleCount: 4,
+      absoluteStart: { x: 10, y: 64, z: 20 },
+    },
+  };
+
+  const projected = projectTurnForFolding(turn, undefined, {
+    includePublicCommitment: false,
+    factsOnly: true,
+  });
+
+  assert.equal((projected.outcome as any).result.bodyTransition.pathDistance, 0.8);
+  assert.equal((projected.outcome as any).result.bodyMoved, false);
+  assert.doesNotMatch(JSON.stringify(projected.outcome), /absoluteStart|"x"|"y"|"z"/);
+});
+
 test('a fold cache cannot cross summarizer protocols', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-fold-summarizer-'));
   const cacheFile = path.join(root, 'fold.json');

@@ -824,7 +824,69 @@ test('resident continuity distinguishes dispatched input and movement without co
   );
   assert.equal(
     projected?.experiences[1].actualConsequence,
-    'Minecraft completed the movement input but confirmed no body movement.',
+    'Minecraft completed the movement input and observed no net body movement.',
+  );
+});
+
+test('resident continuity retains truthful coordinate-free bodily transition', () => {
+  const movement = continuityTurn(
+    1,
+    'Scout',
+    'move_controls',
+    { direction: 'forward' },
+    {
+      ok: true,
+      bodyMoved: false,
+      bodyTransition: {
+        protocol: 'behold.body-transition.v1',
+        observation: 'motion_observed_during_control_interval_cause_unknown',
+        frame: 'egocentric_at_control_start',
+        units: { distance: 'blocks', angle: 'radians' },
+        requestedAxisProgress: 0.02,
+        lateralDisplacement: -0.01,
+        verticalDisplacement: 0,
+        netDistance: 0.0224,
+        pathDistance: 0.7,
+        maxExcursion: 0.4,
+        yawDelta: 0.03,
+        pitchDelta: 0,
+        sampleCount: 8,
+        startPosition: { x: 100, y: 64, z: 200 },
+      },
+    },
+  );
+  movement.profiles = {
+    policy: 'resident-v2',
+    body: 'minecraft-human-semantic-v1',
+    actions: 'minecraft-human-semantic-v1',
+    safety: 'vanilla-player-v1',
+  };
+
+  const factual = projectResidentFactualContinuity(
+    [movement],
+    6,
+    6_000,
+    residentTurnMayReplay,
+    projectHumanSemanticValue,
+  );
+  assert.equal(factual?.experiences[0].settled.bodyTransition?.pathDistance, 0.7);
+  assert.equal(factual?.experiences[0].settled.bodyTransition?.maxExcursion, 0.4);
+  assert.equal(JSON.stringify(factual).includes('startPosition'), false);
+
+  const working = projectResidentWorkingContinuity(
+    [movement],
+    6,
+    6_000,
+    residentTurnMayReplay,
+    projectHumanSemanticValue,
+  );
+  assert.match(
+    working?.experiences[0].actualConsequence ?? '',
+    /cause unknown.*requested-axis \+0\.0200 blocks.*path 0\.7000.*8 samples/,
+  );
+  assert.doesNotMatch(
+    working?.experiences[0].actualConsequence ?? '',
+    /position|collision|blocked/i,
   );
 });
 
