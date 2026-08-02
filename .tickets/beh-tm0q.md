@@ -23,3 +23,7 @@ A Minecraft whisper received by a resident becomes one high-salience recipient e
 **2026-08-02T00:29:00Z**
 
 Implemented distinct public chat/private whisper reception in both resident experience and managed console. Recipient events retain exact sender/text/channel; private speech is inherently addressed; factual and folded continuity preserve the private distinction. Canonical Lync commit ddace87 renders received v2 private speech as Private whisper while retaining byte-stable v1 public presentation. Behold full check: 696 pass, 1 intentional skip; Lync pnpm verify: 200 pass. Ordinary resident-to-resident exchange remains required.
+
+**2026-08-02T00:40:21Z**
+
+Behold now vendors the verified Lync ddace87 package candidate locally; installed presenter contains the private-recipient rendering. Post-adoption full npm run check passes 696 with one intentional skip. No package was published.
