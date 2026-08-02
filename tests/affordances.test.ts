@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { minecraftInhabitantActionsFor } from '../src/agent/affordances';
 import {
   minecraftActionClass,
+  minecraftActionMayReplay,
   minecraftActionsForProfile,
   minecraftActionProfile,
   minecraftSafetyProfile,
@@ -144,18 +145,26 @@ test('an empty respawned body is not offered inventory, crafting, placement, or 
   assert.deepEqual(names, ['look_direction', 'face_visible_target']);
 });
 
-test('human-semantic focus affordances stay fixed while inventory actions remain truthful', () => {
+test('human-semantic actions omit visibly unusable current controls', () => {
   const actions = [
+    schemaTool('chat', { text: { type: 'string' } }),
+    schemaTool('look_direction', {}),
+    schemaTool('move_controls', {}),
+    schemaTool('stop', {}),
     schemaTool('dig_focused_block', {}),
+    schemaTool('place_held_against_focus', {}),
     schemaTool('use_focused_block', {}),
     schemaTool('inspect_focused_container', {}),
+    schemaTool('deposit_in_focused_container', { name: { type: 'string' } }),
+    schemaTool('withdraw_from_focused_container', { name: { type: 'string' } }),
     schemaTool('sleep_in_focused_bed', {}),
     schemaTool('consume', { name: { type: 'string' } }),
   ];
-  const frame = {
+  const frame: any = {
     protocol: 'behold.inhabitant.v2',
     self: {
-      inventory: [{ name: 'cobblestone', count: 2, uses: ['place'] }],
+      heldItem: null,
+      inventory: [],
       condition: { food: 20 },
     },
     scene: { focus: null, social: { playersOnline: [] } },
@@ -168,8 +177,88 @@ test('human-semantic focus affordances stay fixed while inventory actions remain
 
   assert.deepEqual(
     offered.map((action) => action.function.name),
-    actions.slice(0, 4).map((action) => action.function.name),
+    ['chat', 'look_direction', 'move_controls'],
   );
+
+  frame.scene.focus = {
+    id: 'block:overworld:2:64:0',
+    kind: 'block',
+    name: 'chest',
+    source: 'cursor',
+    reachable: true,
+  };
+  frame.self.heldItem = 'cobblestone';
+  frame.self.inventory = [{ name: 'cobblestone', count: 2, uses: ['place', 'drop'] }];
+  const atChest = minecraftInhabitantActionsFor(actions, frame, {
+    bodyProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+  });
+  assert.deepEqual(
+    atChest.map((action) => action.function.name),
+    [
+      'chat',
+      'look_direction',
+      'move_controls',
+      'dig_focused_block',
+      'place_held_against_focus',
+      'use_focused_block',
+      'inspect_focused_container',
+      'deposit_in_focused_container',
+      'withdraw_from_focused_container',
+    ],
+  );
+  assert.deepEqual(
+    atChest.find((action) => action.function.name === 'deposit_in_focused_container')?.function
+      .parameters.properties.name.enum,
+    ['cobblestone'],
+  );
+});
+
+test('human-semantic sleeping offers only communication and explicit waking', () => {
+  const actions = [
+    schemaTool('chat', { text: { type: 'string' } }),
+    schemaTool('whisper', { username: { type: 'string' }, text: { type: 'string' } }),
+    schemaTool('look_direction', {}),
+    schemaTool('move_controls', {}),
+    schemaTool('dig_focused_block', {}),
+    schemaTool('wake_up', {}),
+  ];
+  const frame = {
+    protocol: 'behold.inhabitant.v2',
+    self: { inventory: [], condition: { sleeping: true } },
+    scene: {
+      focus: {
+        id: 'block:overworld:2:64:0',
+        kind: 'block',
+        name: 'red_bed',
+        source: 'cursor',
+        reachable: true,
+      },
+      social: { playersOnline: ['Lark'] },
+    },
+  };
+
+  const offered = minecraftInhabitantActionsFor(actions, frame, {
+    bodyProfile: 'minecraft-human-semantic-v1',
+    safetyProfile: 'vanilla-player-v1',
+  });
+  assert.deepEqual(
+    offered.map((action) => action.function.name),
+    ['chat', 'whisper', 'wake_up'],
+  );
+  assert.deepEqual(offered[1].function.parameters.properties.username.enum, ['Lark']);
+});
+
+test('human-semantic stop remains replayable but is not offered to new resident decisions', () => {
+  const offered = minecraftActionsForProfile(
+    [tool('chat'), tool('stop')],
+    'minecraft-human-semantic-v1',
+  );
+  assert.deepEqual(
+    offered.map((action) => action.function.name),
+    ['chat'],
+  );
+  assert.equal(minecraftActionMayReplay('stop', 'minecraft-human-semantic-v1'), true);
 });
 
 test('human-semantic consume offers only currently usable food and drink', () => {

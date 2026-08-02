@@ -130,6 +130,10 @@ export function minecraftActionsForProfile(
       ? HUMAN_SEMANTIC_ACTION_DESCRIPTIONS
       : PLAYER_ACTION_DESCRIPTIONS;
   return specs.flatMap((spec) => {
+    // A resident decision never overlaps a resident-owned action. Preserve
+    // the interpreter command for human/operator preemption and historical
+    // replay, but do not advertise an idle-body no-op to new residents.
+    if (profile === 'minecraft-human-semantic-v1' && spec.function.name === 'stop') return [];
     const description = descriptions.get(spec.function.name);
     return description ? [{ ...spec, function: { ...spec.function, description } }] : [];
   });

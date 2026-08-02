@@ -97,7 +97,9 @@ held-block placement, and a still resident with no owned action was offered
 `stop`. Execution-time revalidation remains necessary for world drift; it does
 not make a knowingly unusable current menu truthful. Required roster and
 inventory arguments are narrowed to visible names and the control is absent
-when no such referent exists. The
+when no such referent exists. The current implementation applies that rule to
+focus, held placement, containers, beds, and sleeping-state controls; resident
+`stop` is absent while operator preemption and historical replay remain. The
 generic controller may further restrict the surface for authorization or urgent
 attention, but it does not discover Minecraft objects or mechanics.
 

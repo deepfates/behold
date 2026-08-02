@@ -107,7 +107,13 @@ focus only as nearby. The residents selected those advertised controls and the
 runtime produced a no-op success or ordinary failure. This is an open harness
 defect, not clean evidence of resident conduct. Ticket `beh-1h3a` is reopened,
 and no long habitat epoch should begin until the observation-bound offer surface
-stops advertising visibly unusable controls.
+is exercised in ordinary use. The current implementation removes resident
+`stop` while retaining it for operator preemption and historical replay, omits
+focus-bound controls when no reachable focus exists, requires a held placeable
+item for placement, requires the visible block kind for container and bed
+controls, and limits a sleeping body to communication and waking. Execution
+still revalidates against world drift. Exact counterexample coverage and the
+full repository check pass; deployment-shaped re-exercise remains open.
 
 The complete mature transcript later proved operationally too slow despite
 fitting Qwen's physical context window. `resident-v4` therefore makes the

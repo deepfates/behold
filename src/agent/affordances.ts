@@ -49,6 +49,16 @@ export function minecraftInhabitantActionsFor(
   if (options.bodyProfile && usesHumanSemanticBody(options.bodyProfile)) {
     return specs.flatMap((spec) => {
       const name = spec.function.name;
+      // Resident cognition is serialized with resident-owned bodily action.
+      // `stop` remains an operator preemption command, but at a resident
+      // decision boundary it can only clear an already-idle body.
+      if (name === 'stop') return [];
+      if (
+        frame?.self?.condition?.sleeping === true &&
+        !['chat', 'whisper', 'wake_up'].includes(name)
+      ) {
+        return [];
+      }
       if (name === 'whisper') {
         return Array.isArray(roster) && roster.length > 0
           ? [withExactStringEnum(spec, 'username', roster.map(String))]
@@ -59,14 +69,32 @@ export function minecraftInhabitantActionsFor(
           ? [withExactStringEnum(spec, 'name', consumableNames)]
           : [];
       }
-      if (['drop_item', 'equip_item', 'deposit_in_focused_container'].includes(name)) {
+      if (['drop_item', 'equip_item'].includes(name)) {
         return inventoryNames.length > 0 ? [withExactStringEnum(spec, 'name', inventoryNames)] : [];
+      }
+      if (name === 'deposit_in_focused_container') {
+        return focus && isPlayerContainer(focusName) && inventoryNames.length > 0
+          ? [withExactStringEnum(spec, 'name', inventoryNames)]
+          : [];
       }
       if (name === 'wake_up') {
         return frame?.self?.condition?.sleeping === true ? [spec] : [];
       }
       if (name === 'attack_focused_entity') {
         return currentAttackableEntityFocus(frame) ? [spec] : [];
+      }
+      if (name === 'dig_focused_block' || name === 'use_focused_block') {
+        return focus ? [spec] : [];
+      }
+      if (name === 'place_held_against_focus') {
+        const heldItem = String(frame?.self?.heldItem || '');
+        return focus && heldItem && placementNames.includes(heldItem) ? [spec] : [];
+      }
+      if (name === 'inspect_focused_container' || name === 'withdraw_from_focused_container') {
+        return focus && isPlayerContainer(focusName) ? [spec] : [];
+      }
+      if (name === 'sleep_in_focused_bed') {
+        return focus && focusName.endsWith('_bed') ? [spec] : [];
       }
       return [spec];
     });
@@ -395,6 +423,11 @@ function isPlayerContainer(name: string) {
     name === 'chest' ||
     name === 'trapped_chest' ||
     name === 'barrel' ||
+    name === 'dispenser' ||
+    name === 'dropper' ||
+    name === 'hopper' ||
+    name === 'ender_chest' ||
+    name === 'shulker_box' ||
     name.endsWith('_shulker_box')
   );
 }

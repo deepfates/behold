@@ -40,8 +40,9 @@ minimal operator view and ethogram             ─┘
 
 The final exercise depends on all six capabilities. Authority, growing-history
 ownership, lifecycle recovery, current-profile human/multi-resident
-coexistence, the literal action contract, and the compact operator view are
-crossed. Current-build episode `000015` began as the first declared 25-hour
+coexistence, and the compact operator view are crossed; exact episode `000017`
+reopened literal action-contract truth. Current-build episode `000015` began as
+the first declared 25-hour
 epoch but was deliberately stopped after about eleven minutes: 48 of 54
 resident decisions yielded and six read private history, exposing a
 self-reinforcing harness attractor rather than useful duration pressure:
@@ -65,7 +66,11 @@ turns and stopped cleanly with exact provider bodies retained, but neither
 resident selected null; `beh-wo5b` therefore remains open. The same exact
 requests exposed visibly unusable advertised actions (`stop` with no active
 control and held-block placement with no held item), so literal contract ticket
-`beh-1h3a` is reopened and another long epoch remains premature. Tickets state
+`beh-1h3a` is reopened and another long epoch remains premature. The current
+candidate removes resident `stop`, gates focus/item/container/bed actions on
+their current public prerequisites, preserves operator stop and historical
+replay, and passes the full repository check; ordinary re-exercise remains.
+Tickets state
 observable product behavior; evidence and negative
 conduct belong in their notes. The checkpoints do not grade whether a resident
 survives, builds, socializes, adapts, or makes good decisions. They grade whether

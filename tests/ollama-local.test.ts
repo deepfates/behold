@@ -155,7 +155,11 @@ test('legible-resident v2 exposes one exact action plus two bounded public commi
   const body: any = serialized.body;
 
   assert.equal(Object.hasOwn(body, 'tools'), false);
-  assert.equal(residentRequest.actions.length, 18);
+  assert.equal(residentRequest.actions.length, 17);
+  assert.equal(
+    residentRequest.actions.some((action) => action.name === 'stop'),
+    false,
+  );
   assert.equal(body.format.oneOf.length, residentRequest.actions.length);
   residentRequest.actions.forEach((action, index) => {
     const variant = body.format.oneOf[index];
