@@ -211,6 +211,43 @@ test('served-world verification rejects a changed immutable adoption checkpoint'
   );
 });
 
+test('served-world verification admits an exact installed Place package identity', (t) => {
+  const packageIdentity = `npm:place-compiler@0.1.0-alpha.1#${'a'.repeat(64)}`;
+  const fixture = makeFixture(t, packageIdentity);
+  const established = establishPlaceServedWorldBasis(
+    {
+      sessionRoot: fixture.sessionRoot,
+      authority: fixture.authority,
+      saveEvidence: fixture.saveTerminal,
+    },
+    { assertAuthorityOwnership: () => {} },
+  );
+
+  const verified = verifyPlaceServedWorldBasis(established.descriptor.paths.descriptor);
+  assert.equal(verified.descriptor.origin.placeCompilerRevision, packageIdentity);
+  assert.equal(
+    assertPlaceServedAuthority(verified.descriptor, fixture.authority),
+    fixture.authority,
+  );
+});
+
+test('served-world verification rejects a malformed installed Place package identity', (t) => {
+  const fixture = makeFixture(t, 'npm:place-compiler@0.1.0-alpha.1#not-a-distribution-hash');
+  const established = establishPlaceServedWorldBasis(
+    {
+      sessionRoot: fixture.sessionRoot,
+      authority: fixture.authority,
+      saveEvidence: fixture.saveTerminal,
+    },
+    { assertAuthorityOwnership: () => {} },
+  );
+
+  assert.throws(
+    () => verifyPlaceServedWorldBasis(established.descriptor.paths.descriptor),
+    /Place Compiler identity is invalid/,
+  );
+});
+
 test('served-world head refuses to normalize a failure after population release', (t) => {
   const fixture = makeFixture(t);
   const established = establishPlaceServedWorldBasis(
@@ -521,7 +558,7 @@ test('a clean Place stop can reconcile an unreleased failed-start cleanup race',
   );
 });
 
-function makeFixture(t: test.TestContext) {
+function makeFixture(t: test.TestContext, placeCompilerIdentity = '1'.repeat(40)) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-place-served-world-'));
   t.after(() => {
     makeWritable(root);
@@ -609,11 +646,11 @@ function makeFixture(t: test.TestContext) {
     initialTickEvidence: freezeTerminal,
     identity: Object.freeze({
       protocol: 'place-compiler-serve-control/v1',
-      placeCompilerRevision: '1'.repeat(40),
+      placeCompilerRevision: placeCompilerIdentity,
       ...identity,
     }),
     placeIdentity: identity,
-    placeCompilerRevision: '1'.repeat(40),
+    placeCompilerRevision: placeCompilerIdentity,
     minecraftServerJar: path.join(root, 'fixture-server.jar'),
     transcriptFile,
     exit,

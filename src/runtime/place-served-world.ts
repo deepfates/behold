@@ -249,8 +249,10 @@ export function verifyPlaceServedWorldBasis(
   ) {
     throw new Error('Place served-world descriptor is malformed');
   }
+  if (!isPlaceCompilerIdentity(descriptor.origin.placeCompilerRevision)) {
+    throw new Error('Place Compiler identity is invalid');
+  }
   for (const [label, value] of [
-    ['Place revision', descriptor.origin.placeCompilerRevision],
     ['release manifest', descriptor.origin.sourceReleaseManifestSha256],
     ['source world', descriptor.origin.sourceWorldTreeSha256],
     ['server', descriptor.origin.minecraftServerSha256],
@@ -1193,6 +1195,13 @@ function sha256File(file: string) {
 
 function sha256(value: string) {
   return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function isPlaceCompilerIdentity(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    (/^[a-f0-9]{40}$/.test(value) || /^npm:place-compiler@[^#\s]{1,128}#[a-f0-9]{64}$/.test(value))
+  );
 }
 
 function safeSegment(value: string) {
