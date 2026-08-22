@@ -94,15 +94,18 @@ body, private Lync life, resident configuration, and exact Place package.
 ## What remains before public release
 
 The workshop has now exercised the installed Place path from both the working
-checkout and a fresh clone on the same machine. Both crossed a bounded local
-one-resident start, lens exposure, clean stop, and resume of the same world,
-body, resident revision, and private Lync life. See the
+checkout and a fresh clone on the same machine. The fresh clone also ran the
+tracked OpenRouter configuration against the exact current DeepInfra endpoint.
+It exposed the lens and native server, accepted one neutral chat from an
+automated unmanaged Minecraft client, committed the resident's successful
+reply and one later world-drift failure as two truthful Lync turns, stopped,
+and resumed the same world, body, route, and two-turn private life. See the
 [local installed-package receipt](reports/2026-08-22-first-life-local-installed-resume.md).
-That exercise used a private LM Studio configuration, not the tracked
-OpenRouter example above, so it is not an outsider clean-room receipt. A small
-qualified release still needs a durable public download coordinate, and a new
-person or independent machine must run the tracked route (or an explicitly
-revised public route). Passing that remaining candidate will prove an
-outsider-runnable First Life alpha; it will not prove the separate repeated
-multi-day habitat telos, resident competence, model quality, native-human entry,
-or cross-platform support.
+The OpenRouter exercise used a real workshop credential but the same physical
+workstation and private qualified release, so it is not an outsider clean-room
+receipt or native-human evidence. A small qualified release still needs a
+durable public download coordinate, and a new person or independent machine
+must run it. Passing that remaining candidate will prove an outsider-runnable
+First Life alpha; it will not prove the separate repeated multi-day habitat
+telos, resident competence, model quality, native-human entry, or cross-platform
+support.

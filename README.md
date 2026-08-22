@@ -25,7 +25,11 @@ The First Life vertical slice now crosses its bounded living-Place acceptance,
 but the broader product is not a finished living-world treatment. For a new
 checkout, start with the
 [First Life clean-checkout candidate](docs/FIRST_LIFE_QUICKSTART.md). It names
-the exact external inputs and nonclaims. The older
+the exact external inputs and nonclaims. That candidate has now run from a
+fresh clone through the tracked OpenRouter route, one Minecraft-authoritative
+chat consequence, clean stop, and resume of the same two-turn private life on
+this workstation. Its qualified Place remains private and no independent
+person or machine has repeated it, so it is not yet a public release. The older
 [First Life operator entry](docs/FIRST_LIFE_OPERATOR.md) remains a path into one
 locally preserved historical world, not a portable starter release.
 `behold live` now composes an accepted Place release, persistent named lives,

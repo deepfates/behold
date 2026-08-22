@@ -159,12 +159,75 @@ revisions even though installed mode deliberately persists
 exact identity forms and rejects malformed package identities. The same partial
 session then recovered successfully rather than being discarded.
 
+## Tracked OpenRouter route
+
+The disposable clone later advanced to Behold
+`b5cb30c49087095bd2ed637dcbaa5983de5aed5c`, kept the same independently
+installed Place package and private Oxford release, and ran the tracked
+`examples/first-life.residents.json` through a real workshop OpenRouter
+credential. The first attempt had failed honestly at the provider: the then
+tracked `deepinfra/fp4` tag no longer named an endpoint for
+`deepseek/deepseek-v4-flash`. All twelve configured attempts returned HTTP 404,
+Minecraft still saved and stopped, and no provider tokens or resident turns
+were claimed. The compact negative evidence is retained privately at
+`/Users/deepfates/Hacking/data/artifacts/behold/first-life-openrouter-clean-clone-20260822/stale-fp4-negative-evidence.tar.gz`,
+SHA-256
+`6416256b714924e96c13a886cec77b5a97bcaf66bf290062ddcaa032cb6e8146`.
+
+OpenRouter's current
+[endpoint inventory](https://openrouter.ai/api/v1/models/deepseek/deepseek-v4-flash/endpoints)
+identified DeepInfra as `deepinfra/fp8`. The tracked configuration and reference were revised without
+changing the model, returned-provider requirement, no-fallback policy, strict
+JSON contract, disabled reasoning, ZDR requirement, or denied data collection.
+Episodes `000001` and `000002` then each reached the exact returned model and
+provider and stopped cleanly, but the resident chose null from the unchanged
+quiet scene. Because `resident-v2` does not fabricate action turns for null
+intention, the same Lync loom correctly remained at depth zero.
+
+Episode `000003` retained exact private provider bodies and ran for 130 seconds.
+Two further quiet-scene decisions were null. An automated unmanaged Minecraft
+client named `CleanRoomVisitor` then joined the ordinary native server, asked
+“Hello FirstResident — what do you notice here?”, and left. The resident
+witnessed that join and chat, chose a terrain-grounded reply, and Minecraft
+recorded the reply. Its immediate continuation proposed another similar reply,
+but the visitor had left before execution; Behold revalidated the world and
+returned `no_other_players_online`. The resident then chose null. Those two
+attempts became the first two canonical turns in loom
+`lync:01a02a32-67f7-7ac5-80b1-ff04e7351a80`, 66,304 bytes, chain digest
+`94c49e4e...40b88`. Five settled provider calls used 7,631 tokens and cost
+$0.000531342. The episode stopped with world digest
+`2d89bba3...25d10`.
+
+Episode `000004` resumed without `--residents`, reopened that exact world, body
+position, route, loom, and two prior turns, made two further settled null
+decisions, and stopped with the same 66,304-byte Lync prefix and world digest
+`ca8ac926...90e84`. Across all four successful-route episodes, nine settled
+calls used 13,836 tokens and cost $0.000945936. Every viewer closed, Place saved
+and stopped, and the Minecraft/viewer ports cleared.
+
+The complete 497 MB private session, including episode `000003`'s exact model
+bodies, is retained at
+`/Users/deepfates/Hacking/data/artifacts/behold/first-life-openrouter-clean-clone-20260822/clean-clone-openrouter-first-life-fp8.session.tar.gz`,
+SHA-256
+`2dbe498da314655547894e11a0551692990e57b7360461849808c5e76e4348e9`.
+No credential is stored in the archive.
+
+The stale route also falsified the original preflight treatment: credential
+presence could not establish provider availability. Behold
+`11e21a521db1145d0c7cdb82d906206f4ff48776` now queries the exact OpenRouter
+model endpoint inventory before Place authority, requires the configured tag,
+returned provider, and healthy status, and still makes no inference or state
+write. The disposable clone exercised that gate against `deepinfra/fp8`; its
+prospective session remained absent.
+
 ## Remaining boundary
 
 The mechanics required by the clean-checkout candidate have now been exercised
-locally from both the working checkout and a fresh clone, including installed
-Place identity and stop/resume continuity. The public claim remains open until
-a small qualified release has a durable public coordinate and another person
-or independent machine runs the tracked
-`examples/first-life.residents.json` route (or an explicitly revised public
-route). This result does not close the repeated multi-day habitat telos.
+locally from both the working checkout and a fresh clone, including the tracked
+remote-provider route, installed Place identity, one Minecraft-authoritative
+social consequence, private continuity, and stop/resume. This does not count as
+an outsider or native-human exercise: the clone, credential, private qualified
+release, and automated visitor were all on the same workshop machine. The
+public claim remains open until a small qualified release has a durable public
+coordinate and another person or independent machine runs it. This result does
+not close the repeated multi-day habitat telos.
