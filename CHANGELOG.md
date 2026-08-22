@@ -15,6 +15,8 @@ All notable changes to this project will be documented in this file.
   public qualified starter release remain pending.
 - Accepted both legacy Git and exact installed-package Place Compiler identities
   in persistent world verification, so installed sessions resume fail-closed.
+- Updated compatible transitive parser dependencies so a clean source install
+  reports no high- or critical-severity npm advisories.
 - Reconciled package metadata with the tracked Apache-2.0 license and Node.js
   22.13 engine floor.
 
