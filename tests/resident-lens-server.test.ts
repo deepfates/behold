@@ -105,7 +105,7 @@ test('resident lens server follows journals over GET and SSE and closes its list
     const stream = await fetch(`${server.endpoint}/api/events`);
     assert.equal(stream.headers.get('content-type'), 'text/event-stream; charset=utf-8');
     const reader = stream.body!.getReader();
-    await reader.read(); // initial snapshot
+    await readSseUntil(reader, (event) => event.name === 'residents');
 
     fs.appendFileSync(
       journal,
@@ -121,9 +121,12 @@ test('resident lens server follows journals over GET and SSE and closes its list
       );
       return views[0].state.phase === 'deciding';
     });
-    const update = new TextDecoder().decode((await reader.read()).value);
-    assert.match(update, /event: residents/);
-    assert.match(update, /"phase":"deciding"/);
+    const update = await readSseUntil(
+      reader,
+      (event) => event.name === 'residents' && event.data.includes('"phase":"deciding"'),
+    );
+    assert.equal(update.name, 'residents');
+    assert.match(update.data, /"phase":"deciding"/);
     await reader.cancel();
 
     const rejected = await fetch(`${server.endpoint}/api/residents`, { method: 'POST' });
@@ -304,6 +307,31 @@ async function waitFor(predicate: () => Promise<boolean>) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error('timed out waiting for resident lens update');
+}
+
+async function readSseUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  predicate: (event: { name: string; data: string }) => boolean,
+) {
+  const decoder = new TextDecoder();
+  let pending = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) throw new Error('resident lens SSE closed before the expected event');
+    pending += decoder.decode(value, { stream: true });
+    const frames = pending.split(/\r?\n\r?\n/);
+    pending = frames.pop() ?? '';
+    for (const frame of frames) {
+      let name = 'message';
+      const data: string[] = [];
+      for (const field of frame.split(/\r?\n/)) {
+        if (field.startsWith('event:')) name = field.slice('event:'.length).trimStart();
+        if (field.startsWith('data:')) data.push(field.slice('data:'.length).trimStart());
+      }
+      const event = { name, data: data.join('\n') };
+      if (predicate(event)) return event;
+    }
+  }
 }
 
 function cameraBot(username: string) {
