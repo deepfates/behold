@@ -231,3 +231,29 @@ release, and automated visitor were all on the same workshop machine. The
 public claim remains open until a small qualified release has a durable public
 coordinate and another person or independent machine runs it. This result does
 not close the repeated multi-day habitat telos.
+
+## Deterministic-entry starter repetition
+
+A later fresh-clone repetition used the no-raw-input Oxford starter qualified
+under Place Compiler entry qualification v2. That policy fixes the world spawn
+and sets Minecraft's spawn radius to zero, preventing the random rooftop entry
+observed during adversarial requalification. Behold commit `091e20d` admits the
+versioned v2 proof without weakening the remaining release checks.
+
+The first real resident run crossed start, Minecraft consequence, clean stop,
+and resume with the same world and Lync life. It also exposed a product defect:
+one visitor interaction could provoke an extra reply merely because the
+resident's own chat action completed. Commit `fc69028` ends that decision
+sequence when no new meaningful world event has arrived.
+
+The ordinary 90-second repetition at `fc69028` used an unmanaged Minecraft
+client named `SocialVisitor`, which asked, “FirstResident, what do you see?”
+FirstResident answered once: “I see you, SocialVisitor, standing on polished
+andesite near end stone bricks and glass.” Minecraft recorded exactly one
+resident chat. The resident made no further chat attempt after its own action
+completed. Three provider decisions settled, using 4,271 tokens and
+$0.000259956. Place saved and stopped cleanly.
+
+This is evidence that the local vertical slice now behaves coherently for one
+brief encounter. The visitor was automated and everything still ran on the
+workshop machine; it is not independent-human or public-release evidence.

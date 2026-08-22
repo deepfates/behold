@@ -26,10 +26,13 @@ but the broader product is not a finished living-world treatment. For a new
 checkout, start with the
 [First Life clean-checkout candidate](docs/FIRST_LIFE_QUICKSTART.md). It names
 the exact external inputs and nonclaims. That candidate has now run from a
-fresh clone through the tracked OpenRouter route, one Minecraft-authoritative
-chat consequence, clean stop, and resume of the same two-turn private life on
-this workstation. Its qualified Place remains private and no independent
-person or machine has repeated it, so it is not yet a public release. The older
+fresh clone against the deterministic-entry Oxford starter through the tracked
+OpenRouter route. A Minecraft visitor asked what the resident saw; the resident
+gave one terrain-grounded answer and did not turn its own completed chat into a
+reply chain. Separate episodes stopped cleanly and resumed the same private life
+on this workstation. The qualified Place remains private and no independent
+person or machine has repeated it, so this is a working local vertical slice,
+not yet a public release. The older
 [First Life operator entry](docs/FIRST_LIFE_OPERATOR.md) remains a path into one
 locally preserved historical world, not a portable starter release.
 `behold live` now composes an accepted Place release, persistent named lives,
