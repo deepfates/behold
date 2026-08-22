@@ -1,13 +1,13 @@
 {
   "name": "behold",
   "version": "0.1.0-alpha.0",
-  "description": "Minecraft bot using Mineflayer with OpenRouter chat replies",
+  "description": "Persistent Minecraft habitats for independently minded residents",
   "private": true,
   "main": "src/index.js",
   "bin": {
     "behold": "dist/src/cli/main.js"
   },
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "scripts": {
     "build": "node scripts/patch-prismarine-viewer.js && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "start": "npm run build && node dist/src/tui/repl.js",

@@ -8,7 +8,7 @@ clean-room exercise, not a repository-only public demo.
 
 ## Required inputs
 
-- a clean Behold checkout at a named commit, Node.js 22.12 or newer, and `npm ci`;
+- a clean Behold checkout at a named commit, Node.js 22.13 or newer, and `npm ci`;
 - a physical Place Compiler tarball installed outside its source checkout;
 - one schema-v3 Place release whose `living-entry` status is `qualified`;
 - the pinned Minecraft 1.21.4 server JAR created by `npm run server:jar`; and

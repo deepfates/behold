@@ -2,11 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Reframed the product around persistent Minecraft habitats, truthful resident
+  embodiment, private continuing Lync lives, and clean stop/resume.
+- Added `behold live` composition with exact Place Compiler package pinning,
+  qualified living-entry admission, resident lens controls, and retained episode
+  evidence.
+- Added a read-only First Life clean-checkout preflight and one tracked
+  semantic-only resident example. The exact start/stop/resume walkthrough and a
+  public qualified starter release remain pending.
+- Reconciled package metadata with the tracked Apache-2.0 license and Node.js
+  22.13 engine floor.
+
 ## 0.1.0-alpha.0 — 2025-10-14
 
 Initial alpha of the plug‑and‑play agent library.
 
 Highlights
+
 - Interpreter: spec‑first command registry over Mineflayer (chat/look/move/dig/place/inventory/sense).
 - Tools: `list_commands`, `describe_command`, `run_command` to discover and execute commands.
 - JSONL stdio harness: machine‑friendly observe → call → result loop.
@@ -16,7 +30,7 @@ Highlights
 - Docs: README/PRD updated to unified design; user stories refreshed.
 
 Known limitations
+
 - Console: no tab completion or `@nearest/#idx` tokens yet; confirmations and watch mode pending.
 - Policy: simple anti‑repeat; limited context; minimal safety heuristics.
 - LLM errors are logged, but backoff is basic. Viewer is optional and not required.
-

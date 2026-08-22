@@ -516,7 +516,7 @@ Key files
 
 Prerequisites
 
-- Node.js 22.12 or newer (the package engine floor)
+- Node.js 22.13 or newer (the package engine floor)
 - `npm ci` installs the tracked Lync 0.4.2 release-candidate artifact under
   `vendor/`. It is built from clean owning revision `0ec1b37`; this temporary
   pin keeps the repaired canonical writer reproducible without publishing it.
