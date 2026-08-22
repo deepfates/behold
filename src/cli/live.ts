@@ -128,6 +128,7 @@ export async function runLiveCli(argv: string[]) {
       ? minecraftUsername(parsed.values['native-player'], '--native-player')
       : null;
     assertLiveResidentAdmission(residents, nativePlayer);
+    const openRouterCognition = await preflightLiveOpenRouterCognition(residents);
     const localCognition = await preflightLiveLocalCognition(residents, parsed.values);
     const placeCompiler = livePlaceCompilerSelection(parsed.values, repositoryRoot, null);
     const admittedPort = optionalInteger(parsed.values.port, '--port', 1024, 65535) ?? 25565;
@@ -171,10 +172,16 @@ export async function runLiveCli(argv: string[]) {
             ollama: localCognition.ollamaPreflight ? 'verified' : 'not_configured',
             lmStudio: localCognition.lmStudioPreflight ? 'verified' : 'not_configured',
           },
+          providerCognition: {
+            openRouter:
+              openRouterCognition.models.length > 0
+                ? { status: 'inventory_verified', models: openRouterCognition.models }
+                : { status: 'not_configured', models: [] },
+          },
           stateRoot,
           sessionId,
           notExercised: [
-            'provider connectivity or inference',
+            'provider inference',
             'local model loading',
             'Minecraft start or entry',
             'resident cognition',
@@ -241,6 +248,7 @@ export async function runLiveCli(argv: string[]) {
     ? minecraftUsername(parsed.values['native-player'], '--native-player')
     : null;
   assertLiveResidentAdmission(residents, nativePlayer);
+  await preflightLiveOpenRouterCognition(residents);
   if (sessionEntry === 'first_start_retry' && parsed.values.recover === true) {
     throw new Error(
       'live session has no managed epoch to recover; retry normally without --recover',
@@ -1770,7 +1778,7 @@ export function liveUsage() {
     '  --history ID                    One unused child in that receipt for a fresh session',
     '  --change-minds                 Explicitly revise cognition for the same lives; resident-v2/v3/v4 share one uncoached charter',
     '  --recover                      Release an exact abandoned stopped epoch without starting Place',
-    '  --preflight                    Verify clean checkout, inputs, package, release, and JAR without writes',
+    '  --preflight                    Verify checkout, inputs, provider routes, package, release, and JAR without writes',
     '',
     'Residents keep their declared human-semantic body, charter, model transport, and durable',
     'attempt ceilings. The ceiling is safety/resource governance, not a fairness claim.',
@@ -1892,6 +1900,103 @@ async function preflightLiveLocalCognition(
         })
       : null;
   return Object.freeze({ ollamaPreflight, lmStudioPreflight });
+}
+
+export async function preflightLiveOpenRouterCognition(
+  residents: ReturnType<typeof loadManagedResidentSet>,
+  dependencies: {
+    apiKey?: string;
+    requestFetch?: typeof fetch;
+  } = {},
+) {
+  const remoteResidents = residents.filter(
+    (resident) =>
+      resident.paused !== true && resident.ollamaLocal == null && resident.lmStudioLocal == null,
+  );
+  if (remoteResidents.length === 0) {
+    return deepFreeze({ models: [] as readonly unknown[] });
+  }
+  const apiKey = String(dependencies.apiKey ?? process.env.OPENROUTER_API_KEY ?? '').trim();
+  if (!apiKey) throw new Error('OpenRouter route preflight requires OPENROUTER_API_KEY');
+  const requestFetch = dependencies.requestFetch ?? fetch;
+  const models = new Map<
+    string,
+    Array<Readonly<{ requestTag: string; responseProvider: string }>>
+  >();
+  for (const resident of remoteResidents) {
+    if (!resident.providerRoute || !('routes' in resident.providerRoute)) {
+      throw new Error(`OpenRouter resident ${resident.entityId} requires exact endpoint routes`);
+    }
+    const routes = models.get(resident.model) ?? [];
+    for (const route of resident.providerRoute.routes) {
+      if (
+        !routes.some(
+          (candidate) =>
+            candidate.requestTag === route.requestTag &&
+            candidate.responseProvider === route.responseProvider,
+        )
+      ) {
+        routes.push(route);
+      }
+    }
+    models.set(resident.model, routes);
+  }
+
+  const admittedModels = [];
+  for (const [model, routes] of [...models.entries()].sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    const modelPath = model.split('/').map(encodeURIComponent).join('/');
+    let response: Response;
+    try {
+      response = await requestFetch(`https://openrouter.ai/api/v1/models/${modelPath}/endpoints`, {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (error: any) {
+      throw new Error(
+        `OpenRouter endpoint inventory is unreachable for ${model}: ${error?.message || String(error)}`,
+      );
+    }
+    if (!response.ok) {
+      throw new Error(
+        `OpenRouter endpoint inventory rejected ${model} with HTTP ${response.status}`,
+      );
+    }
+    let document: any;
+    try {
+      document = await response.json();
+    } catch {
+      throw new Error(`OpenRouter endpoint inventory returned invalid JSON for ${model}`);
+    }
+    if (document?.data?.id !== model || !Array.isArray(document?.data?.endpoints)) {
+      throw new Error(`OpenRouter endpoint inventory identity is invalid for ${model}`);
+    }
+    const admittedRoutes = routes.map((route) => {
+      const endpoint = document.data.endpoints.find(
+        (candidate: any) =>
+          candidate?.tag === route.requestTag &&
+          candidate?.provider_name === route.responseProvider,
+      );
+      if (!endpoint) {
+        throw new Error(
+          `OpenRouter has no ${route.responseProvider} endpoint ${route.requestTag} for ${model}`,
+        );
+      }
+      if (endpoint.status !== 0) {
+        throw new Error(
+          `OpenRouter endpoint ${route.requestTag} for ${model} is not currently healthy`,
+        );
+      }
+      return Object.freeze({
+        requestTag: route.requestTag,
+        responseProvider: route.responseProvider,
+        status: 'healthy' as const,
+      });
+    });
+    admittedModels.push(Object.freeze({ model, routes: Object.freeze(admittedRoutes) }));
+  }
+  return deepFreeze({ models: admittedModels });
 }
 
 export function selectLiveHistorySeed(input: {

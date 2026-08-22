@@ -63,11 +63,11 @@ npm run live -- /absolute/path/to/qualified-release \
   --place-compiler-distribution-sha256 <distributionSha256-from-version-json>
 ```
 
-Preflight verifies the clean Behold commit, resident configuration and
-credential presence, exact installed Place package, current release integrity,
-living-entry qualification, and server JAR without creating session state. It
-does not contact the model provider, load a local model, start Minecraft, or
-make a resident decision.
+Preflight verifies the clean Behold commit, resident configuration and exact
+current OpenRouter model/provider endpoint inventory, exact installed Place
+package, current release integrity, living-entry qualification, and server JAR
+without creating session state. It does not make a provider inference, load a
+local model, start Minecraft, or make a resident decision.
 
 ## Start, watch, stop, and resume
 

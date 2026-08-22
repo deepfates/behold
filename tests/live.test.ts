@@ -14,6 +14,7 @@ import {
   liveEpisodeAccountingScope,
   liveResumeInstruction,
   nativeHumanJoinInstruction,
+  preflightLiveOpenRouterCognition,
   preserveResidentLyncFiles,
   preservePlaceServerLog,
   preserveTextileImport,
@@ -247,6 +248,93 @@ test('live mind revision preserves resident identity, body, charter, cadence, an
       /may change only model/,
     );
   }
+});
+
+test('live admits the exact healthy OpenRouter endpoint before world authority', async () => {
+  let requestedUrl = '';
+  let authorization = '';
+  const result = await preflightLiveOpenRouterCognition(
+    [
+      {
+        entityId: 'FirstResident',
+        model: 'deepseek/deepseek-v4-flash',
+        paused: false,
+        ollamaLocal: null,
+        lmStudioLocal: null,
+        providerRoute: {
+          protocol: 'behold.openrouter-route-policy.v4',
+          routes: [{ requestTag: 'deepinfra/fp8', responseProvider: 'DeepInfra' }],
+        },
+      },
+    ] as any,
+    {
+      apiKey: 'fixture-key',
+      requestFetch: async (input, init) => {
+        requestedUrl = String(input);
+        authorization = String((init?.headers as Record<string, string>).Authorization);
+        return new Response(
+          JSON.stringify({
+            data: {
+              id: 'deepseek/deepseek-v4-flash',
+              endpoints: [{ provider_name: 'DeepInfra', tag: 'deepinfra/fp8', status: 0 }],
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    },
+  );
+  assert.equal(
+    requestedUrl,
+    'https://openrouter.ai/api/v1/models/deepseek/deepseek-v4-flash/endpoints',
+  );
+  assert.equal(authorization, 'Bearer fixture-key');
+  assert.deepEqual(result.models, [
+    {
+      model: 'deepseek/deepseek-v4-flash',
+      routes: [
+        {
+          requestTag: 'deepinfra/fp8',
+          responseProvider: 'DeepInfra',
+          status: 'healthy',
+        },
+      ],
+    },
+  ]);
+});
+
+test('live refuses a stale OpenRouter endpoint before world authority', async () => {
+  await assert.rejects(
+    preflightLiveOpenRouterCognition(
+      [
+        {
+          entityId: 'FirstResident',
+          model: 'deepseek/deepseek-v4-flash',
+          paused: false,
+          ollamaLocal: null,
+          lmStudioLocal: null,
+          providerRoute: {
+            protocol: 'behold.openrouter-route-policy.v4',
+            routes: [{ requestTag: 'deepinfra/fp4', responseProvider: 'DeepInfra' }],
+          },
+        },
+      ] as any,
+      {
+        apiKey: 'fixture-key',
+        requestFetch: async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                id: 'deepseek/deepseek-v4-flash',
+                endpoints: [{ provider_name: 'DeepInfra', tag: 'deepinfra/fp8', status: 0 }],
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+      },
+    ),
+    /no DeepInfra endpoint deepinfra\/fp4/,
+  );
 });
 
 test('live resident configuration is self-contained after the session is created', () => {
