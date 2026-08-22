@@ -10,8 +10,11 @@ All notable changes to this project will be documented in this file.
   qualified living-entry admission, resident lens controls, and retained episode
   evidence.
 - Added a read-only First Life clean-checkout preflight and one tracked
-  semantic-only resident example. The exact start/stop/resume walkthrough and a
+  semantic-only resident example. The installed-package start/stop/resume path
+  is exercised with a private local model; the tracked outsider route and a
   public qualified starter release remain pending.
+- Accepted both legacy Git and exact installed-package Place Compiler identities
+  in persistent world verification, so installed sessions resume fail-closed.
 - Reconciled package metadata with the tracked Apache-2.0 license and Node.js
   22.13 engine floor.
 
