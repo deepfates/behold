@@ -36,6 +36,28 @@ test('Place served-release preflight proves admission without creating runtime s
   assert.equal(fs.existsSync(fixture.runtimeRoot), false);
 });
 
+test('Place served-release preflight admits deterministic entry qualification v2', (t) => {
+  const fixture = makePlaceServeFixture(t);
+  const { transcriptFile: _transcriptFile, ...input } = fixture.input;
+  const evidence = preflightFrozenPlaceServeAuthority(input, {
+    ...fixture.dependencies,
+    verifyRelease: () => ({
+      status: 'verified',
+      releaseEligible: true,
+      schemaVersion: 3,
+      sourceWorldTreeSha256: fixture.worldTreeSha256,
+      entryQualification: {
+        protocol: 'place-compiler-entry-qualification/v2',
+        status: 'qualified',
+        scope: 'living-entry',
+      },
+    }),
+  });
+  assert.equal(evidence.entryQualification.protocol, 'place-compiler-entry-qualification/v2');
+  assert.equal(fs.existsSync(fixture.transcriptFile), false);
+  assert.equal(fs.existsSync(fixture.runtimeRoot), false);
+});
+
 test('Place served-release preflight rejects identity drift without durable state', (t) => {
   const fixture = makePlaceServeFixture(t);
   const { transcriptFile: _transcriptFile, ...input } = fixture.input;

@@ -91,7 +91,7 @@ export type FrozenPlaceServePreflight = Readonly<{
   sourceWorldTreeSha256: string;
   minecraftServerSha256: string;
   entryQualification: Readonly<{
-    protocol: 'place-compiler-entry-qualification/v1';
+    protocol: 'place-compiler-entry-qualification/v1' | 'place-compiler-entry-qualification/v2';
     status: 'qualified';
     scope: 'living-entry';
   }>;
@@ -378,8 +378,12 @@ function inspectFrozenPlaceServeInput(
     );
   }
   const entryQualification = verification.entryQualification;
+  const supportedEntryQualificationProtocols = new Set([
+    'place-compiler-entry-qualification/v1',
+    'place-compiler-entry-qualification/v2',
+  ]);
   if (
-    entryQualification?.protocol !== 'place-compiler-entry-qualification/v1' ||
+    !supportedEntryQualificationProtocols.has(entryQualification?.protocol) ||
     entryQualification?.status !== 'qualified' ||
     entryQualification?.scope !== 'living-entry'
   ) {
