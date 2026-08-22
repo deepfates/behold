@@ -100,6 +100,54 @@ additional call, not an upstream LM Studio failure. Every admitted attempt was
 settled. After each episode, Place saved and stopped, the resident viewer and
 Minecraft ports closed, and the LM Studio model unloaded.
 
+## Fresh-clone adversarial repetition
+
+The same user story was then repeated from a new disposable Git clone at
+Behold commit `8aaa74851a8564889793c76bc0bf5398ccf9fbf6`. The clone began with no
+dependencies, server JAR, runtime, world, session, or resident life. In that
+clone the operator:
+
+1. ran `npm ci`;
+2. ran `npm run server:jar`, which downloaded and verified a new local copy of
+   the pinned 1.21.4 server;
+3. installed a newly packed Place Compiler tarball into a separate prefix;
+4. passed `behold live --preflight` without creating the prospective session;
+5. started episode `000001` through the same ordinary `behold live` interface;
+6. stopped cleanly; and
+7. resumed episode `000002` without supplying `--residents` again.
+
+The repetition used Node `v26.7.0`, satisfying but differing from the documented
+Node 22.13 floor. It still used the same private qualified release and private
+LM Studio configuration on the same physical workstation, so it is a fresh
+checkout exercise rather than an independent machine or person.
+
+Both episodes used world
+`oxford-7f3f3699f76cba143f9d6c30a074c3a7d13d02f49c476da4d1666924f17593e8`
+and Lync loom `lync:01a02a1e-c6ff-7f52-b50c-b560f01f288c`. Episode `000001`
+ended at depth 2, 62,643 bytes, and terminal world digest
+`a9560fcb18d5e8282dad93e8b6ad28c5925b4d32b841f57b2d86ebbe1c2ed76d`.
+Resume reopened the body at its prior saved position with two prior life events
+and advanced the same life to depth 5, 157,505 bytes. Episode `000002` stopped
+with terminal world digest
+`004c5440da8954db04f554ee7ea7988d0a0ec6e4b0a0ba7e7e3fcb0b3c54db21`.
+Every admitted cognition attempt settled, both viewers closed, Place saved and
+stopped, and the local model unloaded.
+
+The exact disposable session was retained as:
+
+- archive:
+  `/Users/deepfates/Hacking/data/artifacts/behold/first-life-clean-clone-20260822/clean-clone-first-life.session.tar.gz`
+- archive SHA-256:
+  `3c1d6713bce25d4f725ddccb4706d5fd403779ca16d0993f3d1dbb41b9b9c879`
+
+The clean install also exposed one high-severity production Socket.IO parser
+advisory in the resident viewer path and three high-severity development-tool
+advisories. Compatible transitive updates now leave the complete source install
+with six moderate upstream Minecraft authentication-chain advisories and no
+high or critical findings. Those remaining reports are not represented as
+fixed; npm's suggested resolution is an inapplicable downgrade to Mineflayer
+1.4.0.
+
 ## Preceding negative evidence
 
 This exercise was reached by preserving and retrying two useful failures. The
@@ -114,8 +162,9 @@ session then recovered successfully rather than being discarded.
 ## Remaining boundary
 
 The mechanics required by the clean-checkout candidate have now been exercised
-locally, including installed Place identity and stop/resume continuity. The
-public claim remains open until a small qualified release has a durable public
-coordinate and another person or clean machine runs the tracked
+locally from both the working checkout and a fresh clone, including installed
+Place identity and stop/resume continuity. The public claim remains open until
+a small qualified release has a durable public coordinate and another person
+or independent machine runs the tracked
 `examples/first-life.residents.json` route (or an explicitly revised public
 route). This result does not close the repeated multi-day habitat telos.

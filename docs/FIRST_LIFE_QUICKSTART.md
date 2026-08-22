@@ -93,15 +93,16 @@ body, private Lync life, resident configuration, and exact Place package.
 
 ## What remains before public release
 
-The workshop has now exercised the installed Place path through a bounded local
+The workshop has now exercised the installed Place path from both the working
+checkout and a fresh clone on the same machine. Both crossed a bounded local
 one-resident start, lens exposure, clean stop, and resume of the same world,
 body, resident revision, and private Lync life. See the
 [local installed-package receipt](reports/2026-08-22-first-life-local-installed-resume.md).
 That exercise used a private LM Studio configuration, not the tracked
 OpenRouter example above, so it is not an outsider clean-room receipt. A small
 qualified release still needs a durable public download coordinate, and a new
-person or clean machine must run the tracked route (or an explicitly revised
-public route). Passing that remaining candidate will prove an outsider-runnable
-First Life alpha; it will not prove the separate repeated multi-day habitat
-telos, resident competence, model quality, native-human entry, or cross-platform
-support.
+person or independent machine must run the tracked route (or an explicitly
+revised public route). Passing that remaining candidate will prove an
+outsider-runnable First Life alpha; it will not prove the separate repeated
+multi-day habitat telos, resident competence, model quality, native-human entry,
+or cross-platform support.
