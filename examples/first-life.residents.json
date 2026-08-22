@@ -21,7 +21,7 @@
         "protocol": "behold.openrouter-route-policy.v4",
         "routes": [
           {
-            "requestTag": "deepinfra/fp4",
+            "requestTag": "deepinfra/fp8",
             "responseProvider": "DeepInfra"
           }
         ],

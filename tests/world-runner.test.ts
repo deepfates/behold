@@ -329,6 +329,9 @@ test('the tracked First Life example is one uncoached exact-route resident', () 
     auxiliaryContextAttempts: 1,
   });
   assert.equal(residents[0].providerRoute?.protocol, 'behold.openrouter-route-policy.v4');
+  assert.deepEqual(residents[0].providerRoute?.routes, [
+    { requestTag: 'deepinfra/fp8', responseProvider: 'DeepInfra' },
+  ]);
   assert.equal(residents[0].providerRoute?.allowFallbacks, false);
 });
 

@@ -67,7 +67,7 @@ are distinct OpenRouter identities and both must be declared exactly:
 ```json
 {
   "protocol": "behold.openrouter-route-policy.v4",
-  "routes": [{ "requestTag": "deepinfra/fp4", "responseProvider": "DeepInfra" }],
+  "routes": [{ "requestTag": "deepinfra/fp8", "responseProvider": "DeepInfra" }],
   "allowFallbacks": false,
   "maxOutputTokens": 512,
   "residentDecisionFormat": "strict_json",
