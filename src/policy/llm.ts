@@ -1953,6 +1953,20 @@ export function startLLMPolicy(environment: InhabitantInterface, opts: Options) 
       // derived projections. Settlement samples never become conversation.
       appendWorldUpdate(observe(), `World after ${finished.intent.tool}`);
       clearQueuedWake();
+      if (
+        usesMinimalResidentChoice(policyProfile) &&
+        ['chat', 'whisper'].includes(finished.intent.tool) &&
+        !hasMaterialDecisionRelevantEvent(
+          nextObservation,
+          Number(finished.draft.observation?.sequence) || 0,
+        )
+      ) {
+        // Speaking settles one social response. Do not ask the resident to
+        // speak again merely because its own chat completion became visible;
+        // a new addressed message or other material world event can wake it.
+        turnActive = false;
+        turnSteps = 0;
+      }
       if (settlement && settlement.status !== 'settled') {
         turnActive = false;
         turnSteps = 0;

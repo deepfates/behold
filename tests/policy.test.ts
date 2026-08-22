@@ -5860,6 +5860,77 @@ test('legible resident may repeat social and camera choices without controller s
   }
 });
 
+test('resident-v2 does not turn one social response into an unprompted chat chain', async () => {
+  const requests: ResidentMindRequest[] = [];
+  const enqueued: any[] = [];
+  let sequence = 1;
+  const policy = startLLMPolicy(
+    {
+      entityId: 'Scout',
+      actions: [tool('chat')],
+      attempt: (intent) => {
+        enqueued.push(intent);
+        return true;
+      },
+      observe: (sinceSequence = 0) => ({
+        ...experience(sequence, null, sinceSequence),
+        events:
+          sequence === 1
+            ? experience(sequence, null, sinceSequence).events
+            : [
+                {
+                  sequence,
+                  type: 'action_completed',
+                  isNew: sequence > sinceSequence,
+                  source: 'event',
+                  salience: 'normal',
+                  data: { intent: { tool: 'chat' } },
+                },
+              ],
+      }),
+    },
+    {
+      apiKey: 'unused',
+      model: 'test/model',
+      policyProfile: 'resident-v2',
+      bodyProfile: 'minecraft-human-semantic-v1',
+      actionProfile: 'minecraft-human-semantic-v1',
+      safetyProfile: 'vanilla-player-v1',
+      acceptEngineEvent: () => true,
+      mind: {
+        id: 'single-social-response',
+        decide: async (request) => {
+          requests.push(request);
+          return {
+            protocol: 'behold.mind-decision.v1',
+            disposition: 'act',
+            utterance: null,
+            action: { name: 'chat', input: { text: 'One response.' } },
+            call: modelCallEvidence('single-social-response'),
+          };
+        },
+      },
+    },
+  );
+
+  try {
+    await policy.tick();
+    await until(() => enqueued.length === 1);
+    sequence = 2;
+    await policy.onEngineEvent({
+      type: 'action_completed',
+      at: 20,
+      data: { intent: enqueued[0], result: { ok: true } },
+    });
+    await until(() => policy.state().turnActive === false);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(requests.length, 1);
+    assert.equal(enqueued.length, 1);
+  } finally {
+    await policy.stop();
+  }
+});
+
 test('project bookkeeping cannot repeatedly replace world action without new lived evidence', async () => {
   const originalFetch = globalThis.fetch;
 
