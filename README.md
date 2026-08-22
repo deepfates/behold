@@ -22,7 +22,12 @@ changes remain Minecraft-authoritative and resident/world histories remain
 portable Lync that can be inspected with tools such as Textile.
 
 The First Life vertical slice now crosses its bounded living-Place acceptance,
-but the broader product is not a finished living-world treatment.
+but the broader product is not a finished living-world treatment. For a new
+checkout, start with the
+[First Life clean-checkout candidate](docs/FIRST_LIFE_QUICKSTART.md). It names
+the exact external inputs and nonclaims. The older
+[First Life operator entry](docs/FIRST_LIFE_OPERATOR.md) remains a path into one
+locally preserved historical world, not a portable starter release.
 `behold live` now composes an accepted Place release, persistent named lives,
 independently configured resident sessions, viewer discovery, a native-client
 endpoint, clean stop/resume, and an authenticated episode record in one foreground

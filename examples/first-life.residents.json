@@ -1,0 +1,37 @@
+{
+  "protocol": "behold.managed-resident-set.v1",
+  "residents": [
+    {
+      "entityId": "FirstResident",
+      "bodyUsername": "FirstResident",
+      "model": "deepseek/deepseek-v4-flash",
+      "mind": "direct",
+      "policyProfile": "resident-v2",
+      "bodyProfile": "minecraft-human-semantic-v1",
+      "actionProfile": "minecraft-human-semantic-v1",
+      "safetyProfile": "vanilla-player-v1",
+      "perceptionProfile": "semantic-only-v1",
+      "tickMs": 4000,
+      "urgentDecisionTimeoutMs": 15000,
+      "providerQuotas": {
+        "residentDecisionAttempts": 12,
+        "auxiliaryContextAttempts": 1
+      },
+      "providerRoute": {
+        "protocol": "behold.openrouter-route-policy.v4",
+        "routes": [
+          {
+            "requestTag": "deepinfra/fp4",
+            "responseProvider": "DeepInfra"
+          }
+        ],
+        "allowFallbacks": false,
+        "maxOutputTokens": 512,
+        "residentDecisionFormat": "strict_json",
+        "reasoningEnabled": false,
+        "zdr": true,
+        "dataCollection": "deny"
+      }
+    }
+  ]
+}

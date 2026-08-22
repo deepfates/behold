@@ -76,6 +76,7 @@ export async function runLiveCli(argv: string[]) {
       history: { type: 'string' },
       'change-minds': { type: 'boolean', default: false },
       recover: { type: 'boolean', default: false },
+      preflight: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
     allowPositionals: true,
@@ -91,7 +92,7 @@ export async function runLiveCli(argv: string[]) {
     throw new Error('live requires explicit --accept-eula');
   }
   const repositoryRoot = findRepositoryRoot();
-  assertCleanCheckout(repositoryRoot, 'Behold');
+  const beholdRevision = assertCleanCheckout(repositoryRoot, 'Behold');
   const serverJar = plainFile(
     String(
       parsed.values['server-jar'] ??
@@ -109,6 +110,76 @@ export async function runLiveCli(argv: string[]) {
     parsed.values.session ?? `${placeId}-${releaseManifestSha256.slice(0, 12)}-living`,
     'session id',
   );
+  if (parsed.values.preflight === true) {
+    if (parsed.values.recover || parsed.values['change-minds']) {
+      throw new Error('live --preflight does not recover or revise an existing session');
+    }
+    if (parsed.values['world-history-receipt'] || parsed.values.history) {
+      throw new Error('live --preflight does not stage a world-history fork');
+    }
+    if (!parsed.values.residents) {
+      throw new Error('live --preflight requires --residents FILE');
+    }
+    const residentFile = plainFile(String(parsed.values.residents), 'resident set');
+    const residents = loadManagedResidentSet(residentFile);
+    const nativePlayer = parsed.values['native-player']
+      ? minecraftUsername(parsed.values['native-player'], '--native-player')
+      : null;
+    assertLiveResidentAdmission(residents, nativePlayer);
+    const placeCompiler = livePlaceCompilerSelection(parsed.values, repositoryRoot, null);
+    const admittedPort = optionalInteger(parsed.values.port, '--port', 1024, 65535) ?? 25565;
+    const stateRoot = path.resolve(
+      String(parsed.values.state ?? path.join(repositoryRoot, 'data', 'live')),
+    );
+    const evidence = preflightFrozenPlaceServeAuthority({
+      ...placeCompiler.input,
+      releaseRoot,
+      runtimeRoot: path.join(stateRoot, sessionId, 'place-runtime'),
+      profileId: 'living',
+      acceptEula: true,
+      port: admittedPort,
+      serverJar,
+    });
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          status: 'accepted',
+          behold: { revision: beholdRevision, cleanCheckout: true },
+          placeCompiler: { identity: placeCompiler.identity },
+          release: {
+            root: evidence.releaseRoot,
+            manifestSha256: evidence.sourceReleaseManifestSha256,
+            worldTreeSha256: evidence.sourceWorldTreeSha256,
+            entryQualification: evidence.entryQualification,
+          },
+          server: { jar: evidence.serverJar, sha256: evidence.minecraftServerSha256 },
+          residents: residents.map((resident) => ({
+            entityId: resident.entityId,
+            bodyUsername: resident.bodyUsername,
+            model: resident.model,
+            policyProfile: resident.policyProfile,
+            transport: resident.lmStudioLocal
+              ? 'lmstudio-local'
+              : resident.ollamaLocal
+                ? 'ollama-local'
+                : 'openrouter',
+          })),
+          stateRoot,
+          sessionId,
+          notExercised: [
+            'provider connectivity or inference',
+            'local model loading',
+            'Minecraft start or entry',
+            'resident cognition',
+            'persistent state writes',
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return 0;
+  }
   const stateRoot = path.resolve(
     String(parsed.values.state ?? path.join(repositoryRoot, 'data', 'live')),
   );
@@ -159,18 +230,10 @@ export async function runLiveCli(argv: string[]) {
   const residents = residentSelection.residents;
   let residentRevision = residentSelection.residentRevision;
   const residentSetSha256 = sha256(stableJson(residents));
-  if (residents.some((resident) => resident.providerQuotas == null || resident.paused === true)) {
-    throw new Error('live requires an armed per-resident provider-attempt ceiling for every life');
-  }
   const nativePlayer = parsed.values['native-player']
     ? minecraftUsername(parsed.values['native-player'], '--native-player')
     : null;
-  if (
-    nativePlayer &&
-    residents.some((resident) => resident.bodyUsername.toLowerCase() === nativePlayer.toLowerCase())
-  ) {
-    throw new Error('--native-player must be distinct from every managed resident body');
-  }
+  assertLiveResidentAdmission(residents, nativePlayer);
   if (sessionEntry === 'first_start_retry' && parsed.values.recover === true) {
     throw new Error(
       'live session has no managed epoch to recover; retry normally without --recover',
@@ -227,67 +290,13 @@ export async function runLiveCli(argv: string[]) {
     return 0;
   }
 
-  if (
-    !process.env.OPENROUTER_API_KEY &&
-    residents.some((resident) => resident.ollamaLocal == null && resident.lmStudioLocal == null)
-  ) {
-    throw new Error(
-      'live requires OPENROUTER_API_KEY before starting Place for provider residents',
-    );
-  }
-
-  const placeCompilerBinaryValue =
-    parsed.values['place-compiler-bin'] ?? process.env.BEHOLD_PLACE_COMPILER_BIN;
-  const explicitPlaceCompilerRoot =
-    parsed.values['place-compiler'] ?? process.env.BEHOLD_PLACE_COMPILER_ROOT;
-  if (placeCompilerBinaryValue && explicitPlaceCompilerRoot) {
-    throw new Error('--place-compiler and --place-compiler-bin are mutually exclusive');
-  }
-  const installedVersion = placeCompilerBinaryValue
-    ? requiredCliText(
-        parsed.values['place-compiler-version'] ?? process.env.BEHOLD_PLACE_COMPILER_VERSION,
-        '--place-compiler-version',
-      )
-    : null;
-  const installedDistributionSha256 = placeCompilerBinaryValue
-    ? exactSha256(
-        parsed.values['place-compiler-distribution-sha256'] ??
-          process.env.BEHOLD_PLACE_COMPILER_DISTRIBUTION_SHA256,
-        '--place-compiler-distribution-sha256',
-      )
-    : null;
-  const resumePlaceCompiler = placeCompilerBinaryValue
-    ? {
-        kind: 'binary' as const,
-        binary: executableFile(String(placeCompilerBinaryValue), 'Place Compiler binary'),
-        version: installedVersion!,
-        distributionSha256: installedDistributionSha256!,
-      }
-    : {
-        kind: 'checkout' as const,
-        root: plainDirectory(
-          String(explicitPlaceCompilerRoot ?? path.join(repositoryRoot, '..', 'place-compiler')),
-          'Place Compiler root',
-        ),
-      };
-  const placeCompilerInput =
-    resumePlaceCompiler.kind === 'binary'
-      ? {
-          placeCompilerBinary: resumePlaceCompiler.binary,
-          expectedPlaceCompilerPackage: {
-            name: 'place-compiler',
-            version: resumePlaceCompiler.version,
-            distributionSha256: resumePlaceCompiler.distributionSha256,
-          },
-        }
-      : {
-          placeCompilerRoot: resumePlaceCompiler.root,
-          expectedPlaceCompilerRevision:
-            existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION,
-        };
-  const requestedPlaceCompilerIdentity = placeCompilerBinaryValue
-    ? `npm:place-compiler@${installedVersion}#${installedDistributionSha256}`
-    : (existingPlan?.placeCompilerRevision ?? PLACE_SERVE_REVISION);
+  const placeCompiler = livePlaceCompilerSelection(
+    parsed.values,
+    repositoryRoot,
+    existingPlan?.placeCompilerRevision ?? null,
+  );
+  const placeCompilerInput = placeCompiler.input;
+  const requestedPlaceCompilerIdentity = placeCompiler.identity;
   if (existingPlan && existingPlan.placeCompilerRevision !== requestedPlaceCompilerIdentity) {
     throw new Error('live session Place Compiler identity differs from the requested compiler');
   }
@@ -570,7 +579,7 @@ export async function runLiveCli(argv: string[]) {
         releaseRoot,
         sessionId,
         nativePlayer,
-        placeCompiler: resumePlaceCompiler,
+        placeCompiler: placeCompiler.resume,
       })}\n`,
     );
     if (nativeHuman && !nativeHuman.assessment.passed) {
@@ -1745,10 +1754,92 @@ export function liveUsage() {
     '  --history ID                    One unused child in that receipt for a fresh session',
     '  --change-minds                 Explicitly revise cognition for the same lives; resident-v2/v3/v4 share one uncoached charter',
     '  --recover                      Release an exact abandoned stopped epoch without starting Place',
+    '  --preflight                    Verify clean checkout, inputs, package, release, and JAR without writes',
     '',
     'Residents keep their declared human-semantic body, charter, model transport, and durable',
     'attempt ceilings. The ceiling is safety/resource governance, not a fairness claim.',
   ].join('\n');
+}
+
+function assertLiveResidentAdmission(
+  residents: ReturnType<typeof loadManagedResidentSet>,
+  nativePlayer: string | null,
+) {
+  if (residents.some((resident) => resident.providerQuotas == null || resident.paused === true)) {
+    throw new Error('live requires an armed per-resident provider-attempt ceiling for every life');
+  }
+  if (
+    nativePlayer &&
+    residents.some((resident) => resident.bodyUsername.toLowerCase() === nativePlayer.toLowerCase())
+  ) {
+    throw new Error('--native-player must be distinct from every managed resident body');
+  }
+  if (
+    !process.env.OPENROUTER_API_KEY &&
+    residents.some((resident) => resident.ollamaLocal == null && resident.lmStudioLocal == null)
+  ) {
+    throw new Error(
+      'live requires OPENROUTER_API_KEY before starting Place for provider residents',
+    );
+  }
+}
+
+function livePlaceCompilerSelection(
+  values: Record<string, unknown>,
+  repositoryRoot: string,
+  existingIdentity: string | null,
+) {
+  const binaryValue = values['place-compiler-bin'] ?? process.env.BEHOLD_PLACE_COMPILER_BIN;
+  const checkoutValue = values['place-compiler'] ?? process.env.BEHOLD_PLACE_COMPILER_ROOT;
+  if (binaryValue && checkoutValue) {
+    throw new Error('--place-compiler and --place-compiler-bin are mutually exclusive');
+  }
+  if (binaryValue) {
+    const version = requiredCliText(
+      values['place-compiler-version'] ?? process.env.BEHOLD_PLACE_COMPILER_VERSION,
+      '--place-compiler-version',
+    );
+    const distributionSha256 = exactSha256(
+      values['place-compiler-distribution-sha256'] ??
+        process.env.BEHOLD_PLACE_COMPILER_DISTRIBUTION_SHA256,
+      '--place-compiler-distribution-sha256',
+    );
+    return Object.freeze({
+      identity: `npm:place-compiler@${version}#${distributionSha256}`,
+      resume: Object.freeze({
+        kind: 'binary' as const,
+        binary: executableFile(String(binaryValue), 'Place Compiler binary'),
+        version,
+        distributionSha256,
+      }),
+      input: Object.freeze({
+        placeCompilerBinary: executableFile(String(binaryValue), 'Place Compiler binary'),
+        expectedPlaceCompilerPackage: Object.freeze({
+          name: 'place-compiler',
+          version,
+          distributionSha256,
+        }),
+      }),
+    });
+  }
+  const revision = existingIdentity ?? PLACE_SERVE_REVISION;
+  return Object.freeze({
+    identity: revision,
+    resume: Object.freeze({
+      kind: 'checkout' as const,
+      root: plainDirectory(
+        String(checkoutValue ?? path.join(repositoryRoot, '..', 'place-compiler')),
+        'Place Compiler root',
+      ),
+    }),
+    input: Object.freeze({
+      placeCompilerRoot: plainDirectory(
+        String(checkoutValue ?? path.join(repositoryRoot, '..', 'place-compiler')),
+        'Place Compiler root',
+      ),
+      expectedPlaceCompilerRevision: revision,
+    }),
+  });
 }
 
 export function selectLiveHistorySeed(input: {

@@ -30,6 +30,7 @@ test('Place served-release preflight proves admission without creating runtime s
   assert.equal(evidence.placeCompilerRevision, REVISION);
   assert.equal(evidence.sourceWorldTreeSha256, fixture.worldTreeSha256);
   assert.equal(evidence.minecraftServerSha256, fixture.serverJarSha256);
+  assert.equal(evidence.entryQualification.status, 'qualified');
   assert.equal(spawnCalls, 0);
   assert.equal(fs.existsSync(fixture.transcriptFile), false);
   assert.equal(fs.existsSync(fixture.runtimeRoot), false);
@@ -46,6 +47,34 @@ test('Place served-release preflight rejects identity drift without durable stat
       }),
     (error: any) => {
       assert.equal(error.code, 'place_serve_revision_mismatch');
+      return true;
+    },
+  );
+  assert.equal(fs.existsSync(fixture.transcriptFile), false);
+  assert.equal(fs.existsSync(fixture.runtimeRoot), false);
+});
+
+test('Place served-release preflight rejects an unqualified release before durable state', (t) => {
+  const fixture = makePlaceServeFixture(t);
+  const { transcriptFile: _transcriptFile, ...input } = fixture.input;
+  assert.throws(
+    () =>
+      preflightFrozenPlaceServeAuthority(input, {
+        ...fixture.dependencies,
+        verifyRelease: () => ({
+          status: 'verified',
+          releaseEligible: true,
+          schemaVersion: 3,
+          sourceWorldTreeSha256: fixture.worldTreeSha256,
+          entryQualification: {
+            protocol: 'place-compiler-entry-qualification/v1',
+            status: 'unqualified',
+            scope: 'living-entry',
+          },
+        }),
+      }),
+    (error: any) => {
+      assert.equal(error.code, 'place_serve_release_unqualified');
       return true;
     },
   );
@@ -233,6 +262,17 @@ function makePlaceServeFixture(
     },
     dependencies: {
       inspectPlaceCheckout: () => ({ revision: REVISION, clean: true }),
+      verifyRelease: () => ({
+        status: 'verified',
+        releaseEligible: true,
+        schemaVersion: 3,
+        sourceWorldTreeSha256: worldTreeSha256,
+        entryQualification: {
+          protocol: 'place-compiler-entry-qualification/v1',
+          status: 'qualified',
+          scope: 'living-entry',
+        },
+      }),
       stderr: () => {},
     },
   };

@@ -72,6 +72,13 @@ export type StartFrozenPlaceServeInput = Readonly<{
 export type PlaceServeDependencies = Readonly<{
   spawn?: typeof spawn;
   inspectPlaceCheckout?: (root: string) => Readonly<{ revision: string; clean: boolean }>;
+  verifyRelease?: (
+    input: Readonly<{
+      kind: 'checkout' | 'installed';
+      entrypoint: string;
+      releaseRoot: string;
+    }>,
+  ) => unknown;
   stderr?: (text: string) => void;
   now?: () => Date;
 }>;
@@ -83,6 +90,11 @@ export type FrozenPlaceServePreflight = Readonly<{
   sourceReleaseManifestSha256: string;
   sourceWorldTreeSha256: string;
   minecraftServerSha256: string;
+  entryQualification: Readonly<{
+    protocol: 'place-compiler-entry-qualification/v1';
+    status: 'qualified';
+    scope: 'living-entry';
+  }>;
 }>;
 
 export class PlaceServeError extends Error {
@@ -345,6 +357,38 @@ function inspectFrozenPlaceServeInput(
       'place_serve_release_identity_missing',
     );
   }
+  const verification = (dependencies.verifyRelease ?? verifyPlaceRelease)({
+    kind: compiler.kind,
+    entrypoint:
+      compiler.kind === 'checkout'
+        ? path.join(compiler.root, 'scripts', 'place-compiler', 'place.mjs')
+        : compiler.binary,
+    releaseRoot,
+  }) as any;
+  if (
+    verification?.status !== 'verified' ||
+    verification?.releaseEligible !== true ||
+    verification?.schemaVersion !== 3 ||
+    verification?.sourceWorldTreeSha256 !== declaredWorldTreeSha256
+  ) {
+    throw new PlaceServeError(
+      'Place release did not pass exact current verification',
+      'place_serve_release_verification_failed',
+      verification,
+    );
+  }
+  const entryQualification = verification.entryQualification;
+  if (
+    entryQualification?.protocol !== 'place-compiler-entry-qualification/v1' ||
+    entryQualification?.status !== 'qualified' ||
+    entryQualification?.scope !== 'living-entry'
+  ) {
+    throw new PlaceServeError(
+      'Place release is not qualified for living entry',
+      'place_serve_release_unqualified',
+      entryQualification ?? null,
+    );
+  }
   const serverJarSha256 = sha256File(serverJar);
   const evidence = Object.freeze({
     placeCompilerRevision: compilerIdentity,
@@ -353,6 +397,11 @@ function inspectFrozenPlaceServeInput(
     sourceReleaseManifestSha256: releaseManifestSha256,
     sourceWorldTreeSha256: declaredWorldTreeSha256,
     minecraftServerSha256: serverJarSha256,
+    entryQualification: Object.freeze({
+      protocol: entryQualification.protocol,
+      status: entryQualification.status,
+      scope: entryQualification.scope,
+    }),
   });
   return Object.freeze({
     compiler,
@@ -363,6 +412,36 @@ function inspectFrozenPlaceServeInput(
     serverJarSha256,
     evidence,
   });
+}
+
+function verifyPlaceRelease(
+  input: Readonly<{
+    kind: 'checkout' | 'installed';
+    entrypoint: string;
+    releaseRoot: string;
+  }>,
+) {
+  const command = input.kind === 'checkout' ? process.execPath : input.entrypoint;
+  const args =
+    input.kind === 'checkout'
+      ? [input.entrypoint, 'verify', input.releaseRoot, '--json']
+      : ['verify', input.releaseRoot, '--json'];
+  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120_000 });
+  if (result.status !== 0) {
+    throw new PlaceServeError(
+      'Place release verification command failed',
+      'place_serve_release_verification_failed',
+      { status: result.status, stderr: result.stderr },
+    );
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw new PlaceServeError(
+      'Place release verification was not JSON',
+      'place_serve_release_verification_invalid',
+    );
+  }
 }
 
 function createPlaceServeControl(input: {

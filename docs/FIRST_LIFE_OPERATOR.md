@@ -3,6 +3,8 @@
 This is the shortest honest path into the locally preserved San Francisco
 First Life world. It starts the existing managed runtime; it does not compile a
 new place, reset the world, or relabel the historical `ScoutLife` identity.
+For a new checkout and new resident, use the
+[clean-checkout candidate](FIRST_LIFE_QUICKSTART.md) instead.
 
 ## Preflight
 

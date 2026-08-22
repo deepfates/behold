@@ -318,6 +318,20 @@ test('a versioned resident set carries heterogeneous operator configuration with
   ]);
 });
 
+test('the tracked First Life example is one uncoached exact-route resident', () => {
+  const residents = loadManagedResidentSet(path.resolve('examples', 'first-life.residents.json'));
+  assert.equal(residents.length, 1);
+  assert.equal(residents[0].entityId, 'FirstResident');
+  assert.equal(residents[0].policyProfile, 'resident-v2');
+  assert.equal(residents[0].perceptionProfile, 'semantic-only-v1');
+  assert.deepEqual(residents[0].providerQuotas, {
+    residentDecisionAttempts: 12,
+    auxiliaryContextAttempts: 1,
+  });
+  assert.equal(residents[0].providerRoute?.protocol, 'behold.openrouter-route-policy.v4');
+  assert.equal(residents[0].providerRoute?.allowFallbacks, false);
+});
+
 test('resident-set input fails closed on schema drift and mixed resident CLI flags', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'behold-resident-set-invalid-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
