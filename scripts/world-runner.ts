@@ -688,10 +688,14 @@ export type WorldRunnerDependencies = Readonly<{
   cognitionFetch?: typeof fetch;
   /** Read-only local Ollama version/tags/show/ps preflight fixture. */
   ollamaPreflightFetch?: typeof fetch;
+  /** Already completed same-process read-only Ollama admission. */
+  ollamaPreflight?: OllamaLocalPreflight;
   /** Model-load/unload fixture for the versioned local resident session. */
   ollamaSessionFetch?: typeof fetch;
   /** Read-only LM Studio inventory fixture. */
   lmStudioPreflightFetch?: typeof fetch;
+  /** Already completed same-process read-only LM Studio admission. */
+  lmStudioPreflight?: LmStudioLocalPreflight;
   /** Session inventory fixture for LM Studio model load/unload. */
   lmStudioSessionFetch?: typeof fetch;
   /** Exact CLI seam for LM Studio read-only inventory and owned load/unload. */
@@ -1983,7 +1987,8 @@ export async function startManagedWorld(
   }
   const ollamaPreflight =
     activeOllamaPolicies.length > 0
-      ? await preflightOllamaLocal({
+      ? (dependencies.ollamaPreflight ??
+        (await preflightOllamaLocal({
           policies: activeOllamaPolicies,
           cloudConfigFile:
             options.ollamaServerConfigFile ?? path.join(os.homedir(), '.ollama', 'server.json'),
@@ -1991,11 +1996,12 @@ export async function startManagedWorld(
             ? { fetch: dependencies.ollamaPreflightFetch }
             : {}),
           ...(dependencies.now ? { now: dependencies.now } : {}),
-        })
+        })))
       : null;
   const lmStudioPreflight =
     activeLmStudioPolicies.length > 0
-      ? await preflightLmStudioLocal({
+      ? (dependencies.lmStudioPreflight ??
+        (await preflightLmStudioLocal({
           policies: activeLmStudioPolicies,
           modelsRoot:
             options.lmStudioModelsRoot ?? path.join(os.homedir(), '.cache', 'lm-studio', 'models'),
@@ -2007,7 +2013,7 @@ export async function startManagedWorld(
             ? { readAppVersion: dependencies.lmStudioReadAppVersion }
             : {}),
           ...(dependencies.now ? { now: dependencies.now } : {}),
-        })
+        })))
       : null;
   if (lmStudioPreflight) {
     for (const resident of activeLmStudioResidents) {

@@ -42,6 +42,8 @@ import {
   LIVE_EPISODE_RECORD_V2_PROTOCOL,
   publishLiveCheckpointJson,
 } from '../runtime/live-lync-checkpoint';
+import { preflightLmStudioLocal } from '../mind/lmstudio-local';
+import { preflightOllamaLocal } from '../mind/ollama-local';
 
 const PLACE_SERVE_REVISION = 'b872237cbef4fed4e4a0dfdf5d472b24ab50a1d0' as const;
 const LIVE_SESSION_PROTOCOL = 'behold.live-session.v1' as const;
@@ -126,6 +128,7 @@ export async function runLiveCli(argv: string[]) {
       ? minecraftUsername(parsed.values['native-player'], '--native-player')
       : null;
     assertLiveResidentAdmission(residents, nativePlayer);
+    const localCognition = await preflightLiveLocalCognition(residents, parsed.values);
     const placeCompiler = livePlaceCompilerSelection(parsed.values, repositoryRoot, null);
     const admittedPort = optionalInteger(parsed.values.port, '--port', 1024, 65535) ?? 25565;
     const stateRoot = path.resolve(
@@ -164,6 +167,10 @@ export async function runLiveCli(argv: string[]) {
                 ? 'ollama-local'
                 : 'openrouter',
           })),
+          localCognition: {
+            ollama: localCognition.ollamaPreflight ? 'verified' : 'not_configured',
+            lmStudio: localCognition.lmStudioPreflight ? 'verified' : 'not_configured',
+          },
           stateRoot,
           sessionId,
           notExercised: [
@@ -300,6 +307,7 @@ export async function runLiveCli(argv: string[]) {
   if (existingPlan && existingPlan.placeCompilerRevision !== requestedPlaceCompilerIdentity) {
     throw new Error('live session Place Compiler identity differs from the requested compiler');
   }
+  const localCognition = await preflightLiveLocalCognition(residents, parsed.values);
   const durationMs = managedSessionDurationMs(parsed.values.duration ?? '300')!;
   const requestedPort = optionalInteger(parsed.values.port, '--port', 1024, 65535);
   const viewerBasePort = optionalInteger(
@@ -457,7 +465,15 @@ export async function runLiveCli(argv: string[]) {
               }
             : {}),
         },
-        { externalServerAuthority: authority },
+        {
+          externalServerAuthority: authority,
+          ...(localCognition.ollamaPreflight
+            ? { ollamaPreflight: localCognition.ollamaPreflight }
+            : {}),
+          ...(localCognition.lmStudioPreflight
+            ? { lmStudioPreflight: localCognition.lmStudioPreflight }
+            : {}),
+        },
       );
     } catch (error) {
       const addedLifecycleFiles = liveLifecycleFiles(paths.control, plan.worldId).filter(
@@ -1840,6 +1856,42 @@ function livePlaceCompilerSelection(
       expectedPlaceCompilerRevision: revision,
     }),
   });
+}
+
+async function preflightLiveLocalCognition(
+  residents: ReturnType<typeof loadManagedResidentSet>,
+  values: Record<string, unknown>,
+) {
+  const ollamaPolicies = residents
+    .filter((resident) => resident.paused !== true && resident.ollamaLocal != null)
+    .map((resident) => resident.ollamaLocal!);
+  const lmStudioPolicies = residents
+    .filter((resident) => resident.paused !== true && resident.lmStudioLocal != null)
+    .map((resident) => resident.lmStudioLocal!);
+  if (ollamaPolicies.length > 0 && lmStudioPolicies.length > 0) {
+    throw new Error('live cannot combine local Ollama and LM Studio residents');
+  }
+  const ollamaPreflight =
+    ollamaPolicies.length > 0
+      ? await preflightOllamaLocal({
+          policies: ollamaPolicies,
+          cloudConfigFile:
+            process.env.BEHOLD_OLLAMA_SERVER_CONFIG ??
+            path.join(os.homedir(), '.ollama', 'server.json'),
+        })
+      : null;
+  const lmStudioPreflight =
+    lmStudioPolicies.length > 0
+      ? await preflightLmStudioLocal({
+          policies: lmStudioPolicies,
+          modelsRoot: path.resolve(
+            String(
+              values['lmstudio-models-root'] ?? path.join(os.homedir(), '.lmstudio', 'models'),
+            ),
+          ),
+        })
+      : null;
+  return Object.freeze({ ollamaPreflight, lmStudioPreflight });
 }
 
 export function selectLiveHistorySeed(input: {
