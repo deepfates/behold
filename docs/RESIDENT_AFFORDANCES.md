@@ -176,7 +176,7 @@ ordinary examples but have not covered the whole native family.
 
 | Player family                              | Current status               | Important missing native experiences                                                                                        |
 | ------------------------------------------ | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Seeing, hearing, HUD, and events           | Partial                      | exact-camera visual evidence; more legible obstruction and interaction feedback                                             |
+| Seeing, hearing, HUD, and events           | Partial; camera experimental | broader camera-route support, demonstrated visual understanding, and more legible obstruction and interaction feedback      |
 | Looking and facing                         | Live-proven basic coverage   | decide when images are worth their cost; face selected visible targets consistently                                         |
 | Walking and exploration                    | Live-proven walk and swim    | vertical swimming and climbing; intentional sneak/sprint when meaningful                                                    |
 | Breaking, placing, and ordinary use        | Partial                      | extend the now-working visual mining reference through place/use; held-item use rather than block-specific controller verbs |
@@ -248,10 +248,15 @@ What remains red, in priority order:
    is covered by native conformance, not yet by an untasked live-mind success.
    Carry the same reference through use and place. Coordinates remain valid
    remembered-place evidence, not the only language of embodied action.
-5. **Authentic visual channel.** A bounded screenshot may be the honest way to
-   understand façades, signs, maps, builds, and human visual communication.
-   It should supplement—not erase—the cheap structured body/event channel and
-   must use the exact resident camera.
+5. **Experimental authentic visual channel.** The separately named
+   `semantic-plus-camera-v1` profile now binds one bounded screenshot from the
+   exact resident camera and body pose to the admitted observation and carries
+   it through the exact LM Studio request. It supplements rather than erases
+   the cheap structured body/event channel. This establishes the transport and
+   freshness boundary, not resident visual understanding, good choices, wider
+   provider-route support, or usefulness for façades, signs, maps, builds, and
+   human visual communication. See the
+   [human-semantic body contract](HUMAN_SEMANTIC_BODY.md).
 6. **Temporal embodiment and long survival competence.** One bounded untasked
    recovery now composes body-origin urgency, a real model decision, ordinary
    swimming, Minecraft-confirmed oxygen recovery, save, and a fresh-epoch

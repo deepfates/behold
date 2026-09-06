@@ -1,14 +1,25 @@
-# First Life clean-checkout candidate
+# First Life ordinary entry
 
-This is the shortest supported path toward starting one new resident, watching
+This is the one supported ordinary path for starting a new resident, watching
 it, stopping cleanly, and resuming the same world and private life. The software
-path is real, but the required qualified Place release is not publicly hosted
-yet. Until it is, this is a release candidate for workshop and partner
-clean-room exercise, not a repository-only public demo.
+path is real, but the required qualified Place release is not publicly hosted.
+This is therefore a workshop and partner clean-room candidate, not a
+repository-only public demo.
+
+Place Compiler is an unpublished sibling project with no public clone or
+package coordinate. An authorized operator must receive its source checkout
+separately. In that supplied checkout, its owning `README.md` section “Build
+and enter a place” covers installation and setup, and
+`docs/place-compiler/TUTORIAL.md` section “Verify elsewhere and enter” owns the
+verification and `living-entry` qualification workflow. The inspected workshop
+source is `/Users/deepfates/Hacking/github/deepfates/place-compiler`; that
+machine-local path is evidence, not a distribution coordinate. There is
+deliberately no repository link until the owner publishes one.
 
 ## Required inputs
 
 - a clean Behold checkout at a named commit, Node.js 22.13 or newer, and `npm ci`;
+- Java 21 or newer capable of running the pinned Minecraft 1.21.4 server;
 - a physical Place Compiler tarball installed outside its source checkout;
 - one schema-v3 Place release whose `living-entry` status is `qualified`;
 - the pinned Minecraft 1.21.4 server JAR created by `npm run server:jar`; and
@@ -34,7 +45,7 @@ Install that tarball into any separate prefix and ask the installed executable
 for its identity:
 
 ```sh
-npm install --prefix /absolute/path/to/place-install /absolute/path/to/place-compiler-0.1.0-alpha.1.tgz
+npm install --prefix /absolute/path/to/place-install /absolute/path/to/place-compiler-<version>.tgz
 /absolute/path/to/place-install/node_modules/.bin/place-compiler version --json
 ```
 
@@ -45,9 +56,24 @@ requires both. In the clean Behold checkout:
 npm ci
 npm run check
 npm run server:jar
+export SERVER_JAVA=/absolute/path/to/java
+"$SERVER_JAVA" -version
 ```
 
-## Read-only admission
+Set `SERVER_JAVA` for the later `npm run live` commands if `java` on `PATH` is
+not the intended runtime. When it is unset, current source uses the
+Launcher-managed Java on the exercised macOS layout when present, then falls
+back to `java` on `PATH`. The workshop server path has been exercised with the
+Launcher-managed Java reported by the preserved local dry run; that does not
+establish other Java distributions or platforms.
+
+## Preflight admission
+
+The `--preflight` operation creates no Behold session or mutable world state
+and makes no provider inference. The documented `npm run live` wrapper does
+first rebuild ignored local `dist/` artifacts and apply Behold's pinned local
+viewer patch; “preflight” does not mean the source checkout receives no local
+build writes.
 
 Set `OPENROUTER_API_KEY`, then run the exact prospective command with
 `--preflight`:
@@ -59,15 +85,15 @@ npm run live -- /absolute/path/to/qualified-release \
   --residents examples/first-life.residents.json \
   --session first-life \
   --place-compiler-bin /absolute/path/to/place-install/node_modules/.bin/place-compiler \
-  --place-compiler-version 0.1.0-alpha.1 \
+  --place-compiler-version <version-from-version-json> \
   --place-compiler-distribution-sha256 <distributionSha256-from-version-json>
 ```
 
 Preflight verifies the clean Behold commit, resident configuration and exact
 current OpenRouter model/provider endpoint inventory, exact installed Place
 package, current release integrity, living-entry qualification, and server JAR
-without creating session state. It does not make a provider inference, load a
-local model, start Minecraft, or make a resident decision.
+without creating session or world state. It does not make a provider inference,
+load a local model, start Minecraft, or make a resident decision.
 
 ## Start, watch, stop, and resume
 
@@ -81,7 +107,7 @@ npm run live -- /absolute/path/to/qualified-release \
   --session first-life \
   --duration 60 \
   --place-compiler-bin /absolute/path/to/place-install/node_modules/.bin/place-compiler \
-  --place-compiler-version 0.1.0-alpha.1 \
+  --place-compiler-version <version-from-version-json> \
   --place-compiler-distribution-sha256 <distributionSha256-from-version-json>
 ```
 
@@ -91,21 +117,17 @@ owned processes. The final output prints the exact resume command. Run that
 command without `--residents`; the persistent session already binds the world,
 body, private Lync life, resident configuration, and exact Place package.
 
-## What remains before public release
+## Evidence and remaining boundary
 
-The workshop has now exercised the installed Place path from both the working
-checkout and a fresh clone on the same machine. The fresh clone also ran the
-tracked OpenRouter configuration against the exact current DeepInfra endpoint.
-It exposed the lens and native server, accepted one neutral chat from an
-automated unmanaged Minecraft client, committed the resident's successful
-reply and one later world-drift failure as two truthful Lync turns, stopped,
-and resumed the same world, body, route, and two-turn private life. See the
-[local installed-package receipt](reports/2026-08-22-first-life-local-installed-resume.md).
-The OpenRouter exercise used a real workshop credential but the same physical
-workstation and private qualified release, so it is not an outsider clean-room
-receipt or native-human evidence. A small qualified release still needs a
-durable public download coordinate, and a new person or independent machine
-must run it. Passing that remaining candidate will prove an outsider-runnable
-First Life alpha; it will not prove the separate repeated multi-day habitat
-telos, resident competence, model quality, native-human entry, or cross-platform
-support.
+The workshop has exercised this installed Place seam from a fresh clone on the
+same machine. The latest tracked-route repetition exposed the lens and native
+server, accepted one question from an automated unmanaged Minecraft client,
+recorded one grounded resident reply, stopped, and resumed the same world,
+body, route, and private life. See the [dated report](reports/2026-08-22-first-life-local-installed-resume.md).
+
+That exercise used a workshop credential, private qualified release, automated
+visitor, and the same physical workstation. A small qualified release still
+needs a durable public coordinate and another person or independent machine
+must run this entry. Even that would not prove the separate repeated multi-day
+habitat telos, resident competence, model quality, native-human entry, or
+cross-platform support.

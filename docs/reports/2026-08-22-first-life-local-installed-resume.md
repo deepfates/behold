@@ -5,6 +5,17 @@ Behold commit: `963d4b52fd3ddc6259d725c287a330e2457c3798`
 Place Compiler package: `0.1.0-alpha.1`  
 Place Compiler distribution: `91d4eeca4dd4a2c98e07d0b9774784d0e7f917b5bacd819c0be1faeec3d36843`
 
+## Scope of this evolving report
+
+The identities above and the opening claim describe the initial `963d4b5`
+LM Studio exercise. Later sections preserve same-day and subsequent repetitions
+rather than rewriting that result: [Tracked OpenRouter route](#tracked-openrouter-route)
+records the tracked remote-provider treatment and its stale-route negative;
+[Deterministic-entry starter repetition](#deterministic-entry-starter-repetition)
+records the later entry-qualification-v2 run. Each section names the revision,
+inputs, result, and nonclaims that apply to it. The file as a whole is a sequence
+of bounded local exercises, not one run under the header's commit.
+
 ## Claim
 
 A clean committed Behold checkout used a physical Place Compiler installation
