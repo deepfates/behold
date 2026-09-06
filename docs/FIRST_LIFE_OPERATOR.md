@@ -1,14 +1,19 @@
-# First Life operator entry
+# Preserved local First Life entry
 
-This is the shortest honest path into the locally preserved San Francisco
-First Life world. It starts the existing managed runtime; it does not compile a
-new place, reset the world, or relabel the historical `ScoutLife` identity.
-For a new checkout and new resident, use the
-[clean-checkout candidate](FIRST_LIFE_QUICKSTART.md) instead.
+Status: workshop-machine runbook for a historical saved world. This is not the
+canonical First Life entry, a clean-checkout path, or evidence that another
+machine can reproduce the run. It remains because the local `sf-csdr` world is
+still a useful operator coordinate. For a new checkout and new resident, use
+the [ordinary entry](FIRST_LIFE_QUICKSTART.md).
+
+This route starts the existing managed runtime. It does not compile a new
+place, reset the world, or relabel the historical `ScoutLife` identity. It also
+depends on machine-local registry and world state that are not part of this
+repository.
 
 ## Preflight
 
-From the Behold repository:
+From the Behold repository on the workshop machine:
 
 ```sh
 npm run world -- status --world sf-csdr
@@ -47,8 +52,8 @@ npm run world -- status --world sf-csdr
 ```
 
 If an abnormal client exit leaves `recovery_required` while the server, port,
-session lock, and controller leases are all stopped, use the evidence-preserving
-recovery command:
+session lock, and controller leases are all stopped, use the
+evidence-preserving recovery command:
 
 ```sh
 npm run world -- recover --world sf-csdr
